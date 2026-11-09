@@ -444,8 +444,12 @@ react-navigation `useScrollToTop` subscription remains as a cross-platform fallb
   current credentials. It does not prove the music-user token itself expired. Every Apple
   Music read in `musickit-hooks.ts` goes through a local
   `read()` wrapper that retries once on `ERR_APPLE_MUSIC_AUTH` and, if that fails too, calls
-  `reportAppleMusicAuthFailure()`. That clears the rejected credentials and flips
-  `sessionExpired`, which `AppleMusicSessionGuard` turns into the reconnect page. Reads capture
+  `reportAppleMusicAuthFailure()`. For a session that was connected, that first asks for a new
+  token with `Auth.refreshUserToken`, which on iOS needs no prompt; success swaps it in and bumps
+  `sessionRevision` so the failed reads run again. At most one silent refresh a minute, so a
+  token rejected again right away does not loop. If the refresh cannot work (Android, access
+  revoked, cooldown), it clears the rejected credentials and flips `sessionExpired`, which
+  `AppleMusicSessionGuard` turns into the reconnect page. Reads capture
   an auth generation, so a failure from before reconnect cannot clear a newer session;
   reconnect waits for any pending credential reset. A new musickit read that skips `read()`
   will keep replaying rejected credentials instead of prompting a reconnect.

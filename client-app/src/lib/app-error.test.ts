@@ -73,3 +73,11 @@ test("anything unrecognized still gets a usable message", () => {
         assert.ok(appError.detail.length > 0);
     }
 });
+
+test("a rejected developer token is not a reconnect", () => {
+    const error = nativeError("ERR_APPLE_MUSIC_DEVELOPER_TOKEN");
+    assert.equal(isAppleMusicAuthError(error), false);
+    const appError = classifyError(error);
+    assert.equal(appError.kind, "apple-music-unavailable");
+    assert.equal(appError.action, undefined);
+});

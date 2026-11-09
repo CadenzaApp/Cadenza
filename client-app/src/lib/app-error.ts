@@ -100,6 +100,14 @@ export function classifyError(error: unknown): AppError {
                 retryable: false,
                 cause: error,
             };
+        case "ERR_APPLE_MUSIC_DEVELOPER_TOKEN":
+            return {
+                kind: "apple-music-unavailable",
+                title: "Apple Music unavailable",
+                detail: "Cadenza's access to Apple Music needs an app update. Reconnecting will not fix it.",
+                retryable: false,
+                cause: error,
+            };
         case "ERR_MISSING_TOKEN":
             return {
                 kind: "apple-music-unavailable",
