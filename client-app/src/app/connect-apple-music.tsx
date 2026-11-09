@@ -1,5 +1,5 @@
-import { ConnectAppleMusicScreen } from "@/features/onboarding/connect-apple-music-screen";
+import { ConnectAppleMusicSheet } from "@/features/onboarding/connect-apple-music-sheet";
 
 export default function ConnectAppleMusicModalRoute() {
-    return <ConnectAppleMusicScreen mode="connect" />;
+    return <ConnectAppleMusicSheet mode="connect" />;
 }

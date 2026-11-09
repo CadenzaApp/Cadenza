@@ -115,11 +115,11 @@ function RootStack() {
             />
             <Stack.Screen
                 name="reconnect-apple-music"
-                options={{ headerShown: false, presentation: "modal" }}
+                options={sheetScreenOptions(theme)}
             />
             <Stack.Screen
                 name="connect-apple-music"
-                options={{ headerShown: false, presentation: "modal" }}
+                options={sheetScreenOptions(theme)}
             />
             <Stack.Screen
                 name="library-categories"
