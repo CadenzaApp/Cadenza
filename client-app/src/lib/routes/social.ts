@@ -145,6 +145,59 @@ function isLoadingNextFeedPage(
     return isValidating && Boolean(data?.length) && size > (data?.length ?? 0);
 }
 
+/** Matches the backend's friends feed page size. A shorter page is the end. */
+const FRIENDS_FEED_PAGE_SIZE = 20;
+
+/**
+ * Posts by friends and you, newest first, for the Friends filter. Pages back
+ * by the last post's time. Read only: nothing is marked loaded.
+ */
+export function useFriendsFeed(enabled: boolean) {
+    const { account } = useAccount();
+    const x = useSWRInfinite<FeedResponse>(
+        (pageIndex, previousPage: FeedResponse | null) => {
+            if (!enabled || !account) return null;
+            if (pageIndex > 0) {
+                const last = previousPage?.feed.at(-1);
+                if (!last || previousPage!.feed.length < FRIENDS_FEED_PAGE_SIZE)
+                    return null;
+                return {
+                    keyType: "api-data",
+                    path: "/social/feed/friends",
+                    params: { before: last.created_at },
+                    accountId: account.id,
+                };
+            }
+            return {
+                keyType: "api-data",
+                path: "/social/feed/friends",
+                params: {},
+                accountId: account.id,
+            };
+        },
+        (key: { path: string; params: Record<string, string> }) =>
+            fetchAPIData<FeedResponse>(key.path, key.params),
+        { revalidateFirstPage: false },
+    );
+    const pages = x.data ?? [];
+    const lastPage = pages.at(-1);
+    const hasNextPage =
+        lastPage !== undefined &&
+        lastPage.feed.length >= FRIENDS_FEED_PAGE_SIZE;
+    const isLoadingNextPage =
+        x.size > 0 && x.data !== undefined && x.data.length < x.size;
+
+    return {
+        friendsPosts: pages.flatMap((page) => page.feed),
+        friendsFeedLoading: x.isLoading,
+        friendsFeedErr: x.error,
+        hasNextFriendsPage: hasNextPage,
+        isLoadingNextFriendsPage: isLoadingNextPage,
+        loadNextFriendsPage: () => x.setSize(x.size + 1),
+        refreshFriendsFeed: () => x.mutate(),
+    };
+}
+
 /**
  * Ranked posts for the signed-in user, paged like the library lists. Each
  * page already includes everything needed to render a card.

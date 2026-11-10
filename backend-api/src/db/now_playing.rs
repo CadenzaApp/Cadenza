@@ -9,7 +9,7 @@
 use chrono::{DateTime, Duration, FixedOffset, Utc};
 use sea_orm::{
     ActiveValue::Set,
-    ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult, Statement,
+    ConnectionTrait, DbBackend, EntityTrait, FromQueryResult, Statement,
     prelude::Uuid,
     sea_query::{ArrayType, OnConflict},
 };

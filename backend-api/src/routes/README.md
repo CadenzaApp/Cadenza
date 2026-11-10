@@ -8,7 +8,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 
 | file                   | role                                                                                                                                                                                   |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mod.rs`               | Declares `json`, `analytics`, `assistant`, `events`, `listening`, `profile`, `queries`, `saved_queries`, `settings`, `social`, `tags`, `songs`.                                                                  |
+| `mod.rs`               | Declares `json`, `analytics`, `assistant`, `events`, `profile`, `queries`, `saved_queries`, `settings`, `social`, `tags`, `songs`, `listening`, `invites`, `shared_playlists`, `live_sessions`, `realtime`.                                                                  |
 | `tags.rs`              | Tag CRUD for the signed-in user, default tag search, listing the activity tags, plus LLM tag suggestion. Mounted at `/tags`.                                                           |
 | `songs.rs`             | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, recording plays, and reporting an opened song. Mounted at `/songs`. |
 | `queries.rs`           | Runs a tag query and returns song ids by relevance. Mounted at `/queries`.                                                                                                             |
@@ -16,11 +16,15 @@ call into `src/db/` or `src/services/`, and shape the response.
 | `profile.rs`           | Reading, creating, and editing the signed-in user's public profile (username and bio), and a count of everything stored about them. Mounted at `/profile`.                             |
 | `settings.rs`          | Reading and changing the signed-in user's private settings: theme mode, accent, glass, explicit filter, tag suggestions. Mounted at `/settings`.                                       |
 | `listening.rs` | Now playing writes, friends listening now, and one user's now playing and recent plays, each gated by their privacy settings. Mounted at `/listening`. |
+| `invites.rs` | Redeems an invite code and joins what it points at. Mounted at `/invites`. |
+| `shared_playlists.rs` | Shared playlist CRUD, songs, members, and invite codes. Every write publishes to the realtime hub. Mounted at `/shared-playlists`. |
+| `live_sessions.rs` | Live sessions: start, snapshot, join, leave, settings, members, queue, playback, invite codes. Every write publishes to the realtime hub. Mounted at `/live-sessions`. |
+| `realtime.rs` | The WebSocket at `/realtime/ws`. Push only; protocol in its module docs and in `services/README.md`. |
 | `events.rs`            | Ingests a batch of listening events, and moves the activity tags they feed (plays, favorites) in the same transaction. Mounted at `/events`.                                           |
 | `analytics.rs`         | Summary counts, time bucketed trends, the metric list, and the rankings (song, artist, album, playlist, query). Mounted at `/analytics`.                                               |
 | `social.rs`            | The social feed, posts, likes, comments, views, topic posts, friends, notifications, user search, and interest scores. Calls the python model only for embeddings and similarity. Mounted at `/social`. |
 | `assistant.rs`         | The in-app assistant: answers one message in a conversation by letting the model call read-only tools. Mounted at `/assistant`. |
-| `json/mod.rs`          | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `assistant`, `listening`, `metadata_tag`, `privacy`, `profile`, `query`, `settings`, `social`, and `tag`.                                              |
+| `json/mod.rs`          | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `assistant`, `invite`, `listening`, `live_session`, `metadata_tag`, `privacy`, `shared_playlist`, `profile`, `query`, `settings`, `social`, and `tag`.                                              |
 | `json/analytics.rs`    | The `/events` request and response shapes, and the `/analytics` response shapes.                                                                                                       |
 | `json/user_data.rs`    | `UserDataCount`, one row of `GET /profile/data`.                                                                                                                                       |
 | `json/tag.rs`          | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id` and keeps `is_activity`.                                                             |
@@ -30,6 +34,9 @@ call into `src/db/` or `src/services/`, and shape the response.
 | `json/social.rs`       | `SocialPost`, `SocialComment`, `SocialUserProfile`, `SocialNotification`, `NotificationCursor`, `TopicPostsCursor`, `CommentsCursor`, and the feed, create-post, user-posts, topic-posts, comments, friends, notifications, and user-search response envelopes. |
 | `json/privacy.rs` | `Audience`, `PrivacySettings`, `PatchPrivacySettings`. A missing key is left alone. |
 | `json/listening.rs` | `PutNowPlaying`, `NowPlaying` (position projected to `as_of`), the friends listening and user listening responses. |
+| `json/invite.rs` | `CreateInvite`, `Invite` (with its `cadenza://join/CODE` link), `Redeemed`. |
+| `json/shared_playlist.rs` | Shared playlist summaries, detail, members, entries, and write bodies. `PlaylistVersion` is what every write returns. |
+| `json/live_session.rs` | `LiveSessionSnapshot` (playback projected to `as_of`), queue and member shapes, `PlaybackBody` tagged by `kind`, `SessionVersion`. |
 | `json/saved_query.rs`  | `SavedQuery` and `NewSavedQueryBody`. `query` is kept as raw JSON once it parses as a `Query`.                                                                                         |
 | `json/query.rs`        | `Query`, `QueryNode`, `Filter`, `FilterOp`, `MetadataKey`: the input schema of a tag query. Both client builders produce it.                                                           |
 | `json/assistant.rs`    | `AssistantRequest`, `ChatMessage`, and `AssistantResponse` (`reply` or `client_tool_call`) with its `AssistantStep` and `SongsCard`. |
@@ -91,6 +98,30 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | PATCH | `/settings/privacy` | any subset of the GET fields | the full privacy settings after the change. 422 `InvalidRequestBody` for an empty body |
 | PUT | `/listening/now-playing` | `{song_id, title, artist, album, artwork_url, duration_ms, is_playing, position_ms, up_next?}` | `null`. Replaces the user's row, position stamped with the server clock. `up_next` is up to 2 `{song_id, title, artist, artwork_url}`, extra dropped, library ids nulled. 422 for a library (`i.`) song id |
 | DELETE | `/listening/now-playing` | none | `null`. Clears the row |
+| GET | `/social/feed/friends` | `?before=<rfc3339>` | `{feed: [SocialPost]}`. Friends and your own posts, newest first, 20 a page. Read only |
+| POST | `/invites/{code}/redeem` | none | `{kind, id}` (`shared_playlist` or `live_session`). Redeems and joins in one call. 404 `InviteCodeInvalid` for a missing, expired, used up, or revoked code, 429 `TooManyRequests` past 10 a minute, 403 if banned from the session |
+| GET | `/shared-playlists` | none | `{playlists: [{playlist_id, name, description, owner, role, song_count, member_count, cover_song_ids, version, updated_at}]}`, the caller's, newest change first |
+| POST | `/shared-playlists` | `{name, description?, song_ids?}` | `{playlist_id}`. Catalog ids only |
+| GET | `/shared-playlists/{id}` | none | `{playlist_id, owner_id, name, description, version, my_role, members, entries: [{entry_id, song_id, position, added_by, added_at}]}`. 404 for a non member |
+| PATCH | `/shared-playlists/{id}` | `{name?, description?, expected_version?}` | `{version, deleted}`. Owner. A stale `expected_version` is 409 `VersionConflict`, on every write |
+| DELETE | `/shared-playlists/{id}` | none | `{version: null, deleted: true}`. Owner |
+| POST | `/shared-playlists/{id}/songs` | `{song_ids, position?, expected_version?}` | `{version, deleted}`. Editor or owner |
+| PATCH / DELETE | `/shared-playlists/{id}/songs/{entry_id}` | `{position}` / none | `{version, deleted}`. Move or remove one entry. Editor or owner |
+| POST | `/shared-playlists/{id}/members` | `{user_id, role}` | `{version, deleted}`. Owner. 403 when the user's `playlist_add` privacy refuses |
+| PATCH / DELETE | `/shared-playlists/{id}/members/{user_id}` | `{role}` / none | Set role (owner), or remove (owner) or leave (self). The owner leaving deletes it |
+| POST | `/shared-playlists/{id}/invites` | `{role?, expires_in_hours?, max_uses?}` | `{code, link, grants_role, expires_at, max_uses}`. Owner. `role` is `viewer` (default) or `editor` |
+| POST | `/live-sessions` | `{name, default_role?, allow_join_without_code?}` | `{session_id}`. Returns the caller's open session if they have one |
+| GET | `/live-sessions/current` | none | `{session_id}` the caller hosts or is in, or null |
+| GET | `/live-sessions/{id}` | none | The snapshot: settings, `my_role`, `my_listen_mode`, members, `current`, `up_next`, `suggestions`, `playback {entry_id, position_ms, is_playing, as_of}`. 404 non member, 410 `SessionEnded` |
+| PATCH / DELETE | `/live-sessions/{id}` | settings / none | Change settings, or end. Host. Every session write returns `{version, ended}` |
+| POST | `/live-sessions/{id}/join`, `/leave` | none | Join without a code (needs `allow_join_without_code` and the host's `session_join` audience), or leave. The host leaving ends it |
+| PATCH / DELETE | `/live-sessions/{id}/members/{user_id}` | `{role}` / none | Set role, or kick. Host. A kicked member is banned, code or not |
+| PATCH | `/live-sessions/{id}/me` | `{listen_mode}` | `remote` or `synced` |
+| POST | `/live-sessions/{id}/queue` | `{songs: [{song_id, title, artist, artwork_url, duration_ms}], position?}` | Queued for queue editors and up, suggested for suggesters, 403 for listeners |
+| PATCH / DELETE | `/live-sessions/{id}/queue/{entry_id}` | `{action: move, position}` or `{action: approve or reject}` / none | Move (queue editor), review (host), remove (queue editor, or your own suggestion) |
+| POST | `/live-sessions/{id}/playback` | `{kind: play, pause, seek, next, jump}` or host only `{kind: report, entry_id, position_ms, is_playing}`, `{kind: advance, from_entry_id}` | `{version, ended}`. Commands need controller or host. `version` is null when a report changed nothing |
+| POST | `/live-sessions/{id}/invites` | `{expires_in_hours?, max_uses?}` | The code. Host |
+| GET | `/realtime/ws` | WebSocket | See `services/README.md`, Realtime |
 | GET | `/listening/friends` | none | `{listening: [{user_id, username, now_playing}]}`. Friends only, live rows only, newest first. A user set to `everyone` is not listed to strangers |
 | GET | `/listening/users/{user_id}` | `?limit=` (default 20, max 50) | `{user_id, now_playing, recent_plays}`. `now_playing` null when nothing plays or hidden, `recent_plays` null when hidden |
 | GET    | `/social/feed`               | `?exclude=none\|loaded\|viewed` (default `none`)                                                                | `{feed: [SocialPost]}`, at most 10, ranked. Marks returned ids `loaded`. `SocialPost` is `{post_id, content, likes, liked, created_at, edited_at, author: {user_id, username}, topic_mk_id, comment_count}` (`edited_at` is null until the author edits; `topic_mk_id` is an Apple Music catalog id or `null`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |

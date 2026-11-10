@@ -159,6 +159,20 @@ export function useStartLiveSession() {
     };
 }
 
+/**
+ * Adds songs to a session named at call time, for seeding a new session with
+ * the host's own queue right after it starts.
+ */
+export function useSeedSessionQueue() {
+    const x = useAPIMutation<
+        { session_id: string; songs: QueueSongBody[] },
+        SessionVersion
+    >("POST", ({ session_id }) => `/live-sessions/${session_id}/queue`, [], {
+        invalidation: "none",
+    });
+    return { seedSessionQueue: x.trigger };
+}
+
 /** Joining from Listening now, without a code. */
 export function useJoinLiveSession() {
     const x = useAPIMutation<{ session_id: string }, SessionVersion>(

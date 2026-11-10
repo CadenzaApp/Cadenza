@@ -55,6 +55,29 @@ async fn get_feed(
     }))
 }
 
+/// Posts by completed friends and the caller, newest first, 20 a page.
+/// `before` (RFC 3339) pages back: pass the last post's `created_at`. A
+/// shorter page is the end. Nothing is marked loaded or viewed.
+///
+/// ```json
+/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ] }
+/// ```
+async fn get_friends_feed(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(query): Query<FriendsFeedQuery>,
+) -> Result<Json<FeedResponse>, CadenzaError> {
+    let posts = social::get_friends_feed(&db, claims.user_id, query.before).await?;
+    Ok(Json(FeedResponse {
+        feed: posts.into_iter().map(SocialPost::from).collect(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct FriendsFeedQuery {
+    before: Option<DateTime<Utc>>,
+}
+
 #[derive(Deserialize)]
 struct FeedQuery {
     exclude: Option<String>,
@@ -753,6 +776,7 @@ async fn unlike_comment(
 pub fn get_social_router() -> Router<AppState> {
     Router::new()
         .route("/feed", get(get_feed))
+        .route("/feed/friends", get(get_friends_feed))
         .route("/interests/update", patch(update_interests))
         .route("/interests/decay", patch(decay_interests))
         .route("/posts", post(create_post))

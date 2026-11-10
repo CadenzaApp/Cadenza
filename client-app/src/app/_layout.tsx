@@ -131,6 +131,22 @@ function RootStack() {
                 name="add-to-playlist"
                 options={sheetScreenOptions(theme)}
             />
+            <Stack.Screen
+                name="live-session/new"
+                options={sheetScreenOptions(theme)}
+            />
+            <Stack.Screen
+                name="live-session/[id]"
+                options={sheetScreenOptions(theme)}
+            />
+            <Stack.Screen
+                name="join/index"
+                options={sheetScreenOptions(theme)}
+            />
+            <Stack.Screen
+                name="join/[code]"
+                options={sheetScreenOptions(theme)}
+            />
         </Stack>
     );
 }

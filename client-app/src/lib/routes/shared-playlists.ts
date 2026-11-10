@@ -110,6 +110,22 @@ export function useCreateSharedPlaylist() {
     };
 }
 
+/** Adds songs to a playlist named at call time, like from Add to playlist. */
+export function useAddToSharedPlaylist() {
+    const x = useAPIMutation<
+        { playlist_id: number; song_ids: string[] },
+        PlaylistVersion
+    >(
+        "POST",
+        ({ playlist_id }) => `/shared-playlists/${playlist_id}/songs`,
+        ({ playlist_id }) => [LIST, detail(playlist_id)],
+    );
+    return {
+        addToSharedPlaylist: x.trigger,
+        addToSharedPlaylistLoading: x.isMutating,
+    };
+}
+
 /**
  * Every write to one playlist. Each refetches the playlist and the list after
  * it. A stale `expected_version` is a 409 `VersionConflict`; the refetch is

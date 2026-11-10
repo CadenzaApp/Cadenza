@@ -15,7 +15,8 @@ module.exports = {
         version: "1.0.0",
         orientation: "portrait",
         icon: "./assets/images/icon.png",
-        scheme: "client-app",
+        // cadenza:// is what invite links use (cadenza://join/CODE)
+        scheme: ["client-app", "cadenza"],
         userInterfaceStyle: "automatic",
         ios: {
             supportsTablet: true,

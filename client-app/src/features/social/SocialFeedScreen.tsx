@@ -19,14 +19,18 @@ import {
 } from "react-native";
 import Animated from "react-native-reanimated";
 
-import { GlassButton } from "@/components/ui/glass-button";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
+import {
+    SegmentedControl,
+    type SegmentOption,
+} from "@/components/ui/segmented-control";
 import { Text } from "@/components/ui/text";
-import { useAccount } from "@/lib/account";
+import { invalidateAPIData } from "@/lib/api-actions";
 import { useProfile } from "@/lib/routes/profile";
 import {
     useCreatePost,
     useFeed,
+    useFriendsFeed,
     useMarkPostsViewed,
     useNotifications,
 } from "@/lib/routes/social";
@@ -38,6 +42,7 @@ import { useTopRailInset } from "@/lib/top-rail";
 
 import { CreatePostDialog } from "./CreatePostDialog";
 import { ListeningNowStrip } from "./ListeningNow";
+import { SocialHubCards } from "./SocialHubCards";
 import { PostCard } from "./PostCard";
 import { topicCreateFields, topicMkId } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
@@ -62,8 +67,6 @@ export function SocialFeedScreen() {
     const railInset = useTopRailInset() ?? 0;
     const scroll = useScreenScroll<FlatList<FeedRow>>();
     const navigation = useNavigation();
-    const router = useRouter();
-    const { account } = useAccount();
     const { colors } = useTheme();
     const {
         posts,
@@ -76,11 +79,14 @@ export function SocialFeedScreen() {
         feedLoading,
         feedErr,
     } = useFeed();
+    const [filter, setFilter] = useState<FeedFilter>("for-you");
+    const friendsFeed = useFriendsFeed(filter === "friends");
     const { createPost } = useCreatePost();
     const { markPostsViewed } = useMarkPostsViewed();
     const { notifications, invalidateNotifications } = useNotifications();
     const showRedDot = notifications.some((item) => item.unread);
     const { profile } = useProfile();
+    const router = useRouter();
     const markedViewedIds = useRef(new Set<number>());
     const pendingViewedIds = useRef(new Set<number>());
     const markPostsViewedRef = useRef(markPostsViewed);
@@ -186,27 +192,6 @@ export function SocialFeedScreen() {
                         ) : null}
                     </View>
                     <GlassIconButton
-                        accessibilityLabel="Friends"
-                        onPress={() => router.push("/social/friends")}
-                    >
-                        <Ionicons name="people" size={22} color={colors.text} />
-                    </GlassIconButton>
-                    <GlassButton
-                        className="h-10 rounded-full px-3"
-                        accessibilityLabel="Me"
-                        onPress={() => {
-                            if (!account?.id) return;
-                            router.push(`/social/user/${account.id}`);
-                        }}
-                    >
-                        <Text
-                            numberOfLines={1}
-                            className="text-sm font-semibold"
-                        >
-                            Me
-                        </Text>
-                    </GlassButton>
-                    <GlassIconButton
                         accessibilityLabel="Create a new post"
                         onPress={() => setComposeOpen(true)}
                     >
@@ -215,7 +200,7 @@ export function SocialFeedScreen() {
                 </View>
             ),
         });
-    }, [navigation, colors.text, account?.id, router, showRedDot]);
+    }, [navigation, colors.text, router, showRedDot]);
 
     const handleCreate = useCallback(
         async (content: string, topic?: PostTopic | null) => {
@@ -276,11 +261,21 @@ export function SocialFeedScreen() {
     const reload = useCallback(async () => {
         setRefreshing(true);
         try {
-            await refreshFeed();
+            // the cards and the listening row above the posts refresh with them
+            await Promise.all([
+                filter === "friends"
+                    ? friendsFeed.refreshFriendsFeed()
+                    : refreshFeed(),
+                invalidateAPIData([
+                    { path: "/social/friends" },
+                    { path: "/listening/friends" },
+                    { path: "/live-sessions/current" },
+                ]),
+            ]);
         } finally {
             setRefreshing(false);
         }
-    }, [refreshFeed]);
+    }, [filter, friendsFeed, refreshFeed]);
 
     const onViewableItemsChanged = useRef(
         ({ viewableItems }: { viewableItems: ViewToken[] }) => {
@@ -375,18 +370,52 @@ export function SocialFeedScreen() {
         [handleDeleteFailed, handleDeleted, handleEdited, localTopics],
     );
 
+    const showingFriends = filter === "friends";
+    const rows = useMemo(
+        (): FeedRow[] =>
+            showingFriends
+                ? friendsFeed.friendsPosts
+                      .filter((post) => !hiddenIds.has(post.post_id))
+                      .map((post) => ({ kind: "post", post }))
+                : feed,
+        [feed, friendsFeed.friendsPosts, hiddenIds, showingFriends],
+    );
+    const pagingNext = showingFriends
+        ? friendsFeed.isLoadingNextFriendsPage
+        : isLoadingNextPage;
+
     const onEndReached = useCallback(() => {
+        if (showingFriends) {
+            if (
+                friendsFeed.hasNextFriendsPage &&
+                !friendsFeed.isLoadingNextFriendsPage
+            ) {
+                void friendsFeed.loadNextFriendsPage();
+            }
+            return;
+        }
         if (hasNextPage && !isLoadingNextPage) {
             void loadNextPage();
         }
-    }, [hasNextPage, isLoadingNextPage, loadNextPage]);
+    }, [
+        friendsFeed,
+        hasNextPage,
+        isLoadingNextPage,
+        loadNextPage,
+        showingFriends,
+    ]);
 
-    const loading = feed.length === 0 && feedLoading;
+    const loading =
+        rows.length === 0 &&
+        (showingFriends ? friendsFeed.friendsFeedLoading : feedLoading);
+    const failed = showingFriends ? friendsFeed.friendsFeedErr : feedErr;
     const emptyLabel = loading
         ? "Loading posts..."
-        : feedErr
+        : failed
           ? "Couldn't load posts."
-          : "No posts yet.";
+          : showingFriends
+            ? "Your friends have not posted yet."
+            : "No posts yet.";
 
     return (
         <View className="flex-1 bg-background">
@@ -394,7 +423,7 @@ export function SocialFeedScreen() {
                 <Animated.FlatList
                     {...scroll}
                     className="flex-1"
-                    data={feed}
+                    data={rows}
                     refreshControl={
                         <RefreshControl
                             refreshing={refreshing}
@@ -410,7 +439,12 @@ export function SocialFeedScreen() {
                     onViewableItemsChanged={onViewableItemsChanged}
                     viewabilityConfig={VIEWABILITY_CONFIG}
                     ItemSeparatorComponent={PostSeparator}
-                    ListHeaderComponent={ListeningNowStrip}
+                    ListHeaderComponent={
+                        <SocialFeedHeader
+                            filter={filter}
+                            onFilterChange={setFilter}
+                        />
+                    }
                     contentContainerStyle={[
                         {
                             paddingTop: 8,
@@ -428,7 +462,7 @@ export function SocialFeedScreen() {
                         </Text>
                     }
                     ListFooterComponent={
-                        isLoadingNextPage ? (
+                        pagingNext ? (
                             <View className="items-center py-4">
                                 <ActivityIndicator color={colors.text} />
                             </View>
@@ -484,5 +518,39 @@ function CaughtUpSeparator() {
         <Text className="py-2 text-center text-sm text-muted-foreground">
             ----- No new posts, you&apos;re caught up! -----
         </Text>
+    );
+}
+
+type FeedFilter = "for-you" | "friends";
+
+const FEED_FILTERS: readonly SegmentOption<FeedFilter>[] = [
+    { value: "for-you", label: "For you" },
+    { value: "friends", label: "Friends" },
+];
+
+/**
+ * Everything above the posts: the hub cards, the Listening now row, and the
+ * For you / Friends filter.
+ */
+function SocialFeedHeader({
+    filter,
+    onFilterChange,
+}: {
+    filter: FeedFilter;
+    onFilterChange: (filter: FeedFilter) => void;
+}) {
+    return (
+        <View className="mb-3">
+            <SocialHubCards />
+            <ListeningNowStrip />
+            <View className="mt-6">
+                <SegmentedControl
+                    size="sm"
+                    options={FEED_FILTERS}
+                    value={filter}
+                    onChange={onFilterChange}
+                />
+            </View>
+        </View>
     );
 }

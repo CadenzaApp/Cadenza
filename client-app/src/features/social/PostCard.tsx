@@ -22,7 +22,7 @@ import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostCommentsDialog } from "./PostCommentsDialog";
 import { PostOptionsMenu } from "./PostOptionsMenu";
 import { PostTopicCard } from "./PostTopicCard";
-import { topicCreateFields, useResolvedTopic } from "./topic";
+import { activityLabel, topicCreateFields, useResolvedTopic } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
 
 type Props = {
@@ -249,6 +249,7 @@ export function PostCard({
                 </Text>
                 <Text className="text-xs text-muted-foreground">
                     {formatRelativeTime(post.created_at)}
+                    {topic ? ` · ${activityLabel(topic)}` : ""}
                 </Text>
             </View>
         </>

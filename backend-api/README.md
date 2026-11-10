@@ -46,8 +46,16 @@ Seven routers get nested, plus a health route:
 /social     get_social_router()
 /events     get_events_router()
 /analytics  get_analytics_router()
+/listening  get_listening_router()
+/invites    get_invites_router()
+/shared-playlists  get_shared_playlists_router()
+/live-sessions     get_live_sessions_router()
+/realtime   get_realtime_router()    the WebSocket, see services/README.md
 /test       returns "server is reachable"
 ```
+
+`AppState` also holds `event_bus` (the realtime hub, an `InMemoryBus`, one backend instance
+only) and `redeem_limiter` (the per user invite code rate limit).
 
 `/social` is the feed, posts, likes, and interests. It calls the python service
 only when it needs a sentence-transformer vector or a similarity score. See

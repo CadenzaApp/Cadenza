@@ -1373,6 +1373,59 @@ fn topic_posts_statement(
     }
 }
 
+/// Posts in the friends feed per page.
+pub const FRIENDS_FEED_SIZE: i64 = 20;
+
+/// Posts by `viewer_id`'s completed friends and their own, newest first,
+/// older than `before` when given. A page of [`FRIENDS_FEED_SIZE`]; a shorter
+/// page is the end. Read only: nothing is marked loaded or viewed.
+pub async fn get_friends_feed(
+    db: &DatabaseConnection,
+    viewer_id: Uuid,
+    before: Option<DateTime<Utc>>,
+) -> Result<Vec<SocialPost>, CadenzaError> {
+    let rows = PostRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT
+             p.post_id,
+             p.user_id AS author_id,
+             p.content,
+             p.likes,
+             p.created_at,
+             p.edited_at,
+             p.topic_mk_id,
+             COALESCE(pr.username, 'unknown') AS username,
+             EXISTS (
+                 SELECT 1 FROM post_likes
+                 WHERE post_likes.post_id = p.post_id
+                   AND post_likes.user_id = $1
+             ) AS liked,
+             p.comments AS comment_count
+         FROM posts p
+         LEFT JOIN profile pr ON pr.uid = p.user_id
+         WHERE (
+             p.user_id = $1
+             OR EXISTS (
+                 SELECT 1 FROM friendships f
+                 WHERE f.status = 'complete'
+                   AND f.user1 = LEAST(p.user_id, $1)
+                   AND f.user2 = GREATEST(p.user_id, $1)
+             )
+         )
+           AND ($2::timestamptz IS NULL OR p.created_at < $2)
+         ORDER BY p.created_at DESC, p.post_id DESC
+         LIMIT $3",
+        vec![
+            viewer_id.into(),
+            before.map(|at| at.fixed_offset()).into(),
+            FRIENDS_FEED_SIZE.into(),
+        ],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows.iter().map(PostRow::to_post).collect())
+}
+
 /// One author's posts, newest first.
 pub async fn get_author_posts(
     db: &DatabaseConnection,
