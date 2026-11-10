@@ -41,12 +41,21 @@ type Props = Readonly<{
     children: React.ReactNode;
 }>;
 export default function AccountProvider({ children }: Props) {
+    // written from setAccount, which the auth listener closes over once
+    const accountIdRef = useRef<string | null>(null);
+
     function setAccount(acc: Account | null) {
+        const nextId = acc?.id ?? null;
+        // the auth listener and tryRestoreSession both report the same
+        // session. clearing again drops mounted reads, including the connect
+        // step flag, and those reads do not start over
+        const changed = nextId !== accountIdRef.current;
+        accountIdRef.current = nextId;
         setAccountInfo((prev) => ({
             ...prev,
             account: acc,
         }));
-        clearCache();
+        if (changed) clearCache();
     }
 
     /**
@@ -135,8 +144,7 @@ export default function AccountProvider({ children }: Props) {
     });
 
     // the listener below is registered once, so it cannot read the account off
-    // a later render directly
-    const accountIdRef = useRef<string | null>(null);
+    // a later render directly. setAccount writes the ref too, before the render
     useEffect(() => {
         accountIdRef.current = accountInfo.account?.id ?? null;
     }, [accountInfo.account?.id]);

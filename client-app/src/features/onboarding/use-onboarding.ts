@@ -20,7 +20,7 @@ export function useOnboarding(): {
     const { isInitializing, isConnected } = useAppleMusic();
     const accountId = account?.id ?? null;
 
-    const { data: done, mutate } = useSWR(
+    const { data: done, isLoading, mutate } = useSWR(
         accountId ? ["onboarding/connect-step-done", accountId] : null,
         ([, id]) => loadConnectStepDone(id),
     );
@@ -37,11 +37,17 @@ export function useOnboarding(): {
         if (isConnected && done === false) void finishConnectStep();
     }, [isConnected, done, finishConnectStep]);
 
+    // undefined while the read is in flight is still pending. undefined once
+    // the read is idle means the cache was cleared and will not refetch, which
+    // counts as not done: waiting on it holds the splash forever
+    const connectStepDone =
+        done !== undefined ? done : isLoading ? null : false;
+
     const step = onboardingStep({
         signedIn: accountId !== null,
         appleMusicReady: !isInitializing,
         appleMusicConnected: isConnected,
-        connectStepDone: done ?? null,
+        connectStepDone,
     });
 
     return { step, finishConnectStep };
