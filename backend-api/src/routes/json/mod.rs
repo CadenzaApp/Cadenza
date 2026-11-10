@@ -1,5 +1,6 @@
 /// this module has objects that are to be returned from API as json.
 pub mod analytics;
+pub mod assistant;
 pub mod metadata_tag;
 pub mod profile;
 pub mod query;

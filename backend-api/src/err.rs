@@ -46,6 +46,12 @@ pub enum CadenzaError {
     SocialFeedErr(String),
     /// The request body was not shaped the way the handler needs it.
     InvalidRequestBody(String),
+    /// The assistant's model could not be reached, or its reply could not be read.
+    AssistantErr(String),
+    /// The assistant's model provider turned the request away for rate limiting.
+    AssistantRateLimited {
+        retry_after: Option<Duration>,
+    },
 }
 
 impl CadenzaError {
@@ -70,6 +76,8 @@ impl CadenzaError {
             Self::ActivityTagReadOnly => 403,
             Self::SocialFeedErr(_) => 502,
             Self::InvalidRequestBody(_) => 422,
+            Self::AssistantErr(_) => 502,
+            Self::AssistantRateLimited { .. } => 429,
         }
     }
     fn get_json(&self) -> Value {
@@ -151,6 +159,20 @@ impl CadenzaError {
             Self::InvalidRequestBody(msg) => json!({
                 "error_type": "InvalidRequestBody",
                 "message": msg
+            }),
+            Self::AssistantErr(msg) => json!({
+                "error_type": "AssistantErr",
+                "message": msg
+            }),
+            Self::AssistantRateLimited { retry_after } => json!({
+                "error_type": "AssistantRateLimited",
+                "message": match retry_after {
+                    Some(wait) => format!(
+                        "the assistant is rate limited, retry in {}s",
+                        wait.as_secs()
+                    ),
+                    None => "the assistant is rate limited".to_owned(),
+                }
             }),
         }
     }
