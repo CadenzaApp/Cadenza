@@ -1,5 +1,5 @@
 //! Social posts, likes, comments, view status, interests, friendships, user
-//! search, and the ranked feed's SQL.
+//! search, notifications, and the ranked feed's SQL.
 //!
 //! Ranking math that does not need the database lives here too. Turning text
 //! into vectors is `services::social_feed`, which calls the python model.

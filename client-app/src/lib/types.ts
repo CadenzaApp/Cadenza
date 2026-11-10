@@ -132,6 +132,23 @@ export type SocialComment = {
     };
 };
 
+/** Glyph stored in `notification_icon`. */
+export type NotificationIcon = "heart" | "chatbubble" | "person-add";
+
+/**
+ * One notification from `GET /social/notifications`.
+ * Unread rows come first, newest first, then `notif_id` descending.
+ */
+export type SocialNotification = {
+    notif_id: number;
+    title: string;
+    content: string;
+    icon: NotificationIcon;
+    /** RFC 3339 in UTC */
+    created_at: string;
+    unread: boolean;
+};
+
 /** One person from `GET /social/friends`. */
 export type SocialPerson = {
     user_id: string;

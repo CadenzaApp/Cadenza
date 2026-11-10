@@ -13,12 +13,14 @@ use serde_json::Value;
 use crate::{
     AppState,
     auth::SupabaseClaims,
+    db::notification::{self, NotificationCursor as DbNotificationCursor},
     db::social::{self, FeedExclude, InterestDelta},
     err::CadenzaError,
     routes::json::social::{
         CreateCommentResponse, CreatePostResponse, FeedResponse, FriendshipsResponse,
-        PostCommentsResponse, SocialAuthor, SocialComment, SocialPost, TopicPostsResponse,
-        UserPostsResponse, UserSearchResponse,
+        NotificationCursor, NotificationsResponse, PostCommentsResponse, SocialAuthor,
+        SocialComment, SocialNotification, SocialPost, TopicPostsResponse, UserPostsResponse,
+        UserSearchResponse,
     },
     services::social_feed::SocialFeedService,
 };
@@ -377,6 +379,66 @@ async fn search_users(
     }))
 }
 
+#[derive(Deserialize)]
+struct NotificationQuery {
+    unread: Option<bool>,
+    created_at: Option<DateTime<Utc>>,
+    notif_id: Option<i64>,
+}
+
+impl NotificationQuery {
+    /// `None` is the first page. The three cursor fields travel together.
+    fn cursor(&self) -> Result<Option<DbNotificationCursor>, CadenzaError> {
+        match (self.unread, self.created_at, self.notif_id) {
+            (None, None, None) => Ok(None),
+            (Some(unread), Some(created_at), Some(notif_id)) => Ok(Some(DbNotificationCursor {
+                unread,
+                created_at,
+                notif_id,
+            })),
+            _ => Err(CadenzaError::InvalidRequestBody(
+                "unread, created_at, and notif_id are set together".into(),
+            )),
+        }
+    }
+}
+
+/// The signed-in user's notifications, at most 20. Unread first, then newest,
+/// with `notif_id` breaking a `created_at` tie.
+///
+/// Omit the query params for the first page. Pass `next` from the previous
+/// response as `unread`, `created_at`, and `notif_id` for the following page.
+///
+/// ```json
+/// { "notifications": [ { "notif_id": 1, "title": "miles.davis", "content": "liked your post", "icon": "heart", "created_at": "2026-11-10T18:00:00Z", "unread": true } ], "next": null }
+/// ```
+async fn notifications(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(query): Query<NotificationQuery>,
+) -> Result<Json<NotificationsResponse>, CadenzaError> {
+    let page = notification::list_notifications(&db, claims.user_id, query.cursor()?).await?;
+    Ok(Json(NotificationsResponse {
+        notifications: page
+            .notifications
+            .into_iter()
+            .map(|row| SocialNotification {
+                notif_id: row.notif_id,
+                title: row.title,
+                content: row.content,
+                icon: row.icon,
+                created_at: row.created_at,
+                unread: row.unread,
+            })
+            .collect(),
+        next: page.next.map(|cursor| NotificationCursor {
+            unread: cursor.unread,
+            created_at: cursor.created_at,
+            notif_id: cursor.notif_id,
+        }),
+    }))
+}
+
 /// The signed-in user's friends and pending requests.
 ///
 /// ```json
@@ -596,6 +658,7 @@ pub fn get_social_router() -> Router<AppState> {
         .route("/posts/user/{author_id}", get(user_posts))
         .route("/users", get(search_users))
         .route("/friends", get(friendships))
+        .route("/notifications", get(notifications))
         .route("/friends/{user_id}/accept", post(accept_friendship))
         .route(
             "/friends/{user_id}",

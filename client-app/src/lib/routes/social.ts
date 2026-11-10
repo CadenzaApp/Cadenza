@@ -24,6 +24,7 @@ import type {
     InterestScoreDelta,
     SocialComment,
     Friendships,
+    SocialNotification,
     SocialPerson,
     SocialPost,
     SocialUserProfile,
@@ -645,6 +646,80 @@ export function useUserSearch(search: string) {
         users: x.data?.users ?? EMPTY_SEARCH,
         userSearchLoading: x.isLoading,
         userSearchErr: x.error,
+    };
+}
+
+type NotificationCursor = {
+    unread: boolean;
+    created_at: string;
+    notif_id: number;
+};
+
+type NotificationsResponse = {
+    notifications: SocialNotification[];
+    next: NotificationCursor | null;
+};
+
+type NotificationPageKey = {
+    keyType: "api-data";
+    path: "/social/notifications";
+    params: Record<string, string>;
+    accountId: string;
+};
+
+const EMPTY_NOTIFICATIONS: SocialNotification[] = [];
+
+/**
+ * The signed-in user's notifications, 20 at a time. Unread first, then newest,
+ * with `notif_id` breaking a `created_at` tie. The next page sends the
+ * previous response's `next` cursor.
+ */
+export function useNotifications() {
+    const { account } = useAccount();
+    const pages = useSWRInfinite<NotificationsResponse>(
+        (pageIndex, previousPage): NotificationPageKey | null => {
+            if (!account) return null;
+            if (pageIndex > 0 && !previousPage?.next) return null;
+            const cursor = pageIndex > 0 ? previousPage?.next : null;
+            return {
+                keyType: "api-data",
+                path: "/social/notifications",
+                params: cursor
+                    ? {
+                          unread: String(cursor.unread),
+                          created_at: cursor.created_at,
+                          notif_id: String(cursor.notif_id),
+                      }
+                    : {},
+                accountId: account.id,
+            };
+        },
+        (key: NotificationPageKey) =>
+            fetchAPIData<NotificationsResponse>(key.path, key.params),
+        { revalidateFirstPage: false, revalidateAll: false },
+    );
+
+    const { data, error, isLoading, isValidating, size, setSize } = pages;
+    const notifications = useMemo(
+        () =>
+            data?.flatMap((page) => page.notifications) ?? EMPTY_NOTIFICATIONS,
+        [data],
+    );
+    const hasNextPage = data?.at(-1)?.next != null;
+    const isLoadingNextPage =
+        isValidating && Boolean(data?.length) && size > (data?.length ?? 0);
+    const loadNextPage = useCallback(async () => {
+        if (!hasNextPage || isLoadingNextPage) return;
+        await setSize((current) => current + 1);
+    }, [hasNextPage, isLoadingNextPage, setSize]);
+
+    return {
+        notifications,
+        notificationsLoading: !data && isLoading,
+        notificationsErr: error,
+        hasNextPage,
+        isLoadingNextPage,
+        loadNextPage,
     };
 }
 

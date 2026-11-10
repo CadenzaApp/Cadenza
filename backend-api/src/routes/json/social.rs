@@ -185,3 +185,43 @@ pub struct FriendshipsResponse {
 pub struct UserSearchResponse {
     pub users: Vec<SocialAuthor>,
 }
+
+/// One notification as `GET /social/notifications` returns it.
+///
+/// ```json
+/// {
+///   "notif_id": 1,
+///   "title": "miles.davis",
+///   "content": "liked your post",
+///   "icon": "heart",
+///   "created_at": "2026-11-10T18:00:00Z",
+///   "unread": true
+/// }
+/// ```
+#[derive(Serialize)]
+pub struct SocialNotification {
+    pub notif_id: i64,
+    pub title: String,
+    pub content: String,
+    /// `heart`, `chatbubble`, or `person-add`.
+    pub icon: String,
+    pub created_at: DateTime<Utc>,
+    pub unread: bool,
+}
+
+/// The sort position of the last row on a full page. The next request passes
+/// these three fields back as query params.
+#[derive(Serialize)]
+pub struct NotificationCursor {
+    pub unread: bool,
+    pub created_at: DateTime<Utc>,
+    pub notif_id: i64,
+}
+
+/// `{notifications, next}` from `GET /social/notifications`, at most 20.
+/// Unread first, then newest, then `notif_id` descending.
+#[derive(Serialize)]
+pub struct NotificationsResponse {
+    pub notifications: Vec<SocialNotification>,
+    pub next: Option<NotificationCursor>,
+}
