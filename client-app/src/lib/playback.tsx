@@ -21,6 +21,7 @@ import { useAppleMusic } from "./apple-music-auth";
 import { withoutExplicit } from "./explicit-filter";
 import { useHideExplicit } from "./use-visible-items";
 import type { PlaySource } from "./play-source";
+import { useNowPlayingReporter } from "./now-playing-reporter";
 import { usePlayRecorder } from "./play-recorder";
 import { useReportOpenedSongs } from "./song-opened";
 import {
@@ -232,6 +233,8 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     // counts plays for the activity tags, off the snapshot polled below. a
     // preview is not a listen, so it is not counted
     usePlayRecorder(snapshot, fullPlayback ? activeTrack : null, activeSource);
+    // tells friends what is playing. a preview is not shared either
+    useNowPlayingReporter(snapshot, fullPlayback ? activeTrack : null);
     // stores each opened song's metadata for the query builder's Metadata fields
     useReportOpenedSongs(activeTrack);
 

@@ -1,9 +1,13 @@
 pub mod activity_tags;
 pub mod analytics;
+pub mod audience;
 pub mod entity;
 pub mod events;
+pub mod listening_history;
 pub mod metadata_tags;
 pub mod notification;
+pub mod now_playing;
+pub mod privacy;
 pub mod profile;
 pub mod queries;
 pub mod saved_queries;

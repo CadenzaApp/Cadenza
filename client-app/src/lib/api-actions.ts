@@ -214,6 +214,8 @@ export function useAPIData<Output>(
          * screen should still show offline.
          */
         save?: boolean;
+        /** Refetch this often while mounted, in ms. For reads that go stale on their own. */
+        refreshInterval?: number;
     },
 ) {
     // reads the SWR cache during render below. The React Compiler would cache
@@ -240,6 +242,7 @@ export function useAPIData<Output>(
         () => apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params)),
         {
             keepPreviousData: options?.keepPreviousData,
+            refreshInterval: options?.refreshInterval,
             // SWR merges config with a spread, so an explicit undefined would
             // replace its default no-op and every fetch would throw calling it
             ...(options?.onSuccess

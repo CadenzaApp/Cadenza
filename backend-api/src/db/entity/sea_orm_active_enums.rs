@@ -3,6 +3,16 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "audience")]
+pub enum Audience {
+    #[sea_orm(string_value = "everyone")]
+    Everyone,
+    #[sea_orm(string_value = "friends")]
+    Friends,
+    #[sea_orm(string_value = "nobody")]
+    Nobody,
+}
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "friendship_status")]
 pub enum FriendshipStatus {
     #[sea_orm(string_value = "to_user1")]

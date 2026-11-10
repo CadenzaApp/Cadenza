@@ -1,9 +1,15 @@
 use crate::{
     AppState,
     auth::SupabaseClaims,
-    db::settings::{get_settings, update_settings},
+    db::{
+        privacy::{get_privacy, update_privacy},
+        settings::{get_settings, update_settings},
+    },
     err::CadenzaError,
-    routes::json::settings::{PatchUserSettings, UserSettings},
+    routes::json::{
+        privacy::{PatchPrivacySettings, PrivacySettings},
+        settings::{PatchUserSettings, UserSettings},
+    },
 };
 use axum::{
     Json, Router,
@@ -71,8 +77,52 @@ async fn patch_settings_handler(
     Ok(Json(UserSettings::from(model)))
 }
 
+/// Returns who can see each part of the signed-in user's listening. A user
+/// who has never changed one gets `friends` for all four.
+///
+/// JSON return value format:
+/// ```json
+/// {
+///   "now_playing": "friends",
+///   "listening_history": "friends",
+///   "session_join": "friends",
+///   "playlist_add": "friends"
+/// }
+/// ```
+async fn get_privacy_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+) -> Result<Json<PrivacySettings>, CadenzaError> {
+    let model = get_privacy(&db, claims.user_id).await?;
+    Ok(Json(PrivacySettings::from(model)))
+}
+
+/// Changes any subset of the signed-in user's privacy settings and returns all
+/// of them. Each value is `everyone`, `friends`, or `nobody`. A missing key is
+/// left alone. `InvalidRequestBody` for an empty body.
+///
+/// JSON return value format:
+/// ```json
+/// {
+///   "now_playing": "nobody",
+///   "listening_history": "friends",
+///   "session_join": "friends",
+///   "playlist_add": "everyone"
+/// }
+/// ```
+async fn patch_privacy_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(payload): Json<PatchPrivacySettings>,
+) -> Result<Json<PrivacySettings>, CadenzaError> {
+    let model = update_privacy(&db, claims.user_id, payload.into()).await?;
+    Ok(Json(PrivacySettings::from(model)))
+}
+
 pub fn get_settings_router() -> Router<AppState> {
     Router::new()
         .route("/", get(get_settings_handler))
         .route("/", patch(patch_settings_handler))
+        .route("/privacy", get(get_privacy_handler))
+        .route("/privacy", patch(patch_privacy_handler))
 }

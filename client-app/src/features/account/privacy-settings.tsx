@@ -1,14 +1,68 @@
 import { useRouter, type Href } from "expo-router";
 
 import {
+    SegmentedControl,
+    type SegmentOption,
+} from "@/components/ui/segmented-control";
+import {
+    usePrivacySettings,
+    type Audience,
+    type PrivacySettings,
+} from "@/lib/routes/privacy";
+
+import {
+    SaveError,
     SettingsPoints,
+    SettingsSection,
     SettingsSheet,
     type SettingsPoint,
 } from "./settings-ui";
 
-/** What Cadenza stores and what it does not. Read only. */
+const AUDIENCES: readonly SegmentOption<Audience>[] = [
+    { value: "everyone", label: "Everyone", icon: "globe-outline" },
+    { value: "friends", label: "Friends", icon: "people-outline" },
+    { value: "nobody", label: "Nobody", icon: "eye-off-outline" },
+];
+
+/** One picker per privacy setting, in the order they show. */
+const FIELDS: readonly {
+    field: keyof PrivacySettings;
+    title: string;
+    footnote: string;
+}[] = [
+    {
+        field: "now_playing",
+        title: "Now playing",
+        footnote: "Who sees the song you are playing right now.",
+    },
+    {
+        field: "listening_history",
+        title: "Recent plays",
+        footnote: "Who sees your recent plays on your profile.",
+    },
+    {
+        field: "session_join",
+        title: "Live sessions",
+        footnote: "Who can join your live session without a code.",
+    },
+    {
+        field: "playlist_add",
+        title: "Shared playlists",
+        footnote: "Who can add you to a shared playlist without a code.",
+    },
+];
+
+/** Who sees your listening, then what Cadenza stores and what it does not. */
 export function PrivacySettingsScreen() {
     const router = useRouter();
+    const { privacy, updatePrivacy, updatePrivacyErr } = usePrivacySettings();
+
+    function save(change: Partial<PrivacySettings>) {
+        void updatePrivacy(change).catch((error) =>
+            console.error("Failed to save privacy:", error),
+        );
+    }
+
     const points: SettingsPoint[] = [
         {
             icon: "shield-checkmark-outline",
@@ -23,7 +77,7 @@ export function PrivacySettingsScreen() {
         {
             icon: "server-outline",
             title: "What Cadenza keeps",
-            body: "The songs in your library by id, the tags you apply, your listening history for Analytics, your settings, and anything you post on Social.",
+            body: "The songs in your library by id, the tags you apply, your listening history for Analytics, what you are playing now, your settings, and anything you post on Social.",
         },
         {
             icon: "trash-outline",
@@ -35,7 +89,19 @@ export function PrivacySettingsScreen() {
 
     return (
         <SettingsSheet title="Privacy & data">
-            <SettingsPoints points={points} />
+            {FIELDS.map(({ field, title, footnote }) => (
+                <SettingsSection key={field} title={title} footnote={footnote}>
+                    <SegmentedControl
+                        options={AUDIENCES}
+                        value={privacy[field]}
+                        onChange={(audience) => save({ [field]: audience })}
+                    />
+                </SettingsSection>
+            ))}
+            <SaveError error={updatePrivacyErr} />
+            <SettingsSection title="Your data">
+                <SettingsPoints points={points} />
+            </SettingsSection>
         </SettingsSheet>
     );
 }

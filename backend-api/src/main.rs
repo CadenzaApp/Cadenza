@@ -19,9 +19,10 @@ use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
     routes::{
         analytics::get_analytics_router, assistant::get_assistant_router,
-        events::get_events_router, profile::get_profile_router, queries::get_queries_router,
-        saved_queries::get_saved_queries_router, settings::get_settings_router,
-        social::get_social_router, songs::get_songs_router, tags::get_tags_router,
+        events::get_events_router, listening::get_listening_router, profile::get_profile_router,
+        queries::get_queries_router, saved_queries::get_saved_queries_router,
+        settings::get_settings_router, social::get_social_router, songs::get_songs_router,
+        tags::get_tags_router,
     },
     services::{
         assistant::{AssistantService, model::OpenAiAssistantModel},
@@ -170,6 +171,7 @@ async fn main() {
         .nest("/events", get_events_router())
         .nest("/analytics", get_analytics_router())
         .nest("/assistant", get_assistant_router())
+        .nest("/listening", get_listening_router())
         .route("/test", axum::routing::get(async || "server is reachable"))
         .with_state(app_state)
         .layer(middleware::from_fn(request_log::log_request));
