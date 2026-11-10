@@ -172,13 +172,19 @@ struct EditContentBody {
     content: String,
     /// Client time in milliseconds, the same clock a like sends.
     timestamp: i64,
+    #[serde(default)]
+    topic_song_title: Option<String>,
+    #[serde(default)]
+    topic_artist_name: Option<String>,
 }
 
 /// Replaces the signed-in user's post text. `content` is trimmed and at most
 /// 500 characters. `timestamp` is the client's edit time. One older than the
 /// stored `edited_at` is ignored. A kept edit sets `edited_at` to `now()` and
-/// re-embeds the stored text. 404 when the post is missing or belongs to
-/// someone else. Responds with `null`.
+/// re-embeds the stored text. When the post has a topic, `topic_song_title`
+/// and `topic_artist_name` prefix that embedding the same way as create.
+/// 404 when the post is missing or belongs to someone else. Responds with
+/// `null`.
 async fn update_post(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
@@ -188,8 +194,20 @@ async fn update_post(
 ) -> Result<Json<Value>, CadenzaError> {
     let content = require_content(&body.content, POST_CONTENT_MAX)?;
     let edited_at = edited_at_from_millis(body.timestamp)?;
+    let topic_song_title =
+        parse_optional_text(body.topic_song_title, "topic_song_title", TOPIC_NAME_MAX)?;
+    let topic_artist_name =
+        parse_optional_text(body.topic_artist_name, "topic_artist_name", TOPIC_NAME_MAX)?;
     social
-        .update_post(&db, claims.user_id, post_id, content, edited_at)
+        .update_post(
+            &db,
+            claims.user_id,
+            post_id,
+            content,
+            edited_at,
+            topic_song_title.as_deref(),
+            topic_artist_name.as_deref(),
+        )
         .await?;
     Ok(Json(Value::Null))
 }

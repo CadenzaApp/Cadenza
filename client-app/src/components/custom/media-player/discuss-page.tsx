@@ -276,6 +276,7 @@ export function DiscussPage({
                         <PostCard
                             key={post.post_id}
                             post={post}
+                            topicHint={topic}
                             showTopic={false}
                             onLikedChange={rememberLike}
                             onAuthorPress={openSocialProfile}

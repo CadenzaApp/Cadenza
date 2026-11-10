@@ -316,6 +316,9 @@ type EditPostPayload = {
     content: string;
     /** Client time in milliseconds. Compared with the stored `edited_at`. */
     timestamp: number;
+    /** Display names for the embedding prefix. Omitted when the post has no topic. */
+    topic_song_title?: string | null;
+    topic_artist_name?: string | null;
 };
 
 function editPostPath({ post_id }: EditPostPayload) {
@@ -325,16 +328,24 @@ function editPostPath({ post_id }: EditPostPayload) {
 /**
  * Replaces one of the signed-in user's posts. `timestamp` is `Date.now()` when
  * the edit was submitted. The server ignores one older than the stored
- * `edited_at`. A missing post, or one they do not own, is a 404. Cache updates
- * are separate.
+ * `edited_at`. Song and artist names go with a topic post so the backend can
+ * prefix the new embedding the same way it does on create. A missing post, or
+ * one they do not own, is a 404. Cache updates are separate.
  */
 export function useUpdatePost() {
     const x = useAPIMutation<EditPostPayload, void>("PATCH", editPostPath, [], {
         invalidation: "none",
     });
     const updatePost = useCallback(
-        (post_id: number, content: string, timestamp: number) =>
-            x.trigger({ post_id, content, timestamp }),
+        (
+            post_id: number,
+            content: string,
+            timestamp: number,
+            topic?: {
+                topic_song_title?: string | null;
+                topic_artist_name?: string | null;
+            },
+        ) => x.trigger({ post_id, content, timestamp, ...topic }),
         [x.trigger],
     );
     return {

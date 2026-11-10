@@ -162,8 +162,9 @@ pub async fn delete_post(
 
 /// The author's post clocks. `created_at` keeps the age component of
 /// `embedding_w_bday`. `edited_at` is the database time of the last edit, or
-/// `None` when the text has never changed. `None` for the whole value when
-/// the post is missing or owned by someone else.
+/// `None` when the text has never changed. `topic_mk_id` is set when the post
+/// has a topic, so an edit can prefix the embedding. `None` for the whole
+/// value when the post is missing or owned by someone else.
 pub async fn author_post_clock(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -171,7 +172,7 @@ pub async fn author_post_clock(
 ) -> Result<Option<PostClock>, CadenzaError> {
     let row = PostClockRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT created_at, edited_at FROM posts WHERE post_id = $1 AND user_id = $2",
+        "SELECT created_at, edited_at, topic_mk_id FROM posts WHERE post_id = $1 AND user_id = $2",
         vec![post_id.into(), user_id.into()],
     ))
     .one(db)
@@ -179,13 +180,15 @@ pub async fn author_post_clock(
     Ok(row.map(|row| PostClock {
         created_at: row.created_at.with_timezone(&Utc),
         edited_at: row.edited_at.map(|edited_at| edited_at.with_timezone(&Utc)),
+        topic_mk_id: row.topic_mk_id,
     }))
 }
 
-/// `created_at` and the database time of the last edit.
+/// `created_at`, the database time of the last edit, and the stored topic id.
 pub struct PostClock {
     pub created_at: DateTime<Utc>,
     pub edited_at: Option<DateTime<Utc>>,
+    pub topic_mk_id: Option<String>,
 }
 
 /// True when the client's `incoming` time is the same instant or later than
@@ -1568,6 +1571,7 @@ impl CommentRow {
 struct PostClockRow {
     created_at: DateTime<chrono::FixedOffset>,
     edited_at: Option<DateTime<chrono::FixedOffset>>,
+    topic_mk_id: Option<String>,
 }
 
 #[derive(Debug, FromQueryResult)]
