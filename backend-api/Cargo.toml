@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-axum = "0.8.8"
+axum = { version = "0.8.8", features = ["ws"] }
 axum-server = "0.8.0"
 axum-jwt-auth = "0.6.3"
 jsonwebtoken = "10.3.0"

@@ -57,6 +57,21 @@ pub enum CadenzaError {
     UserRateLimited {
         retry_after: Duration,
     },
+    /// The invite code does not exist, expired, ran out of uses, or was
+    /// revoked. One error for all four, so a guess learns nothing.
+    InviteCodeInvalid,
+    /// Too many attempts in a short time, like redeeming invite codes.
+    TooManyRequests,
+    /// The caller is signed in but their role does not allow this. The
+    /// message says what was refused.
+    Forbidden(String),
+    /// The write named an `expected_version` that is no longer current.
+    /// Refetch and try again.
+    VersionConflict {
+        current: i64,
+    },
+    /// The live session has ended.
+    SessionEnded,
 }
 
 impl CadenzaError {
@@ -84,6 +99,11 @@ impl CadenzaError {
             Self::AssistantErr(_) => 502,
             Self::AssistantRateLimited { .. } => 429,
             Self::UserRateLimited { .. } => 429,
+            Self::InviteCodeInvalid => 404,
+            Self::TooManyRequests => 429,
+            Self::Forbidden(_) => 403,
+            Self::VersionConflict { .. } => 409,
+            Self::SessionEnded => 410,
         }
     }
     fn get_json(&self) -> Value {
@@ -184,6 +204,27 @@ impl CadenzaError {
                 "error_type": "UserRateLimited",
                 "message": format!("too many requests, retry in {}s", retry_after.as_secs()),
                 "retry_after_secs": retry_after.as_secs(),
+            }),
+            Self::InviteCodeInvalid => json!({
+                "error_type": "InviteCodeInvalid",
+                "message": "that code is not valid any more"
+            }),
+            Self::TooManyRequests => json!({
+                "error_type": "TooManyRequests",
+                "message": "too many attempts, wait a minute"
+            }),
+            Self::Forbidden(msg) => json!({
+                "error_type": "Forbidden",
+                "message": msg
+            }),
+            Self::VersionConflict { current } => json!({
+                "error_type": "VersionConflict",
+                "message": "this changed since you loaded it, refresh and try again",
+                "current_version": current
+            }),
+            Self::SessionEnded => json!({
+                "error_type": "SessionEnded",
+                "message": "this live session has ended"
             }),
         }
     }

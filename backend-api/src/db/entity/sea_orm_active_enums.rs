@@ -31,6 +31,22 @@ pub enum Interest {
     Artist,
 }
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "invite_target")]
+pub enum InviteTarget {
+    #[sea_orm(string_value = "shared_playlist")]
+    SharedPlaylist,
+    #[sea_orm(string_value = "live_session")]
+    LiveSession,
+}
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "listen_mode")]
+pub enum ListenMode {
+    #[sea_orm(string_value = "remote")]
+    Remote,
+    #[sea_orm(string_value = "synced")]
+    Synced,
+}
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(
     rs_type = "String",
     db_type = "Enum",
@@ -47,6 +63,16 @@ pub enum MetadataCrawlStatus {
     Failed,
 }
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "playlist_role")]
+pub enum PlaylistRole {
+    #[sea_orm(string_value = "owner")]
+    Owner,
+    #[sea_orm(string_value = "editor")]
+    Editor,
+    #[sea_orm(string_value = "viewer")]
+    Viewer,
+}
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(
     rs_type = "String",
     db_type = "Enum",
@@ -57,6 +83,34 @@ pub enum PostViewStatusKind {
     Loaded,
     #[sea_orm(string_value = "viewed")]
     Viewed,
+}
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "Enum",
+    enum_name = "session_entry_status"
+)]
+pub enum SessionEntryStatus {
+    #[sea_orm(string_value = "suggested")]
+    Suggested,
+    #[sea_orm(string_value = "queued")]
+    Queued,
+    #[sea_orm(string_value = "played")]
+    Played,
+    #[sea_orm(string_value = "rejected")]
+    Rejected,
+}
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "session_role")]
+pub enum SessionRole {
+    #[sea_orm(string_value = "listener")]
+    Listener,
+    #[sea_orm(string_value = "suggester")]
+    Suggester,
+    #[sea_orm(string_value = "queue_editor")]
+    QueueEditor,
+    #[sea_orm(string_value = "controller")]
+    Controller,
 }
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "tag_gen_status")]
