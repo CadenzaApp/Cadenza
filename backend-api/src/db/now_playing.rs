@@ -14,6 +14,8 @@ use sea_orm::{
     sea_query::{ArrayType, OnConflict},
 };
 
+use serde::{Deserialize, Serialize};
+
 use crate::db::{
     audience::{PrivacyField, can_see_field, visible_friend_ids},
     entity::now_playing::{self, Column},
@@ -28,6 +30,20 @@ pub const LIVE_GRACE: Duration = Duration::seconds(60);
 /// write. The heartbeat is a minute, so two missed ones drop it.
 pub const UNKNOWN_DURATION_LIVE: Duration = Duration::seconds(120);
 
+/// The most up next songs a row keeps. The card has room for two.
+pub const MAX_UP_NEXT: usize = 2;
+
+/// One song after the current one in the player's queue, for display.
+/// `song_id` is null for a library only song, since its id means nothing to
+/// anyone else.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpNextSong {
+    pub song_id: Option<String>,
+    pub title: String,
+    pub artist: Option<String>,
+    pub artwork_url: Option<String>,
+}
+
 /// One write from the player. The server stamps `position_at` with its own
 /// clock, so a phone with a wrong clock still projects right.
 #[derive(Clone, Debug)]
@@ -41,6 +57,8 @@ pub struct NowPlayingUpdate {
     pub duration_ms: Option<i64>,
     pub is_playing: bool,
     pub position_ms: i64,
+    /// The next songs in the queue, first first. Trimmed to [`MAX_UP_NEXT`].
+    pub up_next: Vec<UpNextSong>,
 }
 
 /// A live row and whose it is, for the friends listening list.
@@ -118,6 +136,7 @@ pub async fn upsert_now_playing(
         position_ms: Set(update.position_ms),
         position_at: Set(now),
         live_session_id: Set(None),
+        up_next: Set(serde_json::json!(clean_up_next(update.up_next))),
         updated_at: Set(now),
     };
     now_playing::Entity::insert(row)
@@ -133,6 +152,7 @@ pub async fn upsert_now_playing(
                     Column::IsPlaying,
                     Column::PositionMs,
                     Column::PositionAt,
+                    Column::UpNext,
                     Column::UpdatedAt,
                 ])
                 .to_owned(),
@@ -140,6 +160,22 @@ pub async fn upsert_now_playing(
         .exec_without_returning(db)
         .await?;
     Ok(())
+}
+
+/// At most [`MAX_UP_NEXT`] songs, with any library id dropped.
+fn clean_up_next(mut songs: Vec<UpNextSong>) -> Vec<UpNextSong> {
+    songs.truncate(MAX_UP_NEXT);
+    for song in &mut songs {
+        if song.song_id.as_deref().is_some_and(|id| !is_catalog_id(id)) {
+            song.song_id = None;
+        }
+    }
+    songs
+}
+
+/// A stored up next list, or empty when it is not shaped like one.
+pub fn read_up_next(stored: &serde_json::Value) -> Vec<UpNextSong> {
+    serde_json::from_value(stored.clone()).unwrap_or_default()
 }
 
 /// Removes the user's row. A missing row is a no-op.
@@ -176,6 +212,7 @@ struct ListeningRow {
     position_ms: i64,
     position_at: DateTime<FixedOffset>,
     live_session_id: Option<Uuid>,
+    up_next: serde_json::Value,
     updated_at: DateTime<FixedOffset>,
 }
 
@@ -220,6 +257,7 @@ pub async fn friends_listening(
                 position_ms: row.position_ms,
                 position_at: row.position_at,
                 live_session_id: row.live_session_id,
+                up_next: row.up_next,
                 updated_at: row.updated_at,
             },
         })
@@ -256,8 +294,24 @@ mod tests {
             position_ms,
             position_at: at,
             live_session_id: None,
+            up_next: serde_json::json!([]),
             updated_at: at,
         }
+    }
+
+    #[test]
+    fn up_next_keeps_two_and_drops_library_ids() {
+        let song = |id: &str| UpNextSong {
+            song_id: Some(id.into()),
+            title: "t".into(),
+            artist: None,
+            artwork_url: None,
+        };
+        let cleaned = clean_up_next(vec![song("1"), song("i.abc"), song("3")]);
+        assert_eq!(cleaned.len(), 2);
+        assert_eq!(cleaned[0].song_id.as_deref(), Some("1"));
+        assert_eq!(cleaned[1].song_id, None);
+        assert_eq!(read_up_next(&serde_json::json!({"a": 1})), vec![]);
     }
 
     #[test]

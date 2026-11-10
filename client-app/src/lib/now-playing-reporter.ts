@@ -4,7 +4,9 @@ import type { MusicItem, PlaybackSnapshot } from "@apple-musickit";
 import {
     nowPlayingAction,
     shareableSongId,
+    upNextKey,
     type NowPlayingSample,
+    type UpNextSong,
 } from "./now-playing-change";
 import { useNowPlayingWrites } from "./routes/listening";
 
@@ -19,16 +21,20 @@ const SEND_DELAY_MS = 1_000;
  * `PlaybackProvider`, with the snapshot it already polls. What counts as worth
  * sending is `now-playing-change.ts`.
  *
+ * `upNext` is the next songs in the queue, from `upNextSongs`.
+ *
  * `activeTrack` is null for the preview player, so a preview is never shared,
  * same as it is never counted as a play. Who can see the row is the backend's
  * call, from the user's privacy settings.
  *
- * Only runs in the foreground, like the play recorder. A song left playing in
- * the background stays shown until it would have ended.
+ * Runs in the background too, while iOS keeps the app running (see the
+ * provider's polling). Once the app is suspended nothing is sent, and the
+ * last song stays shown until it would have ended.
  */
 export function useNowPlayingReporter(
     snapshot: PlaybackSnapshot,
     activeTrack: MusicItem | null,
+    upNext: UpNextSong[],
 ) {
     const { putNowPlaying, clearNowPlaying } = useNowPlayingWrites();
     const lastSentRef = useRef<NowPlayingSample | null>(null);
@@ -36,6 +42,7 @@ export function useNowPlayingReporter(
         sample: NowPlayingSample;
         track: MusicItem | null;
         durationMs: number | null;
+        upNext: UpNextSong[];
     } | null>(null);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -45,11 +52,13 @@ export function useNowPlayingReporter(
         latestRef.current = {
             sample: {
                 songId,
+                upNextKey: upNextKey(upNext),
                 isPlaying: snapshot.isPlaying,
                 positionMs: Math.round(snapshot.progress * 1000),
                 at: Date.now(),
             },
             track: activeTrack,
+            upNext,
             durationMs: snapshot.duration
                 ? Math.round(snapshot.duration * 1000)
                 : null,
@@ -84,6 +93,7 @@ export function useNowPlayingReporter(
                         duration_ms: latest.durationMs,
                         is_playing: latest.sample.isPlaying,
                         position_ms: latest.sample.positionMs,
+                        up_next: latest.upNext,
                     });
                 } catch (error) {
                     // the next change or heartbeat sends again
@@ -96,6 +106,7 @@ export function useNowPlayingReporter(
         clearNowPlaying,
         putNowPlaying,
         songId,
+        upNext,
         snapshot.isPlaying,
         snapshot.progress,
         snapshot.duration,

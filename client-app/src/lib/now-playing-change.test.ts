@@ -7,11 +7,13 @@ import {
     HEARTBEAT_MS,
     nowPlayingAction,
     shareableSongId,
+    upNextSongs,
     type NowPlayingSample,
 } from "./now-playing-change.ts";
 
 const sent: NowPlayingSample = {
     songId: "1",
+    upNextKey: "2|3",
     isPlaying: true,
     positionMs: 10_000,
     at: 0,
@@ -76,4 +78,28 @@ test("only catalog ids are shareable", () => {
         "456",
     );
     assert.equal(shareableSongId(null), null);
+});
+
+test("a queue edit is sent", () => {
+    assert.equal(
+        nowPlayingAction(sent, {
+            ...sent,
+            upNextKey: "4|3",
+            positionMs: 10_750,
+            at: 750,
+        }),
+        "put",
+    );
+});
+
+test("up next is the two after the current song, none while shuffled", () => {
+    const track = (id: string) =>
+        ({ id, source: "catalog", title: `t${id}` }) as MusicItem;
+    const queue = ["1", "2", "3", "4"].map(track);
+    assert.deepEqual(
+        upNextSongs(queue, 0, false).map((song) => song.song_id),
+        ["2", "3"],
+    );
+    assert.deepEqual(upNextSongs(queue, 3, false), []);
+    assert.deepEqual(upNextSongs(queue, 0, true), []);
 });

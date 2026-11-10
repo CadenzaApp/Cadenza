@@ -23,10 +23,11 @@ import { trackMetadata } from "./track-metadata";
  * `source` is the playlist or query the active track was queued from, or null.
  * The provider decides it, since only it knows what each queue started with.
  *
- * Only sees what the provider samples, and the provider only polls in the
- * foreground. A song that starts and finishes entirely in the background is not
- * counted, and a listen spanning a background gap is one listen: the tracker
- * keeps its state, so it is neither re-counted nor ended twice.
+ * Only sees what the provider samples. It polls in the background too, every
+ * few seconds, for as long as iOS keeps the app running there. Whatever plays
+ * after the app is suspended is not counted, and a listen spanning that gap is
+ * one listen: the tracker keeps its state, so it is neither re-counted nor
+ * ended twice.
  */
 export function usePlayRecorder(
     snapshot: PlaybackSnapshot,

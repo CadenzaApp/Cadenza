@@ -21,6 +21,7 @@ import { useAppleMusic } from "./apple-music-auth";
 import { withoutExplicit } from "./explicit-filter";
 import { useHideExplicit } from "./use-visible-items";
 import type { PlaySource } from "./play-source";
+import { upNextSongs } from "./now-playing-change";
 import { useNowPlayingReporter } from "./now-playing-reporter";
 import { usePlayRecorder } from "./play-recorder";
 import { useReportOpenedSongs } from "./song-opened";
@@ -148,6 +149,11 @@ export function usePlaybackCommands() {
     return useContext(PlaybackCommandsContext)!;
 }
 
+/** How often the player is read while the app is open. */
+const FOREGROUND_POLL_MS = 750;
+/** How often it is read while the app is in the background and music plays. */
+const BACKGROUND_POLL_MS = 5_000;
+
 export function PlaybackProvider({ children }: { children: ReactNode }) {
     const { isInitializing, ensureConnected } = useAppleMusic();
     const fullPlayback = useMusicAccess().can("fullPlayback");
@@ -233,16 +239,37 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     // counts plays for the activity tags, off the snapshot polled below. a
     // preview is not a listen, so it is not counted
     usePlayRecorder(snapshot, fullPlayback ? activeTrack : null, activeSource);
-    // tells friends what is playing. a preview is not shared either
-    useNowPlayingReporter(snapshot, fullPlayback ? activeTrack : null);
+    // tells friends what is playing and what is next. a preview is not shared
+    // either
+    const shuffled = snapshot.shuffleMode === ShuffleMode.Songs;
+    const upNext = useMemo(
+        () => upNextSongs(queue, resolvedQueueIndex, shuffled),
+        [queue, resolvedQueueIndex, shuffled],
+    );
+    useNowPlayingReporter(snapshot, fullPlayback ? activeTrack : null, upNext);
     // stores each opened song's metadata for the query builder's Metadata fields
     useReportOpenedSongs(activeTrack);
 
     useEffect(() => {
         let active = true;
+        let lastRefreshAt = 0;
 
-        const refreshPlaybackSnapshot = () => {
-            if (!active || AppState.currentState !== "active") return;
+        // fast in the foreground, for the player UI. in the background only
+        // the play recorder and the now playing reporter read the snapshot,
+        // so a few seconds is plenty. iOS keeps the app running there only
+        // while music plays, through the audio background mode in
+        // app.config.js, and suspends it otherwise, so this costs nothing then
+        const refreshPlaybackSnapshot = (force = false) => {
+            if (!active) return;
+            const now = Date.now();
+            const foreground = AppState.currentState === "active";
+            if (
+                !force &&
+                !foreground &&
+                now - lastRefreshAt < BACKGROUND_POLL_MS
+            )
+                return;
+            lastRefreshAt = now;
 
             void (async () => {
                 try {
@@ -253,12 +280,15 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             })();
         };
 
-        refreshPlaybackSnapshot();
-        const interval = setInterval(refreshPlaybackSnapshot, 750);
+        refreshPlaybackSnapshot(true);
+        const interval = setInterval(
+            () => refreshPlaybackSnapshot(),
+            FOREGROUND_POLL_MS,
+        );
         const appStateSubscription = AppState.addEventListener(
             "change",
             (nextAppState) => {
-                if (nextAppState === "active") refreshPlaybackSnapshot();
+                if (nextAppState === "active") refreshPlaybackSnapshot(true);
             },
         );
 

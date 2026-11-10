@@ -23,6 +23,8 @@ pub struct Model {
     pub position_at: DateTimeWithTimeZone,
     pub live_session_id: Option<Uuid>,
     pub updated_at: DateTimeWithTimeZone,
+    #[sea_orm(column_type = "JsonBinary")]
+    pub up_next: Json,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -55,7 +55,7 @@ async fn delete_now_playing(
 /// updated first. `position_ms` is projected to `as_of`.
 ///
 /// ```json
-/// { "listening": [ { "user_id": "...", "username": "ada", "now_playing": { "song_id": "1440857781", "title": "Motion Sickness", "artist": "Phoebe Bridgers", "album": "Stranger in the Alps", "artwork_url": "https://...", "duration_ms": 229000, "position_ms": 61000, "as_of": "2026-11-10T18:00:00Z", "live_session_id": null } } ] }
+/// { "listening": [ { "user_id": "...", "username": "ada", "now_playing": { "song_id": "1440857781", "title": "Motion Sickness", "artist": "Phoebe Bridgers", "album": "Stranger in the Alps", "artwork_url": "https://...", "duration_ms": 229000, "position_ms": 61000, "as_of": "2026-11-10T18:00:00Z", "live_session_id": null, "up_next": [ { "song_id": "1440857790", "title": "Kyoto", "artist": "Phoebe Bridgers", "artwork_url": "https://..." } ] } } ] }
 /// ```
 async fn get_friends_listening(
     State(db): State<DatabaseConnection>,

@@ -37,6 +37,7 @@ import { stopTopicPreview } from "@/lib/topic-preview";
 import { useTopRailInset } from "@/lib/top-rail";
 
 import { CreatePostDialog } from "./CreatePostDialog";
+import { ListeningNowStrip } from "./ListeningNow";
 import { PostCard } from "./PostCard";
 import { topicCreateFields, topicMkId } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
@@ -409,6 +410,7 @@ export function SocialFeedScreen() {
                     onViewableItemsChanged={onViewableItemsChanged}
                     viewabilityConfig={VIEWABILITY_CONFIG}
                     ItemSeparatorComponent={PostSeparator}
+                    ListHeaderComponent={ListeningNowStrip}
                     contentContainerStyle={[
                         {
                             paddingTop: 8,

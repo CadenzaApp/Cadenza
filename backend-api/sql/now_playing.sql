@@ -31,3 +31,8 @@ create table if not exists now_playing (
 
 -- see the note in listening_events.sql
 alter table now_playing disable row level security;
+
+-- the next songs in the player's queue, for display. A json array of up to 2
+-- {song_id, title, artist, artwork_url}, song_id null for a library only song.
+-- Added after the table first shipped
+alter table now_playing add column if not exists up_next jsonb not null default '[]'::jsonb;

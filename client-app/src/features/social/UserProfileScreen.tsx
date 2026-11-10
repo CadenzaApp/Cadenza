@@ -16,6 +16,7 @@ import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 
 import { initialsFromUsername } from "./format";
+import { ProfileListening } from "./ListeningNow";
 import { PostCard } from "./PostCard";
 import type { SocialPost } from "./types";
 
@@ -102,90 +103,96 @@ export function UserProfileScreen({ userId }: Props) {
                     keyboardShouldPersistTaps="handled"
                     keyExtractor={(post) => String(post.post_id)}
                     ListHeaderComponent={
-                        <ProfileHeader
-                            username={username}
-                            bio={bio}
-                            loading={userPostsLoading && !profile}
-                            canEdit={account?.id === userId}
-                            friendCount={profile?.friend_count ?? 0}
-                            canAddFriend={
-                                account != null && account.id !== userId
-                            }
-                            isFriend={
-                                unfriendedFor !== userId &&
-                                (acceptedFor === userId ||
-                                    profile?.is_friend === true)
-                            }
-                            requestReceived={
-                                acceptedFor !== userId &&
-                                unfriendedFor !== userId &&
-                                profile?.friend_request_received === true
-                            }
-                            requestSent={
-                                clearedFor !== userId &&
-                                acceptedFor !== userId &&
-                                (sentTo === userId ||
-                                    (unfriendedFor !== userId &&
-                                        profile?.friend_request_sent === true))
-                            }
-                            requestBusy={
-                                requestFriendLoading ||
-                                cancelFriendRequestLoading
-                            }
-                            onAcceptRequest={() => {
-                                setAcceptedFor(userId);
-                                void requestFriend({ user_id: userId }).catch(
-                                    () =>
+                        <View>
+                            <ProfileHeader
+                                username={username}
+                                bio={bio}
+                                loading={userPostsLoading && !profile}
+                                canEdit={account?.id === userId}
+                                friendCount={profile?.friend_count ?? 0}
+                                canAddFriend={
+                                    account != null && account.id !== userId
+                                }
+                                isFriend={
+                                    unfriendedFor !== userId &&
+                                    (acceptedFor === userId ||
+                                        profile?.is_friend === true)
+                                }
+                                requestReceived={
+                                    acceptedFor !== userId &&
+                                    unfriendedFor !== userId &&
+                                    profile?.friend_request_received === true
+                                }
+                                requestSent={
+                                    clearedFor !== userId &&
+                                    acceptedFor !== userId &&
+                                    (sentTo === userId ||
+                                        (unfriendedFor !== userId &&
+                                            profile?.friend_request_sent ===
+                                                true))
+                                }
+                                requestBusy={
+                                    requestFriendLoading ||
+                                    cancelFriendRequestLoading
+                                }
+                                onAcceptRequest={() => {
+                                    setAcceptedFor(userId);
+                                    void requestFriend({
+                                        user_id: userId,
+                                    }).catch(() =>
                                         setAcceptedFor((current) =>
                                             current === userId ? null : current,
                                         ),
-                                );
-                            }}
-                            onAddFriend={() => {
-                                setClearedFor((current) =>
-                                    current === userId ? null : current,
-                                );
-                                setSentTo(userId);
-                                void requestFriend({ user_id: userId }).catch(
-                                    () =>
+                                    );
+                                }}
+                                onAddFriend={() => {
+                                    setClearedFor((current) =>
+                                        current === userId ? null : current,
+                                    );
+                                    setSentTo(userId);
+                                    void requestFriend({
+                                        user_id: userId,
+                                    }).catch(() =>
                                         setSentTo((current) =>
                                             current === userId ? null : current,
                                         ),
-                                );
-                            }}
-                            onCancelFriend={() => {
-                                setSentTo((current) =>
-                                    current === userId ? null : current,
-                                );
-                                setClearedFor(userId);
-                                void cancelFriendRequest({
-                                    user_id: userId,
-                                }).catch(() =>
-                                    setClearedFor((current) =>
+                                    );
+                                }}
+                                onCancelFriend={() => {
+                                    setSentTo((current) =>
                                         current === userId ? null : current,
-                                    ),
-                                );
-                            }}
-                            onUnfriend={() => {
-                                setSentTo((current) =>
-                                    current === userId ? null : current,
-                                );
-                                setAcceptedFor((current) =>
-                                    current === userId ? null : current,
-                                );
-                                setUnfriendedFor(userId);
-                                void cancelFriendRequest({
-                                    user_id: userId,
-                                }).catch(() =>
-                                    setUnfriendedFor((current) =>
+                                    );
+                                    setClearedFor(userId);
+                                    void cancelFriendRequest({
+                                        user_id: userId,
+                                    }).catch(() =>
+                                        setClearedFor((current) =>
+                                            current === userId ? null : current,
+                                        ),
+                                    );
+                                }}
+                                onUnfriend={() => {
+                                    setSentTo((current) =>
                                         current === userId ? null : current,
-                                    ),
-                                );
-                            }}
-                            onEdit={() =>
-                                router.push("/account-details" as Href)
-                            }
-                        />
+                                    );
+                                    setAcceptedFor((current) =>
+                                        current === userId ? null : current,
+                                    );
+                                    setUnfriendedFor(userId);
+                                    void cancelFriendRequest({
+                                        user_id: userId,
+                                    }).catch(() =>
+                                        setUnfriendedFor((current) =>
+                                            current === userId ? null : current,
+                                        ),
+                                    );
+                                }}
+                                onEdit={() =>
+                                    router.push("/account-details" as Href)
+                                }
+                            />
+                            <ProfileListening userId={userId} />
+                        </View>
                     }
                     renderItem={renderItem}
                     ItemSeparatorComponent={PostSeparator}

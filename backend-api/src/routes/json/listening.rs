@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use crate::db::{
     entity::now_playing,
     listening_history::RecentPlay as DbRecentPlay,
-    now_playing::{ListeningUser, NowPlayingUpdate, projected_position_ms},
+    now_playing::{
+        ListeningUser, NowPlayingUpdate, UpNextSong, projected_position_ms, read_up_next,
+    },
 };
 
 /// `PUT /listening/now-playing` body. `song_id` is the Apple Music catalog id.
@@ -19,6 +21,9 @@ pub struct PutNowPlaying {
     pub duration_ms: Option<i64>,
     pub is_playing: bool,
     pub position_ms: i64,
+    /// The next songs in the queue. Only the first two are kept.
+    #[serde(default)]
+    pub up_next: Vec<UpNextSong>,
 }
 
 impl From<PutNowPlaying> for NowPlayingUpdate {
@@ -32,6 +37,7 @@ impl From<PutNowPlaying> for NowPlayingUpdate {
             duration_ms: body.duration_ms,
             is_playing: body.is_playing,
             position_ms: body.position_ms,
+            up_next: body.up_next,
         }
     }
 }
@@ -49,12 +55,14 @@ pub struct NowPlaying {
     pub position_ms: i64,
     pub as_of: DateTime<Utc>,
     pub live_session_id: Option<Uuid>,
+    pub up_next: Vec<UpNextSong>,
 }
 
 impl NowPlaying {
     pub fn at(row: now_playing::Model, now: DateTime<Utc>) -> Self {
         Self {
             position_ms: projected_position_ms(&row, now),
+            up_next: read_up_next(&row.up_next),
             song_id: row.song_id,
             title: row.title,
             artist: row.artist,

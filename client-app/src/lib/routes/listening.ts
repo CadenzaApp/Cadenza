@@ -1,7 +1,10 @@
 import { useAPIData, useAPIMutation } from "../api-actions";
+import type { UpNextSong } from "../now-playing-change";
 
-/** How often the listening now strip refetches while it is on screen. */
-const FRIENDS_LISTENING_REFRESH_MS = 30_000;
+export type { UpNextSong };
+
+/** How often a listening read refetches while it is on screen. */
+const LISTENING_REFRESH_MS = 10_000;
 
 /**
  * A live now playing row. `position_ms` was the position at `as_of`, the
@@ -18,6 +21,8 @@ export type NowPlaying = {
     position_ms: number;
     as_of: string;
     live_session_id: string | null;
+    /** The next songs in their queue, at most two. Empty while shuffling. */
+    up_next: UpNextSong[];
 };
 
 export type FriendListening = {
@@ -52,14 +57,15 @@ export type NowPlayingUpdate = {
     duration_ms: number | null;
     is_playing: boolean;
     position_ms: number;
+    up_next: UpNextSong[];
 };
 
-/** Friends playing something now, refetched every 30 s while mounted. */
+/** Friends playing something now, refetched every 10 s while mounted. */
 export function useFriendsListening() {
     const x = useAPIData<{ listening: FriendListening[] }>(
         "/listening/friends",
         undefined,
-        { refreshInterval: FRIENDS_LISTENING_REFRESH_MS },
+        { refreshInterval: LISTENING_REFRESH_MS },
     );
     return {
         friendsListening: x.data?.listening,
@@ -68,12 +74,15 @@ export function useFriendsListening() {
     };
 }
 
-/** One user's now playing and recent plays, each as their settings allow. */
+/**
+ * One user's now playing and recent plays, each as their settings allow.
+ * Refetched every 10 s while mounted.
+ */
 export function useUserListening(userId: string | null) {
     const x = useAPIData<UserListening>(
         `/listening/users/${userId}`,
         undefined,
-        { enabled: userId !== null },
+        { enabled: userId !== null, refreshInterval: LISTENING_REFRESH_MS },
     );
     return {
         userListening: x.data,

@@ -25,6 +25,9 @@ module.exports = {
             infoPlist: {
                 NSAppleMusicUsageDescription:
                     "Cadenza needs access to Apple Music to sync and play your library.",
+                // keeps the app running while music plays in the background,
+                // so plays are counted and friends see now playing there too
+                UIBackgroundModes: ["audio"],
             },
         },
         android: {
