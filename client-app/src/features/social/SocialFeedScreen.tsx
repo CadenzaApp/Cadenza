@@ -163,6 +163,16 @@ export function SocialFeedScreen() {
             headerRight: () => (
                 <View className="flex-row items-center gap-2">
                     <GlassIconButton
+                        accessibilityLabel="Notifications"
+                        onPress={() => router.push("/social/notifications")}
+                    >
+                        <Ionicons
+                            name="notifications"
+                            size={22}
+                            color={colors.text}
+                        />
+                    </GlassIconButton>
+                    <GlassIconButton
                         accessibilityLabel="Friends"
                         onPress={() => router.push("/social/friends")}
                     >
