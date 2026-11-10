@@ -18,7 +18,7 @@ use crate::{
     routes::json::social::{
         CreateCommentResponse, CreatePostResponse, FeedResponse, FriendshipsResponse,
         PostCommentsResponse, SocialAuthor, SocialComment, SocialPost, TopicPostsResponse,
-        UserPostsResponse,
+        UserPostsResponse, UserSearchResponse,
     },
     services::social_feed::SocialFeedService,
 };
@@ -333,6 +333,50 @@ async fn delete_friendship(
     Ok(Json(Value::Null))
 }
 
+/// How many people one search returns when it does not say.
+const DEFAULT_USER_SEARCH_LIMIT: u64 = 20;
+/// The most people one search can ask for.
+const MAX_USER_SEARCH_LIMIT: u64 = 50;
+
+#[derive(Deserialize)]
+struct UserSearchQuery {
+    /// A blank search returns no one.
+    #[serde(default)]
+    search: String,
+    /// How many to return, 20 when left out and never more than 50.
+    #[serde(default)]
+    limit: Option<u64>,
+}
+
+/// People whose username contains `search`, other than the caller.
+///
+/// Case insensitive. A blank search returns no one. `limit` defaults to 20
+/// and is at most 50. Username order.
+///
+/// ```json
+/// { "users": [ { "user_id": "...", "username": "ada" } ] }
+/// ```
+async fn search_users(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(query): Query<UserSearchQuery>,
+) -> Result<Json<UserSearchResponse>, CadenzaError> {
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_USER_SEARCH_LIMIT)
+        .clamp(1, MAX_USER_SEARCH_LIMIT);
+    let people = social::search_users(&db, claims.user_id, &query.search, limit).await?;
+    Ok(Json(UserSearchResponse {
+        users: people
+            .into_iter()
+            .map(|person| SocialAuthor {
+                user_id: person.user_id.to_string(),
+                username: person.username,
+            })
+            .collect(),
+    }))
+}
+
 /// The signed-in user's friends and pending requests.
 ///
 /// ```json
@@ -550,6 +594,7 @@ pub fn get_social_router() -> Router<AppState> {
         .route("/posts/views", post(mark_viewed))
         .route("/posts/topic", get(topic_posts))
         .route("/posts/user/{author_id}", get(user_posts))
+        .route("/users", get(search_users))
         .route("/friends", get(friendships))
         .route("/friends/{user_id}/accept", post(accept_friendship))
         .route(

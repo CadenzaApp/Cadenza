@@ -1,4 +1,5 @@
-//! Social posts, likes, comments, view status, interests, and the ranked feed's SQL.
+//! Social posts, likes, comments, view status, interests, friendships, user
+//! search, and the ranked feed's SQL.
 //!
 //! Ranking math that does not need the database lives here too. Turning text
 //! into vectors is `services::social_feed`, which calls the python model.
@@ -941,6 +942,64 @@ pub async fn list_friendships(
     Ok(lists)
 }
 
+/// `%term%` for a case-insensitive contains match. `%`, `_`, and `\` in the
+/// term are escaped so they match themselves.
+fn like_contains_pattern(term: &str) -> String {
+    let mut pattern = String::with_capacity(term.len() + 2);
+    pattern.push('%');
+    for ch in term.chars() {
+        if matches!(ch, '%' | '_' | '\\') {
+            pattern.push('\\');
+        }
+        pattern.push(ch);
+    }
+    pattern.push('%');
+    pattern
+}
+
+const USER_SEARCH_SQL: &str = "\
+SELECT uid AS user_id, username
+FROM profile
+WHERE uid <> $1
+  AND lower(username) LIKE lower($2) ESCAPE '\\'
+ORDER BY username, uid
+LIMIT $3";
+
+/// People whose username contains `search`, other than `viewer_id`.
+///
+/// Case insensitive. A blank or whitespace-only search returns no one.
+/// `limit` is the caller's cap. Username order, then user id.
+/// `sql/profile_username_search.sql` is the index this uses.
+pub async fn search_users(
+    db: &DatabaseConnection,
+    viewer_id: Uuid,
+    search: &str,
+    limit: u64,
+) -> Result<Vec<FriendPerson>, CadenzaError> {
+    let term = search.trim();
+    if term.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = UserSearchRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        USER_SEARCH_SQL,
+        vec![
+            viewer_id.into(),
+            like_contains_pattern(term).into(),
+            (limit as i64).into(),
+        ],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| FriendPerson {
+            user_id: row.user_id,
+            username: row.username,
+        })
+        .collect())
+}
+
 /// Posts whose topic is this Apple Music catalog id, most liked first.
 /// Equal scores fall back to newest first, then post id.
 pub async fn get_topic_posts(
@@ -1582,6 +1641,12 @@ struct FriendshipListRow {
 }
 
 #[derive(Debug, FromQueryResult)]
+struct UserSearchRow {
+    user_id: Uuid,
+    username: String,
+}
+
+#[derive(Debug, FromQueryResult)]
 struct ProfileRow {
     uid: Uuid,
     username: String,
@@ -1692,6 +1757,22 @@ mod tests {
     fn vector_literal_round_trips() {
         let text = vector_literal(&[0.5, -1.0, 2.0]);
         assert_eq!(parse_vector(&text).unwrap(), vec![0.5, -1.0, 2.0]);
+    }
+
+    #[test]
+    fn user_search_pattern_escapes_like_wildcards() {
+        assert_eq!(like_contains_pattern("ada"), "%ada%");
+        assert_eq!(like_contains_pattern("100%"), "%100\\%%");
+        assert_eq!(like_contains_pattern("a_b"), "%a\\_b%");
+        assert_eq!(like_contains_pattern("a\\b"), "%a\\\\b%");
+    }
+
+    #[test]
+    fn user_search_matches_a_username_and_skips_the_caller() {
+        assert!(USER_SEARCH_SQL.contains("uid <> $1"));
+        assert!(USER_SEARCH_SQL.contains("lower(username) LIKE lower($2) ESCAPE '\\'"));
+        assert!(USER_SEARCH_SQL.contains("ORDER BY username, uid"));
+        assert!(USER_SEARCH_SQL.contains("LIMIT $3"));
     }
 
     #[test]

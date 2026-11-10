@@ -24,6 +24,7 @@ import type {
     InterestScoreDelta,
     SocialComment,
     Friendships,
+    SocialPerson,
     SocialPost,
     SocialUserProfile,
 } from "@/lib/types";
@@ -616,6 +617,34 @@ export function useAcceptFriendRequest() {
         acceptFriendRequestLoading: x.isMutating,
         resetAcceptFriendRequest: x.reset,
         acceptFriendRequest: x.trigger,
+    };
+}
+
+type UserSearchResponse = {
+    users: SocialPerson[];
+};
+
+const EMPTY_SEARCH: SocialPerson[] = [];
+
+/**
+ * People whose username contains `search`, other than the signed-in user.
+ * A blank search is not fetched.
+ *
+ * ```ts
+ * const { users, userSearchLoading, userSearchErr } = useUserSearch(term);
+ * ```
+ */
+export function useUserSearch(search: string) {
+    const term = search.trim();
+    const x = useAPIData<UserSearchResponse>(
+        "/social/users",
+        { search: term },
+        { keepPreviousData: true, enabled: term.length > 0 },
+    );
+    return {
+        users: x.data?.users ?? EMPTY_SEARCH,
+        userSearchLoading: x.isLoading,
+        userSearchErr: x.error,
     };
 }
 

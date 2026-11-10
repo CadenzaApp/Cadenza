@@ -179,3 +179,9 @@ pub struct FriendshipsResponse {
     pub outgoing: Vec<SocialAuthor>,
     pub friends: Vec<SocialAuthor>,
 }
+
+/// `{users}` from `GET /social/users`. Each person is `{user_id, username}`.
+#[derive(Serialize)]
+pub struct UserSearchResponse {
+    pub users: Vec<SocialAuthor>,
+}

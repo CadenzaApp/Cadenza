@@ -17,45 +17,19 @@ import {
     useAcceptFriendRequest,
     useCancelFriendRequest,
     useFriendships,
+    useUserSearch,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useAppTheme } from "@/lib/theme";
 import type { SocialPerson } from "@/lib/types";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 import { initialsFromUsername } from "./format";
 
-/** Stand-in people until search is wired to the API. */
-const PLACEHOLDER_SEARCH_RESULTS: SocialPerson[] = [
-    "ada.lovelace",
-    "miles.davis",
-    "nina.simone",
-    "ella.fitzgerald",
-    "john.coltrane",
-    "billie.holiday",
-    "duke.ellington",
-    "charlie.parker",
-    "thelonious.monk",
-    "art.blakey",
-    "sonny.rollins",
-    "sarah.vaughan",
-    "dizzy.gillespie",
-    "herbie.hancock",
-    "wayne.shorter",
-    "cannonball.adderley",
-    "oscar.peterson",
-    "bill.evans",
-    "chet.baker",
-    "ornette.coleman",
-    "alice.coltrane",
-    "charles.mingus",
-    "max.roach",
-    "ahmad.jamal",
-].map((username) => ({
-    user_id: `placeholder-${username}`,
-    username,
-}));
+/** How long typing has to pause before a user search runs. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 /** Search, then incoming requests, outgoing requests, and friends. */
 export function FriendsScreen() {
@@ -118,7 +92,7 @@ export function FriendsScreen() {
                     ]}
                     showsVerticalScrollIndicator={false}
                 >
-                    <SearchSection />
+                    <SearchSection onPress={openProfile} />
                     {incoming.length > 0 ? (
                         <PersonSection
                             title="Incoming requests"
@@ -223,12 +197,31 @@ export function FriendsScreen() {
     );
 }
 
-function SearchSection() {
+function SearchSection({
+    onPress,
+}: {
+    onPress: (userId: string) => void;
+}) {
     const { height: screenHeight } = useWindowDimensions();
     const [query, setQuery] = useState("");
     const [headerHeight, setHeaderHeight] = useState(0);
     const sectionMaxHeight = screenHeight / 2;
     const listMaxHeight = Math.max(0, sectionMaxHeight - headerHeight);
+    const settled = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS);
+    // clearing the field drops the list at once, with no pause
+    const term = query.trim() && settled ? settled : "";
+    const { users, userSearchLoading, userSearchErr } = useUserSearch(term);
+    const shown = term.length > 0 ? users : [];
+    const status =
+        term.length === 0
+            ? null
+            : userSearchErr
+              ? "Couldn't search."
+              : userSearchLoading && shown.length === 0
+                ? "Loading..."
+                : shown.length === 0
+                  ? "No people found."
+                  : null;
 
     return (
         <View style={{ maxHeight: sectionMaxHeight }}>
@@ -258,9 +251,18 @@ function SearchSection() {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator
             >
-                {PLACEHOLDER_SEARCH_RESULTS.map((person) => (
-                    <PersonRow key={person.user_id} person={person} />
+                {shown.map((person) => (
+                    <PersonRow
+                        key={person.user_id}
+                        person={person}
+                        onPress={onPress}
+                    />
                 ))}
+                {status ? (
+                    <Text className="py-2 text-sm text-muted-foreground">
+                        {status}
+                    </Text>
+                ) : null}
             </ScrollView>
         </View>
     );
