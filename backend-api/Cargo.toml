@@ -18,8 +18,6 @@ sea-orm = { version = "2.0.0-rc.37", features = [
     "runtime-tokio-native-tls",
     "macros",
     "entity-registry",
-    "schema-sync",
-    "postgres-vector",
 ] }
 sea-query = "1.0.0-rc.9"
 dotenvy = "0.15"

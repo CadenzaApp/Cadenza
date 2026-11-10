@@ -136,7 +136,7 @@ cargo test
 Rebuilding db entities after a schema change:
 
 ```sh
-cargo install sea-orm-cli@2.0.0-rc.37 --locked
+cargo install sea-orm-cli@2.0.4 --locked
 sea-orm-cli generate entity -o ./src/db/entity --entity-format compact
 ```
 
@@ -147,12 +147,8 @@ fields in the dense format.
 ## Schema changes
 
 There is no migration runner. SeaORM entities are generated **from** the live database, so the
-schema has to change first and the entities are regenerated after.
-
-Startup also calls `get_schema_registry(...).sync` on the pool. That creates any table, column,
-unique key, or foreign key the entity modules declare and the database is missing. It does not
-drop or rewrite anything already there. Indexes, defaults, and the partial activity-tag index
-still come from `sql/`.
+schema has to change first and the entities are regenerated after. Startup does not create or
+alter tables. Indexes, defaults, and the partial activity-tag index come from `sql/`.
 
 The schema was built by applying SQL to Supabase by hand. Keep doing that, but leave the SQL in
 `sql/` so it is reviewable and a fresh database can be stood up:
