@@ -965,6 +965,24 @@ WHERE uid <> $1
 ORDER BY username, uid
 LIMIT $3";
 
+/// The statement [`search_users`] runs. `None` when the trimmed search is
+/// empty, so a blank box does not hit the database.
+fn user_search_statement(viewer_id: Uuid, search: &str, limit: u64) -> Option<Statement> {
+    let term = search.trim();
+    if term.is_empty() {
+        return None;
+    }
+    Some(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        USER_SEARCH_SQL,
+        vec![
+            viewer_id.into(),
+            like_contains_pattern(term).into(),
+            (limit as i64).into(),
+        ],
+    ))
+}
+
 /// People whose username contains `search`, other than `viewer_id`.
 ///
 /// Case insensitive. A blank or whitespace-only search returns no one.
@@ -976,21 +994,10 @@ pub async fn search_users(
     search: &str,
     limit: u64,
 ) -> Result<Vec<FriendPerson>, CadenzaError> {
-    let term = search.trim();
-    if term.is_empty() {
+    let Some(statement) = user_search_statement(viewer_id, search, limit) else {
         return Ok(Vec::new());
-    }
-    let rows = UserSearchRow::find_by_statement(Statement::from_sql_and_values(
-        DbBackend::Postgres,
-        USER_SEARCH_SQL,
-        vec![
-            viewer_id.into(),
-            like_contains_pattern(term).into(),
-            (limit as i64).into(),
-        ],
-    ))
-    .all(db)
-    .await?;
+    };
+    let rows = UserSearchRow::find_by_statement(statement).all(db).await?;
     Ok(rows
         .into_iter()
         .map(|row| FriendPerson {
@@ -1762,17 +1769,45 @@ mod tests {
     #[test]
     fn user_search_pattern_escapes_like_wildcards() {
         assert_eq!(like_contains_pattern("ada"), "%ada%");
+        assert_eq!(like_contains_pattern("o'brien"), "%o'brien%");
         assert_eq!(like_contains_pattern("100%"), "%100\\%%");
         assert_eq!(like_contains_pattern("a_b"), "%a\\_b%");
         assert_eq!(like_contains_pattern("a\\b"), "%a\\\\b%");
     }
 
     #[test]
-    fn user_search_matches_a_username_and_skips_the_caller() {
-        assert!(USER_SEARCH_SQL.contains("uid <> $1"));
-        assert!(USER_SEARCH_SQL.contains("lower(username) LIKE lower($2) ESCAPE '\\'"));
-        assert!(USER_SEARCH_SQL.contains("ORDER BY username, uid"));
-        assert!(USER_SEARCH_SQL.contains("LIMIT $3"));
+    fn user_search_skips_a_blank_term() {
+        let viewer = Uuid::nil();
+        assert!(user_search_statement(viewer, "", 20).is_none());
+        assert!(user_search_statement(viewer, "   ", 20).is_none());
+        assert!(user_search_statement(viewer, "\n\t", 20).is_none());
+    }
+
+    #[test]
+    fn user_search_binds_the_caller_the_pattern_and_the_limit() {
+        let viewer = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+        let statement = user_search_statement(viewer, "  Ada_x  ", 20).unwrap();
+
+        assert!(statement.sql.contains("uid <> $1"), "{}", statement.sql);
+        assert!(
+            statement
+                .sql
+                .contains("lower(username) LIKE lower($2) ESCAPE '\\'"),
+            "{}",
+            statement.sql
+        );
+        assert!(
+            statement.sql.contains("ORDER BY username, uid"),
+            "{}",
+            statement.sql
+        );
+        assert!(statement.sql.contains("LIMIT $3"), "{}", statement.sql);
+        assert!(!statement.sql.contains("Ada_x"), "{}", statement.sql);
+
+        let values = &statement.values.as_ref().unwrap().0;
+        assert_eq!(values[0], Value::from(viewer));
+        assert_eq!(values[1], Value::from("%Ada\\_x%"));
+        assert_eq!(values[2], Value::from(20_i64));
     }
 
     #[test]
