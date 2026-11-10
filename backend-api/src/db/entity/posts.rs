@@ -10,11 +10,9 @@ pub struct Model {
     pub user_id: Uuid,
     #[sea_orm(column_type = "Text")]
     pub content: String,
-    pub embedding: PgVector,
     pub likes: i64,
     pub created_at: DateTimeWithTimeZone,
     pub hot_score: i64,
-    pub embedding_w_bday: Option<PgVector>,
     #[sea_orm(column_type = "Text", nullable)]
     pub topic_mk_id: Option<String>,
     pub comments: i64,

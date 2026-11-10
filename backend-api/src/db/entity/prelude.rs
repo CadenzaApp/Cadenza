@@ -20,6 +20,7 @@ pub use super::profile::Entity as Profile;
 pub use super::saved_queries::Entity as SavedQueries;
 pub use super::saved_query_songs::Entity as SavedQuerySongs;
 pub use super::tags::Entity as Tags;
+pub use super::untitled_table::Entity as UntitledTable;
 pub use super::user_settings::Entity as UserSettings;
 pub use super::user_songs::Entity as UserSongs;
 pub use super::user_tags_applied::Entity as UserTagsApplied;

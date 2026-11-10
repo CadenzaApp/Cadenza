@@ -23,6 +23,7 @@ pub mod saved_queries;
 pub mod saved_query_songs;
 pub mod sea_orm_active_enums;
 pub mod tags;
+pub mod untitled_table;
 pub mod user_settings;
 pub mod user_songs;
 pub mod user_tags_applied;
