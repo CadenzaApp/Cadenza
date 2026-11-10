@@ -7,10 +7,11 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import {
     useAcceptFriendRequest,
@@ -25,7 +26,38 @@ import type { SocialPerson } from "@/lib/types";
 
 import { initialsFromUsername } from "./format";
 
-/** Incoming requests, then outgoing requests, then friends. */
+/** Stand-in people until search is wired to the API. */
+const PLACEHOLDER_SEARCH_RESULTS: SocialPerson[] = [
+    "ada.lovelace",
+    "miles.davis",
+    "nina.simone",
+    "ella.fitzgerald",
+    "john.coltrane",
+    "billie.holiday",
+    "duke.ellington",
+    "charlie.parker",
+    "thelonious.monk",
+    "art.blakey",
+    "sonny.rollins",
+    "sarah.vaughan",
+    "dizzy.gillespie",
+    "herbie.hancock",
+    "wayne.shorter",
+    "cannonball.adderley",
+    "oscar.peterson",
+    "bill.evans",
+    "chet.baker",
+    "ornette.coleman",
+    "alice.coltrane",
+    "charles.mingus",
+    "max.roach",
+    "ahmad.jamal",
+].map((username) => ({
+    user_id: `placeholder-${username}`,
+    username,
+}));
+
+/** Search, then incoming requests, outgoing requests, and friends. */
 export function FriendsScreen() {
     const navigation = useNavigation();
     const router = useRouter();
@@ -86,6 +118,7 @@ export function FriendsScreen() {
                     ]}
                     showsVerticalScrollIndicator={false}
                 >
+                    <SearchSection />
                     {incoming.length > 0 ? (
                         <PersonSection
                             title="Incoming requests"
@@ -190,6 +223,95 @@ export function FriendsScreen() {
     );
 }
 
+function SearchSection() {
+    const { height: screenHeight } = useWindowDimensions();
+    const [query, setQuery] = useState("");
+    const [headerHeight, setHeaderHeight] = useState(0);
+    const sectionMaxHeight = screenHeight / 2;
+    const listMaxHeight = Math.max(0, sectionMaxHeight - headerHeight);
+
+    return (
+        <View style={{ maxHeight: sectionMaxHeight }}>
+            <View
+                className="gap-2 pb-2 pt-3"
+                onLayout={(event) =>
+                    setHeaderHeight(event.nativeEvent.layout.height)
+                }
+            >
+                <Text className="text-sm font-semibold text-muted-foreground">
+                    search
+                </Text>
+                <Input
+                    value={query}
+                    onChangeText={setQuery}
+                    placeholder="Find people"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                    accessibilityLabel="Search people"
+                />
+            </View>
+            <ScrollView
+                style={{ maxHeight: listMaxHeight }}
+                contentContainerClassName="pb-3"
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+            >
+                {PLACEHOLDER_SEARCH_RESULTS.map((person) => (
+                    <PersonRow key={person.user_id} person={person} />
+                ))}
+            </ScrollView>
+        </View>
+    );
+}
+
+function PersonRow({
+    person,
+    onPress,
+    actions,
+}: {
+    person: SocialPerson;
+    onPress?: (userId: string) => void;
+    actions?: ReactNode;
+}) {
+    const identity = (
+        <>
+            <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
+                <Text className="text-sm font-semibold text-foreground">
+                    {initialsFromUsername(person.username)}
+                </Text>
+            </View>
+            <Text
+                className="min-w-0 flex-1 text-base text-foreground"
+                numberOfLines={1}
+            >
+                {person.username}
+            </Text>
+        </>
+    );
+
+    return (
+        <View className="flex-row items-center gap-3 py-2">
+            {onPress ? (
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={person.username}
+                    onPress={() => onPress(person.user_id)}
+                    className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-60"
+                >
+                    {identity}
+                </Pressable>
+            ) : (
+                <View className="min-w-0 flex-1 flex-row items-center gap-3">
+                    {identity}
+                </View>
+            )}
+            {actions}
+        </View>
+    );
+}
+
 function PersonSection({
     title,
     people,
@@ -209,30 +331,12 @@ function PersonSection({
                 {title}
             </Text>
             {people.map((person) => (
-                <View
+                <PersonRow
                     key={person.user_id}
-                    className="flex-row items-center gap-3 py-2"
-                >
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={person.username}
-                        onPress={() => onPress(person.user_id)}
-                        className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-60"
-                    >
-                        <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
-                            <Text className="text-sm font-semibold text-foreground">
-                                {initialsFromUsername(person.username)}
-                            </Text>
-                        </View>
-                        <Text
-                            className="min-w-0 flex-1 text-base text-foreground"
-                            numberOfLines={1}
-                        >
-                            {person.username}
-                        </Text>
-                    </Pressable>
-                    {renderActions?.(person)}
-                </View>
+                    person={person}
+                    onPress={onPress}
+                    actions={renderActions?.(person)}
+                />
             ))}
             {emptyLabel ? (
                 <Text className="py-2 text-sm text-muted-foreground">
