@@ -8,6 +8,13 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(column_type = "Text", unique_key = "interests_name_interest_type_key")]
     pub name: String,
+    #[sea_orm(
+        ignore,
+        column_type = "custom(\"vector\")",
+        select_as = "text",
+        nullable
+    )]
+    pub embedding: Option<String>,
     #[sea_orm(primary_key)]
     pub interest_id: i64,
     #[sea_orm(unique_key = "interests_name_interest_type_key")]
