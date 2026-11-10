@@ -1,0 +1,64 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+    applyOps,
+    expectedPositionMs,
+    reconcile,
+    shouldCorrectDrift,
+    type LocalQueue,
+} from "./session-reconciler.ts";
+
+/** Reconciles, applies, and checks the upcoming songs now match. */
+function check(local: LocalQueue, target: string[]) {
+    const ops = reconcile(local, target);
+    assert.ok(!ops.some((op) => op.kind === "replace"), "should not replace");
+    const after = applyOps(local, ops);
+    assert.deepEqual(after.slice(local.index), target);
+    return ops;
+}
+
+test("a different current song replaces the queue", () => {
+    assert.deepEqual(reconcile({ songIds: ["a", "b"], index: 0 }, ["b", "c"]), [
+        { kind: "replace" },
+    ]);
+    assert.deepEqual(reconcile({ songIds: [], index: -1 }, ["a"]), [
+        { kind: "replace" },
+    ]);
+});
+
+test("an in sync queue needs nothing", () => {
+    assert.deepEqual(
+        reconcile({ songIds: ["a", "b", "c"], index: 0 }, ["a", "b", "c"]),
+        [],
+    );
+    assert.deepEqual(reconcile({ songIds: ["a"], index: 0 }, []), []);
+});
+
+test("songs added, moved, and removed upstream are mirrored", () => {
+    check({ songIds: ["a", "b"], index: 0 }, ["a", "b", "c"]);
+    check({ songIds: ["a", "b", "c", "d"], index: 0 }, ["a", "d", "b", "c"]);
+    check({ songIds: ["a", "b", "c", "d"], index: 0 }, ["a", "c"]);
+    check({ songIds: ["a", "b", "c"], index: 0 }, ["a", "x", "c", "y"]);
+});
+
+test("songs already played before the current one are left alone", () => {
+    const ops = check({ songIds: ["old", "a", "b"], index: 1 }, [
+        "a",
+        "c",
+        "b",
+    ]);
+    assert.ok(ops.every((op) => op.kind !== "remove" || op.index > 1));
+});
+
+test("expected position runs while playing only", () => {
+    assert.equal(expectedPositionMs(10_000, 1_000, true, 4_000), 13_000);
+    assert.equal(expectedPositionMs(10_000, 1_000, false, 4_000), 10_000);
+    assert.equal(expectedPositionMs(10_000, 5_000, true, 4_000), 10_000);
+});
+
+test("drift is corrected past 2 s, at most every 5 s", () => {
+    assert.equal(shouldCorrectDrift(10_000, 11_500, 60_000), false);
+    assert.equal(shouldCorrectDrift(10_000, 12_500, 60_000), true);
+    assert.equal(shouldCorrectDrift(10_000, 12_500, 1_000), false);
+});

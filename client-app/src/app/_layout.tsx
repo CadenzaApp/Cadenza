@@ -5,6 +5,7 @@ import AccountProvider from "@/lib/account";
 import { AppleMusicProvider } from "@/lib/apple-music-auth";
 import { SongInitProvider } from "@/lib/song-init";
 import { ListeningEventProvider } from "@/lib/listening-events";
+import { LiveSessionRunner } from "@/features/live-session/live-session-runner";
 import { PlaybackProvider } from "@/lib/playback";
 import { TasksHost, TasksProvider } from "@/components/custom/tasks";
 import { AppleMusicSessionGuard } from "@/features/account/apple-music-session-guard";
@@ -30,6 +31,7 @@ export default function RootLayout() {
                             <SongInitProvider>
                                 <ListeningEventProvider>
                                     <PlaybackProvider>
+                                        <LiveSessionRunner />
                                         <AppThemeProvider>
                                             <MusicListPreferencesProvider>
                                                 <BottomBarVisibilityProvider>

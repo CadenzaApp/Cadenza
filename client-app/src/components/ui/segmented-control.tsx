@@ -5,35 +5,49 @@ import { GlassPanel } from "@/components/ui/glass-panel";
 import type { IoniconName } from "@/components/ui/ionicon-name";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 
 export type SegmentOption<T extends string> = {
     value: T;
     label: string;
     icon?: IoniconName;
+    /** Shown but not pickable, like a mode this phone cannot do. */
+    disabled?: boolean;
 };
 
 /**
  * A row of equal options on a glass panel, one picked, filled with the
- * accent. A radio group to screen readers.
+ * accent. A radio group to screen readers. `sm` is a slim row of labels, for
+ * filters and tabs inside a screen; icons are left out at that size.
  */
 export function SegmentedControl<T extends string>({
     options,
     value,
     onChange,
+    size = "md",
 }: {
     options: readonly SegmentOption<T>[];
     value: T;
     onChange: (value: T) => void;
+    size?: "md" | "sm";
 }) {
     return (
         <GlassPanel>
-            <View accessibilityRole="radiogroup" className="flex-row gap-2 p-2">
+            <View
+                accessibilityRole="radiogroup"
+                className={cn(
+                    "flex-row",
+                    size === "sm" ? "gap-1 p-1" : "gap-2 p-2",
+                )}
+            >
                 {options.map((option) => (
                     <Segment
                         key={option.value}
                         label={option.label}
-                        icon={option.icon}
+                        icon={size === "sm" ? undefined : option.icon}
                         selected={option.value === value}
+                        disabled={option.disabled}
+                        size={size}
                         onPress={() => onChange(option.value)}
                     />
                 ))}
@@ -52,11 +66,15 @@ function Segment({
     label,
     icon,
     selected,
+    disabled,
+    size,
     onPress,
 }: {
     label: string;
     icon?: IoniconName;
     selected: boolean;
+    disabled?: boolean;
+    size: "md" | "sm";
     onPress: () => void;
 }) {
     const { colors } = useAppTheme();
@@ -66,13 +84,17 @@ function Segment({
         <Pressable
             accessibilityRole="radio"
             accessibilityLabel={label}
-            accessibilityState={{ checked: selected }}
+            accessibilityState={{ checked: selected, disabled }}
+            disabled={disabled}
             onPress={onPress}
-            className="flex-1 active:opacity-60"
+            className={cn("flex-1 active:opacity-60", disabled && "opacity-40")}
         >
             <View
                 collapsable={false}
-                className="h-16 items-center justify-center gap-1 overflow-hidden rounded-2xl"
+                className={cn(
+                    "items-center justify-center overflow-hidden",
+                    size === "sm" ? "h-9 rounded-xl" : "h-16 gap-1 rounded-2xl",
+                )}
                 style={{
                     backgroundColor: selected ? colors.brand : "transparent",
                 }}
@@ -83,6 +105,7 @@ function Segment({
                 <Text
                     className="text-sm font-semibold"
                     style={{ color: contentColor }}
+                    numberOfLines={1}
                 >
                     {label}
                 </Text>
