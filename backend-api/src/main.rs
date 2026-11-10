@@ -19,16 +19,20 @@ use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
     routes::{
         analytics::get_analytics_router, assistant::get_assistant_router,
-        events::get_events_router, listening::get_listening_router, profile::get_profile_router,
-        queries::get_queries_router, saved_queries::get_saved_queries_router,
-        settings::get_settings_router, social::get_social_router, songs::get_songs_router,
-        tags::get_tags_router,
+        events::get_events_router, invites::get_invites_router, listening::get_listening_router,
+        live_sessions::get_live_sessions_router, profile::get_profile_router,
+        queries::get_queries_router, realtime::get_realtime_router,
+        saved_queries::get_saved_queries_router, settings::get_settings_router,
+        shared_playlists::get_shared_playlists_router, social::get_social_router,
+        songs::get_songs_router, tags::get_tags_router,
     },
     services::{
         assistant::{AssistantService, model::OpenAiAssistantModel},
         default_tags::{BackfillConfig, spawn_default_tag_backfill},
+        invite_codes::RedeemLimiter,
         metadata_tags::{MetadataCrawlConfig, MetadataCrawler, spawn_metadata_crawl},
         notification::spawn_notification_cleanup,
+        realtime::{InMemoryBus, SharedEventBus},
         social_feed::{self, SocialFeedService},
         song_metadata::SongMetadataService,
         tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
@@ -44,6 +48,9 @@ struct AppState {
     metadata_crawler: MetadataCrawler,
     social_feed_service: SocialFeedService,
     assistant_service: AssistantService,
+    /// Pushes "this changed" to realtime subscribers. See services::realtime.
+    event_bus: SharedEventBus,
+    redeem_limiter: RedeemLimiter,
 }
 
 /// The pool we are allowed to open against Supabase's pooler.
@@ -157,6 +164,8 @@ async fn main() {
         metadata_crawler,
         social_feed_service,
         assistant_service,
+        event_bus: std::sync::Arc::new(InMemoryBus::new()),
+        redeem_limiter: RedeemLimiter::new(),
     };
 
     // route paths
@@ -172,6 +181,10 @@ async fn main() {
         .nest("/analytics", get_analytics_router())
         .nest("/assistant", get_assistant_router())
         .nest("/listening", get_listening_router())
+        .nest("/invites", get_invites_router())
+        .nest("/shared-playlists", get_shared_playlists_router())
+        .nest("/live-sessions", get_live_sessions_router())
+        .nest("/realtime", get_realtime_router())
         .route("/test", axum::routing::get(async || "server is reachable"))
         .with_state(app_state)
         .layer(middleware::from_fn(request_log::log_request));

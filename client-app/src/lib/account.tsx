@@ -2,6 +2,7 @@ import { supabase } from "./supabase";
 import { useState, useEffect, useRef, createContext, useContext } from "react";
 import { createProfile } from "./create-profile";
 import { clearSavedReads } from "./saved-reads-store";
+import { resetRealtime } from "./realtime";
 import { clearCache } from "./swr-utils";
 
 /**
@@ -55,7 +56,11 @@ export default function AccountProvider({ children }: Props) {
             ...prev,
             account: acc,
         }));
-        if (changed) clearCache();
+        if (changed) {
+            clearCache();
+            // a socket authed as the old account must not keep pushing to the new one
+            resetRealtime();
+        }
     }
 
     /**

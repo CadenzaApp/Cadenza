@@ -80,7 +80,10 @@ impl NowPlaying {
 pub struct FriendListening {
     pub user_id: Uuid,
     pub username: String,
+    /// `live_session_id` is set when they host or play along in a session.
     pub now_playing: NowPlaying,
+    /// The viewer may join that session without a code.
+    pub can_join: bool,
 }
 
 impl FriendListening {
@@ -88,6 +91,7 @@ impl FriendListening {
         Self {
             user_id: user.user_id,
             username: user.username,
+            can_join: user.can_join,
             now_playing: NowPlaying::at(user.now_playing, now),
         }
     }

@@ -903,7 +903,7 @@ pub async fn friend_request_sent(
 /// Whether `viewer_id` and `other_id` have a completed friendship.
 /// The same user is never their own friend.
 pub async fn is_friend(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     viewer_id: Uuid,
     other_id: Uuid,
 ) -> Result<bool, CadenzaError> {

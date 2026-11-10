@@ -4,7 +4,7 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveValue::Set, DatabaseConnection, EntityTrait, Iterable, prelude::Uuid,
+    ActiveValue::Set, ConnectionTrait, DatabaseConnection, EntityTrait, Iterable, prelude::Uuid,
     sea_query::OnConflict,
 };
 
@@ -36,7 +36,7 @@ fn default_privacy(user_id: Uuid) -> privacy_settings::Model {
 /// Returns the user's privacy settings, or the defaults when they have never
 /// changed one.
 pub async fn get_privacy(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: Uuid,
 ) -> Result<privacy_settings::Model, CadenzaError> {
     Ok(privacy_settings::Entity::find_by_id(user_id)

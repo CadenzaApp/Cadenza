@@ -15,10 +15,11 @@
 
 use chrono::{DateTime, FixedOffset, Utc};
 use sea_orm::{
-    ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, FromQueryResult,
-    Statement, TransactionTrait, Value, prelude::Uuid,
+    ConnectionTrait, DatabaseTransaction, DbBackend, FromQueryResult, Statement, Value,
+    prelude::Uuid,
 };
 
+use crate::db::Db;
 use crate::db::{
     audience::{PrivacyField, can_see_field},
     invites::{InviteTargetRef, revoke_invites_for},
@@ -209,7 +210,7 @@ async fn actor_for<C: ConnectionTrait>(
 
 /// Whether `user_id` is in the open session, for the realtime subscribe check.
 pub async fn is_participant(
-    db: &DatabaseConnection,
+    db: &impl Db,
     session_id: Uuid,
     user_id: Uuid,
 ) -> Result<bool, CadenzaError> {
@@ -352,7 +353,7 @@ async fn renumber(txn: &DatabaseTransaction, session_id: Uuid) -> Result<(), Cad
 /// Starts a session hosted by `host_id`, or returns the open one they already
 /// have, so a double tap does not fail. Returns its id.
 pub async fn start_session(
-    db: &DatabaseConnection,
+    db: &impl Db,
     host_id: Uuid,
     name: &str,
     default_role: SessionRole,
@@ -412,10 +413,7 @@ async fn end_stale_sessions_of<C: ConnectionTrait>(
 
 /// The open session `user_id` hosts or is in, if any. Newest first, since
 /// someone could be in more than one.
-pub async fn current_session_id(
-    db: &DatabaseConnection,
-    user_id: Uuid,
-) -> Result<Option<Uuid>, CadenzaError> {
+pub async fn current_session_id(db: &impl Db, user_id: Uuid) -> Result<Option<Uuid>, CadenzaError> {
     let row = db
         .query_one_raw(stmt(
             "SELECT s.session_id FROM live_session_members m
@@ -437,7 +435,7 @@ pub async fn current_session_id(
 /// The session as a member sees it. `SessionEnded` once it is over, with the
 /// end written if the host simply went quiet.
 pub async fn get_snapshot(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
 ) -> Result<SessionSnapshot, CadenzaError> {
@@ -533,7 +531,7 @@ pub fn projected_playback(
 /// `session_join` audience must allow the caller. A banned member cannot
 /// rejoin either way. Returns the new version.
 pub async fn join_session(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     via_code: bool,
@@ -564,7 +562,7 @@ pub async fn join_session(
     }
     if !via_code {
         let open_to_audience = session.allow_join_without_code
-            && can_see_field(db, user_id, session.host_id, PrivacyField::SessionJoin).await?;
+            && can_see_field(&txn, user_id, session.host_id, PrivacyField::SessionJoin).await?;
         if !open_to_audience {
             return Err(CadenzaError::Forbidden(
                 "this session needs an invite code".into(),
@@ -599,7 +597,7 @@ pub enum Left {
 
 /// Leaves. The host leaving ends the session.
 pub async fn leave_session(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
 ) -> Result<Left, CadenzaError> {
@@ -633,7 +631,7 @@ async fn end_locked(txn: &DatabaseTransaction, session: &SessionRow) -> Result<i
 
 /// Ends the session. Host only. Returns the final version.
 pub async fn end_session(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
 ) -> Result<i64, CadenzaError> {
@@ -646,7 +644,7 @@ pub async fn end_session(
 
 /// Changes the host's settings. Returns the new version.
 pub async fn update_session(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     patch: SessionPatch,
@@ -683,7 +681,7 @@ pub async fn update_session(
 
 /// Sets a member's role. Host only. Returns the new version.
 pub async fn set_member_role(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     member_id: Uuid,
@@ -714,7 +712,7 @@ pub async fn set_member_role(
 /// Removes a member for good: they cannot rejoin, code or not. Host only.
 /// Returns the new version.
 pub async fn kick_member(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     member_id: Uuid,
@@ -744,7 +742,7 @@ pub async fn kick_member(
 /// Sets the caller's own listen mode: `remote` or `synced`. Returns the new
 /// version.
 pub async fn set_listen_mode(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     mode: &str,
@@ -771,7 +769,7 @@ pub async fn set_listen_mode(
 /// `position` among the upcoming songs (or the end). A suggester suggests
 /// them. Returns the new version.
 pub async fn add_songs(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     songs: &[NewQueueSong],
@@ -854,7 +852,7 @@ pub async fn add_songs(
 /// Approves a suggestion onto the end of the queue, or rejects it. Host only.
 /// Returns the new version.
 pub async fn review_suggestion(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     entry_id: i64,
@@ -886,7 +884,7 @@ pub async fn review_suggestion(
 /// Removes an upcoming entry, or withdraws the caller's own suggestion. The
 /// current song is skipped, not removed. Returns the new version.
 pub async fn remove_entry(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     entry_id: i64,
@@ -933,7 +931,7 @@ pub async fn remove_entry(
 /// Moves an upcoming entry to `to` among the upcoming songs (0 is next).
 /// Returns the new version.
 pub async fn move_entry(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     entry_id: i64,
@@ -992,7 +990,7 @@ async fn advance_to(
 
 /// A transport command. Controller or host. Returns the new version.
 pub async fn playback_command(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     command: PlaybackCommand,
@@ -1062,7 +1060,7 @@ pub async fn playback_command(
 /// that entry is marked played. Host only. Returns the new version, or `None`
 /// when nothing changed enough to tell anyone.
 pub async fn host_report(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     entry_id: Option<i64>,
@@ -1126,7 +1124,7 @@ pub async fn host_report(
 /// so a double report advances once. Host only. Returns the new version, or
 /// `None` when it was already past it.
 pub async fn host_advance(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     from_entry_id: i64,
@@ -1154,7 +1152,7 @@ pub async fn host_advance(
 
 /// Checks the caller may make an invite code. Host only.
 pub async fn check_can_invite(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
 ) -> Result<(), CadenzaError> {

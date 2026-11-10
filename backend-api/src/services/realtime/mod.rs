@@ -10,7 +10,7 @@
 //! The transport is the [`EventBus`] trait, so the in memory bus can be swapped
 //! for a postgres `LISTEN/NOTIFY` one when there is more than one backend
 //! instance, without touching anything that publishes or subscribes.
-
+pub mod access;
 pub mod memory_bus;
 
 use std::sync::Arc;
@@ -72,3 +72,9 @@ pub trait EventBus: Send + Sync {
 
 /// The bus as `AppState` holds it.
 pub type SharedEventBus = Arc<dyn EventBus>;
+
+/// Publishes that `topic` is now at `version`. The kinds a client acts on:
+/// `now_playing`, `playlist`, `session`, and `ended`.
+pub fn publish_version(bus: &SharedEventBus, topic: Topic, version: i64, kind: &str) {
+    bus.publish(Event::new(topic, version, kind));
+}

@@ -7,7 +7,7 @@
 //! An invite code skips this check for the one thing it points at, and is
 //! checked elsewhere.
 
-use sea_orm::{DatabaseConnection, DbBackend, FromQueryResult, Statement, prelude::Uuid};
+use sea_orm::{ConnectionTrait, DbBackend, FromQueryResult, Statement, prelude::Uuid};
 
 pub use crate::db::entity::sea_orm_active_enums::Audience;
 use crate::db::{entity::privacy_settings, privacy::get_privacy, social::is_friend};
@@ -76,7 +76,7 @@ pub fn allows(audience: &Audience, is_owner: bool, is_friend: bool) -> bool {
 /// Whether `viewer` passes `audience` on something `owner` owns. Only looks up
 /// the friendship when the answer depends on it.
 pub async fn can_see(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     viewer: Uuid,
     owner: Uuid,
     audience: &Audience,
@@ -89,7 +89,7 @@ pub async fn can_see(
 
 /// Whether `viewer` may see `field` of `owner`, by `owner`'s privacy settings.
 pub async fn can_see_field(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     viewer: Uuid,
     owner: Uuid,
     field: PrivacyField,
@@ -110,7 +110,7 @@ struct UserIdRow {
 /// query, for lists like who is listening now. Friends only: someone who sets
 /// `everyone` is not listed to strangers, they can only open that user.
 pub async fn visible_friend_ids(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     viewer: Uuid,
     field: PrivacyField,
 ) -> Result<Vec<Uuid>, CadenzaError> {

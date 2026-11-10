@@ -7,7 +7,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sea_orm::prelude::Uuid;
+use sea_orm::{DatabaseConnection, prelude::Uuid};
+
+use crate::db::{
+    invites::{InviteTargetRef, redeem_invite},
+    live_sessions::join_session,
+    shared_playlists::{PlaylistRole, join_by_code},
+};
+use crate::err::CadenzaError;
+use crate::services::realtime::{SharedEventBus, Topic, publish_version};
 
 /// No `0 O 1 I L`, so a code read aloud or off a screen cannot be misread.
 pub const CODE_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
@@ -74,6 +82,46 @@ impl RedeemLimiter {
         times.push(now);
         true
     }
+}
+
+/// Redeems `code` and joins what it points at, as one step for the client.
+/// Rate limited per user. Returns what was joined.
+pub async fn accept_invite(
+    db: &DatabaseConnection,
+    bus: &SharedEventBus,
+    limiter: &RedeemLimiter,
+    user_id: Uuid,
+    code: &str,
+) -> Result<InviteTargetRef, CadenzaError> {
+    if !limiter.allow(user_id) {
+        return Err(CadenzaError::TooManyRequests);
+    }
+    let code = normalize_code(code);
+    if code.len() != CODE_LENGTH {
+        return Err(CadenzaError::InviteCodeInvalid);
+    }
+    let redeemed = redeem_invite(db, &code).await?;
+    match &redeemed.target {
+        InviteTargetRef::SharedPlaylist(playlist_id) => {
+            let role = redeemed
+                .grants_role
+                .as_deref()
+                .and_then(PlaylistRole::parse)
+                .unwrap_or(PlaylistRole::Viewer);
+            let version = join_by_code(db, user_id, *playlist_id, role).await?;
+            publish_version(
+                bus,
+                Topic::SharedPlaylist(*playlist_id),
+                version,
+                "playlist",
+            );
+        }
+        InviteTargetRef::LiveSession(session_id) => {
+            let version = join_session(db, user_id, *session_id, true).await?;
+            publish_version(bus, Topic::LiveSession(*session_id), version, "session");
+        }
+    }
+    Ok(redeemed.target)
 }
 
 #[cfg(test)]

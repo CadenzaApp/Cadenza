@@ -11,10 +11,11 @@
 
 use chrono::{DateTime, FixedOffset};
 use sea_orm::{
-    ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, FromQueryResult,
-    Statement, TransactionTrait, Value, prelude::Uuid,
+    ConnectionTrait, DatabaseTransaction, DbBackend, FromQueryResult, Statement, Value,
+    prelude::Uuid,
 };
 
+use crate::db::Db;
 use crate::db::{
     audience::{PrivacyField, can_see_field},
     invites::{InviteTargetRef, revoke_invites_for},
@@ -246,7 +247,7 @@ fn check_name(name: &str) -> Result<String, CadenzaError> {
 
 /// The caller's shared playlists, most recently changed first.
 pub async fn list_my_playlists(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
 ) -> Result<Vec<PlaylistSummary>, CadenzaError> {
     Ok(PlaylistSummary::find_by_statement(stmt(
@@ -274,7 +275,7 @@ pub async fn list_my_playlists(
 
 /// Makes a playlist owned by `owner_id`, with `song_ids` in it. Returns its id.
 pub async fn create_playlist(
-    db: &DatabaseConnection,
+    db: &impl Db,
     owner_id: Uuid,
     name: &str,
     description: &str,
@@ -305,7 +306,7 @@ pub async fn create_playlist(
 
 /// The playlist as its detail screen shows it. `NotFound` for a non member.
 pub async fn get_playlist(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
 ) -> Result<PlaylistDetail, CadenzaError> {
@@ -348,7 +349,7 @@ pub async fn get_playlist(
 
 /// Renames or redescribes. Owner only. Returns the new version.
 pub async fn update_details(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
     name: Option<&str>,
@@ -393,7 +394,7 @@ pub async fn update_details(
 
 /// Deletes the playlist and revokes its codes. Owner only.
 pub async fn delete_playlist(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
 ) -> Result<(), CadenzaError> {
@@ -459,7 +460,7 @@ async fn insert_songs(
 /// Adds songs at `position`, or the end. Editor or owner. Returns the new
 /// version.
 pub async fn add_songs(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
     song_ids: &[String],
@@ -490,7 +491,7 @@ pub async fn add_songs(
 
 /// Removes one entry. Editor or owner. Returns the new version.
 pub async fn remove_entry(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
     entry_id: i64,
@@ -523,7 +524,7 @@ pub async fn remove_entry(
 /// Moves one entry to `to_position` (0 based, clamped). Editor or owner.
 /// Returns the new version.
 pub async fn move_entry(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
     entry_id: i64,
@@ -577,7 +578,7 @@ pub fn moved_order(ids: &[i64], entry_id: i64, to: i32) -> Option<Vec<i64>> {
 /// only when `member_id`'s `playlist_add` setting lets the owner. Adding an
 /// existing member changes nothing. Returns the new version.
 pub async fn add_member(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
     member_id: Uuid,
@@ -616,7 +617,7 @@ pub async fn add_member(
 /// Joins through a redeemed code as `role`. Someone already in keeps the
 /// higher of the two roles. Returns the new version.
 pub async fn join_by_code(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
     role: PlaylistRole,
@@ -647,7 +648,7 @@ pub async fn join_by_code(
 /// Changes a member's role to viewer or editor. Owner only. Returns the new
 /// version.
 pub async fn set_member_role(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
     member_id: Uuid,
@@ -694,7 +695,7 @@ pub enum MemberRemoved {
 /// Removes `member_id`. Anyone can leave; only the owner can remove someone
 /// else. The owner leaving deletes the playlist.
 pub async fn remove_member(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
     member_id: Uuid,
@@ -728,7 +729,7 @@ pub async fn remove_member(
 
 /// Locks the playlist for a new invite code and checks the caller may make one.
 pub async fn check_can_invite(
-    db: &DatabaseConnection,
+    db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
 ) -> Result<(), CadenzaError> {
@@ -741,24 +742,6 @@ pub async fn check_can_invite(
         ));
     }
     Ok(())
-}
-
-/// The playlist's current version, for an event published after a write that
-/// did not return one.
-pub async fn current_version(
-    db: &DatabaseConnection,
-    playlist_id: i64,
-) -> Result<Option<i64>, CadenzaError> {
-    let row = db
-        .query_one_raw(stmt(
-            "SELECT version FROM shared_playlists WHERE playlist_id = $1",
-            vec![playlist_id.into()],
-        ))
-        .await?;
-    match row {
-        Some(row) => Ok(Some(row.try_get("", "version")?)),
-        None => Ok(None),
-    }
 }
 
 pub(crate) fn text_array(items: &[String]) -> Value {

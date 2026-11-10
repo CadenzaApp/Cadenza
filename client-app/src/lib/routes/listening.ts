@@ -1,4 +1,9 @@
+import { useMemo } from "react";
+
 import { useAPIData, useAPIMutation } from "../api-actions";
+import { useRealtimeTopic, useRealtimeTopics } from "../realtime";
+import type { RealtimeTopic } from "../realtime-protocol";
+import { useFriendships } from "./social";
 import type { UpNextSong } from "../now-playing-change";
 
 export type { UpNextSong };
@@ -28,7 +33,10 @@ export type NowPlaying = {
 export type FriendListening = {
     user_id: string;
     username: string;
+    /** `live_session_id` is set when they host or play along in a session. */
     now_playing: NowPlaying;
+    /** The viewer may join that session without a code. */
+    can_join: boolean;
 };
 
 /** One counted play. The title comes from Apple Music by `song_id`. */
@@ -60,13 +68,24 @@ export type NowPlayingUpdate = {
     up_next: UpNextSong[];
 };
 
-/** Friends playing something now, refetched every 10 s while mounted. */
+/**
+ * Friends playing something now. Refetches the moment any friend's now
+ * playing changes, through the realtime socket, and every 10 s as a fallback.
+ * Every friend is watched, not only the ones playing, so one who starts shows
+ * up at once.
+ */
 export function useFriendsListening() {
     const x = useAPIData<{ listening: FriendListening[] }>(
         "/listening/friends",
         undefined,
         { refreshInterval: LISTENING_REFRESH_MS },
     );
+    const { friends } = useFriendships();
+    const topics = useMemo<RealtimeTopic[]>(
+        () => friends.map((friend) => ({ kind: "user", id: friend.user_id })),
+        [friends],
+    );
+    useRealtimeTopics(topics, () => void x.mutate());
     return {
         friendsListening: x.data?.listening,
         friendsListeningLoading: x.isLoading,
@@ -76,13 +95,17 @@ export function useFriendsListening() {
 
 /**
  * One user's now playing and recent plays, each as their settings allow.
- * Refetched every 10 s while mounted.
+ * Refetches on their changes through the realtime socket, and every 10 s.
  */
 export function useUserListening(userId: string | null) {
     const x = useAPIData<UserListening>(
         `/listening/users/${userId}`,
         undefined,
         { enabled: userId !== null, refreshInterval: LISTENING_REFRESH_MS },
+    );
+    useRealtimeTopic(
+        userId ? { kind: "user", id: userId } : null,
+        () => void x.mutate(),
     );
     return {
         userListening: x.data,

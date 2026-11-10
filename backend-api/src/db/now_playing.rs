@@ -9,7 +9,7 @@
 use chrono::{DateTime, Duration, FixedOffset, Utc};
 use sea_orm::{
     ActiveValue::Set,
-    DatabaseConnection, DbBackend, EntityTrait, FromQueryResult, Statement,
+    ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult, Statement,
     prelude::Uuid,
     sea_query::{ArrayType, OnConflict},
 };
@@ -66,7 +66,10 @@ pub struct NowPlayingUpdate {
 pub struct ListeningUser {
     pub user_id: Uuid,
     pub username: String,
+    /// `live_session_id` is the open session they host or play along in.
     pub now_playing: now_playing::Model,
+    /// The viewer may join that session without a code.
+    pub can_join: bool,
 }
 
 /// Whether `song_id` can be shared. A library id (`i.` prefix) means nothing on
@@ -108,7 +111,7 @@ pub fn projected_position_ms(row: &now_playing::Model, now: DateTime<Utc>) -> i6
 /// Writes the user's current state, replacing what was there.
 /// `InvalidRequestBody` for a library song id or a negative position.
 pub async fn upsert_now_playing(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: Uuid,
     update: NowPlayingUpdate,
 ) -> Result<(), CadenzaError> {
@@ -179,14 +182,17 @@ pub fn read_up_next(stored: &serde_json::Value) -> Vec<UpNextSong> {
 }
 
 /// Removes the user's row. A missing row is a no-op.
-pub async fn clear_now_playing(db: &DatabaseConnection, user_id: Uuid) -> Result<(), CadenzaError> {
+pub async fn clear_now_playing(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+) -> Result<(), CadenzaError> {
     now_playing::Entity::delete_by_id(user_id).exec(db).await?;
     Ok(())
 }
 
 /// What `owner` is playing, when `viewer` may see it and it is live.
 pub async fn now_playing_for_viewer(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     viewer: Uuid,
     owner: Uuid,
 ) -> Result<Option<now_playing::Model>, CadenzaError> {
@@ -214,12 +220,13 @@ struct ListeningRow {
     live_session_id: Option<Uuid>,
     up_next: serde_json::Value,
     updated_at: DateTime<FixedOffset>,
+    can_join: bool,
 }
 
 /// `viewer`'s friends who are playing something now and let friends see it,
 /// most recently updated first.
 pub async fn friends_listening(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     viewer: Uuid,
 ) -> Result<Vec<ListeningUser>, CadenzaError> {
     let ids = visible_friend_ids(db, viewer, PrivacyField::NowPlaying).await?;
@@ -229,12 +236,45 @@ pub async fn friends_listening(
 
     let rows = ListeningRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT COALESCE(p.username, 'unknown') AS username, np.*
+        "SELECT COALESCE(p.username, 'unknown') AS username,
+                np.user_id, np.song_id, np.title, np.artist, np.album, np.artwork_url,
+                np.duration_ms, np.is_playing, np.position_ms, np.position_at,
+                np.up_next, np.updated_at,
+                ls.session_id AS live_session_id,
+                COALESCE(ls.can_join, false) AS can_join
          FROM now_playing np
          LEFT JOIN profile p ON p.uid = np.user_id
+         -- the open session they host, or play along in on their own device
+         LEFT JOIN LATERAL (
+             SELECT s.session_id,
+                    s.allow_join_without_code
+                    AND NOT EXISTS (
+                        SELECT 1 FROM live_session_members b
+                        WHERE b.session_id = s.session_id AND b.user_id = $2 AND b.banned
+                    )
+                    AND CASE COALESCE(hp.session_join, 'friends')
+                        WHEN 'everyone' THEN true
+                        WHEN 'friends' THEN s.host_id = $2 OR EXISTS (
+                            SELECT 1 FROM friendships f
+                            WHERE f.status = 'complete'
+                              AND f.user1 = LEAST(s.host_id, $2)
+                              AND f.user2 = GREATEST(s.host_id, $2)
+                        )
+                        ELSE false
+                    END AS can_join
+             FROM live_session_members m
+             JOIN live_sessions s ON s.session_id = m.session_id
+             LEFT JOIN privacy_settings hp ON hp.user_id = s.host_id
+             WHERE m.user_id = np.user_id AND m.left_at IS NULL AND NOT m.banned
+               AND s.ended_at IS NULL
+               AND s.host_seen_at > now() - interval '30 minutes'
+               AND (s.host_id = np.user_id OR m.listen_mode = 'synced')
+             ORDER BY (s.host_id = np.user_id) DESC
+             LIMIT 1
+         ) ls ON true
          WHERE np.user_id = ANY($1) AND np.is_playing
          ORDER BY np.updated_at DESC",
-        vec![uuid_array(&ids)],
+        vec![uuid_array(&ids), viewer.into()],
     ))
     .all(db)
     .await?;
@@ -245,6 +285,7 @@ pub async fn friends_listening(
         .map(|row| ListeningUser {
             user_id: row.user_id,
             username: row.username,
+            can_join: row.can_join,
             now_playing: now_playing::Model {
                 user_id: row.user_id,
                 song_id: row.song_id,

@@ -2,7 +2,7 @@
 //! their `listening_history` privacy setting.
 
 use chrono::{DateTime, FixedOffset};
-use sea_orm::{DatabaseConnection, DbBackend, FromQueryResult, Statement, prelude::Uuid};
+use sea_orm::{ConnectionTrait, DbBackend, FromQueryResult, Statement, prelude::Uuid};
 
 use crate::db::audience::{PrivacyField, can_see_field};
 use crate::err::CadenzaError;
@@ -24,7 +24,7 @@ pub struct RecentPlay {
 /// may not see them. Library only songs are left out, since their ids mean
 /// nothing on another account.
 pub async fn recent_plays_for_viewer(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     viewer: Uuid,
     owner: Uuid,
     limit: u64,

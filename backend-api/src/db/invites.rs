@@ -2,12 +2,13 @@
 //! a code and says what it points at. Joining is the shared playlist or live
 //! session code's job, so this never needs to know about either.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use sea_orm::{
-    ActiveValue::Set, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
-    RuntimeErr, Statement, prelude::Uuid,
+    ActiveValue::Set, ConnectionTrait, DbBackend, DbErr, EntityTrait, RuntimeErr, Statement,
+    prelude::Uuid,
 };
 
+use crate::db::Db;
 use crate::db::entity::{invite_codes, sea_orm_active_enums::InviteTarget};
 use crate::err::CadenzaError;
 use crate::services::invite_codes::generate_code;
@@ -121,19 +122,10 @@ fn is_unique_violation(err: &DbErr) -> bool {
         if sqlx.as_database_error().and_then(|e| e.code()).as_deref() == Some("23505"))
 }
 
-/// Whether a code can still be used at `now`.
-pub fn is_usable(code: &invite_codes::Model, now: DateTime<Utc>) -> bool {
-    code.revoked_at.is_none()
-        && code
-            .expires_at
-            .is_none_or(|at| at.with_timezone(&Utc) > now)
-        && code.max_uses.is_none_or(|max| code.uses < max)
-}
-
 /// Checks `code`, counts one use, and returns what it points at.
 /// `InviteCodeInvalid` for a code that does not exist, expired, ran out, or was
 /// revoked. All four look the same, so a guess learns nothing.
-pub async fn redeem_invite(db: &DatabaseConnection, code: &str) -> Result<Redeemed, CadenzaError> {
+pub async fn redeem_invite(db: &impl Db, code: &str) -> Result<Redeemed, CadenzaError> {
     // one statement, so two redeems of a one use code cannot both pass
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
@@ -193,37 +185,6 @@ pub async fn revoke_invites_for<C: ConnectionTrait>(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn code(uses: i32, max_uses: Option<i32>) -> invite_codes::Model {
-        invite_codes::Model {
-            code: "ABCDEFGH".into(),
-            target_kind: InviteTarget::LiveSession,
-            target_id: Uuid::nil().to_string(),
-            grants_role: None,
-            created_by: Uuid::nil(),
-            created_at: Utc::now().fixed_offset(),
-            expires_at: None,
-            max_uses,
-            uses,
-            revoked_at: None,
-        }
-    }
-
-    #[test]
-    fn a_code_runs_out_expires_and_revokes() {
-        let now = Utc::now();
-        assert!(is_usable(&code(0, None), now));
-        assert!(is_usable(&code(2, Some(3)), now));
-        assert!(!is_usable(&code(3, Some(3)), now));
-
-        let mut expired = code(0, None);
-        expired.expires_at = Some((now - Duration::minutes(1)).fixed_offset());
-        assert!(!is_usable(&expired, now));
-
-        let mut revoked = code(0, None);
-        revoked.revoked_at = Some(now.fixed_offset());
-        assert!(!is_usable(&revoked, now));
-    }
 
     #[test]
     fn targets_round_trip_through_their_row() {
