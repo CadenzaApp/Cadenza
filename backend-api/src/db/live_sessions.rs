@@ -55,6 +55,9 @@ pub struct SessionRow {
     pub host_seen_at: DateTime<FixedOffset>,
     pub created_at: DateTime<FixedOffset>,
     pub ended_at: Option<DateTime<FixedOffset>>,
+    /// Opened by listen along, so joins check the host's `listen_along`
+    /// audience instead of `session_join`.
+    pub listen_along: bool,
 }
 
 impl SessionRow {
@@ -75,7 +78,7 @@ const SESSION_COLUMNS: &str =
     "s.session_id, s.host_id, COALESCE(h.username, 'unknown') AS host_username,
      s.name, s.default_role::text AS default_role, s.allow_join_without_code,
      s.current_entry_id, s.is_playing, s.position_ms, s.position_at, s.version,
-     s.host_seen_at, s.created_at, s.ended_at";
+     s.host_seen_at, s.created_at, s.ended_at, s.listen_along";
 
 #[derive(Clone, Debug, FromQueryResult)]
 pub struct SessionMember {
@@ -133,6 +136,16 @@ pub struct SessionSnapshot {
     pub up_next: Vec<QueueEntry>,
     pub suggestions: Vec<QueueEntry>,
     pub playback: ProjectedPlayback,
+}
+
+/// A session to start.
+#[derive(Clone, Copy, Debug)]
+pub struct NewSession<'a> {
+    pub name: &'a str,
+    pub default_role: SessionRole,
+    pub allow_join_without_code: bool,
+    /// Opened by listen along. See [`SessionRow::listen_along`].
+    pub listen_along: bool,
 }
 
 /// Settings a host can change.
@@ -374,11 +387,9 @@ async fn renumber(txn: &DatabaseTransaction, session_id: Uuid) -> Result<(), Cad
 pub async fn start_session(
     db: &impl Db,
     host_id: Uuid,
-    name: &str,
-    default_role: SessionRole,
-    allow_join_without_code: bool,
+    new: NewSession<'_>,
 ) -> Result<Uuid, CadenzaError> {
-    let name = check_name(name)?;
+    let name = check_name(new.name)?;
     let txn = db.begin().await?;
     // a session whose host went quiet has ended, even if nothing wrote that yet
     end_stale_sessions_of(&txn, host_id).await?;
@@ -394,13 +405,15 @@ pub async fn start_session(
     }
     let row = txn
         .query_one_raw(stmt(
-            "INSERT INTO live_sessions (host_id, name, default_role, allow_join_without_code)
-             VALUES ($1, $2, $3::session_role, $4) RETURNING session_id",
+            "INSERT INTO live_sessions
+                 (host_id, name, default_role, allow_join_without_code, listen_along)
+             VALUES ($1, $2, $3::session_role, $4, $5) RETURNING session_id",
             vec![
                 host_id.into(),
                 name.into(),
-                default_role.as_str().into(),
-                allow_join_without_code.into(),
+                new.default_role.as_str().into(),
+                new.allow_join_without_code.into(),
+                new.listen_along.into(),
             ],
         ))
         .await?
@@ -562,7 +575,8 @@ pub fn projected_playback(
 
 /// Joins as the session's default role, or rejoins with the role held before.
 /// Without a code the session must be open to joins and the host's
-/// `session_join` audience must allow the caller. A banned member cannot
+/// `session_join` audience (`listen_along` for a listen along session) must
+/// allow the caller. A banned member cannot
 /// rejoin either way. Returns the new version.
 pub async fn join_session(
     db: &impl Db,
@@ -595,8 +609,13 @@ pub async fn join_session(
         ));
     }
     if !via_code {
+        let field = if session.listen_along {
+            PrivacyField::ListenAlong
+        } else {
+            PrivacyField::SessionJoin
+        };
         let open_to_audience = session.allow_join_without_code
-            && can_see_field(&txn, user_id, session.host_id, PrivacyField::SessionJoin).await?;
+            && can_see_field(&txn, user_id, session.host_id, field).await?;
         if !open_to_audience {
             return Err(CadenzaError::Forbidden(
                 "this session needs an invite code".into(),
@@ -1367,6 +1386,7 @@ mod tests {
             host_seen_at: now,
             created_at: now,
             ended_at: None,
+            listen_along: false,
         }
     }
 

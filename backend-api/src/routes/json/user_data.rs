@@ -22,6 +22,7 @@ impl From<(DataCount, i64)> for UserDataCount {
                 DataSection::Tags => "tags",
                 DataSection::Listening => "listening",
                 DataSection::Social => "social",
+                DataSection::SocialListening => "social_listening",
             },
             description: count.description,
             unit: count.unit,

@@ -22,6 +22,7 @@ pub struct Model {
     pub host_seen_at: DateTimeWithTimeZone,
     pub created_at: DateTimeWithTimeZone,
     pub ended_at: Option<DateTimeWithTimeZone>,
+    pub listen_along: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

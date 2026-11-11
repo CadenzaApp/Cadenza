@@ -13,6 +13,10 @@ pub struct StartLiveSession {
     /// Default true: anyone the host's `session_join` audience allows can join
     /// without a code.
     pub allow_join_without_code: Option<bool>,
+    /// Opened by listen along: joins check the host's `listen_along` audience
+    /// instead of `session_join`. Default false.
+    #[serde(default)]
+    pub listen_along: bool,
 }
 
 #[derive(Serialize)]

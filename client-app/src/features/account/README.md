@@ -14,7 +14,7 @@ glass, color slots, explicit filter, tag suggestions) go through `useUserSetting
 | `appearance-settings.tsx`       | `/appearance`. Mode (System, Light, Dark, Custom), background, accent, glass tint, Clear or Tinted glass, a live preview, and reset.                                                                                                  |
 | `privacy-settings.tsx`          | `/privacy`. Who sees now playing, recent plays, live session joins and shared playlist adds (`everyone`, `friends`, `nobody`), the Listen along switch, then what Cadenza keeps and the way into Your data.                           |
 | `account-details.tsx`           | `/account-details`. Name and member since, the username and bio form, view public profile, Your data, Cadenza sign out.                                                                                                               |
-| `your-data.tsx`                 | `/your-data`. Profile, the counts from `GET /profile/data`, and every saved setting, as tables. Delete account opens a confirm that does nothing yet, and says so.                                                                    |
+| `your-data.tsx`                 | `/your-data`. Profile, the counts from `GET /profile/data`, every saved setting, and every privacy setting, as tables closed to their title until tapped. Delete account opens a confirm that does nothing yet, and says so.          |
 | `apple-music-limits.tsx`        | `/apple-music-limits`. What MusicKit and the Apple Music API do not allow.                                                                                                                                                            |
 | `profile-form.tsx`              | `ProfileForm`, the only username and bio editor. `PATCH /profile`.                                                                                                                                                                    |
 | `account-avatar.tsx`            | `AccountAvatar`, `useAccountIdentity` (display name and initial), and `memberSince`.                                                                                                                                                  |
@@ -73,7 +73,9 @@ the presets over them.
   `active:opacity-60`, no style function.
 - Your data lists the server counts in the order `user_data_counts` returns them, so a new
   table is a backend entry only. Settings rows come from `SETTING_ROWS`, keyed by
-  `UserSettings`, so a new setting fails to compile until it is listed.
+  `UserSettings`, and privacy rows from `PRIVACY_ROWS`, keyed by `PrivacySettings`, so a new
+  setting fails to compile until it is listed. A new count section also needs a title in
+  `SECTION_TITLES`.
 - New sheets need a `Stack.Screen` with `sheetScreenOptions` in `src/app/_layout.tsx`.
 
 ---

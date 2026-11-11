@@ -179,14 +179,32 @@ async fn social_listening_live_session_flow() {
     .await
     .unwrap();
 
-    let id = sessions::start_session(&txn, host, "Friday", SessionRole::Suggester, false)
-        .await
-        .unwrap();
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Friday",
+            default_role: SessionRole::Suggester,
+            allow_join_without_code: false,
+            listen_along: false,
+        },
+    )
+    .await
+    .unwrap();
     // starting again returns the same one
     assert_eq!(
-        sessions::start_session(&txn, host, "Again", SessionRole::Listener, true)
-            .await
-            .unwrap(),
+        sessions::start_session(
+            &txn,
+            host,
+            sessions::NewSession {
+                name: "Again",
+                default_role: SessionRole::Listener,
+                allow_join_without_code: true,
+                listen_along: false
+            }
+        )
+        .await
+        .unwrap(),
         id
     );
     assert_eq!(
@@ -323,9 +341,18 @@ async fn social_listening_host_leaving_hands_the_session_over() {
     .await
     .unwrap();
 
-    let id = sessions::start_session(&txn, host, "Handover", SessionRole::Suggester, true)
-        .await
-        .unwrap();
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Handover",
+            default_role: SessionRole::Suggester,
+            allow_join_without_code: true,
+            listen_along: false,
+        },
+    )
+    .await
+    .unwrap();
     sessions::join_session(&txn, guest, id, true).await.unwrap();
     sessions::add_songs(&txn, host, id, &[song("20")], sessions::AddAt::End, None)
         .await
@@ -347,6 +374,60 @@ async fn social_listening_host_leaving_hands_the_session_over() {
         sessions::leave_session(&txn, guest, id).await.unwrap(),
         sessions::Left::Ended(_)
     ));
+
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_listen_along_has_its_own_audience() {
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id = $1 AND ended_at IS NULL",
+        [host.into()],
+    ))
+    .await
+    .unwrap();
+    // session joins open to everyone, listen along off
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "INSERT INTO privacy_settings (user_id, session_join, listen_along)
+         VALUES ($1, 'everyone', 'nobody')
+         ON CONFLICT (user_id) DO UPDATE SET session_join = 'everyone', listen_along = 'nobody'",
+        [host.into()],
+    ))
+    .await
+    .unwrap();
+
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Along",
+            default_role: SessionRole::Listener,
+            allow_join_without_code: true,
+            listen_along: true,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        sessions::join_session(&txn, guest, id, false).await,
+        Err(CadenzaError::Forbidden(_))
+    ));
+
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE privacy_settings SET listen_along = 'everyone' WHERE user_id = $1",
+        [host.into()],
+    ))
+    .await
+    .unwrap();
+    sessions::join_session(&txn, guest, id, false)
+        .await
+        .unwrap();
 
     txn.rollback().await.unwrap();
 }

@@ -170,6 +170,8 @@ export function useStartLiveSession() {
             name: string;
             default_role?: SessionRole;
             allow_join_without_code?: boolean;
+            /** Opened by listen along; joins check its own audience. */
+            listen_along?: boolean;
         },
         { session_id: string }
     >("POST", "/live-sessions", [{ path: "/live-sessions/current" }]);

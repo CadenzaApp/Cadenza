@@ -7,7 +7,6 @@ import {
 import {
     usePrivacySettings,
     type Audience,
-    type AudienceField,
     type PrivacySettings,
 } from "@/lib/routes/privacy";
 
@@ -20,19 +19,14 @@ import {
 } from "./settings-ui";
 
 const AUDIENCES: readonly SegmentOption<Audience>[] = [
-    { value: "everyone", label: "Everyone", icon: "globe-outline" },
+    { value: "nobody", label: "Off", icon: "eye-off-outline" },
     { value: "friends", label: "Friends", icon: "people-outline" },
-    { value: "nobody", label: "Nobody", icon: "eye-off-outline" },
-];
-
-const ON_OFF: readonly SegmentOption<"on" | "off">[] = [
-    { value: "off", label: "Off" },
-    { value: "on", label: "On", icon: "radio-outline" },
+    { value: "everyone", label: "Everyone", icon: "globe-outline" },
 ];
 
 /** One picker per privacy setting, in the order they show. */
 const FIELDS: readonly {
-    field: AudienceField;
+    field: keyof PrivacySettings;
     title: string;
     footnote: string;
 }[] = [
@@ -55,6 +49,12 @@ const FIELDS: readonly {
         field: "playlist_add",
         title: "Shared playlists",
         footnote: "Who can add you to a shared playlist without a code.",
+    },
+    {
+        field: "listen_along",
+        title: "Listen along",
+        footnote:
+            "When you play music, a live session starts on its own so these people can listen with you.",
     },
 ];
 
@@ -104,16 +104,6 @@ export function PrivacySettingsScreen() {
                     />
                 </SettingsSection>
             ))}
-            <SettingsSection
-                title="Listen along"
-                footnote="While on, playing music opens a live session for you. Anyone who can join your live sessions can listen along from Listening now. Only songs from the Apple Music catalog are shared, so songs only in your library leave your queue while it is on."
-            >
-                <SegmentedControl
-                    options={ON_OFF}
-                    value={privacy.listen_along ? "on" : "off"}
-                    onChange={(value) => save({ listen_along: value === "on" })}
-                />
-            </SettingsSection>
             <SaveError error={updatePrivacyErr} />
             <SettingsSection title="Your data">
                 <SettingsPoints points={points} />

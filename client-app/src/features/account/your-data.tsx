@@ -9,11 +9,16 @@ import { Text } from "@/components/ui/text";
 import { formatCount, formatDuration } from "@/features/analytics/format";
 import { useAccount } from "@/lib/account";
 import { useUserData, type UserDataCount } from "@/lib/routes/profile";
+import {
+    usePrivacySettings,
+    type Audience,
+    type PrivacySettings,
+} from "@/lib/routes/privacy";
 import { useUserSettings, type UserSettings } from "@/lib/routes/settings";
 import { useAppTheme } from "@/lib/theme";
 
 import { memberSince, useAccountIdentity } from "./account-avatar";
-import { SettingsGroup, SettingsSection, SettingsSheet } from "./settings-ui";
+import { SettingsGroup, SettingsSheet } from "./settings-ui";
 
 type DataValue = { text: string; color?: string | null };
 
@@ -22,6 +27,34 @@ const SECTION_TITLES: Record<UserDataCount["section"], string> = {
     tags: "Tags",
     listening: "Listening",
     social: "Social",
+    social_listening: "Social listening",
+};
+
+const AUDIENCE_LABELS: Record<Audience, string> = {
+    nobody: "Off",
+    friends: "Friends",
+    everyone: "Everyone",
+};
+
+function audience(value: Audience): DataValue {
+    return { text: AUDIENCE_LABELS[value] };
+}
+
+/**
+ * Every privacy setting and how it reads. Keyed by `PrivacySettings`, so a
+ * new one does not compile until it is listed here.
+ */
+const PRIVACY_ROWS: {
+    [K in keyof PrivacySettings]: {
+        label: string;
+        show: (value: PrivacySettings[K]) => DataValue;
+    };
+} = {
+    now_playing: { label: "Now playing", show: audience },
+    listening_history: { label: "Recent plays", show: audience },
+    session_join: { label: "Join your live sessions", show: audience },
+    playlist_add: { label: "Add you to shared playlists", show: audience },
+    listen_along: { label: "Listen along", show: audience },
 };
 
 function color(hex: string | null, unset: string): DataValue {
@@ -77,6 +110,7 @@ export function YourDataScreen() {
     const { account } = useAccount();
     const { profile } = useAccountIdentity();
     const { settings } = useUserSettings();
+    const { privacy } = usePrivacySettings();
     const { userData, userDataErr } = useUserData(Boolean(account));
     const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -91,15 +125,8 @@ export function YourDataScreen() {
         ["Username", { text: profile?.username ?? "-" }],
         ["Bio", { text: profile?.bio.trim() || "None" }],
     ];
-    const settingRows = (
-        Object.keys(SETTING_ROWS) as (keyof UserSettings)[]
-    ).map((key): [string, DataValue] => {
-        const row = SETTING_ROWS[key] as {
-            label: string;
-            show: (value: unknown) => DataValue;
-        };
-        return [row.label, row.show(settings[key])];
-    });
+    const settingRows = tableRows(SETTING_ROWS, settings);
+    const privacyRows = tableRows(PRIVACY_ROWS, privacy);
 
     return (
         <SettingsSheet
@@ -147,13 +174,30 @@ export function YourDataScreen() {
             )}
 
             <DataTable title="Settings" rows={settingRows} />
+            <DataTable title="Privacy" rows={privacyRows} />
 
             <DeleteAccountButton onPress={() => setConfirmOpen(true)} />
         </SettingsSheet>
     );
 }
 
-/** A titled panel of label and value rows. */
+/** A table's rows from a registry keyed like the values it reads. */
+function tableRows<T extends object>(
+    registry: {
+        [K in keyof T]: { label: string; show: (value: T[K]) => DataValue };
+    },
+    values: T,
+): [string, DataValue][] {
+    return (Object.keys(registry) as (keyof T)[]).map((key) => {
+        const row = registry[key];
+        return [row.label, row.show(values[key])];
+    });
+}
+
+/**
+ * A panel of label and value rows, closed to its title until tapped. The
+ * chevron points down while it is open.
+ */
 function DataTable({
     title,
     rows,
@@ -161,14 +205,30 @@ function DataTable({
     title: string;
     rows: [string, DataValue][];
 }) {
+    const { colors } = useAppTheme();
+    const [open, setOpen] = useState(false);
     return (
-        <SettingsSection title={title}>
-            <SettingsGroup>
-                {rows.map(([label, value]) => (
-                    <DataRow key={label} label={label} value={value} />
-                ))}
-            </SettingsGroup>
-        </SettingsSection>
+        <SettingsGroup>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: open }}
+                accessibilityLabel={`${title}, ${rows.length} rows`}
+                onPress={() => setOpen((current) => !current)}
+                className="flex-row items-center px-4 py-3.5 active:opacity-60"
+            >
+                <Text className="flex-1 text-base font-semibold">{title}</Text>
+                <Ionicons
+                    name={open ? "chevron-down" : "chevron-forward"}
+                    size={18}
+                    color={colors.mutedForeground}
+                />
+            </Pressable>
+            {open
+                ? rows.map(([label, value]) => (
+                      <DataRow key={label} label={label} value={value} />
+                  ))
+                : null}
+        </SettingsGroup>
     );
 }
 

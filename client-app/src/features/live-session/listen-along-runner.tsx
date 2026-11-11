@@ -14,9 +14,9 @@ import { shouldOpenListenAlong } from "./listen-along";
 import { useSeedSession } from "./use-seed-session";
 
 /**
- * Listen along: with it on, playing music opens a listener only live
- * session, open to whoever the user's `session_join` audience allows, seeded
- * with what is playing. From there it is a normal session the user hosts,
+ * Listen along: with it on (any audience but `nobody`), playing music opens a
+ * listener only live session, open to whoever the `listen_along` audience
+ * allows, seeded with what is playing. From there it is a normal session the user hosts,
  * which ends after 30 minutes without music like any other.
  *
  * Renders nothing. Mounted once, inside `PlaybackProvider`.
@@ -35,7 +35,7 @@ export function ListenAlongRunner() {
     const opening = useRef(false);
 
     const open = shouldOpenListenAlong({
-        enabled: privacy.listen_along,
+        enabled: privacy.listen_along !== "nobody",
         canPlay,
         inSession: mySessionLoading ? null : mySessionId !== null,
         isPlaying,
@@ -55,6 +55,7 @@ export function ListenAlongRunner() {
                         : "Listening along",
                     default_role: "listener",
                     allow_join_without_code: true,
+                    listen_along: true,
                 });
                 await seedSession(session_id);
             } catch (error) {

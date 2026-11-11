@@ -24,6 +24,8 @@ pub enum PrivacyField {
     SessionJoin,
     /// Being added to a shared playlist without a code.
     PlaylistAdd,
+    /// Joining a listen along session without a code.
+    ListenAlong,
 }
 
 impl PrivacyField {
@@ -34,13 +36,17 @@ impl PrivacyField {
             Self::ListeningHistory => "listening_history",
             Self::SessionJoin => "session_join",
             Self::PlaylistAdd => "playlist_add",
+            Self::ListenAlong => "listen_along",
         }
     }
 
     /// What a user with no row gets. Matches the column defaults in
-    /// `sql/social_privacy.sql`.
+    /// `sql/social_privacy.sql` and `sql/listen_along.sql`.
     pub fn default_audience(self) -> Audience {
-        Audience::Friends
+        match self {
+            Self::ListenAlong => Audience::Nobody,
+            _ => Audience::Friends,
+        }
     }
 
     /// This field's value on a stored row.
@@ -50,6 +56,7 @@ impl PrivacyField {
             Self::ListeningHistory => row.listening_history.clone(),
             Self::SessionJoin => row.session_join.clone(),
             Self::PlaylistAdd => row.playlist_add.clone(),
+            Self::ListenAlong => row.listen_along.clone(),
         }
     }
 }
@@ -161,6 +168,7 @@ mod tests {
             PrivacyField::ListeningHistory,
             PrivacyField::SessionJoin,
             PrivacyField::PlaylistAdd,
+            PrivacyField::ListenAlong,
         ];
         let columns: std::collections::HashSet<_> =
             fields.iter().map(|field| field.column()).collect();

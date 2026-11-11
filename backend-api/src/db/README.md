@@ -92,6 +92,8 @@ occurred_at desc)`, and a partial `(user_id, song_id, occurred_at desc)` where `
   `sql/social_edited_at.sql`), `hot_score`, `comments` (bigint, how many comments the post has, default 0,
   bumped when a comment is inserted), and nullable `topic_mk_id` (text), an Apple Music catalog
   id of the song or artist the post is about. Kind is not stored: the client asks MusicKit.
+  Or nullable `shared_playlist_id` instead, a shared playlist the author is in (set null when
+  it is deleted). A check keeps the two from both being set.
 - `comments` - a comment on a post. `comment_id` (identity pk), `user_id` (uuid, references
   `auth.users`, cascades), `post_id` (references `posts`, cascades), `content`, `likes`,
   `created_at`, and nullable `edited_at` (`now()` when the author edits; a client timestamp older than it is ignored).
@@ -326,7 +328,10 @@ metadata has no rating and is not hidden.
 `privacy_settings` (`sql/social_privacy.sql`) holds one `audience` per feature: `now_playing`,
 `listening_history`, `session_join`, `playlist_add`. A user with no row reads `friends` for all
 four, from `PrivacyField::default_audience`, which must match the SQL defaults and
-`DEFAULT_PRIVACY_SETTINGS` in `client-app/src/lib/routes/privacy.ts`.
+`DEFAULT_PRIVACY_SETTINGS` in `client-app/src/lib/routes/privacy.ts`. A fifth, `listen_along`
+(`sql/listen_along.sql`), defaults to `nobody`, which means off. Otherwise the client opens a
+session whenever the user plays, marked `live_sessions.listen_along`, and joining it checks this
+audience instead of `session_join`.
 
 Every check goes through `audience.rs`. `everyone` is anyone, `friends` is a `complete`
 `friendships` row, `nobody` is no one, and the owner always sees their own. List reads use
@@ -350,11 +355,18 @@ transaction, so the database tests can run them inside one that rolls back.
   and bump `version`, all in one transaction. A non member reads `NotFound`, so ids do not leak.
 - Shared playlist entries have their own id, so one song can be in twice. Writes take an
   optional `expected_version`; a stale one is `VersionConflict`.
-- The owner leaving a shared playlist deletes it. The host leaving a live session ends it.
+- The owner leaving a shared playlist deletes it. The host leaving a live session hands it to
+  another member (`hand_over`: someone playing along first, then the highest role, then the
+  first to join, never someone hosting their own), who always plays; with nobody left it ends.
 - A live session's playback is an anchor (`current_entry_id`, `is_playing`, `position_ms` at
   `position_at`). Reads project it forward through the queued entries' `duration_ms` with
   `services::live_sessions::project`, so members stay right while the host's phone is in the
   background. The host's reports re-anchor it. No report for 30 minutes ends the session.
+  Adding to an empty session anchors on the first song, at the host's `StartAt` when given.
+- A post can attach a shared playlist (`posts.shared_playlist_id`,
+  `sql/post_shared_playlists.sql`), never along with `topic_mk_id`. Every post read fills its
+  card from `shared_playlists::playlist_cards`, one query per page. Deleting the playlist
+  drops the attachment.
 - `GET /listening/friends` reads a friend's open session at query time (the one they host, or
   play along in), and `can_join` from the host's `session_join` audience and bans. Nothing
   writes `now_playing.live_session_id`.

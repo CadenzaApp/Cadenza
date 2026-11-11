@@ -252,7 +252,10 @@ pub async fn friends_listening(
                         SELECT 1 FROM live_session_members b
                         WHERE b.session_id = s.session_id AND b.user_id = $2 AND b.banned
                     )
-                    AND CASE COALESCE(hp.session_join, 'friends')
+                    -- a listen along session has its own audience, off by default
+                    AND CASE CASE WHEN s.listen_along
+                                  THEN COALESCE(hp.listen_along, 'nobody')
+                                  ELSE COALESCE(hp.session_join, 'friends') END
                         WHEN 'everyone' THEN true
                         WHEN 'friends' THEN s.host_id = $2 OR EXISTS (
                             SELECT 1 FROM friendships f

@@ -12,7 +12,9 @@ use crate::{
     auth::SupabaseClaims,
     db::{
         invites::{InviteTargetRef, NewInvite, create_invite},
-        live_sessions::{self as sessions, AddAt, Left, PlaybackCommand, SessionPatch, StartAt},
+        live_sessions::{
+            self as sessions, AddAt, Left, NewSession, PlaybackCommand, SessionPatch, StartAt,
+        },
     },
     err::CadenzaError,
     routes::json::{
@@ -83,9 +85,12 @@ async fn start_handler(
     let session_id = sessions::start_session(
         &db,
         claims.user_id,
-        &body.name,
-        default_role,
-        body.allow_join_without_code.unwrap_or(true),
+        NewSession {
+            name: &body.name,
+            default_role,
+            allow_join_without_code: body.allow_join_without_code.unwrap_or(true),
+            listen_along: body.listen_along,
+        },
     )
     .await?;
     publish_presence(&bus, &[claims.user_id]);
