@@ -12,7 +12,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
     ActiveValue::{NotSet, Set},
-    ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
+    ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
     FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect, QueryTrait, RuntimeErr,
     Statement, TransactionTrait, Value,
     sea_query::{ArrayType, Expr, ExprTrait, Func, OnConflict},
@@ -21,6 +21,12 @@ use sea_orm::{
 /// How many posts one `/feed` call returns. A shorter page means that exclude
 /// mode is exhausted.
 pub const FEED_SIZE: i64 = 10;
+
+/// How many posts one `GET /social/posts/topic` call returns.
+pub const TOPIC_POST_LIMIT: i64 = 10;
+
+/// How many comments one `GET /social/posts/:id/comments` call returns.
+pub const COMMENT_PAGE_LIMIT: u64 = 20;
 
 /// Flat extra on [`score_post`] when the author is a completed friend.
 pub const FRIEND_SCORE_BOOST: f64 = 10_000.0;
@@ -443,17 +449,75 @@ async fn finish_stale_edit(
     Ok(())
 }
 
-/// Comments on `post_id`, most liked first, then newest, then comment id.
+/// Where the next comments page starts. The columns are the sort key, in order.
+#[derive(Clone, Debug)]
+pub struct CommentsCursor {
+    pub likes: i64,
+    pub created_at: DateTime<Utc>,
+    pub comment_id: i64,
+}
+
+/// One page of comments, plus the cursor for the following page when this one is full.
+pub struct CommentPage {
+    pub comments: Vec<SocialComment>,
+    pub next: Option<CommentsCursor>,
+}
+
+/// Comments on `post_id`, at most [`COMMENT_PAGE_LIMIT`], most liked first.
+///
+/// Order is `likes` desc, `created_at` desc, `comment_id` desc. `created_at` is
+/// not unique, so `comment_id` finishes the order and the cursor. `cursor` is
+/// `None` for the first page. Later pages pass the previous `next`.
 pub async fn get_post_comments(
     db: &DatabaseConnection,
     viewer_id: Uuid,
     post_id: i64,
-) -> Result<Vec<SocialComment>, CadenzaError> {
-    let rows = comments_on_post(viewer_id, post_id)
+    cursor: Option<CommentsCursor>,
+) -> Result<CommentPage, CadenzaError> {
+    let rows = comments_page(viewer_id, post_id, cursor)
         .into_model::<CommentRow>()
         .all(db)
         .await?;
-    Ok(rows.iter().map(CommentRow::to_comment).collect())
+    let next = (rows.len() as u64 == COMMENT_PAGE_LIMIT)
+        .then(|| rows.last())
+        .flatten()
+        .map(|row| CommentsCursor {
+            likes: row.likes,
+            created_at: row.created_at.with_timezone(&Utc),
+            comment_id: row.comment_id,
+        });
+    Ok(CommentPage {
+        comments: rows.iter().map(CommentRow::to_comment).collect(),
+        next,
+    })
+}
+
+/// [`comments_on_post`] plus the page size, and the cursor filter when there is one.
+fn comments_page(
+    viewer_id: Uuid,
+    post_id: i64,
+    cursor: Option<CommentsCursor>,
+) -> sea_orm::Select<comments::Entity> {
+    let mut query = comments_on_post(viewer_id, post_id);
+    if let Some(cursor) = cursor {
+        let created_at = cursor.created_at.fixed_offset();
+        query = query.filter(
+            Condition::any()
+                .add(comments::Column::Likes.lt(cursor.likes))
+                .add(
+                    Condition::all()
+                        .add(comments::Column::Likes.eq(cursor.likes))
+                        .add(comments::Column::CreatedAt.lt(created_at)),
+                )
+                .add(
+                    Condition::all()
+                        .add(comments::Column::Likes.eq(cursor.likes))
+                        .add(comments::Column::CreatedAt.eq(created_at))
+                        .add(comments::Column::CommentId.lt(cursor.comment_id)),
+                ),
+        );
+    }
+    query.limit(COMMENT_PAGE_LIMIT)
 }
 
 /// The select behind [`get_post_comments`]. A missing profile becomes
@@ -1025,16 +1089,49 @@ pub async fn search_users(
         .collect())
 }
 
-/// Posts whose topic is this Apple Music catalog id, most liked first.
-/// Equal scores fall back to newest first, then post id.
+/// Where the next topic-posts page starts. The columns are the sort key, in order.
+#[derive(Clone, Debug)]
+pub struct TopicPostsCursor {
+    pub likes: i64,
+    pub created_at: DateTime<Utc>,
+    pub post_id: i64,
+}
+
+/// One page of topic posts, plus the cursor for the following page when this one is full.
+pub struct TopicPostPage {
+    pub posts: Vec<SocialPost>,
+    pub next: Option<TopicPostsCursor>,
+}
+
+/// Posts whose topic is this Apple Music catalog id, at most [`TOPIC_POST_LIMIT`].
+///
+/// Order is `likes` desc, `created_at` desc, `post_id` desc. `created_at` is
+/// not unique, so `post_id` finishes the order and the cursor. `cursor` is
+/// `None` for the first page. Later pages pass the previous `next`.
 pub async fn get_topic_posts(
     db: &DatabaseConnection,
     viewer_id: Uuid,
     topic_mk_id: &str,
-) -> Result<Vec<SocialPost>, CadenzaError> {
-    let rows = PostRow::find_by_statement(Statement::from_sql_and_values(
-        DbBackend::Postgres,
-        "SELECT
+    cursor: Option<TopicPostsCursor>,
+) -> Result<TopicPostPage, CadenzaError> {
+    let rows = PostRow::find_by_statement(topic_posts_statement(viewer_id, topic_mk_id, cursor))
+        .all(db)
+        .await?;
+    let next = (rows.len() as i64 == TOPIC_POST_LIMIT)
+        .then(|| rows.last())
+        .flatten()
+        .map(|row| TopicPostsCursor {
+            likes: row.likes,
+            created_at: row.created_at.with_timezone(&Utc),
+            post_id: row.post_id,
+        });
+    Ok(TopicPostPage {
+        posts: rows.iter().map(PostRow::to_post).collect(),
+        next,
+    })
+}
+
+const TOPIC_POSTS_SELECT: &str = "SELECT
              p.post_id,
              p.user_id AS author_id,
              p.content,
@@ -1050,14 +1147,49 @@ pub async fn get_topic_posts(
              ) AS liked,
              p.comments AS comment_count
          FROM posts p
-         LEFT JOIN profile pr ON pr.uid = p.user_id
-         WHERE p.topic_mk_id = $2
-         ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC",
-        vec![viewer_id.into(), topic_mk_id.into()],
-    ))
-    .all(db)
-    .await?;
-    Ok(rows.iter().map(PostRow::to_post).collect())
+         LEFT JOIN profile pr ON pr.uid = p.user_id";
+
+/// The statement behind [`get_topic_posts`]. All three sort columns are descending,
+/// so a row comparison `<` is the rows that sort after the cursor.
+fn topic_posts_statement(
+    viewer_id: Uuid,
+    topic_mk_id: &str,
+    cursor: Option<TopicPostsCursor>,
+) -> Statement {
+    match cursor {
+        None => Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            format!(
+                "{TOPIC_POSTS_SELECT}
+                 WHERE p.topic_mk_id = $2
+                 ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
+                 LIMIT $3"
+            ),
+            vec![
+                viewer_id.into(),
+                topic_mk_id.into(),
+                TOPIC_POST_LIMIT.into(),
+            ],
+        ),
+        Some(cursor) => Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            format!(
+                "{TOPIC_POSTS_SELECT}
+                 WHERE p.topic_mk_id = $2
+                   AND (p.likes, p.created_at, p.post_id) < ($3, $4, $5)
+                 ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
+                 LIMIT $6"
+            ),
+            vec![
+                viewer_id.into(),
+                topic_mk_id.into(),
+                cursor.likes.into(),
+                cursor.created_at.into(),
+                cursor.post_id.into(),
+                TOPIC_POST_LIMIT.into(),
+            ],
+        ),
+    }
 }
 
 /// One author's posts, newest first.
@@ -1878,5 +2010,72 @@ mod tests {
             "{sql}"
         );
         assert!(sql.contains(r#""comments"."edited_at""#), "{sql}");
+    }
+
+    #[test]
+    fn comments_page_limits_and_seeks_past_the_cursor() {
+        let first = comments_page(Uuid::nil(), 4, None)
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(first.contains("LIMIT 20"), "{first}");
+        assert!(!first.contains(r#""comments"."likes" <"#), "{first}");
+
+        let cursor = CommentsCursor {
+            likes: 3,
+            created_at: Utc.with_ymd_and_hms(2026, 10, 16, 18, 0, 0).unwrap(),
+            comment_id: 9,
+        };
+        let next = comments_page(Uuid::nil(), 4, Some(cursor))
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(next.contains("LIMIT 20"), "{next}");
+        assert!(next.contains(r#""comments"."likes" < 3"#), "{next}");
+        assert!(next.contains(r#""comments"."likes" = 3"#), "{next}");
+        assert!(next.contains(r#""comments"."comment_id" < 9"#), "{next}");
+    }
+
+    #[test]
+    fn topic_posts_statement_pages_by_likes() {
+        let viewer = Uuid::nil();
+        let first = topic_posts_statement(viewer, "1615585008", None);
+        assert!(
+            first.sql.contains("WHERE p.topic_mk_id = $2"),
+            "{}",
+            first.sql
+        );
+        assert!(
+            first
+                .sql
+                .contains("ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC"),
+            "{}",
+            first.sql
+        );
+        assert!(first.sql.contains("LIMIT $3"), "{}", first.sql);
+        assert!(!first.sql.contains(" < "), "{}", first.sql);
+        let values = &first.values.as_ref().unwrap().0;
+        assert_eq!(values[2], Value::from(TOPIC_POST_LIMIT));
+
+        let created_at = Utc.with_ymd_and_hms(2026, 10, 16, 18, 0, 0).unwrap();
+        let next = topic_posts_statement(
+            viewer,
+            "1615585008",
+            Some(TopicPostsCursor {
+                likes: 4,
+                created_at,
+                post_id: 12,
+            }),
+        );
+        assert!(
+            next.sql
+                .contains("(p.likes, p.created_at, p.post_id) < ($3, $4, $5)"),
+            "{}",
+            next.sql
+        );
+        assert!(next.sql.contains("LIMIT $6"), "{}", next.sql);
+        let values = &next.values.as_ref().unwrap().0;
+        assert_eq!(values[2], Value::from(4_i64));
+        assert_eq!(values[3], Value::from(created_at));
+        assert_eq!(values[4], Value::from(12_i64));
+        assert_eq!(values[5], Value::from(TOPIC_POST_LIMIT));
     }
 }

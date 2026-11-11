@@ -14,13 +14,16 @@ use crate::{
     AppState,
     auth::SupabaseClaims,
     db::notification::{self, NotificationCursor as DbNotificationCursor},
-    db::social::{self, FeedExclude, InterestDelta},
+    db::social::{
+        self, CommentsCursor as DbCommentsCursor, FeedExclude, InterestDelta,
+        TopicPostsCursor as DbTopicPostsCursor,
+    },
     err::CadenzaError,
     routes::json::social::{
-        CreateCommentResponse, CreatePostResponse, FeedResponse, FriendshipsResponse,
-        NotificationCursor, NotificationsResponse, PostCommentsResponse, SocialAuthor,
-        SocialComment, SocialNotification, SocialPost, TopicPostsResponse, UserPostsResponse,
-        UserSearchPerson, UserSearchResponse,
+        CommentsCursor, CreateCommentResponse, CreatePostResponse, FeedResponse,
+        FriendshipsResponse, NotificationCursor, NotificationsResponse, PostCommentsResponse,
+        SocialAuthor, SocialComment, SocialNotification, SocialPost, TopicPostsCursor,
+        TopicPostsResponse, UserPostsResponse, UserSearchPerson, UserSearchResponse,
     },
     services::social_feed::SocialFeedService,
 };
@@ -283,12 +286,36 @@ async fn mark_viewed(
 #[derive(Deserialize)]
 struct TopicPostsQuery {
     topic_mk_id: String,
+    likes: Option<i64>,
+    created_at: Option<DateTime<Utc>>,
+    post_id: Option<i64>,
 }
 
-/// Posts whose topic is this Apple Music catalog id, most liked first.
+impl TopicPostsQuery {
+    /// `None` is the first page. The three cursor fields travel together.
+    fn cursor(&self) -> Result<Option<DbTopicPostsCursor>, CadenzaError> {
+        match (self.likes, self.created_at, self.post_id) {
+            (None, None, None) => Ok(None),
+            (Some(likes), Some(created_at), Some(post_id)) => Ok(Some(DbTopicPostsCursor {
+                likes,
+                created_at,
+                post_id,
+            })),
+            _ => Err(CadenzaError::InvalidRequestBody(
+                "likes, created_at, and post_id are set together".into(),
+            )),
+        }
+    }
+}
+
+/// Posts whose topic is this Apple Music catalog id, at most 10. Most liked
+/// first, then newest, then post id.
+///
+/// Omit `likes`, `created_at`, and `post_id` for the first page. Pass `next`
+/// from the previous response as those three fields for the following page.
 ///
 /// ```json
-/// { "posts": [ { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008", "comment_count": 0 } ] }
+/// { "posts": [ { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008", "comment_count": 0 } ], "next": null }
 /// ```
 async fn topic_posts(
     State(db): State<DatabaseConnection>,
@@ -296,13 +323,19 @@ async fn topic_posts(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Query(query): Query<TopicPostsQuery>,
 ) -> Result<Json<TopicPostsResponse>, CadenzaError> {
+    let cursor = query.cursor()?;
     let topic_mk_id = parse_optional_text(Some(query.topic_mk_id), "topic_mk_id", TOPIC_MK_ID_MAX)?
         .ok_or_else(|| CadenzaError::InvalidRequestBody("topic_mk_id is required".into()))?;
-    let posts = social
-        .topic_posts(&db, claims.user_id, &topic_mk_id)
+    let page = social
+        .topic_posts(&db, claims.user_id, &topic_mk_id, cursor)
         .await?;
     Ok(Json(TopicPostsResponse {
-        posts: posts.into_iter().map(SocialPost::from).collect(),
+        posts: page.posts.into_iter().map(SocialPost::from).collect(),
+        next: page.next.map(|cursor| TopicPostsCursor {
+            likes: cursor.likes,
+            created_at: cursor.created_at,
+            post_id: cursor.post_id,
+        }),
     }))
 }
 
@@ -532,22 +565,56 @@ async fn unlike_post(
     Ok(Json(Value::Null))
 }
 
-/// Comments on this post, most liked first, then newest.
+#[derive(Deserialize)]
+struct CommentsQuery {
+    likes: Option<i64>,
+    created_at: Option<DateTime<Utc>>,
+    comment_id: Option<i64>,
+}
+
+impl CommentsQuery {
+    /// `None` is the first page. The three cursor fields travel together.
+    fn cursor(&self) -> Result<Option<DbCommentsCursor>, CadenzaError> {
+        match (self.likes, self.created_at, self.comment_id) {
+            (None, None, None) => Ok(None),
+            (Some(likes), Some(created_at), Some(comment_id)) => Ok(Some(DbCommentsCursor {
+                likes,
+                created_at,
+                comment_id,
+            })),
+            _ => Err(CadenzaError::InvalidRequestBody(
+                "likes, created_at, and comment_id are set together".into(),
+            )),
+        }
+    }
+}
+
+/// Comments on this post, at most 20. Most liked first, then newest, then
+/// comment id.
+///
+/// Omit the query params for the first page. Pass `next` from the previous
+/// response as `likes`, `created_at`, and `comment_id` for the following page.
 ///
 /// ```json
-/// { "comments": [ { "comment_id": 1, "post_id": 4, "content": "this", "likes": 2, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" } } ] }
+/// { "comments": [ { "comment_id": 1, "post_id": 4, "content": "this", "likes": 2, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" } } ], "next": null }
 /// ```
 async fn get_comments(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Path(post_id): Path<i64>,
+    Query(query): Query<CommentsQuery>,
 ) -> Result<Json<PostCommentsResponse>, CadenzaError> {
-    let comments = social
-        .get_post_comments(&db, claims.user_id, post_id)
+    let page = social
+        .get_post_comments(&db, claims.user_id, post_id, query.cursor()?)
         .await?;
     Ok(Json(PostCommentsResponse {
-        comments: comments.into_iter().map(SocialComment::from).collect(),
+        comments: page.comments.into_iter().map(SocialComment::from).collect(),
+        next: page.next.map(|cursor| CommentsCursor {
+            likes: cursor.likes,
+            created_at: cursor.created_at,
+            comment_id: cursor.comment_id,
+        }),
     }))
 }
 

@@ -152,16 +152,38 @@ pub struct UserPostsResponse {
     pub posts: Vec<SocialPost>,
 }
 
-/// `{posts}` from `GET /social/posts/topic`, most liked first.
+/// The sort position of the last topic post on a full page. The next request
+/// passes these three fields back as query params.
+#[derive(Serialize)]
+pub struct TopicPostsCursor {
+    pub likes: i64,
+    pub created_at: DateTime<Utc>,
+    pub post_id: i64,
+}
+
+/// `{posts, next}` from `GET /social/posts/topic`, at most 10.
+/// Most liked first, then newest, then post id descending.
 #[derive(Serialize)]
 pub struct TopicPostsResponse {
     pub posts: Vec<SocialPost>,
+    pub next: Option<TopicPostsCursor>,
 }
 
-/// `{comments}` from `GET /social/posts/:id/comments`, most liked first.
+/// The sort position of the last comment on a full page. The next request
+/// passes these three fields back as query params.
+#[derive(Serialize)]
+pub struct CommentsCursor {
+    pub likes: i64,
+    pub created_at: DateTime<Utc>,
+    pub comment_id: i64,
+}
+
+/// `{comments, next}` from `GET /social/posts/:id/comments`, at most 20.
+/// Most liked first, then newest, then comment id descending.
 #[derive(Serialize)]
 pub struct PostCommentsResponse {
     pub comments: Vec<SocialComment>,
+    pub next: Option<CommentsCursor>,
 }
 
 #[derive(Serialize)]

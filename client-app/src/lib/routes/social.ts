@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
 
@@ -10,6 +10,8 @@ import {
     applyPostCommentDelta,
     commentsPath,
     insertCachedComment,
+    isFirstPostCommentsPageKey,
+    isInfinitePostCommentsKey,
     isPostCommentsKey,
     removeCachedComment,
     isSocialPostPages,
@@ -34,6 +36,26 @@ import type {
 const FEED_PAGE_SIZE = 10;
 
 const EMPTY_POSTS: SocialPost[] = [];
+
+function uniqueById<Page, Row>(
+    pages: readonly Page[] | undefined,
+    rows: (page: Page) => readonly Row[],
+    id: (row: Row) => number,
+    empty: Row[],
+): Row[] {
+    if (!pages) return empty;
+    const seen = new Set<number>();
+    const items: Row[] = [];
+    for (const page of pages) {
+        for (const row of rows(page)) {
+            const key = id(row);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            items.push(row);
+        }
+    }
+    return items;
+}
 
 /**
  * Shrinks the signed in user's interest scores so the social feed follows what
@@ -473,18 +495,26 @@ export function useLikePost() {
  * come back on the next visit.
  */
 export function useUpdateCachedPostLike() {
-    const { mutate } = useSWRConfig();
+    const { cache, mutate } = useSWRConfig();
     return useCallback(
-        (postId: number, liked: boolean) =>
-            mutate(
-                isSocialPostListKey,
-                (current: unknown) =>
-                    current == null
-                        ? current
-                        : applyPostLike(current, postId, liked),
-                { revalidate: false },
-            ),
-        [mutate],
+        (postId: number, liked: boolean) => {
+            const apply = (current: unknown) =>
+                current == null
+                    ? current
+                    : applyPostLike(current, postId, liked);
+            // A filtered mutate skips `$inf$` keys. Topic posts and the feed
+            // are both infinite, so those entries are written by key.
+            const writes: Promise<unknown>[] = [
+                mutate(isSocialPostListKey, apply, { revalidate: false }),
+            ];
+            for (const key of cache.keys()) {
+                if (!key.startsWith("$inf$")) continue;
+                if (!isSocialPostPages(cache.get(key)?.data)) continue;
+                writes.push(mutate(key, apply, { revalidate: false }));
+            }
+            return Promise.all(writes);
+        },
+        [cache, mutate],
     );
 }
 
@@ -503,31 +533,115 @@ export function useUnlikePost() {
     };
 }
 
+type TopicPostsCursor = {
+    likes: number;
+    created_at: string;
+    post_id: number;
+};
+
 type TopicPostsResponse = {
     posts: SocialPost[];
+    next: TopicPostsCursor | null;
+};
+
+type TopicPageKey = {
+    keyType: "api-data";
+    path: "/social/posts/topic";
+    params: Record<string, string>;
+    accountId: string;
 };
 
 /**
- * Posts whose topic is this Apple Music catalog id, most liked first.
- * Pass no id, or `enabled: false`, to leave it unread.
+ * Posts whose topic is this Apple Music catalog id, 10 at a time. Most liked
+ * first, then newest, then post id. Pass no id, or `enabled: false`, to leave
+ * it unread. The next page sends the previous response's `next` cursor.
  *
  * ```ts
- * const { posts, topicPostsLoading, topicPostsErr, refreshTopicPosts } =
- *     useTopicPosts(songId, enabled);
+ * const { posts, hasNextPage, loadNextPage } = useTopicPosts(songId, enabled);
  * ```
  */
 export function useTopicPosts(topicMkId?: string, enabled = true) {
-    const x = useAPIData<TopicPostsResponse>(
-        "/social/posts/topic",
-        topicMkId ? { topic_mk_id: topicMkId } : undefined,
-        { enabled: enabled && Boolean(topicMkId) },
+    const { account } = useAccount();
+    const pages = useSWRInfinite<TopicPostsResponse>(
+        (pageIndex, previousPage): TopicPageKey | null => {
+            if (!account || !enabled || !topicMkId) return null;
+            if (pageIndex > 0 && !previousPage?.next) return null;
+            const cursor = pageIndex > 0 ? previousPage?.next : null;
+            return {
+                keyType: "api-data",
+                path: "/social/posts/topic",
+                params: cursor
+                    ? {
+                          topic_mk_id: topicMkId,
+                          likes: String(cursor.likes),
+                          created_at: cursor.created_at,
+                          post_id: String(cursor.post_id),
+                      }
+                    : { topic_mk_id: topicMkId },
+                accountId: account.id,
+            };
+        },
+        (key: TopicPageKey) =>
+            fetchAPIData<TopicPostsResponse>(key.path, key.params),
+        { revalidateFirstPage: false, revalidateAll: false },
     );
-    const refreshTopicPosts = useCallback(() => x.mutate(), [x.mutate]);
+    const { data, error, isLoading, isValidating, size, setSize, mutate } =
+        pages;
+    const posts = useMemo(
+        () =>
+            uniqueById(
+                data,
+                (page) => page.posts,
+                (post) => post.post_id,
+                EMPTY_POSTS,
+            ),
+        [data],
+    );
+    const hasNextPage = data?.at(-1)?.next != null;
+    const isLoadingNextPage =
+        isValidating && Boolean(data?.length) && size > (data?.length ?? 0);
+    const loadingNext = useRef(false);
+    const loadNextPage = useCallback(async () => {
+        if (loadingNext.current) return;
+        const loaded = data?.length ?? 0;
+        if (error && size > loaded) {
+            loadingNext.current = true;
+            try {
+                await mutate();
+            } finally {
+                loadingNext.current = false;
+            }
+            return;
+        }
+        if (!hasNextPage || isLoadingNextPage) return;
+        loadingNext.current = true;
+        try {
+            await setSize((current) => current + 1);
+        } finally {
+            loadingNext.current = false;
+        }
+    }, [
+        data?.length,
+        error,
+        hasNextPage,
+        isLoadingNextPage,
+        mutate,
+        setSize,
+        size,
+    ]);
+    const refreshTopicPosts = useCallback(async () => {
+        await setSize(1);
+        await mutate();
+    }, [mutate, setSize]);
+
     return {
-        posts: x.data?.posts ?? EMPTY_POSTS,
-        topicPostsLoading: x.isLoading,
-        topicPostsErr: x.error,
+        posts,
+        topicPostsLoading: !data && isLoading,
+        topicPostsErr: error,
         refreshTopicPosts,
+        hasNextPage,
+        isLoadingNextPage,
+        loadNextPage,
     };
 }
 
@@ -751,29 +865,143 @@ export function useUserPosts(authorId?: string) {
 
 const EMPTY_COMMENTS: SocialComment[] = [];
 
+type CommentsCursor = {
+    likes: number;
+    created_at: string;
+    comment_id: number;
+};
+
 type PostCommentsResponse = {
     comments: SocialComment[];
+    next: CommentsCursor | null;
+};
+
+type CommentPageKey = {
+    keyType: "api-data";
+    path: string;
+    params: Record<string, string>;
+    accountId: string;
 };
 
 /**
- * Comments on one post, most liked first. Pass no id, or `enabled: false`,
- * to leave it unread.
+ * Comments on one post, 20 at a time. Most liked first, then newest, then
+ * comment id. Pass no id, or `enabled: false`, to leave it unread. The next
+ * page sends the previous response's `next` cursor.
  *
  * ```ts
- * const { comments, postCommentsLoading } = usePostComments(postId, open);
+ * const { comments, hasNextPage, loadNextPage } = usePostComments(postId, open);
  * ```
  */
 export function usePostComments(postId?: number, enabled = true) {
-    const x = useAPIData<PostCommentsResponse>(
-        `/social/posts/${postId}/comments`,
-        undefined,
-        { enabled: enabled && typeof postId === "number" && postId > 0 },
+    const { account } = useAccount();
+    const ready = enabled && typeof postId === "number" && postId > 0;
+    const pages = useSWRInfinite<PostCommentsResponse>(
+        (pageIndex, previousPage): CommentPageKey | null => {
+            if (!account || !ready || postId == null) return null;
+            if (pageIndex > 0 && !previousPage?.next) return null;
+            const cursor = pageIndex > 0 ? previousPage?.next : null;
+            return {
+                keyType: "api-data",
+                path: commentsPath(postId),
+                params: cursor
+                    ? {
+                          likes: String(cursor.likes),
+                          created_at: cursor.created_at,
+                          comment_id: String(cursor.comment_id),
+                      }
+                    : {},
+                accountId: account.id,
+            };
+        },
+        (key: CommentPageKey) =>
+            fetchAPIData<PostCommentsResponse>(key.path, key.params),
+        { revalidateFirstPage: false, revalidateAll: false },
     );
+    const { data, error, isLoading, isValidating, size, setSize, mutate } =
+        pages;
+    const comments = useMemo(
+        () =>
+            uniqueById(
+                data,
+                (page) => page.comments,
+                (comment) => comment.comment_id,
+                EMPTY_COMMENTS,
+            ),
+        [data],
+    );
+    const hasNextPage = data?.at(-1)?.next != null;
+    const isLoadingNextPage =
+        isValidating && Boolean(data?.length) && size > (data?.length ?? 0);
+    const loadingNext = useRef(false);
+    const loadNextPage = useCallback(async () => {
+        if (loadingNext.current) return;
+        const loaded = data?.length ?? 0;
+        if (error && size > loaded) {
+            loadingNext.current = true;
+            try {
+                await mutate();
+            } finally {
+                loadingNext.current = false;
+            }
+            return;
+        }
+        if (!hasNextPage || isLoadingNextPage) return;
+        loadingNext.current = true;
+        try {
+            await setSize((current) => current + 1);
+        } finally {
+            loadingNext.current = false;
+        }
+    }, [
+        data?.length,
+        error,
+        hasNextPage,
+        isLoadingNextPage,
+        mutate,
+        setSize,
+        size,
+    ]);
+    const refreshPostComments = useCallback(async () => {
+        await setSize(1);
+        await mutate();
+    }, [mutate, setSize]);
+    const { mutate: mutateCached } = useSWRConfig();
+    const insertComment = useCallback(
+        (comment: SocialComment) => {
+            const page = (current: unknown) =>
+                current == null
+                    ? { comments: [comment], next: null }
+                    : insertCachedComment(current, comment);
+            return Promise.all([
+                // The dialog reads this infinite list, not the separate page keys.
+                mutate(
+                    (pages) =>
+                        (pages && pages.length > 0
+                            ? insertCachedComment(pages, comment)
+                            : [
+                                  { comments: [comment], next: null },
+                              ]) as PostCommentsResponse[],
+                    { revalidate: false },
+                ),
+                mutateCached(
+                    (key) => isFirstPostCommentsPageKey(key, comment.post_id),
+                    page,
+                    { revalidate: false },
+                ),
+            ]);
+        },
+        [mutate, mutateCached],
+    );
+
     return {
-        comments: x.data?.comments ?? EMPTY_COMMENTS,
-        postCommentsLoading: x.isLoading,
-        postCommentsErr: x.error,
-        refreshPostComments: x.mutate,
+        comments,
+        postCommentsLoading: !data && isLoading,
+        postCommentsErr: error,
+        refreshPostComments,
+        hasNextPage,
+        isLoadingNextPage,
+        loadNextPage,
+        insertComment,
     };
 }
 
@@ -795,10 +1023,14 @@ function createCommentPath({ post_id }: NewCommentPayload) {
  * `comment_id`.
  */
 export function useCreateComment() {
+    // The dialog inserts the new comment into the cached pages itself. A
+    // refetch would replace that page and drop a comment that does not belong
+    // on the first page yet.
     const x = useAPIMutation<NewCommentPayload, NewCommentResponse>(
         "POST",
         createCommentPath,
-        ({ post_id }) => [{ path: commentsPath(post_id) }],
+        [],
+        { invalidation: "none" },
     );
     return {
         createCommentErr: x.error,
@@ -856,28 +1088,26 @@ export function useUpdateComment() {
 
 /** Writes new text and `edited_at` through the cached comments list. */
 export function useUpdateCachedCommentContent() {
-    const { mutate } = useSWRConfig();
+    const { cache, mutate } = useSWRConfig();
     return useCallback(
         (
             postId: number,
             commentId: number,
             content: string,
             editedAt: string | null,
-        ) =>
-            mutate(
-                (key) => isPostCommentsKey(key, postId),
-                (current: unknown) =>
-                    current == null
-                        ? current
-                        : applyCommentContent(
-                              current,
-                              commentId,
-                              content,
-                              editedAt,
-                          ),
-                { revalidate: false },
-            ),
-        [mutate],
+        ) => {
+            const apply = (current: unknown) =>
+                current == null
+                    ? current
+                    : applyCommentContent(
+                          current,
+                          commentId,
+                          content,
+                          editedAt,
+                      );
+            return writeCommentCache(cache, mutate, postId, apply);
+        },
+        [cache, mutate],
     );
 }
 
@@ -906,18 +1136,16 @@ export function useDeleteComment() {
 
 /** Drops one comment from the cached list for its post. */
 export function useRemoveCachedComment() {
-    const { mutate } = useSWRConfig();
+    const { cache, mutate } = useSWRConfig();
     return useCallback(
-        (postId: number, commentId: number) =>
-            mutate(
-                (key) => isPostCommentsKey(key, postId),
-                (current: unknown) =>
-                    current == null
-                        ? current
-                        : removeCachedComment(current, commentId),
-                { revalidate: false },
-            ),
-        [mutate],
+        (postId: number, commentId: number) => {
+            const apply = (current: unknown) =>
+                current == null
+                    ? current
+                    : removeCachedComment(current, commentId);
+            return writeCommentCache(cache, mutate, postId, apply);
+        },
+        [cache, mutate],
     );
 }
 
@@ -969,33 +1197,64 @@ export function useUnlikeComment() {
  * Writes `liked` through the cached comments list for this post.
  */
 export function useUpdateCachedCommentLike() {
-    const { mutate } = useSWRConfig();
+    const { cache, mutate } = useSWRConfig();
     return useCallback(
-        (postId: number, commentId: number, liked: boolean) =>
-            mutate(
-                (key) => isPostCommentsKey(key, postId),
-                (current: unknown) =>
-                    current == null
-                        ? current
-                        : applyCommentLike(current, commentId, liked),
-                { revalidate: false },
-            ),
-        [mutate],
+        (postId: number, commentId: number, liked: boolean) => {
+            const apply = (current: unknown) =>
+                current == null
+                    ? current
+                    : applyCommentLike(current, commentId, liked);
+            return writeCommentCache(cache, mutate, postId, apply);
+        },
+        [cache, mutate],
     );
 }
 
 /** Inserts a comment into the cached list for its post. */
 export function useInsertCachedComment() {
-    const { mutate } = useSWRConfig();
+    const { cache, mutate } = useSWRConfig();
     return useCallback(
-        (comment: SocialComment) =>
-            mutate(
-                (key) => isPostCommentsKey(key, comment.post_id),
-                (current: unknown) => insertCachedComment(current, comment),
-                { revalidate: false },
-            ),
-        [mutate],
+        (comment: SocialComment) => {
+            const apply = (current: unknown) =>
+                current == null
+                    ? current
+                    : insertCachedComment(current, comment);
+            // Every loaded page matches the comments path. A new comment goes
+            // on the first page only, plus the infinite list those pages form.
+            const writes: Promise<unknown>[] = [
+                mutate(
+                    (key) => isFirstPostCommentsPageKey(key, comment.post_id),
+                    apply,
+                    { revalidate: false },
+                ),
+            ];
+            for (const key of cache.keys()) {
+                if (!isInfinitePostCommentsKey(key, comment.post_id)) continue;
+                writes.push(mutate(key, apply, { revalidate: false }));
+            }
+            return Promise.all(writes);
+        },
+        [cache, mutate],
     );
+}
+
+/** Writes one comment change through every page key and the infinite list. */
+function writeCommentCache(
+    cache: ReturnType<typeof useSWRConfig>["cache"],
+    mutate: ReturnType<typeof useSWRConfig>["mutate"],
+    postId: number,
+    apply: (current: unknown) => unknown,
+) {
+    const writes: Promise<unknown>[] = [
+        mutate((key) => isPostCommentsKey(key, postId), apply, {
+            revalidate: false,
+        }),
+    ];
+    for (const key of cache.keys()) {
+        if (!isInfinitePostCommentsKey(key, postId)) continue;
+        writes.push(mutate(key, apply, { revalidate: false }));
+    }
+    return Promise.all(writes);
 }
 
 /**

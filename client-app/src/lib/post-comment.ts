@@ -15,6 +15,38 @@ export function isPostCommentsKey(key: unknown, postId?: number): boolean {
 }
 
 /**
+ * The first comments page. Later pages carry `likes`, `created_at`, and
+ * `comment_id`, and a new comment is inserted on the first page only.
+ */
+export function isFirstPostCommentsPageKey(
+    key: unknown,
+    postId: number,
+): boolean {
+    if (!isPostCommentsKey(key, postId)) return false;
+    const params = (key as { params?: Record<string, unknown> }).params ?? {};
+    return (
+        params.likes == null &&
+        params.created_at == null &&
+        params.comment_id == null
+    );
+}
+
+/**
+ * `useSWRInfinite` stores the pages under `$inf$` plus a hash of the first
+ * page key. A filtered `mutate` skips those keys, so comment writes match
+ * this string and update the list the dialog reads.
+ */
+export function isInfinitePostCommentsKey(
+    key: string,
+    postId: number,
+): boolean {
+    return (
+        key.startsWith("$inf$") &&
+        key.includes(`path:${JSON.stringify(commentsPath(postId))},`)
+    );
+}
+
+/**
  * Most likes first, then newest, then comment id. Matches the backend.
  */
 export function sortCommentsByLikes(
@@ -37,6 +69,11 @@ export function applyCommentLike(
     commentId: number,
     liked: boolean,
 ): unknown {
+    if (Array.isArray(data)) {
+        return mapCommentPages(data, (page) =>
+            applyCommentLike(page, commentId, liked),
+        );
+    }
     if (!data || typeof data !== "object") return data;
     const record = data as CommentsEnvelope;
     if (!Array.isArray(record.comments)) return data;
@@ -52,6 +89,27 @@ export function applyCommentLike(
         ...record,
         comments: sortCommentsByLikes(comments as SocialComment[]),
     };
+}
+
+/**
+ * Comments just created in this dialog, ahead of the loaded pages. A page
+ * that already has the id wins, so a later load does not show it twice.
+ */
+export function withPostedComments(
+    comments: SocialComment[],
+    posted: readonly SocialComment[],
+    postId: number,
+): SocialComment[] {
+    if (posted.length === 0) return comments;
+    const seen = new Set(comments.map((row) => row.comment_id));
+    const extras: SocialComment[] = [];
+    for (const row of posted) {
+        if (row.post_id !== postId || seen.has(row.comment_id)) continue;
+        seen.add(row.comment_id);
+        extras.push(row);
+    }
+    if (extras.length === 0) return comments;
+    return [...extras, ...comments];
 }
 
 /**
@@ -86,6 +144,12 @@ export function insertCachedComment(
     data: unknown,
     comment: SocialComment,
 ): unknown {
+    if (Array.isArray(data)) {
+        if (data.length === 0) return [{ comments: [comment] }];
+        const first = insertCachedComment(data[0], comment);
+        if (first === data[0]) return data;
+        return [first, ...data.slice(1)];
+    }
     if (!data || typeof data !== "object") {
         return { comments: [comment] };
     }
@@ -117,6 +181,11 @@ export function applyCommentContent(
     content: string,
     editedAt: string | null,
 ): unknown {
+    if (Array.isArray(data)) {
+        return mapCommentPages(data, (page) =>
+            applyCommentContent(page, commentId, content, editedAt),
+        );
+    }
     if (!data || typeof data !== "object") return data;
     const record = data as CommentsEnvelope;
     if (!Array.isArray(record.comments)) return data;
@@ -140,6 +209,11 @@ export function applyCommentContent(
 
 /** Drops one comment from a cached comments list. */
 export function removeCachedComment(data: unknown, commentId: number): unknown {
+    if (Array.isArray(data)) {
+        return mapCommentPages(data, (page) =>
+            removeCachedComment(page, commentId),
+        );
+    }
     if (!data || typeof data !== "object") return data;
     const record = data as CommentsEnvelope;
     if (!Array.isArray(record.comments)) return data;
@@ -224,6 +298,19 @@ export function applyPostCommentDelta(
         });
     }
     return changed ? next : data;
+}
+
+function mapCommentPages(
+    pages: unknown[],
+    update: (page: unknown) => unknown,
+): unknown {
+    let changed = false;
+    const next = pages.map((page) => {
+        const updated = update(page);
+        if (updated !== page) changed = true;
+        return updated;
+    });
+    return changed ? next : pages;
 }
 
 function adjustComment(

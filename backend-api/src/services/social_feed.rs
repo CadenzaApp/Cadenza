@@ -18,8 +18,8 @@ use sea_orm::prelude::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::db::social::{
-    self, FeedCandidate, FeedExclude, InterestDelta, PublicProfile, SocialComment, SocialPost,
-    UpsertedInterest,
+    self, CommentsCursor, FeedCandidate, FeedExclude, InterestDelta, PublicProfile, SocialPost,
+    TopicPostsCursor, UpsertedInterest,
 };
 use crate::err::CadenzaError;
 
@@ -308,14 +308,16 @@ impl SocialFeedService {
         Ok(page)
     }
 
-    /// Posts whose topic is `topic_mk_id`, most liked first.
+    /// One page of posts whose topic is `topic_mk_id`, most liked first.
+    /// `cursor` is `None` for the first page.
     pub async fn topic_posts(
         &self,
         db: &DatabaseConnection,
         viewer_id: Uuid,
         topic_mk_id: &str,
-    ) -> Result<Vec<SocialPost>, CadenzaError> {
-        social::get_topic_posts(db, viewer_id, topic_mk_id).await
+        cursor: Option<TopicPostsCursor>,
+    ) -> Result<social::TopicPostPage, CadenzaError> {
+        social::get_topic_posts(db, viewer_id, topic_mk_id, cursor).await
     }
 
     /// Profile header plus that author's posts, newest first.
@@ -462,14 +464,16 @@ impl SocialFeedService {
         social::mark_posts_viewed(db, user_id, post_ids).await
     }
 
-    /// Comments on `post_id`, most liked first.
+    /// One page of comments on `post_id`, most liked first.
+    /// `cursor` is `None` for the first page.
     pub async fn get_post_comments(
         &self,
         db: &DatabaseConnection,
         viewer_id: Uuid,
         post_id: i64,
-    ) -> Result<Vec<SocialComment>, CadenzaError> {
-        social::get_post_comments(db, viewer_id, post_id).await
+        cursor: Option<CommentsCursor>,
+    ) -> Result<social::CommentPage, CadenzaError> {
+        social::get_post_comments(db, viewer_id, post_id, cursor).await
     }
 
     /// Stores a comment on `post_id` and returns its id. `NotFound` when the
