@@ -1,6 +1,7 @@
 import { Stack } from "expo-router";
 
 import { TopRail } from "@/components/custom/top-rail";
+import { AssistantButton } from "@/features/assistant";
 import { DETAIL_ROUTE_NAMES } from "@/lib/detail-stack";
 import { TopRailProvider } from "@/lib/top-rail";
 
@@ -23,6 +24,9 @@ type Props = {
  *
  * Every tab also holds the shared detail routes (album, tag, artist, ...), so
  * they push inside the tab and keep the tab bar. They draw their own header.
+ *
+ * The assistant's floating button sits beside the stack and shows on the
+ * tab's own screen only.
  */
 export function TabStack({ tab, title, pinnedRail }: Props) {
     return (
@@ -59,6 +63,7 @@ export function TabStack({ tab, title, pinnedRail }: Props) {
                     />
                 ))}
             </Stack>
+            <AssistantButton tab={tab} />
         </TopRailProvider>
     );
 }
