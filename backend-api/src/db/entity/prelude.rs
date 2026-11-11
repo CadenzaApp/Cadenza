@@ -13,6 +13,7 @@ pub use super::interest_scores_metadata::Entity as InterestScoresMetadata;
 pub use super::interests::Entity as Interests;
 pub use super::invite_codes::Entity as InviteCodes;
 pub use super::listening_events::Entity as ListeningEvents;
+pub use super::live_session_join_requests::Entity as LiveSessionJoinRequests;
 pub use super::live_session_members::Entity as LiveSessionMembers;
 pub use super::live_session_queue::Entity as LiveSessionQueue;
 pub use super::live_sessions::Entity as LiveSessions;

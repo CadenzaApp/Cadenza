@@ -107,7 +107,7 @@ user_id)`, plus `date`. Cascades from `comments`.
   deletes the row for that pair, whatever the status is, and both favorites.
 - `notifications` - one row the signed-in user sees (`sql/notifications.sql`). `notif_id` (identity pk),
   `user_id` (uuid, references `auth.users`, cascades), `title`, `content`, `type`
-  (`notification_type`: `friend_req_received`, `friend_req_accepted`, `comment`), `created_at`,
+  (`notification_type`: `friend_req_received`, `friend_req_accepted`, `comment`, and `session_join_request` / `session_join_accepted` from `db::live_sessions`), `created_at`,
   `unread` (bool, default true), and `metadata` (jsonb, default `{}`). A friend request stores
   `{"sender_id", "resolution"}` in `metadata`. A comment stores `{"post_id"}`.
   Accepting or ignoring an incoming request sets

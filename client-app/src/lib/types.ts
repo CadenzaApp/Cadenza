@@ -148,13 +148,17 @@ export type SocialComment = {
 export type NotificationType =
     | "friend_req_received"
     | "friend_req_accepted"
-    | "comment";
+    | "comment"
+    | "session_join_request"
+    | "session_join_accepted";
 
 /**
  * Extra fields on a notification. A comment stores `post_id`. A friend
- * request stores `sender_id` and `resolution`.
+ * request stores `sender_id` and `resolution`. A session join request stores
+ * those and `session_id`; being let in stores `session_id`.
  */
 export type NotificationMetadata = {
+    session_id?: string;
     sender_id?: string;
     resolution?: "accepted" | "ignored" | null;
     post_id?: number;

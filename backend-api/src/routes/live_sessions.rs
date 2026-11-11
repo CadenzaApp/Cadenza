@@ -13,15 +13,17 @@ use crate::{
     db::{
         invites::{InviteTargetRef, NewInvite, create_invite},
         live_sessions::{
-            self as sessions, AddAt, Left, NewSession, PlaybackCommand, SessionPatch, StartAt,
+            self as sessions, AddAt, Joined, Left, NewSession, PlaybackCommand, SessionPatch,
+            StartAt,
         },
     },
     err::CadenzaError,
     routes::json::{
         invite::{CreateInvite, Invite},
         live_session::{
-            AddToQueue, LiveSessionId, LiveSessionSnapshot, PatchLiveSession, PlaybackBody,
-            QueueEntryAction, SessionVersion, SetListenMode, SetLiveSessionRole, StartLiveSession,
+            AddToQueue, AnswerJoinRequest, JoinResult, LiveSessionId, LiveSessionSnapshot,
+            PatchLiveSession, PlaybackBody, QueueEntryAction, SessionVersion, SetListenMode,
+            SetLiveSessionRole, StartLiveSession,
         },
     },
     services::{
@@ -90,6 +92,7 @@ async fn start_handler(
             default_role,
             allow_join_without_code: body.allow_join_without_code.unwrap_or(true),
             listen_along: body.listen_along,
+            approve_joins: body.approve_joins.unwrap_or(true),
         },
     )
     .await?;
@@ -147,16 +150,48 @@ async fn end_handler(
 }
 
 /// Joins without a code: the session must allow it and the host's
-/// `session_join` audience must include the caller. Codes go through
+/// `session_join` audience must include the caller. With `approve_joins` on,
+/// a first join asks the host instead. Codes go through
 /// `POST /invites/{code}/redeem`.
+///
+/// ```json
+/// { "version": 42, "status": "asked" }
+/// ```
 async fn join_handler(
     State(db): State<DatabaseConnection>,
     State(bus): State<SharedEventBus>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Path(session_id): Path<Uuid>,
+) -> Result<Json<JoinResult>, CadenzaError> {
+    let joined = sessions::join_session(&db, claims.user_id, session_id, false).await?;
+    let version = joined.version();
+    publish_version(&bus, Topic::LiveSession(session_id), version, "session");
+    let status = match joined {
+        Joined::Member(_) => {
+            publish_presence(&bus, &[claims.user_id]);
+            "joined"
+        }
+        Joined::Asked(_) => "asked",
+    };
+    Ok(Json(JoinResult { version, status }))
+}
+
+/// Lets someone who asked to join in, or turns them away. Host only. 404 when
+/// they are not waiting.
+async fn answer_join_handler(
+    State(db): State<DatabaseConnection>,
+    State(bus): State<SharedEventBus>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path((session_id, user_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<AnswerJoinRequest>,
 ) -> Result<Json<SessionVersion>, CadenzaError> {
-    let version = sessions::join_session(&db, claims.user_id, session_id, false).await?;
-    publish_presence(&bus, &[claims.user_id]);
+    let version =
+        sessions::answer_join_request(&db, claims.user_id, session_id, user_id, body.accept)
+            .await?;
+    // the person let in refetches their current session off their own topic
+    if body.accept {
+        publish_presence(&bus, &[user_id]);
+    }
     Ok(changed(&bus, session_id, version))
 }
 
@@ -198,6 +233,7 @@ async fn patch_handler(
         default_role: body.default_role.as_deref().map(parse_role).transpose()?,
         allow_join_without_code: body.allow_join_without_code,
         listen_along: body.listen_along,
+        approve_joins: body.approve_joins,
     };
     let version = sessions::update_session(&db, claims.user_id, session_id, patch).await?;
     Ok(changed(&bus, session_id, version))
@@ -379,6 +415,7 @@ pub fn get_live_sessions_router() -> Router<AppState> {
             get(get_handler).delete(end_handler).patch(patch_handler),
         )
         .route("/{id}/join", post(join_handler))
+        .route("/{id}/join-requests/{user_id}", post(answer_join_handler))
         .route("/{id}/leave", post(leave_handler))
         .route(
             "/{id}/members/{user_id}",

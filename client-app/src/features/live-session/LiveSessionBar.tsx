@@ -79,7 +79,11 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                         icon="hand-left-outline"
                         label="Requests"
                         accessibilityLabel={`Requests, ${requests.length}`}
-                        badge={isHost ? requests.length : undefined}
+                        badge={
+                            isHost
+                                ? requests.length + session.join_requests.length
+                                : undefined
+                        }
                         onPress={() => setOpen("requests")}
                     />
                 ) : null}
@@ -111,6 +115,69 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                 onClose={() => setOpen(null)}
                 title="Requests"
             >
+                {session.join_requests.length > 0 ? (
+                    <View className="pb-2">
+                        <Text className="px-1 pb-1 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                            Want to join
+                        </Text>
+                        {session.join_requests.map((request) => (
+                            <View
+                                key={request.user_id}
+                                className="h-14 flex-row items-center gap-3 px-4"
+                            >
+                                <Text
+                                    className="min-w-0 flex-1 text-base font-medium text-foreground"
+                                    numberOfLines={1}
+                                >
+                                    {request.username}
+                                </Text>
+                                <Button
+                                    accessibilityLabel={`Don't let ${request.username} in`}
+                                    className="w-9 px-0"
+                                    size="sm"
+                                    variant="outline"
+                                    onPress={() =>
+                                        void run(
+                                            () =>
+                                                writes.answerJoinRequest(
+                                                    request.user_id,
+                                                    false,
+                                                ),
+                                            "Couldn't answer.",
+                                        )
+                                    }
+                                >
+                                    <Ionicons
+                                        name="close"
+                                        size={18}
+                                        color={colors.foreground}
+                                    />
+                                </Button>
+                                <Button
+                                    accessibilityLabel={`Let ${request.username} in`}
+                                    className="w-9 px-0"
+                                    size="sm"
+                                    onPress={() =>
+                                        void run(
+                                            () =>
+                                                writes.answerJoinRequest(
+                                                    request.user_id,
+                                                    true,
+                                                ),
+                                            "Couldn't let them in.",
+                                        )
+                                    }
+                                >
+                                    <Ionicons
+                                        name="checkmark"
+                                        size={18}
+                                        color={colors.primaryForeground}
+                                    />
+                                </Button>
+                            </View>
+                        ))}
+                    </View>
+                ) : null}
                 {requests.length === 0 ? (
                     <Text className="py-4 text-center text-sm text-muted-foreground">
                         {isHost

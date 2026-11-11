@@ -4,6 +4,7 @@ import { useMusicAccess } from "@/lib/use-music-access";
 import { useCurrentLiveSession } from "./use-current-session";
 import { playsHere, useSessionPlayer } from "./use-session-player";
 import { useSessionSink } from "./use-session-sink";
+import { useJoinRequestPrompts } from "./use-join-request-prompts";
 import { useSessionNotices } from "./use-session-notices";
 import { useSessionView } from "./use-session-view";
 
@@ -27,5 +28,6 @@ export function LiveSessionRunner() {
     // a phone playing the session keeps following it with the app closed
     useRealtimeInBackground(here);
     useSessionNotices(session);
+    useJoinRequestPrompts(session);
     return null;
 }

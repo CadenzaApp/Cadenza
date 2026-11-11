@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 
+import { useAccount } from "../account";
 import { invalidateAPIData, useAPIData, useAPIMutation } from "../api-actions";
 import { useRealtimeTopic } from "../realtime";
 import type { CreateInviteBody, Invite } from "./invites";
@@ -45,6 +46,13 @@ export type LiveSessionPlayback = {
     command_seq: number;
 };
 
+/** Someone who asked to join, waiting on the host. */
+export type LiveSessionJoinRequest = {
+    user_id: string;
+    username: string;
+    requested_at: string;
+};
+
 /** `GET /live-sessions/{id}`. */
 export type LiveSession = {
     session_id: string;
@@ -54,6 +62,10 @@ export type LiveSession = {
     allow_join_without_code: boolean;
     /** Opened by listen along, and not made a regular session since. */
     listen_along: boolean;
+    /** Someone joining without a code asks first. */
+    approve_joins: boolean;
+    /** Waiting to be let in. Only the host sees them. */
+    join_requests: LiveSessionJoinRequest[];
     version: number;
     /** `host`, or the caller's role. */
     my_role: "host" | SessionRole;
@@ -130,10 +142,20 @@ export const SESSION_ROLE_LABELS: Record<SessionRole, string> = {
     controller: "Controller",
 };
 
-/** The open session the caller hosts or is in, or null. */
+/**
+ * The open session the caller hosts or is in, or null. Refetches when the
+ * caller's own topic says their session changed, like a host letting them in.
+ */
 export function useMyLiveSession() {
+    const { account } = useAccount();
     const x = useAPIData<{ session_id: string | null }>(
         "/live-sessions/current",
+    );
+    useRealtimeTopic(
+        account ? { kind: "user", id: account.id } : null,
+        (event) => {
+            if (event.kind === "live_session") void x.mutate();
+        },
     );
     return {
         mySessionId: x.data?.session_id ?? null,
@@ -187,6 +209,8 @@ export function useStartLiveSession() {
             allow_join_without_code?: boolean;
             /** Opened by listen along; joins check its own audience. */
             listen_along?: boolean;
+            /** Default true: someone joining without a code asks first. */
+            approve_joins?: boolean;
         },
         { session_id: string }
     >("POST", "/live-sessions", [{ path: "/live-sessions/current" }]);
@@ -218,8 +242,32 @@ export function useSeedSessionQueue() {
 }
 
 /** Joining from Listening now, without a code. */
+/**
+ * Lets someone who asked into the caller's session, or turns them away, from
+ * outside the session, like the Notifications screen.
+ */
+export function useAnswerJoinRequest() {
+    const x = useAPIMutation<
+        { session_id: string; user_id: string; accept: boolean },
+        SessionVersion
+    >(
+        "POST",
+        ({ session_id, user_id }) =>
+            `/live-sessions/${session_id}/join-requests/${user_id}`,
+        [],
+        { invalidation: "none" },
+    );
+    return {
+        answerJoinRequest: x.trigger,
+        answerJoinRequestLoading: x.isMutating,
+    };
+}
+
+/** `joined`, or `asked` when the host has to let the caller in. */
+export type JoinResult = { version: number; status: "joined" | "asked" };
+
 export function useJoinLiveSession() {
-    const x = useAPIMutation<{ session_id: string }, SessionVersion>(
+    const x = useAPIMutation<{ session_id: string }, JoinResult>(
         "POST",
         ({ session_id }) => `/live-sessions/${session_id}/join`,
         [{ path: "/live-sessions/current" }],
@@ -265,6 +313,7 @@ export function useLiveSessionWrites(id: string) {
             allow_join_without_code?: boolean;
             /** False makes a listen along session a regular one. */
             listen_along?: boolean;
+            approve_joins?: boolean;
         },
         SessionVersion
     >("PATCH", base, touched);
@@ -272,6 +321,10 @@ export function useLiveSessionWrites(id: string) {
         { user_id: string; role: SessionRole },
         SessionVersion
     >("PATCH", ({ user_id }) => `${base}/members/${user_id}`, touched);
+    const answerJoin = useAPIMutation<
+        { user_id: string; accept: boolean },
+        SessionVersion
+    >("POST", ({ user_id }) => `${base}/join-requests/${user_id}`, touched);
     const kick = useAPIMutation<{ user_id: string }, SessionVersion>(
         "DELETE",
         ({ user_id }) => `${base}/members/${user_id}`,
@@ -312,6 +365,8 @@ export function useLiveSessionWrites(id: string) {
         updateSession: update.trigger,
         setMemberRole: setRole.trigger,
         kickMember: (user_id: string) => kick.trigger({ user_id }),
+        answerJoinRequest: (user_id: string, accept: boolean) =>
+            answerJoin.trigger({ user_id, accept }),
         setListenMode: (listen_mode: ListenMode) =>
             listenMode.trigger({ listen_mode }),
         leaveSession: () => leave.trigger(),

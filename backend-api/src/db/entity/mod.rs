@@ -15,6 +15,7 @@ pub mod interest_scores_metadata;
 pub mod interests;
 pub mod invite_codes;
 pub mod listening_events;
+pub mod live_session_join_requests;
 pub mod live_session_members;
 pub mod live_session_queue;
 pub mod live_sessions;

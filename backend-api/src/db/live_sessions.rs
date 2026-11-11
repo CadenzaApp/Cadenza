@@ -23,6 +23,7 @@ use crate::db::Db;
 use crate::db::{
     audience::{PrivacyField, can_see_field},
     invites::{InviteTargetRef, revoke_invites_for},
+    notification::NotificationType,
     now_playing::is_catalog_id,
 };
 use crate::err::CadenzaError;
@@ -30,6 +31,7 @@ use crate::services::live_sessions::{
     Actor, Anchor, Projected, SessionAction, SessionRole, add_lands_as, allowed, host_timed_out,
     project,
 };
+use crate::services::notification::{NewNotification, push_notification};
 
 /// The most songs one add carries, and the most upcoming entries a queue holds.
 pub const MAX_SONGS_PER_ADD: usize = 100;
@@ -61,6 +63,8 @@ pub struct SessionRow {
     /// Opened by listen along, so joins check the host's `listen_along`
     /// audience instead of `session_join`.
     pub listen_along: bool,
+    /// Someone joining without a code asks first, and the host lets them in.
+    pub approve_joins: bool,
 }
 
 impl SessionRow {
@@ -81,7 +85,7 @@ const SESSION_COLUMNS: &str =
     "s.session_id, s.host_id, COALESCE(h.username, 'unknown') AS host_username,
      s.name, s.default_role::text AS default_role, s.allow_join_without_code,
      s.current_entry_id, s.is_playing, s.position_ms, s.position_at, s.version, s.command_seq,
-     s.host_seen_at, s.created_at, s.ended_at, s.listen_along";
+     s.host_seen_at, s.created_at, s.ended_at, s.listen_along, s.approve_joins";
 
 #[derive(Clone, Debug, FromQueryResult)]
 pub struct SessionMember {
@@ -138,7 +142,17 @@ pub struct SessionSnapshot {
     pub current: Option<QueueEntry>,
     pub up_next: Vec<QueueEntry>,
     pub suggestions: Vec<QueueEntry>,
+    /// People waiting to be let in. Empty for everyone but the host.
+    pub join_requests: Vec<JoinRequest>,
     pub playback: ProjectedPlayback,
+}
+
+/// Someone who asked to join, waiting on the host.
+#[derive(Clone, Debug, FromQueryResult)]
+pub struct JoinRequest {
+    pub user_id: Uuid,
+    pub username: String,
+    pub requested_at: DateTime<FixedOffset>,
 }
 
 /// A session to start.
@@ -149,6 +163,8 @@ pub struct NewSession<'a> {
     pub allow_join_without_code: bool,
     /// Opened by listen along. See [`SessionRow::listen_along`].
     pub listen_along: bool,
+    /// See [`SessionRow::approve_joins`].
+    pub approve_joins: bool,
 }
 
 /// Settings a host can change.
@@ -159,6 +175,7 @@ pub struct SessionPatch {
     pub allow_join_without_code: Option<bool>,
     /// False turns a listen along session into a regular one.
     pub listen_along: Option<bool>,
+    pub approve_joins: Option<bool>,
 }
 
 /// Where added songs land.
@@ -427,14 +444,15 @@ pub async fn start_session(
     let row = txn
         .query_one_raw(stmt(
             "INSERT INTO live_sessions
-                 (host_id, name, default_role, allow_join_without_code, listen_along)
-             VALUES ($1, $2, $3::session_role, $4, $5) RETURNING session_id",
+                 (host_id, name, default_role, allow_join_without_code, listen_along, approve_joins)
+             VALUES ($1, $2, $3::session_role, $4, $5, $6) RETURNING session_id",
             vec![
                 host_id.into(),
                 name.into(),
                 new.default_role.as_str().into(),
                 new.allow_join_without_code.into(),
                 new.listen_along.into(),
+                new.approve_joins.into(),
             ],
         ))
         .await?
@@ -544,6 +562,20 @@ pub async fn get_snapshot(
         .and_then(|id| queued.iter().find(|entry| entry.entry_id == id).cloned());
     let up_next = upcoming(&queued, session.current_entry_id);
     let suggestions = entries_with_status(db, session_id, "suggested").await?;
+    let join_requests = if session.host_id == user_id {
+        JoinRequest::find_by_statement(stmt(
+            "SELECT r.user_id, COALESCE(p.username, 'unknown') AS username, r.requested_at
+             FROM live_session_join_requests r
+             LEFT JOIN profile p ON p.uid = r.user_id
+             WHERE r.session_id = $1 AND r.status = 'pending'
+             ORDER BY r.requested_at",
+            vec![session_id.into()],
+        ))
+        .all(db)
+        .await?
+    } else {
+        Vec::new()
+    };
     let playback = projected_playback(&session, current.as_ref(), &up_next, now);
 
     Ok(SessionSnapshot {
@@ -554,6 +586,7 @@ pub async fn get_snapshot(
         current,
         up_next,
         suggestions,
+        join_requests,
         playback,
     })
 }
@@ -594,17 +627,35 @@ pub fn projected_playback(
     }
 }
 
+/// What joining did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Joined {
+    /// In the session, at this version.
+    Member(i64),
+    /// Asked the host to be let in, at this version.
+    Asked(i64),
+}
+
+impl Joined {
+    pub fn version(self) -> i64 {
+        match self {
+            Self::Member(version) | Self::Asked(version) => version,
+        }
+    }
+}
+
 /// Joins as the session's default role, or rejoins with the role held before.
 /// Without a code the session must be open to joins and the host's
 /// `session_join` audience (`listen_along` for a listen along session) must
-/// allow the caller. A banned member cannot
-/// rejoin either way. Returns the new version.
+/// allow the caller. Then with `approve_joins` on, a first join asks the host
+/// instead (see [`answer_join_request`]); asking again while waiting changes
+/// nothing. A code joins at once. A banned member cannot rejoin either way.
 pub async fn join_session(
     db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     via_code: bool,
-) -> Result<i64, CadenzaError> {
+) -> Result<Joined, CadenzaError> {
     let txn = db.begin().await?;
     let session = load_session(&txn, session_id, true)
         .await?
@@ -614,7 +665,7 @@ pub async fn join_session(
     }
     if session.host_id == user_id {
         txn.commit().await?;
-        return Ok(session.version);
+        return Ok(Joined::Member(session.version));
     }
     let previous = txn
         .query_one_raw(stmt(
@@ -642,19 +693,153 @@ pub async fn join_session(
                 "this session needs an invite code".into(),
             ));
         }
+        // someone let in before comes back without asking again
+        if session.approve_joins && previous.is_none() {
+            let version = ask_to_join(&txn, &session, user_id).await?;
+            txn.commit().await?;
+            return Ok(Joined::Asked(version));
+        }
     }
+    add_member(&txn, &session, user_id).await?;
+    let version = bump(&txn, session_id).await?;
+    txn.commit().await?;
+    Ok(Joined::Member(version))
+}
+
+async fn add_member(
+    txn: &DatabaseTransaction,
+    session: &SessionRow,
+    user_id: Uuid,
+) -> Result<(), CadenzaError> {
     txn.execute_raw(stmt(
         "INSERT INTO live_session_members (session_id, user_id, role)
          VALUES ($1, $2, $3::session_role)
          ON CONFLICT (session_id, user_id)
          DO UPDATE SET left_at = NULL, joined_at = now()",
         vec![
-            session_id.into(),
+            session.session_id.into(),
             user_id.into(),
             session.default_role.clone().into(),
         ],
     ))
     .await?;
+    Ok(())
+}
+
+async fn username_of(txn: &DatabaseTransaction, user_id: Uuid) -> Result<String, CadenzaError> {
+    let row = txn
+        .query_one_raw(stmt(
+            "SELECT username FROM profile WHERE uid = $1",
+            vec![user_id.into()],
+        ))
+        .await?;
+    Ok(match row {
+        Some(row) => row.try_get("", "username")?,
+        None => "Someone".to_owned(),
+    })
+}
+
+/// Files the caller's request and tells the host, once per wait. Returns the
+/// session's version, bumped when the request is new.
+async fn ask_to_join(
+    txn: &DatabaseTransaction,
+    session: &SessionRow,
+    user_id: Uuid,
+) -> Result<i64, CadenzaError> {
+    let waiting = txn
+        .query_one_raw(stmt(
+            "SELECT 1 AS one FROM live_session_join_requests
+             WHERE session_id = $1 AND user_id = $2 AND status = 'pending'",
+            vec![session.session_id.into(), user_id.into()],
+        ))
+        .await?
+        .is_some();
+    if waiting {
+        return Ok(session.version);
+    }
+    txn.execute_raw(stmt(
+        "INSERT INTO live_session_join_requests (session_id, user_id)
+         VALUES ($1, $2)
+         ON CONFLICT (session_id, user_id)
+         DO UPDATE SET status = 'pending', requested_at = now()",
+        vec![session.session_id.into(), user_id.into()],
+    ))
+    .await?;
+    let username = username_of(txn, user_id).await?;
+    let what = if session.listen_along {
+        "wants to listen along with you".to_owned()
+    } else {
+        format!("wants to join {}", session.name)
+    };
+    push_notification(
+        txn,
+        NewNotification {
+            user_id: session.host_id,
+            title: username,
+            content: what,
+            notif_type: NotificationType::SessionJoinRequest,
+            metadata: serde_json::json!({
+                "sender_id": user_id,
+                "session_id": session.session_id,
+                "resolution": null,
+            }),
+        },
+    )
+    .await?;
+    bump(txn, session.session_id).await
+}
+
+/// Lets someone who asked in, as the default role, or turns them away. Host
+/// only. Their notification on the host's side gets the answer, and someone
+/// let in is told. 404 when they are not waiting. Returns the new version.
+pub async fn answer_join_request(
+    db: &impl Db,
+    host_id: Uuid,
+    session_id: Uuid,
+    user_id: Uuid,
+    accept: bool,
+) -> Result<i64, CadenzaError> {
+    let txn = db.begin().await?;
+    let (session, _) = lock_for(&txn, session_id, host_id, SessionAction::Manage).await?;
+    let status = if accept { "accepted" } else { "ignored" };
+    let updated = txn
+        .execute_raw(stmt(
+            "UPDATE live_session_join_requests SET status = $3
+             WHERE session_id = $1 AND user_id = $2 AND status = 'pending'",
+            vec![session_id.into(), user_id.into(), status.into()],
+        ))
+        .await?;
+    if updated.rows_affected() == 0 {
+        return Err(CadenzaError::NotFound);
+    }
+    txn.execute_raw(stmt(
+        "UPDATE notifications
+         SET metadata = jsonb_set(metadata, '{resolution}', to_jsonb($4::text), true)
+         WHERE user_id = $1 AND type = 'session_join_request'
+           AND metadata->>'session_id' = $2::text AND metadata->>'sender_id' = $3::text
+           AND metadata->>'resolution' IS NULL",
+        vec![
+            host_id.into(),
+            session_id.to_string().into(),
+            user_id.to_string().into(),
+            status.into(),
+        ],
+    ))
+    .await?;
+    if accept {
+        add_member(&txn, &session, user_id).await?;
+        push_notification(
+            &txn,
+            NewNotification {
+                user_id,
+                title: session.host_username.clone(),
+                content: format!("let you into {}", session.name),
+                notif_type: NotificationType::SessionJoinAccepted,
+                metadata: serde_json::json!({ "session_id": session_id }),
+            },
+        )
+        .await?;
+    }
     let version = bump(&txn, session_id).await?;
     txn.commit().await?;
     Ok(version)
@@ -819,6 +1004,7 @@ pub async fn update_session(
         && patch.default_role.is_none()
         && patch.allow_join_without_code.is_none()
         && patch.listen_along.is_none()
+        && patch.approve_joins.is_none()
     {
         return Err(CadenzaError::InvalidRequestBody(
             "set at least one setting".into(),
@@ -832,7 +1018,8 @@ pub async fn update_session(
              name = COALESCE($2, name),
              default_role = COALESCE($3::session_role, default_role),
              allow_join_without_code = COALESCE($4, allow_join_without_code),
-             listen_along = COALESCE($5, listen_along)
+             listen_along = COALESCE($5, listen_along),
+             approve_joins = COALESCE($6, approve_joins)
          WHERE session_id = $1",
         vec![
             session_id.into(),
@@ -840,6 +1027,7 @@ pub async fn update_session(
             patch.default_role.map(|role| role.as_str()).into(),
             patch.allow_join_without_code.into(),
             patch.listen_along.into(),
+            patch.approve_joins.into(),
         ],
     ))
     .await?;
@@ -1453,6 +1641,7 @@ mod tests {
             created_at: now,
             ended_at: None,
             listen_along: false,
+            approve_joins: true,
         }
     }
 

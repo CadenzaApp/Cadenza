@@ -28,6 +28,10 @@ pub enum NotificationType {
     FriendReqAccepted,
     #[sea_orm(string_value = "comment")]
     Comment,
+    #[sea_orm(string_value = "session_join_request")]
+    SessionJoinRequest,
+    #[sea_orm(string_value = "session_join_accepted")]
+    SessionJoinAccepted,
 }
 
 impl NotificationType {
@@ -36,6 +40,8 @@ impl NotificationType {
             Self::FriendReqReceived => "friend_req_received",
             Self::FriendReqAccepted => "friend_req_accepted",
             Self::Comment => "comment",
+            Self::SessionJoinRequest => "session_join_request",
+            Self::SessionJoinAccepted => "session_join_accepted",
         }
     }
 }
@@ -54,7 +60,9 @@ pub struct Model {
     pub notif_type: NotificationType,
     pub created_at: DateTimeWithTimeZone,
     pub unread: bool,
-    /// `{"post_id"}` for a comment, or `{"sender_id", "resolution"}` for a friend request.
+    /// `{"post_id"}` for a comment, `{"sender_id", "resolution"}` for a friend
+    /// request, `{"sender_id", "session_id", "resolution"}` for a session join
+    /// request, and `{"session_id"}` for being let into one.
     #[sea_orm(column_type = "JsonBinary")]
     pub metadata: Json,
 }

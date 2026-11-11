@@ -24,14 +24,23 @@ pub struct Model {
     pub ended_at: Option<DateTimeWithTimeZone>,
     pub listen_along: bool,
     pub command_seq: i64,
+    pub approve_joins: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    #[sea_orm(has_many = "super::live_session_join_requests::Entity")]
+    LiveSessionJoinRequests,
     #[sea_orm(has_many = "super::live_session_members::Entity")]
     LiveSessionMembers,
     #[sea_orm(has_many = "super::live_session_queue::Entity")]
     LiveSessionQueue,
+}
+
+impl Related<super::live_session_join_requests::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::LiveSessionJoinRequests.def()
+    }
 }
 
 impl Related<super::live_session_members::Entity> for Entity {

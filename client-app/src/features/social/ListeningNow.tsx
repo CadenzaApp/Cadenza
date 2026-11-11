@@ -23,7 +23,7 @@ import { useJoinLiveSession } from "@/lib/routes/live-sessions";
 import { useAppTheme } from "@/lib/theme";
 import { isUsableArtworkUrl } from "@/lib/utils";
 
-import { StartSessionModal } from "../live-session/StartSessionModal";
+import { hasAskedToJoin, markAskedToJoin } from "../live-session/asked-to-join";
 import { useShownLiveSession } from "../live-session/use-current-session";
 import { formatRelativeTime } from "./format";
 import { formatTrackTime, livePositionMs } from "./listening-progress";
@@ -155,7 +155,6 @@ function SessionTile() {
     const router = useRouter();
     const liveSession = useShownLiveSession();
     const { brand, foreground } = useAppTheme().colors;
-    const [starting, setStarting] = useState(false);
 
     if (liveSession) {
         const art = liveSession.current?.artwork_url;
@@ -195,7 +194,9 @@ function SessionTile() {
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Start a live session"
-                    onPress={() => setStarting(true)}
+                    onPress={() =>
+                        router.push("/live-session/new?openPlayer=1" as Href)
+                    }
                     className="items-center gap-2 active:opacity-60"
                 >
                     <View className="h-11 w-11 items-center justify-center rounded-full bg-muted/60">
@@ -219,12 +220,6 @@ function SessionTile() {
                     />
                 </View>
             </View>
-            {starting ? (
-                <StartSessionModal
-                    onClose={() => setStarting(false)}
-                    onStarted={() => router.push("/player")}
-                />
-            ) : null}
         </GlassPanel>
     );
 }
@@ -423,21 +418,30 @@ function JoinButton({
 }) {
     const router = useRouter();
     const { joinLiveSession, joinLiveSessionLoading } = useJoinLiveSession();
-    const [refused, setRefused] = useState(false);
+    const [state, setState] = useState<"idle" | "asked" | "refused">(() =>
+        hasAskedToJoin(sessionId) ? "asked" : "idle",
+    );
 
     async function join() {
         try {
-            await joinLiveSession({ session_id: sessionId });
+            const { status } = await joinLiveSession({ session_id: sessionId });
+            if (status === "asked") {
+                markAskedToJoin(sessionId);
+                setState("asked");
+                return;
+            }
             router.push("/player");
         } catch {
-            setRefused(true);
+            setState("refused");
         }
     }
 
-    if (refused) {
+    if (state !== "idle") {
         return (
             <Text className="max-w-28 text-right text-xs text-muted-foreground">
-                Ask {username ?? "them"} for a code to join.
+                {state === "asked"
+                    ? `Asked to join. ${username ?? "They"} will let you in.`
+                    : `Ask ${username ?? "them"} for a code to join.`}
             </Text>
         );
     }

@@ -21,6 +21,7 @@ import Animated from "react-native-reanimated";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
+import { useAnswerJoinRequest } from "@/lib/routes/live-sessions";
 import {
     useAcceptFriendRequest,
     useCancelFriendRequest,
@@ -43,13 +44,25 @@ const NOTIFICATION_ICON = {
     comment: "chatbubble",
     friend_req_received: "person-add",
     friend_req_accepted: "person-add",
-} as const satisfies Record<NotificationType, "chatbubble" | "person-add">;
+    session_join_request: "radio",
+    session_join_accepted: "radio",
+} as const satisfies Record<
+    NotificationType,
+    "chatbubble" | "person-add" | "radio"
+>;
 
-/** Buttons while a received request is unanswered, then the choice. */
+/**
+ * Buttons while a received friend or session join request is unanswered,
+ * then the choice.
+ */
 function friendRequestState(
     item: SocialNotification,
 ): FriendRequestState | null {
-    if (item.type !== "friend_req_received") return null;
+    if (
+        item.type !== "friend_req_received" &&
+        item.type !== "session_join_request"
+    )
+        return null;
     const resolution = item.metadata.resolution;
     if (resolution === "accepted" || resolution === "ignored")
         return resolution;
@@ -79,8 +92,12 @@ export function NotificationsScreen() {
         useAcceptFriendRequest();
     const { cancelFriendRequest, cancelFriendRequestLoading } =
         useCancelFriendRequest();
+    const { answerJoinRequest, answerJoinRequestLoading } =
+        useAnswerJoinRequest();
     const requestBusy =
-        acceptFriendRequestLoading || cancelFriendRequestLoading;
+        acceptFriendRequestLoading ||
+        cancelFriendRequestLoading ||
+        answerJoinRequestLoading;
     const router = useRouter();
     const [openPostId, setOpenPostId] = useState<number | null>(null);
     const { post, postLoading, postErr } = usePost(openPostId);
@@ -114,6 +131,25 @@ export function NotificationsScreen() {
         ) => {
             const senderId = item.metadata.sender_id;
             if (!senderId || requestBusy) return;
+            const sessionId = item.metadata.session_id;
+            if (item.type === "session_join_request" && sessionId) {
+                try {
+                    await answerJoinRequest({
+                        session_id: sessionId,
+                        user_id: senderId,
+                        accept: resolution === "accepted",
+                    });
+                    showToast(
+                        resolution === "accepted"
+                            ? `Let ${item.title} in`
+                            : `Didn't let ${item.title} in`,
+                    );
+                    await setNotificationResolution(item.notif_id, resolution);
+                } catch {
+                    showToast("Couldn't answer. The session may be over.");
+                }
+                return;
+            }
             try {
                 if (resolution === "accepted") {
                     await acceptFriendRequest({ user_id: senderId });
@@ -129,6 +165,7 @@ export function NotificationsScreen() {
         },
         [
             acceptFriendRequest,
+            answerJoinRequest,
             cancelFriendRequest,
             requestBusy,
             setNotificationResolution,
@@ -293,7 +330,7 @@ function NotificationRow({
 }) {
     const { foreground, brand, primaryForeground } = useAppTheme().colors;
     const icon = NOTIFICATION_ICON[item.type];
-    const iconColor = icon === "chatbubble" ? brand : foreground;
+    const iconColor = icon === "person-add" ? foreground : brand;
 
     const request = friendRequestState(item);
     const postId = item.type === "comment" ? item.metadata.post_id : undefined;
@@ -316,7 +353,11 @@ function NotificationRow({
                 {request === "open" ? (
                     <View className="flex-row items-center gap-2 pt-1">
                         <Button
-                            accessibilityLabel={`Ignore ${item.title}`}
+                            accessibilityLabel={
+                                item.type === "session_join_request"
+                                    ? `Don't let ${item.title} in`
+                                    : `Ignore ${item.title}`
+                            }
                             className="w-9 px-0"
                             size="sm"
                             variant="outline"
@@ -330,7 +371,11 @@ function NotificationRow({
                             />
                         </Button>
                         <Button
-                            accessibilityLabel={`Accept ${item.title}`}
+                            accessibilityLabel={
+                                item.type === "session_join_request"
+                                    ? `Let ${item.title} in`
+                                    : `Accept ${item.title}`
+                            }
                             className="w-9 px-0"
                             size="sm"
                             disabled={requestBusy}
@@ -345,7 +390,13 @@ function NotificationRow({
                     </View>
                 ) : request ? (
                     <Text className="pt-1 text-sm text-muted-foreground">
-                        ({request})
+                        (
+                        {item.type === "session_join_request"
+                            ? request === "accepted"
+                                ? "let in"
+                                : "not now"
+                            : request}
+                        )
                     </Text>
                 ) : null}
             </View>

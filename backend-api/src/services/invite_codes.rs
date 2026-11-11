@@ -117,7 +117,9 @@ pub async fn accept_invite(
             );
         }
         InviteTargetRef::LiveSession(session_id) => {
-            let version = join_session(db, user_id, *session_id, true).await?;
+            let version = join_session(db, user_id, *session_id, true)
+                .await?
+                .version();
             publish_version(bus, Topic::LiveSession(*session_id), version, "session");
         }
     }

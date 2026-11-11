@@ -187,6 +187,7 @@ async fn social_listening_live_session_flow() {
             default_role: SessionRole::Suggester,
             allow_join_without_code: false,
             listen_along: false,
+            approve_joins: false,
         },
     )
     .await
@@ -200,7 +201,8 @@ async fn social_listening_live_session_flow() {
                 name: "Again",
                 default_role: SessionRole::Listener,
                 allow_join_without_code: true,
-                listen_along: false
+                listen_along: false,
+                approve_joins: false,
             }
         )
         .await
@@ -349,6 +351,7 @@ async fn social_listening_host_leaving_hands_the_session_over() {
             default_role: SessionRole::Suggester,
             allow_join_without_code: true,
             listen_along: false,
+            approve_joins: false,
         },
     )
     .await
@@ -409,6 +412,7 @@ async fn social_listening_listen_along_has_its_own_audience() {
             default_role: SessionRole::Listener,
             allow_join_without_code: true,
             listen_along: true,
+            approve_joins: false,
         },
     )
     .await
@@ -485,6 +489,7 @@ async fn social_listening_only_commands_move_command_seq() {
             default_role: SessionRole::Controller,
             allow_join_without_code: true,
             listen_along: false,
+            approve_joins: false,
         },
     )
     .await
@@ -532,6 +537,78 @@ async fn social_listening_only_commands_move_command_seq() {
         .await
         .unwrap();
     assert_eq!(seq().await, 2);
+
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_joining_without_a_code_asks_the_host() {
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id = $1 AND ended_at IS NULL",
+        [host.into()],
+    ))
+    .await
+    .unwrap();
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "INSERT INTO privacy_settings (user_id, session_join) VALUES ($1, 'everyone')
+         ON CONFLICT (user_id) DO UPDATE SET session_join = 'everyone'",
+        [host.into()],
+    ))
+    .await
+    .unwrap();
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Ask",
+            default_role: SessionRole::Suggester,
+            allow_join_without_code: true,
+            listen_along: false,
+            approve_joins: true,
+        },
+    )
+    .await
+    .unwrap();
+
+    // asking twice files one request
+    let asked = sessions::join_session(&txn, guest, id, false)
+        .await
+        .unwrap();
+    assert!(matches!(asked, sessions::Joined::Asked(_)));
+    sessions::join_session(&txn, guest, id, false)
+        .await
+        .unwrap();
+    let snapshot = sessions::get_snapshot(&txn, host, id).await.unwrap();
+    assert_eq!(snapshot.join_requests.len(), 1);
+    assert_eq!(snapshot.members.len(), 1);
+    // only the host sees who is waiting, and the guest is not in yet
+    assert!(matches!(
+        sessions::get_snapshot(&txn, guest, id).await,
+        Err(CadenzaError::NotFound)
+    ));
+
+    // the guest cannot let themselves in
+    assert!(
+        sessions::answer_join_request(&txn, guest, id, guest, true)
+            .await
+            .is_err()
+    );
+    sessions::answer_join_request(&txn, host, id, guest, true)
+        .await
+        .unwrap();
+    let snapshot = sessions::get_snapshot(&txn, host, id).await.unwrap();
+    assert!(snapshot.join_requests.is_empty());
+    assert_eq!(snapshot.members.len(), 2);
+    // answered once
+    assert!(matches!(
+        sessions::answer_join_request(&txn, host, id, guest, true).await,
+        Err(CadenzaError::NotFound)
+    ));
 
     txn.rollback().await.unwrap();
 }

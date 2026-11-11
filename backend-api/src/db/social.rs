@@ -355,7 +355,11 @@ fn notification_metadata(
 ) -> serde_json::Value {
     match notif_type {
         NotificationType::Comment => serde_json::json!({ "post_id": post_id }),
-        NotificationType::FriendReqReceived | NotificationType::FriendReqAccepted => {
+        // session notifications are written by `db::live_sessions`, not here
+        NotificationType::FriendReqReceived
+        | NotificationType::FriendReqAccepted
+        | NotificationType::SessionJoinRequest
+        | NotificationType::SessionJoinAccepted => {
             serde_json::json!({
                 "sender_id": sender_id,
                 "resolution": null,
@@ -382,7 +386,10 @@ async fn notify_user(
     let username = actor_username(db, sender_id).await?;
     let title = match notif_type {
         NotificationType::Comment => format!("{username} commented on your post"),
-        NotificationType::FriendReqReceived | NotificationType::FriendReqAccepted => username,
+        NotificationType::FriendReqReceived
+        | NotificationType::FriendReqAccepted
+        | NotificationType::SessionJoinRequest
+        | NotificationType::SessionJoinAccepted => username,
     };
     push_notification(
         db,

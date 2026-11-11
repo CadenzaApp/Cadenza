@@ -1,13 +1,17 @@
+import { router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { Alert } from "react-native";
 
 import { useRealtimeTopic } from "@/lib/realtime";
 import type { LiveSession } from "@/lib/routes/live-sessions";
 
+import { takeAskedToJoin } from "./asked-to-join";
+
 /**
- * Tells a member what happened to their session: that it ended, or that the
- * host left and handed it to someone else. Whoever did it already knows, so
- * the host ending it and the host handing it over see nothing.
+ * Tells a member what happened to their session: that the host let them in,
+ * that it ended, or that the host left and handed it to someone else.
+ * Whoever did it already knows, so the host ending it and the host handing it
+ * over see nothing.
  */
 export function useSessionNotices(session: LiveSession | null) {
     // the host before this snapshot, to tell a hand over from a refetch
@@ -19,6 +23,16 @@ export function useSessionNotices(session: LiveSession | null) {
 
     useEffect(() => {
         if (!session) return;
+        if (takeAskedToJoin(session.session_id)) {
+            Alert.alert(
+                "You're in",
+                `${session.host.username} let you into ${session.name}.`,
+                [
+                    { text: "Later", style: "cancel" },
+                    { text: "Open", onPress: () => router.push("/player") },
+                ],
+            );
+        }
         const before = lastHost.current;
         const host = session.host;
         lastHost.current = {

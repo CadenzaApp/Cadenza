@@ -17,6 +17,8 @@ pub struct StartLiveSession {
     /// instead of `session_join`. Default false.
     #[serde(default)]
     pub listen_along: bool,
+    /// Someone joining without a code asks first. Default true.
+    pub approve_joins: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -88,6 +90,9 @@ pub struct LiveSessionSnapshot {
     pub allow_join_without_code: bool,
     /// Opened by listen along, and not turned into a regular session since.
     pub listen_along: bool,
+    pub approve_joins: bool,
+    /// Waiting to be let in. Only the host sees them.
+    pub join_requests: Vec<LiveSessionJoinRequest>,
     pub version: i64,
     /// `host`, or the caller's role.
     pub my_role: String,
@@ -148,6 +153,16 @@ impl From<SessionSnapshot> for LiveSessionSnapshot {
             default_role: session.default_role,
             allow_join_without_code: session.allow_join_without_code,
             listen_along: session.listen_along,
+            approve_joins: session.approve_joins,
+            join_requests: snapshot
+                .join_requests
+                .into_iter()
+                .map(|request| LiveSessionJoinRequest {
+                    user_id: request.user_id,
+                    username: request.username,
+                    requested_at: request.requested_at.with_timezone(&Utc),
+                })
+                .collect(),
             version: session.version,
             my_role: match snapshot.me {
                 Actor::Host => "host".to_owned(),
@@ -170,6 +185,13 @@ impl From<SessionSnapshot> for LiveSessionSnapshot {
     }
 }
 
+#[derive(Serialize)]
+pub struct LiveSessionJoinRequest {
+    pub user_id: Uuid,
+    pub username: String,
+    pub requested_at: DateTime<Utc>,
+}
+
 #[derive(Deserialize)]
 pub struct PatchLiveSession {
     pub name: Option<String>,
@@ -177,6 +199,19 @@ pub struct PatchLiveSession {
     pub allow_join_without_code: Option<bool>,
     /// False turns a listen along session into a regular one.
     pub listen_along: Option<bool>,
+    pub approve_joins: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct AnswerJoinRequest {
+    pub accept: bool,
+}
+
+/// `joined` when in the session now, `asked` when the host has to let them in.
+#[derive(Serialize)]
+pub struct JoinResult {
+    pub version: i64,
+    pub status: &'static str,
 }
 
 #[derive(Deserialize)]
