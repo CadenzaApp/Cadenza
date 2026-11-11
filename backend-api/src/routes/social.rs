@@ -230,6 +230,23 @@ async fn delete_post(
     Ok(Json(Value::Null))
 }
 
+/// One post, the same shape as a feed row. 404 when it is gone.
+///
+/// ```json
+/// { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008", "comment_count": 0 }
+/// ```
+async fn get_post(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(post_id): Path<i64>,
+) -> Result<Json<SocialPost>, CadenzaError> {
+    let mut posts = social::get_posts(&db, claims.user_id, &[post_id]).await?;
+    let Some(post) = posts.pop() else {
+        return Err(CadenzaError::NotFound);
+    };
+    Ok(Json(post.into()))
+}
+
 fn require_content(raw: &str, max_chars: usize) -> Result<&str, CadenzaError> {
     let content = raw.trim();
     if content.is_empty() {
@@ -343,8 +360,9 @@ async fn topic_posts(
 ///
 /// `user1` is the lexicographically smaller uuid. Status is `to_user1` when
 /// that person is the recipient, and `to_user2` when the other person is.
-/// Sending the same request again responds with `null`. If they already
-/// requested the caller, the row becomes `complete`. 409
+/// Sending the same request again responds with `null` and sends nothing. A
+/// new request notifies the recipient. If they already requested the caller,
+/// the row becomes `complete` and they are notified that it was accepted. 409
 /// `FriendshipAlreadyExists` when the pair is already friends. 422 when
 /// `user_id` is the caller.
 async fn request_friendship(
@@ -444,7 +462,7 @@ impl NotificationQuery {
 /// response as `unread`, `created_at`, and `notif_id` for the following page.
 ///
 /// ```json
-/// { "notifications": [ { "notif_id": 1, "title": "miles.davis", "content": "liked your post", "icon": "heart", "created_at": "2026-11-10T18:00:00Z", "unread": true } ], "next": null }
+/// { "notifications": [ { "notif_id": 1, "title": "miles.davis", "content": "sent you a friend request", "type": "friend_req_received", "created_at": "2026-11-10T18:00:00Z", "unread": true, "metadata": { "sender_id": "00000000-0000-0000-0000-000000000000", "resolution": null } } ], "next": null }
 /// ```
 async fn notifications(
     State(db): State<DatabaseConnection>,
@@ -460,9 +478,10 @@ async fn notifications(
                 notif_id: row.notif_id,
                 title: row.title,
                 content: row.content,
-                icon: row.icon,
+                notif_type: row.notif_type,
                 created_at: row.created_at,
                 unread: row.unread,
+                metadata: row.metadata,
             })
             .collect(),
         next: page.next.map(|cursor| NotificationCursor {
@@ -471,6 +490,22 @@ async fn notifications(
             notif_id: cursor.notif_id,
         }),
     }))
+}
+
+#[derive(Deserialize)]
+struct MarkNotificationsReadBody {
+    notif_ids: Vec<i64>,
+}
+
+/// Marks the signed-in user's notifications in `notif_ids` read. Ids that are
+/// not theirs are ignored. Responds with `null`.
+async fn mark_notifications_read(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(body): Json<MarkNotificationsReadBody>,
+) -> Result<Json<Value>, CadenzaError> {
+    notification::mark_notifications_read(&db, claims.user_id, &body.notif_ids).await?;
+    Ok(Json(Value::Null))
 }
 
 /// The signed-in user's friends and pending requests.
@@ -499,8 +534,8 @@ async fn friendships(
 }
 
 /// Accepts an incoming friend request from `user_id`. Sets that row to
-/// `complete`. 404 when there is no request waiting on the caller. Responds
-/// with `null`.
+/// `complete` and notifies the sender. 404 when there is no request waiting
+/// on the caller. Responds with `null`.
 async fn accept_friendship(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
@@ -624,7 +659,8 @@ struct CreateCommentBody {
 }
 
 /// Creates a comment on this post for the signed-in user. `content` is at
-/// most 500 characters. 404 when the post is gone.
+/// most 500 characters. The post's author is notified, unless they wrote the
+/// comment. 404 when the post is gone.
 ///
 /// ```json
 /// { "comment_id": 1 }
@@ -720,13 +756,17 @@ pub fn get_social_router() -> Router<AppState> {
         .route("/interests/update", patch(update_interests))
         .route("/interests/decay", patch(decay_interests))
         .route("/posts", post(create_post))
-        .route("/posts/{post_id}", delete(delete_post).patch(update_post))
+        .route(
+            "/posts/{post_id}",
+            get(get_post).delete(delete_post).patch(update_post),
+        )
         .route("/posts/views", post(mark_viewed))
         .route("/posts/topic", get(topic_posts))
         .route("/posts/user/{author_id}", get(user_posts))
         .route("/users", get(search_users))
         .route("/friends", get(friendships))
         .route("/notifications", get(notifications))
+        .route("/notifications/read", post(mark_notifications_read))
         .route("/friends/{user_id}/accept", post(accept_friendship))
         .route(
             "/friends/{user_id}",

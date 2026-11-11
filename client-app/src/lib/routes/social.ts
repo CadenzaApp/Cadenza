@@ -691,7 +691,8 @@ export function useRequestFriend() {
 
 /**
  * Deletes the friendship row with `user_id`, whatever its status is.
- * Refreshes the friends list and both profiles so friend counts update.
+ * Refreshes the friends list, notifications, and both profiles. Ignoring an
+ * incoming request marks that notification ignored.
  */
 export function useCancelFriendRequest() {
     const { account } = useAccount();
@@ -700,6 +701,7 @@ export function useCancelFriendRequest() {
         ({ user_id }) => `/social/friends/${user_id}`,
         ({ user_id }) => [
             { path: "/social/friends" },
+            { path: "/social/notifications" },
             { path: `/social/posts/user/${user_id}` },
             ...(account ? [{ path: `/social/posts/user/${account.id}` }] : []),
         ],
@@ -714,7 +716,8 @@ export function useCancelFriendRequest() {
 
 /**
  * Accepts an incoming friend request from `user_id`, which completes that
- * friendship. Refreshes the friends list and that person's profile.
+ * friendship. Refreshes the friends list, notifications, and that person's
+ * profile. The received-request notification is marked accepted.
  */
 export function useAcceptFriendRequest() {
     const { account } = useAccount();
@@ -723,6 +726,7 @@ export function useAcceptFriendRequest() {
         ({ user_id }) => `/social/friends/${user_id}/accept`,
         ({ user_id }) => [
             { path: "/social/friends" },
+            { path: "/social/notifications" },
             { path: `/social/posts/user/${user_id}` },
             ...(account ? [{ path: `/social/posts/user/${account.id}` }] : []),
         ],
@@ -813,7 +817,8 @@ export function useNotifications() {
         { revalidateFirstPage: false, revalidateAll: false },
     );
 
-    const { data, error, isLoading, isValidating, size, setSize } = pages;
+    const { data, error, isLoading, isValidating, size, setSize, mutate } =
+        pages;
     const notifications = useMemo(
         () =>
             data?.flatMap((page) => page.notifications) ?? EMPTY_NOTIFICATIONS,
@@ -826,6 +831,29 @@ export function useNotifications() {
         if (!hasNextPage || isLoadingNextPage) return;
         await setSize((current) => current + 1);
     }, [hasNextPage, isLoadingNextPage, setSize]);
+    const invalidateNotifications = useCallback(() => mutate(), [mutate]);
+    const setNotificationResolution = useCallback(
+        (notifId: number, resolution: "accepted" | "ignored") =>
+            mutate(
+                (current) =>
+                    current?.map((page) => ({
+                        ...page,
+                        notifications: page.notifications.map((item) =>
+                            item.notif_id === notifId
+                                ? {
+                                      ...item,
+                                      metadata: {
+                                          ...item.metadata,
+                                          resolution,
+                                      },
+                                  }
+                                : item,
+                        ),
+                    })),
+                { revalidate: false },
+            ),
+        [mutate],
+    );
 
     return {
         notifications,
@@ -834,6 +862,40 @@ export function useNotifications() {
         hasNextPage,
         isLoadingNextPage,
         loadNextPage,
+        invalidateNotifications,
+        setNotificationResolution,
+    };
+}
+
+type MarkNotificationsReadPayload = {
+    notif_ids: number[];
+};
+
+/**
+ * Marks notifications read. Does not refresh `useNotifications`: the list
+ * would reorder unread rows while they are on screen. The feed invalidates
+ * that cache when it is opened.
+ */
+export function useMarkNotificationsRead() {
+    const x = useAPIMutation<MarkNotificationsReadPayload, void>(
+        "POST",
+        "/social/notifications/read",
+        [],
+        { invalidation: "none" },
+    );
+    const markNotificationsRead = useCallback(
+        (notif_ids: number[]) => {
+            const ids = [...new Set(notif_ids.filter((id) => id > 0))];
+            if (ids.length === 0) return Promise.resolve();
+            return x.trigger({ notif_ids: ids });
+        },
+        [x.trigger],
+    );
+    return {
+        markNotificationsReadErr: x.error,
+        markNotificationsReadLoading: x.isMutating,
+        resetMarkNotificationsRead: x.reset,
+        markNotificationsRead,
     };
 }
 
@@ -846,6 +908,20 @@ export function useFriendships() {
         friends: x.data?.friends ?? EMPTY_PEOPLE,
         friendshipsLoading: x.isLoading,
         friendshipsErr: x.error,
+    };
+}
+
+/** One post, for opening it from a notification. `null` leaves it unread. */
+export function usePost(postId: number | null) {
+    const x = useAPIData<SocialPost>(
+        `/social/posts/${postId ?? 0}`,
+        undefined,
+        { enabled: postId != null },
+    );
+    return {
+        post: x.data,
+        postLoading: x.isLoading,
+        postErr: x.error,
     };
 }
 

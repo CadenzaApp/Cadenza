@@ -477,7 +477,7 @@ impl SocialFeedService {
     }
 
     /// Stores a comment on `post_id` and returns its id. `NotFound` when the
-    /// post is gone.
+    /// post is gone. The post's author is notified, unless they wrote it.
     pub async fn create_comment(
         &self,
         db: &DatabaseConnection,

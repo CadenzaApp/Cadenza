@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use crate::db::entity::{comment_likes, comments, post_likes, posts, profile};
 use crate::err::CadenzaError;
+use crate::services::notification::{NewNotification, NotificationType, push_notification};
 use chrono::{DateTime, TimeZone, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
@@ -27,6 +28,10 @@ pub const TOPIC_POST_LIMIT: i64 = 10;
 
 /// How many comments one `GET /social/posts/:id/comments` call returns.
 pub const COMMENT_PAGE_LIMIT: u64 = 20;
+
+/// Second line of a received friend-request notification. Accept and ignore
+/// find the row by this text.
+const FRIEND_REQUEST_RECEIVED: &str = "sent you a friend request";
 
 /// Flat extra on [`score_post`] when the author is a completed friend.
 pub const FRIEND_SCORE_BOOST: f64 = 10_000.0;
@@ -318,7 +323,74 @@ pub async fn unlike_post(
     Ok(())
 }
 
+/// The other person's username, or `"unknown"` when they have no profile.
+async fn actor_username(db: &impl ConnectionTrait, user_id: Uuid) -> Result<String, CadenzaError> {
+    let row = profile::Entity::find_by_id(user_id).one(db).await?;
+    Ok(match row {
+        Some(row) if !row.username.trim().is_empty() => row.username,
+        _ => "unknown".to_owned(),
+    })
+}
+
+/// A comment stores `post_id`. A friend request stores the sender and an
+/// unanswered resolution.
+fn notification_metadata(
+    notif_type: NotificationType,
+    sender_id: Uuid,
+    post_id: Option<i64>,
+) -> serde_json::Value {
+    match notif_type {
+        NotificationType::Comment => serde_json::json!({ "post_id": post_id }),
+        NotificationType::FriendReqReceived | NotificationType::FriendReqAccepted => {
+            serde_json::json!({
+                "sender_id": sender_id,
+                "resolution": null,
+            })
+        }
+    }
+}
+
+/// One unread notification for `recipient_id`. A comment's title is
+/// `<username> commented on your post` and its content is the comment. A
+/// friend request's title is the other person's username. The same person
+/// gets nothing, so a comment on your own post is quiet.
+async fn notify_user(
+    db: &impl ConnectionTrait,
+    recipient_id: Uuid,
+    sender_id: Uuid,
+    content: &str,
+    notif_type: NotificationType,
+    post_id: Option<i64>,
+) -> Result<(), CadenzaError> {
+    if recipient_id == sender_id {
+        return Ok(());
+    }
+    let username = actor_username(db, sender_id).await?;
+    let title = match notif_type {
+        NotificationType::Comment => format!("{username} commented on your post"),
+        NotificationType::FriendReqReceived | NotificationType::FriendReqAccepted => username,
+    };
+    push_notification(
+        db,
+        NewNotification {
+            user_id: recipient_id,
+            title,
+            content: content.to_owned(),
+            notif_type,
+            metadata: notification_metadata(notif_type, sender_id, post_id),
+        },
+    )
+    .await?;
+    Ok(())
+}
+
 /// Inserts a comment and returns its id. `NotFound` when the post is gone.
+///
+/// The post's author gets a `comment` notification, title
+/// "<username> commented on your post" and content the comment, in this same
+/// transaction. Metadata is `{"post_id"}`.
+/// The author commenting on their own post gets none. A failed notification
+/// rolls the comment back.
 pub async fn insert_comment(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -357,6 +429,31 @@ pub async fn insert_comment(
         .filter(posts::Column::PostId.eq(post_id))
         .exec(&txn)
         .await?;
+    let author = txn
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT user_id FROM posts WHERE post_id = $1",
+            vec![post_id.into()],
+        ))
+        .await?;
+    let Some(author) = author else {
+        txn.rollback().await?;
+        return Err(CadenzaError::NotFound);
+    };
+    let author_id: Uuid = author.try_get_by_index(0)?;
+    if let Err(err) = notify_user(
+        &txn,
+        author_id,
+        user_id,
+        content,
+        NotificationType::Comment,
+        Some(post_id),
+    )
+    .await
+    {
+        txn.rollback().await?;
+        return Err(err);
+    }
     txn.commit().await?;
     Ok(comment_id)
 }
@@ -834,9 +931,12 @@ pub async fn is_friend(
 ///
 /// `user1` is the lexicographically smaller uuid. Status is `to_user1` when
 /// the recipient is `user1`, and `to_user2` when they are `user2`. Sending the
-/// same request again is a no-op. If the other person already sent a request,
-/// this accepts it and the row becomes `complete`. A completed friendship is
-/// [`CadenzaError::FriendshipAlreadyExists`].
+/// same request again is a no-op and sends nothing. A new request notifies
+/// `recipient_id`: `friend_req_received`, title the sender's username, content
+/// "sent you a friend request", in the same transaction as the insert. If the other
+/// person already sent a request, this accepts it and the row becomes
+/// `complete`, which notifies them that it was accepted. A completed
+/// friendship is [`CadenzaError::FriendshipAlreadyExists`].
 pub async fn request_friendship(
     db: &DatabaseConnection,
     sender_id: Uuid,
@@ -850,7 +950,8 @@ pub async fn request_friendship(
     let (user1, user2) = ordered_friend_users(sender_id, recipient_id);
     let status = friend_request_status(recipient_id, user1);
     let incoming = friend_request_status(sender_id, user1);
-    let inserted = db
+    let txn = db.begin().await?;
+    let inserted = txn
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "INSERT INTO friendships (created_at, user1, user2, status)
@@ -861,8 +962,25 @@ pub async fn request_friendship(
         ))
         .await?;
     if inserted.is_some() {
+        if let Err(err) = notify_user(
+            &txn,
+            recipient_id,
+            sender_id,
+            FRIEND_REQUEST_RECEIVED,
+            NotificationType::FriendReqReceived,
+            None,
+        )
+        .await
+        {
+            txn.rollback().await?;
+            return Err(err);
+        }
+        txn.commit().await?;
         return Ok(());
     }
+    // The conflicting row is locked until this transaction ends. Release it
+    // before the follow-up read, and before accept, which updates that row.
+    txn.rollback().await?;
     let existing = db
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
@@ -887,6 +1005,9 @@ pub async fn request_friendship(
 
 /// Deletes the friendship row for this pair, whatever its status is.
 /// A missing row is a no-op. `user1` is the lexicographically smaller uuid.
+///
+/// Ignoring an incoming request also marks that person's "sent you a friend
+/// request" notification `ignored`.
 pub async fn delete_friendship(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -898,10 +1019,48 @@ pub async fn delete_friendship(
         ));
     }
     let (user1, user2) = ordered_friend_users(user_id, other_id);
-    db.execute_raw(Statement::from_sql_and_values(
+    let incoming = friend_request_status(user_id, user1);
+    let txn = db.begin().await?;
+    let existing = txn
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT status::text FROM friendships WHERE user1 = $1 AND user2 = $2",
+            vec![user1.into(), user2.into()],
+        ))
+        .await?;
+    txn.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
         "DELETE FROM friendships WHERE user1 = $1 AND user2 = $2",
         vec![user1.into(), user2.into()],
+    ))
+    .await?;
+    if let Some(existing) = existing {
+        let status: String = existing.try_get_by_index(0)?;
+        if status == incoming {
+            resolve_friend_request_notification(&txn, user_id, other_id, "ignored").await?;
+        }
+    }
+    txn.commit().await?;
+    Ok(())
+}
+
+/// Marks unanswered "sent you a friend request" rows from `actor_id` to
+/// `recipient_id`. Rows that already have a resolution stay as they are.
+async fn resolve_friend_request_notification(
+    db: &impl ConnectionTrait,
+    recipient_id: Uuid,
+    actor_id: Uuid,
+    resolution: &str,
+) -> Result<(), CadenzaError> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE notifications
+         SET metadata = jsonb_set(metadata, '{resolution}', to_jsonb($3::text), true)
+         WHERE user_id = $1
+           AND \"type\" = 'friend_req_received'
+           AND metadata->>'sender_id' = $2::text
+           AND metadata->>'resolution' IS NULL",
+        vec![recipient_id.into(), actor_id.into(), resolution.into()],
     ))
     .await?;
     Ok(())
@@ -912,6 +1071,11 @@ pub async fn delete_friendship(
 /// The caller has to be the recipient: `to_user1` when they are `user1`, or
 /// `to_user2` when they are `user2`. `user1` is the lexicographically smaller
 /// uuid. Anything else, including a missing row, is [`CadenzaError::NotFound`].
+///
+/// The original sender gets a `friend_req_accepted` notification, title the accepter's
+/// username and content "accepted your friend request", in the same
+/// transaction as the update. Their "sent you a friend request" notification
+/// is marked `accepted` in that transaction too.
 pub async fn accept_friendship(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -924,7 +1088,8 @@ pub async fn accept_friendship(
     }
     let (user1, user2) = ordered_friend_users(user_id, other_id);
     let status = friend_request_status(user_id, user1);
-    let updated = db
+    let txn = db.begin().await?;
+    let updated = txn
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "UPDATE friendships
@@ -935,8 +1100,24 @@ pub async fn accept_friendship(
         ))
         .await?;
     if updated.is_none() {
+        txn.rollback().await?;
         return Err(CadenzaError::NotFound);
     }
+    if let Err(err) = notify_user(
+        &txn,
+        other_id,
+        user_id,
+        "accepted your friend request",
+        NotificationType::FriendReqAccepted,
+        None,
+    )
+    .await
+    {
+        txn.rollback().await?;
+        return Err(err);
+    }
+    resolve_friend_request_notification(&txn, user_id, other_id, "accepted").await?;
+    txn.commit().await?;
     Ok(())
 }
 

@@ -222,10 +222,11 @@ pub struct UserSearchResponse {
 /// {
 ///   "notif_id": 1,
 ///   "title": "miles.davis",
-///   "content": "liked your post",
-///   "icon": "heart",
+///   "content": "sent you a friend request",
+///   "type": "friend_req_received",
 ///   "created_at": "2026-11-10T18:00:00Z",
-///   "unread": true
+///   "unread": true,
+///   "metadata": { "sender_id": "00000000-0000-0000-0000-000000000000", "resolution": null }
 /// }
 /// ```
 #[derive(Serialize)]
@@ -233,10 +234,13 @@ pub struct SocialNotification {
     pub notif_id: i64,
     pub title: String,
     pub content: String,
-    /// `heart`, `chatbubble`, or `person-add`.
-    pub icon: String,
+    /// `friend_req_received`, `friend_req_accepted`, or `comment`.
+    #[serde(rename = "type")]
+    pub notif_type: String,
     pub created_at: DateTime<Utc>,
     pub unread: bool,
+    /// `{"post_id"}` for a comment, or `{"sender_id", "resolution"}` for a friend request.
+    pub metadata: serde_json::Value,
 }
 
 /// The sort position of the last row on a full page. The next request passes

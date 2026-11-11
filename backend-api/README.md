@@ -17,7 +17,7 @@ nothing that comes back is persisted.
 | `src/err.rs` | `CadenzaError` and its status code / JSON body mapping. |
 | `src/routes/` | HTTP handlers. See [src/routes/README.md](src/routes/README.md). |
 | `src/db/` | Query layer and generated entities. See [src/db/README.md](src/db/README.md). |
-| `src/services/` | Tag generation, normalization, Apple Music song metadata, default tag generation, the social feed model client, and the listening analytics definitions. See [src/services/README.md](src/services/README.md). |
+| `src/services/` | Tag generation, normalization, Apple Music song metadata, default tag generation, the social feed model client, in-app notifications, and the listening analytics definitions. See [src/services/README.md](src/services/README.md). |
 | `src/test_utils.rs` | Test helpers. Currently just `string_of_length`. |
 | `sql/` | The DDL for tables added by hand, so a fresh database can be stood up. Not a migration runner; see Schema changes. |
 | `certs/readme.md` | Leftover self-signed cert steps. No longer needed, the server is plain HTTP. |
@@ -26,7 +26,7 @@ nothing that comes back is persisted.
 
 `main.rs` loads `.env`, opens the db connection, builds the JWKS decoder, starts the python
 model process, constructs the tag generation service, and packs the request-facing pieces into
-`AppState`. It also spawns the two background jobs, neither of which is in `AppState` because
+`AppState`. It also spawns the background jobs, none of which is in `AppState` because
 nothing serving a request talks to them. The model child is held in `main` until the listener
 exits, then killed.
 `AppState` derives `FromRef`, so a handler can extract just the piece it needs:
@@ -58,7 +58,7 @@ Auth is per handler, not middleware. A handler that needs a user adds
 the request with a 401 before the body runs. The user id is `claims.user_id`, taken from the
 JWT `sub`. Never read a user id off the request.
 
-Two `tokio` tasks run for the life of the process, both spawned from `main.rs` before the
+Three `tokio` tasks run for the life of the process, all spawned from `main.rs` before the
 listener binds:
 
 - **default tag backfill**, off unless `DEFAULT_TAG_BACKFILL_ENABLED` is `true`, because every
@@ -68,8 +68,10 @@ listener binds:
   songs and for every song on a queued album, so queries can filter on it. Woken straight away
   when a request queues an album, and hands back albums a stopped server left claimed when it
   starts.
+- **notification cleanup**, always on. Deletes notifications older than 30 days, once a day,
+  starting at startup. The delete walks `notifications_created_at_idx`.
 
-Both are in `src/services/`. See [src/services/README.md](src/services/README.md).
+They are in `src/services/`. See [src/services/README.md](src/services/README.md).
 
 Errors: every handler returns `Result<_, CadenzaError>`. `CadenzaError` implements
 `IntoResponse` and maps each variant to a status plus a JSON body of

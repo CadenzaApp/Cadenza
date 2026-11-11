@@ -26,6 +26,7 @@ use crate::{
     services::{
         default_tags::{BackfillConfig, spawn_default_tag_backfill},
         metadata_tags::{MetadataCrawlConfig, MetadataCrawler, spawn_metadata_crawl},
+        notification::spawn_notification_cleanup,
         social_feed::{self, SocialFeedService},
         song_metadata::SongMetadataService,
         tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
@@ -137,6 +138,10 @@ async fn main() {
         }
         None => println!("metadata crawl: off"),
     }
+
+    // drops notifications older than 30 days. the first pass runs at startup,
+    // then once a day. notifications_created_at_idx is the index it walks
+    spawn_notification_cleanup(db.clone());
 
     let app_state = AppState {
         db,

@@ -132,8 +132,21 @@ export type SocialComment = {
     };
 };
 
-/** Glyph stored in `notification_icon`. */
-export type NotificationIcon = "heart" | "chatbubble" | "person-add";
+/** What happened. The phone picks a glyph from this. */
+export type NotificationType =
+    | "friend_req_received"
+    | "friend_req_accepted"
+    | "comment";
+
+/**
+ * Extra fields on a notification. A comment stores `post_id`. A friend
+ * request stores `sender_id` and `resolution`.
+ */
+export type NotificationMetadata = {
+    sender_id?: string;
+    resolution?: "accepted" | "ignored" | null;
+    post_id?: number;
+};
 
 /**
  * One notification from `GET /social/notifications`.
@@ -143,10 +156,11 @@ export type SocialNotification = {
     notif_id: number;
     title: string;
     content: string;
-    icon: NotificationIcon;
+    type: NotificationType;
     /** RFC 3339 in UTC */
     created_at: string;
     unread: boolean;
+    metadata: NotificationMetadata;
 };
 
 /** One person from `GET /social/friends`. */
