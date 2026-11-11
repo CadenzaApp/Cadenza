@@ -210,6 +210,7 @@ function SearchSection({
     const settled = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS);
     // clearing the field drops the list at once, with no pause
     const term = query.trim() && settled ? settled : "";
+    const { foreground } = useAppTheme().colors;
     const { users, userSearchLoading, userSearchErr } = useUserSearch(term);
     const shown = term.length > 0 ? users : [];
     const status =
@@ -256,6 +257,16 @@ function SearchSection({
                         key={person.user_id}
                         person={person}
                         onPress={onPress}
+                        actions={
+                            person.is_friend ? (
+                                <Ionicons
+                                    name="people"
+                                    size={18}
+                                    color={foreground}
+                                    accessibilityLabel="Friend"
+                                />
+                            ) : null
+                        }
                     />
                 ))}
                 {status ? (

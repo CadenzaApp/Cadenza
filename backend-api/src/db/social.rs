@@ -958,11 +958,19 @@ fn like_contains_pattern(term: &str) -> String {
 }
 
 const USER_SEARCH_SQL: &str = "\
-SELECT uid AS user_id, username
-FROM profile
-WHERE uid <> $1
-  AND lower(username) LIKE lower($2) ESCAPE '\\'
-ORDER BY username, uid
+SELECT
+    pr.uid AS user_id,
+    pr.username,
+    EXISTS (
+        SELECT 1 FROM friendships f
+        WHERE f.status = 'complete'
+          AND f.user1 = LEAST($1, pr.uid)
+          AND f.user2 = GREATEST($1, pr.uid)
+    ) AS is_friend
+FROM profile pr
+WHERE pr.uid <> $1
+  AND lower(pr.username) LIKE lower($2) ESCAPE '\\'
+ORDER BY pr.username, pr.uid
 LIMIT $3";
 
 /// The statement [`search_users`] runs. `None` when the trimmed search is
@@ -983,26 +991,36 @@ fn user_search_statement(viewer_id: Uuid, search: &str, limit: u64) -> Option<St
     ))
 }
 
+/// One person from a username search.
+pub struct UserSearchHit {
+    pub user_id: Uuid,
+    pub username: String,
+    /// The caller and this person have a completed friendship.
+    pub is_friend: bool,
+}
+
 /// People whose username contains `search`, other than `viewer_id`.
 ///
 /// Case insensitive. A blank or whitespace-only search returns no one.
 /// `limit` is the caller's cap. Username order, then user id.
+/// `is_friend` is true only for a `complete` friendship, not a pending request.
 /// `sql/profile_username_search.sql` is the index this uses.
 pub async fn search_users(
     db: &DatabaseConnection,
     viewer_id: Uuid,
     search: &str,
     limit: u64,
-) -> Result<Vec<FriendPerson>, CadenzaError> {
+) -> Result<Vec<UserSearchHit>, CadenzaError> {
     let Some(statement) = user_search_statement(viewer_id, search, limit) else {
         return Ok(Vec::new());
     };
     let rows = UserSearchRow::find_by_statement(statement).all(db).await?;
     Ok(rows
         .into_iter()
-        .map(|row| FriendPerson {
+        .map(|row| UserSearchHit {
             user_id: row.user_id,
             username: row.username,
+            is_friend: row.is_friend,
         })
         .collect())
 }
@@ -1651,6 +1669,7 @@ struct FriendshipListRow {
 struct UserSearchRow {
     user_id: Uuid,
     username: String,
+    is_friend: bool,
 }
 
 #[derive(Debug, FromQueryResult)]
@@ -1788,16 +1807,32 @@ mod tests {
         let viewer = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
         let statement = user_search_statement(viewer, "  Ada_x  ", 20).unwrap();
 
-        assert!(statement.sql.contains("uid <> $1"), "{}", statement.sql);
+        assert!(statement.sql.contains("pr.uid <> $1"), "{}", statement.sql);
         assert!(
             statement
                 .sql
-                .contains("lower(username) LIKE lower($2) ESCAPE '\\'"),
+                .contains("lower(pr.username) LIKE lower($2) ESCAPE '\\'"),
             "{}",
             statement.sql
         );
         assert!(
-            statement.sql.contains("ORDER BY username, uid"),
+            statement.sql.contains("f.status = 'complete'"),
+            "{}",
+            statement.sql
+        );
+        assert!(
+            statement.sql.contains("f.user1 = LEAST($1, pr.uid)"),
+            "{}",
+            statement.sql
+        );
+        assert!(
+            statement.sql.contains("f.user2 = GREATEST($1, pr.uid)"),
+            "{}",
+            statement.sql
+        );
+        assert!(statement.sql.contains("AS is_friend"), "{}", statement.sql);
+        assert!(
+            statement.sql.contains("ORDER BY pr.username, pr.uid"),
             "{}",
             statement.sql
         );

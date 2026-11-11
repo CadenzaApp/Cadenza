@@ -20,7 +20,7 @@ use crate::{
         CreateCommentResponse, CreatePostResponse, FeedResponse, FriendshipsResponse,
         NotificationCursor, NotificationsResponse, PostCommentsResponse, SocialAuthor,
         SocialComment, SocialNotification, SocialPost, TopicPostsResponse, UserPostsResponse,
-        UserSearchResponse,
+        UserSearchPerson, UserSearchResponse,
     },
     services::social_feed::SocialFeedService,
 };
@@ -356,7 +356,7 @@ struct UserSearchQuery {
 /// and is at most 50. Username order.
 ///
 /// ```json
-/// { "users": [ { "user_id": "...", "username": "ada" } ] }
+/// { "users": [ { "user_id": "...", "username": "ada", "is_friend": false } ] }
 /// ```
 async fn search_users(
     State(db): State<DatabaseConnection>,
@@ -371,9 +371,10 @@ async fn search_users(
     Ok(Json(UserSearchResponse {
         users: people
             .into_iter()
-            .map(|person| SocialAuthor {
+            .map(|person| UserSearchPerson {
                 user_id: person.user_id.to_string(),
                 username: person.username,
+                is_friend: person.is_friend,
             })
             .collect(),
     }))

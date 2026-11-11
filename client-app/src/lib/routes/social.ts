@@ -25,8 +25,8 @@ import type {
     SocialComment,
     Friendships,
     SocialNotification,
-    SocialPerson,
     SocialPost,
+    UserSearchPerson,
     SocialUserProfile,
 } from "@/lib/types";
 
@@ -622,14 +622,14 @@ export function useAcceptFriendRequest() {
 }
 
 type UserSearchResponse = {
-    users: SocialPerson[];
+    users: UserSearchPerson[];
 };
 
-const EMPTY_SEARCH: SocialPerson[] = [];
+const EMPTY_SEARCH: UserSearchPerson[] = [];
 
 /**
  * People whose username contains `search`, other than the signed-in user.
- * A blank search is not fetched.
+ * `is_friend` is true when they are already friends. A blank search is not fetched.
  *
  * ```ts
  * const { users, userSearchLoading, userSearchErr } = useUserSearch(term);

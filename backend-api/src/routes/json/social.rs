@@ -180,10 +180,18 @@ pub struct FriendshipsResponse {
     pub friends: Vec<SocialAuthor>,
 }
 
-/// `{users}` from `GET /social/users`. Each person is `{user_id, username}`.
+/// One person from `GET /social/users`. `is_friend` is a completed friendship.
+#[derive(Serialize)]
+pub struct UserSearchPerson {
+    pub user_id: String,
+    pub username: String,
+    pub is_friend: bool,
+}
+
+/// `{users}` from `GET /social/users`.
 #[derive(Serialize)]
 pub struct UserSearchResponse {
-    pub users: Vec<SocialAuthor>,
+    pub users: Vec<UserSearchPerson>,
 }
 
 /// One notification as `GET /social/notifications` returns it.

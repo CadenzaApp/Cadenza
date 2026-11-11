@@ -111,7 +111,8 @@ song_id)`, cascades with its query, plus `position` and `certain`. Replaced on r
   `username` (text, unique), `bio` (text, defaults to `''`), and `friends` (bigint, default 0). A trigger on `auth.users` insert
   creates the row with username equal to the email local part (everything before `@`), appending
   a number when that name is taken. `POST /profile` does the same for a missing row. `GET /social/users`
-  matches `lower(username)` with `LIKE '%term%'`. The unique btree does not serve that; the trigram
+  matches `lower(username)` with `LIKE '%term%'`. `is_friend` is true when that pair's
+  `friendships` row is `complete`. The unique btree does not serve the name match; the trigram
   index in `sql/profile_username_search.sql` does. See Profiles
   below.
 - `metadata_song_tags_applied` - a copy of each song's Apple Music metadata, one row

@@ -155,6 +155,11 @@ export type SocialPerson = {
     username: string;
 };
 
+/** One person from `GET /social/users`. `is_friend` is a completed friendship. */
+export type UserSearchPerson = SocialPerson & {
+    is_friend: boolean;
+};
+
 /** Completed friends and pending requests in both directions. */
 export type Friendships = {
     incoming: SocialPerson[];
