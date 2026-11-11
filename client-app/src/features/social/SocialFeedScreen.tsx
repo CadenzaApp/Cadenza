@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import Animated from "react-native-reanimated";
 
+import { Toast, useToast } from "@/components/custom/toast";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import {
     SegmentedControl,
@@ -53,8 +54,6 @@ const VIEWABILITY_CONFIG = {
 
 /** How often pending view marks are flushed to the API. */
 const MARK_VIEWED_FLUSH_MS = 3000;
-
-type Toast = { message: string; error: boolean };
 
 /**
  * The Social tab. Loads the ranked feed with full post payloads.
@@ -127,21 +126,7 @@ export function SocialFeedScreen() {
     );
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
-    const [toast, setToast] = useState<Toast | null>(null);
-    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    const showToast = useCallback((message: string, error = false) => {
-        if (toastTimer.current) clearTimeout(toastTimer.current);
-        setToast({ message, error });
-        toastTimer.current = setTimeout(() => setToast(null), 3000);
-    }, []);
-
-    useEffect(
-        () => () => {
-            if (toastTimer.current) clearTimeout(toastTimer.current);
-        },
-        [],
-    );
+    const { toast, showToast } = useToast();
 
     const feed = useMemo((): FeedRow[] => {
         const loaded = new Set(posts.map((post) => post.post_id));
@@ -482,27 +467,7 @@ export function SocialFeedScreen() {
                 onCreate={handleCreate}
             />
 
-            {toast ? (
-                <View
-                    pointerEvents="none"
-                    accessibilityRole="alert"
-                    className={
-                        toast.error
-                            ? "absolute left-5 right-5 top-3 rounded-2xl bg-destructive px-4 py-3"
-                            : "absolute left-5 right-5 top-3 rounded-2xl bg-foreground px-4 py-3"
-                    }
-                >
-                    <Text
-                        className={
-                            toast.error
-                                ? "text-center text-sm text-white"
-                                : "text-center text-sm text-background"
-                        }
-                    >
-                        {toast.message}
-                    </Text>
-                </View>
-            ) : null}
+            <Toast toast={toast} />
         </View>
     );
 }

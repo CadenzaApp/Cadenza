@@ -106,11 +106,12 @@ impl From<CommentRow> for SocialComment {
     }
 }
 
-/// `{user_id, username, bio, friend_count, friend_request_sent, friend_request_received, is_friend}`
+/// `{user_id, username, bio, friend_count, friend_request_sent, friend_request_received, is_friend, is_favorite, blocked}`
 /// from `GET /social/posts/user/:id`. `friend_count` is completed rows in
 /// `friendships`. `friend_request_sent` is the viewer's pending request to
 /// this user. `friend_request_received` is this user's pending request to the
 /// viewer. `is_friend` is a completed friendship with the viewer.
+/// `is_favorite` is the viewer's favorite. `blocked` is the viewer's block.
 #[derive(Serialize)]
 pub struct SocialUserProfile {
     pub user_id: String,
@@ -120,6 +121,8 @@ pub struct SocialUserProfile {
     pub friend_request_sent: bool,
     pub friend_request_received: bool,
     pub is_friend: bool,
+    pub is_favorite: bool,
+    pub blocked: bool,
 }
 
 impl From<PublicProfile> for SocialUserProfile {
@@ -132,6 +135,8 @@ impl From<PublicProfile> for SocialUserProfile {
             friend_request_sent: profile.friend_request_sent,
             friend_request_received: profile.friend_request_received,
             is_friend: profile.is_friend,
+            is_favorite: profile.is_favorite,
+            blocked: profile.blocked,
         }
     }
 }
@@ -191,15 +196,28 @@ pub struct CreateCommentResponse {
     pub comment_id: i64,
 }
 
-/// `{incoming, outgoing, friends}` from `GET /social/friends`.
+/// `{incoming, outgoing, friends, blocked}` from `GET /social/friends`.
 /// Each person is `{user_id, username}`.
 /// `incoming` is requests waiting on the signed-in user. `outgoing` is
-/// requests they sent. `friends` is completed pairs.
+/// requests they sent. `friends` is completed pairs. `blocked` is accounts
+/// they blocked.
 #[derive(Serialize)]
 pub struct FriendshipsResponse {
     pub incoming: Vec<SocialAuthor>,
     pub outgoing: Vec<SocialAuthor>,
-    pub friends: Vec<SocialAuthor>,
+    pub friends: Vec<SocialFriend>,
+    pub blocked: Vec<SocialAuthor>,
+}
+
+/// One friend in `GET /social/friends`. `online` is whether they have the app
+/// open, false when their now playing is hidden from friends. `favorite` is
+/// the caller's favorite.
+#[derive(Serialize)]
+pub struct SocialFriend {
+    pub user_id: String,
+    pub username: String,
+    pub online: bool,
+    pub favorite: bool,
 }
 
 /// One person from `GET /social/users`. `is_friend` is a completed friendship.

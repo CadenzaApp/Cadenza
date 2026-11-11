@@ -411,6 +411,21 @@ async fn end_stale_sessions_of<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Everyone still in the session, host included. Still holds them right after
+/// an end, since ending does not mark anyone left.
+pub async fn present_member_ids(db: &impl Db, session_id: Uuid) -> Result<Vec<Uuid>, CadenzaError> {
+    let rows = db
+        .query_all_raw(stmt(
+            "SELECT user_id FROM live_session_members
+             WHERE session_id = $1 AND left_at IS NULL AND NOT banned",
+            vec![session_id.into()],
+        ))
+        .await?;
+    rows.iter()
+        .map(|row| Ok(row.try_get("", "user_id")?))
+        .collect()
+}
+
 /// The open session `user_id` hosts or is in, if any. Newest first, since
 /// someone could be in more than one.
 pub async fn current_session_id(db: &impl Db, user_id: Uuid) -> Result<Option<Uuid>, CadenzaError> {

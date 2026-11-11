@@ -20,7 +20,11 @@ export function useOnboarding(): {
     const { isInitializing, isConnected } = useAppleMusic();
     const accountId = account?.id ?? null;
 
-    const { data: done, isLoading, mutate } = useSWR(
+    const {
+        data: done,
+        isLoading,
+        mutate,
+    } = useSWR(
         accountId ? ["onboarding/connect-step-done", accountId] : null,
         ([, id]) => loadConnectStepDone(id),
     );

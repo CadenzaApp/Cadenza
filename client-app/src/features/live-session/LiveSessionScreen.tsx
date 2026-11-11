@@ -24,6 +24,7 @@ import { useAccount } from "@/lib/account";
 import { serverNow } from "@/lib/realtime";
 import {
     SESSION_ROLE_LABELS,
+    isSessionGone,
     sessionCan,
     useLiveSession,
     useLiveSessionWrites,
@@ -74,7 +75,7 @@ export function LiveSessionScreen({ sessionId }: { sessionId: string }) {
 
     if (liveSessionErr && !liveSession) {
         const type = errorType(liveSessionErr);
-        const gone = type === "SessionEnded" || type === "NotFound";
+        const gone = isSessionGone(liveSessionErr);
         return (
             <DetailScreen presentation="sheet" title="Live session">
                 <View className="flex-1 items-center justify-center gap-4 px-6">

@@ -174,11 +174,23 @@ export type UserSearchPerson = SocialPerson & {
     is_friend: boolean;
 };
 
-/** Completed friends and pending requests in both directions. */
+/** A completed friend from `GET /social/friends`. */
+export type SocialFriend = SocialPerson & {
+    /** Has the app open. False when they hide their now playing from friends. */
+    online: boolean;
+    /** The signed-in user's favorite. */
+    favorite: boolean;
+};
+
+/**
+ * Completed friends, favorites first, then online, then by username. Pending
+ * requests in both directions, and the accounts the signed-in user blocked.
+ */
 export type Friendships = {
     incoming: SocialPerson[];
     outgoing: SocialPerson[];
-    friends: SocialPerson[];
+    friends: SocialFriend[];
+    blocked: SocialPerson[];
 };
 
 /** Public profile header from `GET /social/posts/user/:author_id`. */
@@ -194,4 +206,8 @@ export type SocialUserProfile = {
     friend_request_received: boolean;
     /** The signed-in user and this user have a completed friendship. */
     is_friend: boolean;
+    /** The signed-in user marked this friend a favorite. */
+    is_favorite: boolean;
+    /** The signed-in user blocked this user. */
+    blocked: boolean;
 };

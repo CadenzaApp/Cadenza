@@ -10,18 +10,20 @@ import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { useFriendsListening } from "@/lib/routes/listening";
 import { useProfile } from "@/lib/routes/profile";
-import { useFriendships } from "@/lib/routes/social";
+import { useFriendshipsWithPresence } from "@/lib/routes/social";
 import { useAppTheme } from "@/lib/theme";
 
 import { Initials } from "./MemberRow";
+import { isFriendOnline, onlineFirst } from "./presence";
 
 /** Friends shown in the avatar stack before "+N". */
 const STACK_SIZE = 3;
 
 /**
  * The two cards at the top of the Social tab: Me (profile, shared playlists,
- * privacy) and Friends (who is listening, and requests waiting). "Listening"
- * is the only live presence there is, so it stands in for "online".
+ * privacy) and Friends (who is online, and requests waiting). A friend is
+ * online with the app open or while playing something, and online friends
+ * lead the avatar stack.
  */
 export function SocialHubCards() {
     return (
@@ -128,32 +130,30 @@ function Shortcut({
 function FriendsCard() {
     const router = useRouter();
     const { friends, incoming, friendshipsLoading, friendshipsErr } =
-        useFriendships();
+        useFriendshipsWithPresence();
     const { friendsListening } = useFriendsListening();
     const { mutedForeground } = useAppTheme().colors;
 
     const listeningIds = new Set(
         (friendsListening ?? []).map((friend) => friend.user_id),
     );
-    // listening friends first, so the green dots lead the stack
-    const ordered = [
-        ...friends.filter((friend) => listeningIds.has(friend.user_id)),
-        ...friends.filter((friend) => !listeningIds.has(friend.user_id)),
-    ];
+    const ordered = onlineFirst(friends, listeningIds);
     const shown = ordered.slice(0, STACK_SIZE);
     const more = ordered.length - shown.length;
-    const listening = listeningIds.size;
+    const online = ordered.filter((friend) =>
+        isFriendOnline(friend, listeningIds),
+    ).length;
 
     const status = friendshipsErr
         ? "Couldn't load"
         : friends.length === 0 && !friendshipsLoading
           ? "Find people"
-          : listening > 0
-            ? `${listening} listening`
+          : online > 0
+            ? `${online} online`
             : `${friends.length} friends`;
     const label = [
         "Friends",
-        listening > 0 ? `${listening} listening now` : null,
+        online > 0 ? `${online} online` : null,
         incoming.length > 0
             ? `${incoming.length} request${incoming.length === 1 ? "" : "s"}`
             : null,
@@ -181,7 +181,7 @@ function FriendsCard() {
                     />
                 </View>
                 <View className="flex-row items-center gap-1.5">
-                    {listening > 0 ? (
+                    {online > 0 ? (
                         <View className="h-2 w-2 rounded-full bg-success" />
                     ) : null}
                     <Text className="text-sm text-muted-foreground">
@@ -210,7 +210,10 @@ function FriendsCard() {
                                 <Initials
                                     username={friend.username}
                                     size={32}
-                                    listening={listeningIds.has(friend.user_id)}
+                                    online={isFriendOnline(
+                                        friend,
+                                        listeningIds,
+                                    )}
                                 />
                             </View>
                         ))}

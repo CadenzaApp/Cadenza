@@ -1,4 +1,6 @@
-import { useAPIData, useAPIMutation } from "../api-actions";
+import { useEffect } from "react";
+
+import { invalidateAPIData, useAPIData, useAPIMutation } from "../api-actions";
 import { useRealtimeTopic } from "../realtime";
 import type { CreateInviteBody, Invite } from "./invites";
 
@@ -122,21 +124,37 @@ export function useMyLiveSession() {
     };
 }
 
+/** Whether a session read failed because the session is over or gone. */
+export function isSessionGone(error: unknown) {
+    const type = (error as { error_type?: string } | null)?.error_type;
+    return type === "SessionEnded" || type === "NotFound";
+}
+
 /**
  * One session's snapshot, refetched whenever it changes through the realtime
- * socket. A 410 `SessionEnded` comes back as the error.
+ * socket. A 410 `SessionEnded` comes back as the error, and then the snapshot
+ * is undefined: SWR would keep the last one, and a member would go on seeing
+ * the session as live. An end also refetches `/live-sessions/current`, since
+ * only the host's own write invalidates it.
  */
 export function useLiveSession(id: string | null) {
     const x = useAPIData<LiveSession>(`/live-sessions/${id}`, undefined, {
         enabled: id !== null,
     });
     useRealtimeTopic(id ? { kind: "live_session", id } : null, (event) => {
+        if (event.kind === "ended") {
+            void invalidateAPIData([{ path: "/live-sessions/current" }]);
+        }
         if (event.kind === "resync" || event.version !== x.data?.version) {
             void x.mutate();
         }
     });
+    const gone = isSessionGone(x.error);
+    useEffect(() => {
+        if (gone) void invalidateAPIData([{ path: "/live-sessions/current" }]);
+    }, [gone]);
     return {
-        liveSession: x.data,
+        liveSession: gone ? undefined : x.data,
         liveSessionLoading: x.isLoading,
         liveSessionErr: x.error,
         reloadLiveSession: x.mutate,

@@ -3,6 +3,7 @@ pub mod analytics;
 pub mod audience;
 pub mod entity;
 pub mod events;
+pub mod friend_relations;
 pub mod invites;
 pub mod listening_history;
 pub mod live_sessions;

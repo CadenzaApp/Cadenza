@@ -15,13 +15,15 @@ import { initialsFromUsername } from "./format";
 export function Initials({
     username,
     size = 40,
-    listening = false,
+    online = false,
 }: {
     username: string;
     size?: number;
-    /** A green dot: playing right now. */
-    listening?: boolean;
+    /** A green dot in the bottom right: the app open, or playing now. */
+    online?: boolean;
 }) {
+    // a quarter of the avatar, never smaller than the border can ring
+    const dot = Math.max(10, Math.round(size / 4));
     return (
         <View style={{ width: size, height: size }}>
             <View
@@ -35,8 +37,12 @@ export function Initials({
                     {initialsFromUsername(username)}
                 </Text>
             </View>
-            {listening ? (
-                <View className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background bg-success" />
+            {online ? (
+                <View
+                    accessibilityLabel="Online"
+                    className="absolute bottom-0 right-0 rounded-full border-2 border-background bg-success"
+                    style={{ width: dot, height: dot }}
+                />
             ) : null}
         </View>
     );

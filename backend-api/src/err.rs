@@ -27,6 +27,8 @@ pub enum CadenzaError {
     UsernameAlreadyTaken,
     /// The pair is already friends.
     FriendshipAlreadyExists,
+    /// One of the pair blocked the other.
+    UserBlocked,
     DatabaseError(String), // generic database error
     QueryFormatError(String),
     TagGenerationErr(String),
@@ -86,6 +88,7 @@ impl CadenzaError {
             Self::ProfileAlreadyExists => 409,
             Self::UsernameAlreadyTaken => 409,
             Self::FriendshipAlreadyExists => 409,
+            Self::UserBlocked => 403,
             Self::DatabaseError(_) => 500,
             Self::QueryFormatError(_) => 422,
             Self::TagGenerationErr(_) => 500,
@@ -139,6 +142,10 @@ impl CadenzaError {
             Self::FriendshipAlreadyExists => json!({
                 "error_type": "FriendshipAlreadyExists",
                 "message": "you are already friends"
+            }),
+            Self::UserBlocked => json!({
+                "error_type": "UserBlocked",
+                "message": "you cannot do that with this account"
             }),
             Self::DatabaseError(msg) => json!({
                 "error_type": "DatabaseError",

@@ -1,20 +1,27 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation, useRouter, type Href } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { FlatList, Pressable, View, type ListRenderItem } from "react-native";
 import Animated from "react-native-reanimated";
 
+import { Toast, useToast } from "@/components/custom/toast";
 import { Button } from "@/components/ui/button";
+import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import {
+    useBlockUser,
     useCancelFriendRequest,
+    useFavoriteFriend,
     useRequestFriend,
     useUserPosts,
 } from "@/lib/routes/social";
+import { useAppTheme } from "@/lib/theme";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 
+import { FriendOptionsMenu, type FriendMenuTarget } from "./FriendOptionsMenu";
 import { initialsFromUsername } from "./format";
 import { ProfileListening } from "./ListeningNow";
 import { PostCard } from "./PostCard";
@@ -31,10 +38,11 @@ type Props = {
  * Social tab. On your own page, Edit opens account details, the one place
  * a username and bio are edited. Under the avatar and username is how many
  * friends they have. On someone else's page, Add friend sits on that same
- * row. Already friends says Unfriend, and tapping it deletes that row. A
- * request already sent says Friend request sent, and tapping it cancels.
- * A request they already sent says Accept friend request, and tapping it
- * accepts.
+ * row. Already friends says Friends with a chevron, which opens a menu:
+ * favorite, unfriend, block. A request already sent says Friend request
+ * sent, and tapping it cancels. A request they already sent says Accept
+ * friend request, and tapping it accepts. Anyone not a friend also gets a
+ * "..." with Block. An account you blocked says Unblock and shows no posts.
  */
 export function UserProfileScreen({ userId }: Props) {
     const { listBottomInset } = useScreenOverlayInsets();
@@ -51,6 +59,11 @@ export function UserProfileScreen({ userId }: Props) {
     const [clearedFor, setClearedFor] = useState<string | null>(null);
     const [unfriendedFor, setUnfriendedFor] = useState<string | null>(null);
     const [acceptedFor, setAcceptedFor] = useState<string | null>(null);
+    const [menuFor, setMenuFor] = useState<FriendMenuTarget | null>(null);
+    const [confirmBlock, setConfirmBlock] = useState(false);
+    const { setFavorite } = useFavoriteFriend();
+    const { setBlocked, blockLoading } = useBlockUser();
+    const { toast, showToast } = useToast();
 
     useEffect(() => {
         if (
@@ -86,12 +99,58 @@ export function UserProfileScreen({ userId }: Props) {
         [],
     );
 
+    const isFriend =
+        unfriendedFor !== userId &&
+        (acceptedFor === userId || profile?.is_friend === true);
+
+    const unfriend = () => {
+        setSentTo((current) => (current === userId ? null : current));
+        setAcceptedFor((current) => (current === userId ? null : current));
+        setUnfriendedFor(userId);
+        void cancelFriendRequest({ user_id: userId }).catch(() =>
+            setUnfriendedFor((current) =>
+                current === userId ? null : current,
+            ),
+        );
+    };
+
+    const block = async () => {
+        try {
+            await setBlocked(userId, true);
+            setSentTo(null);
+            setAcceptedFor(null);
+            setConfirmBlock(false);
+            showToast(`Blocked ${username ?? "them"}`);
+        } catch {
+            showToast("Couldn't block this account.", true);
+        }
+    };
+
+    const unblock = async () => {
+        try {
+            await setBlocked(userId, false);
+            showToast(`Unblocked ${username ?? "them"}`);
+        } catch {
+            showToast("Couldn't unblock this account.", true);
+        }
+    };
+
+    const setFavoriteFor = async (favorite: boolean) => {
+        try {
+            await setFavorite(userId, favorite);
+        } catch {
+            showToast("Couldn't update favorites.", true);
+        }
+    };
+
     const loading = userPostsLoading && posts.length === 0;
-    const emptyLabel = loading
-        ? "Loading posts..."
-        : userPostsErr
-          ? "Couldn't load posts."
-          : "No posts yet.";
+    const emptyLabel = profile?.blocked
+        ? "You blocked this account."
+        : loading
+          ? "Loading posts..."
+          : userPostsErr
+            ? "Couldn't load posts."
+            : "No posts yet.";
 
     return (
         <View className="flex-1 bg-background">
@@ -113,11 +172,8 @@ export function UserProfileScreen({ userId }: Props) {
                                 canAddFriend={
                                     account != null && account.id !== userId
                                 }
-                                isFriend={
-                                    unfriendedFor !== userId &&
-                                    (acceptedFor === userId ||
-                                        profile?.is_friend === true)
-                                }
+                                isFriend={isFriend}
+                                blocked={profile?.blocked === true}
                                 requestReceived={
                                     acceptedFor !== userId &&
                                     unfriendedFor !== userId &&
@@ -171,22 +227,17 @@ export function UserProfileScreen({ userId }: Props) {
                                         ),
                                     );
                                 }}
-                                onUnfriend={() => {
-                                    setSentTo((current) =>
-                                        current === userId ? null : current,
-                                    );
-                                    setAcceptedFor((current) =>
-                                        current === userId ? null : current,
-                                    );
-                                    setUnfriendedFor(userId);
-                                    void cancelFriendRequest({
+                                onOpenMenu={() =>
+                                    setMenuFor({
                                         user_id: userId,
-                                    }).catch(() =>
-                                        setUnfriendedFor((current) =>
-                                            current === userId ? null : current,
-                                        ),
-                                    );
-                                }}
+                                        username: username ?? "unknown",
+                                        isFriend,
+                                        isFavorite:
+                                            isFriend &&
+                                            profile?.is_favorite === true,
+                                    })
+                                }
+                                onUnblock={() => void unblock()}
                                 onEdit={() =>
                                     router.push("/account-details" as Href)
                                 }
@@ -212,6 +263,24 @@ export function UserProfileScreen({ userId }: Props) {
                     showsVerticalScrollIndicator={false}
                 />
             </ScreenScrollMarker>
+            <FriendOptionsMenu
+                target={menuFor}
+                onClose={() => setMenuFor(null)}
+                onFavorite={(favorite) => void setFavoriteFor(favorite)}
+                onUnfriend={unfriend}
+                onBlock={() => setConfirmBlock(true)}
+            />
+            <GlassConfirmDialog
+                open={confirmBlock}
+                title={`Block ${username ?? "this account"}?`}
+                description="This ends your friendship and any request between you. Neither of you will see the other's posts, and they can't send you a friend request. They won't be told."
+                confirmLabel="Block"
+                pendingLabel="Blocking..."
+                pending={blockLoading}
+                onOpenChange={setConfirmBlock}
+                onConfirm={() => void block()}
+            />
+            <Toast toast={toast} />
         </View>
     );
 }
@@ -224,13 +293,15 @@ function ProfileHeader({
     canEdit,
     canAddFriend,
     isFriend,
+    blocked,
     requestReceived,
     requestSent,
     requestBusy,
     onAddFriend,
     onAcceptRequest,
     onCancelFriend,
-    onUnfriend,
+    onOpenMenu,
+    onUnblock,
     onEdit,
 }: {
     username?: string;
@@ -240,15 +311,19 @@ function ProfileHeader({
     canEdit: boolean;
     canAddFriend: boolean;
     isFriend: boolean;
+    blocked: boolean;
     requestReceived: boolean;
     requestSent: boolean;
     requestBusy: boolean;
     onAddFriend: () => void;
     onAcceptRequest: () => void;
     onCancelFriend: () => void;
-    onUnfriend: () => void;
+    /** Friends: favorite, unfriend, block. Anyone else: block. */
+    onOpenMenu: () => void;
+    onUnblock: () => void;
     onEdit: () => void;
 }) {
+    const { foreground } = useAppTheme().colors;
     if (loading) {
         return (
             <View className="mb-4 gap-3 py-2">
@@ -261,20 +336,16 @@ function ProfileHeader({
 
     const name = username ?? "unknown";
     const trimmedBio = bio?.trim() ?? "";
-    const friendLabel = isFriend
-        ? "Unfriend"
-        : requestSent
-          ? "Friend request sent"
-          : requestReceived
-            ? "Accept friend request"
-            : "Add friend";
-    const onFriendPress = isFriend
-        ? onUnfriend
-        : requestSent
-          ? onCancelFriend
-          : requestReceived
-            ? onAcceptRequest
-            : onAddFriend;
+    const friendLabel = requestSent
+        ? "Friend request sent"
+        : requestReceived
+          ? "Accept friend request"
+          : "Add friend";
+    const onFriendPress = requestSent
+        ? onCancelFriend
+        : requestReceived
+          ? onAcceptRequest
+          : onAddFriend;
 
     return (
         <View className="mb-4 gap-3 border-b border-border pb-5 pt-2">
@@ -305,18 +376,59 @@ function ProfileHeader({
                 ) : null}
             </View>
             <View className="flex-row items-center gap-3">
-                {canAddFriend ? (
+                {!canAddFriend ? null : blocked ? (
                     <Button
-                        accessibilityLabel={friendLabel}
+                        accessibilityLabel={`Unblock ${name}`}
                         className="self-start"
                         size="sm"
                         variant="outline"
-                        disabled={requestBusy}
-                        onPress={onFriendPress}
+                        onPress={onUnblock}
                     >
-                        <Text>{friendLabel}</Text>
+                        <Text>Unblock</Text>
                     </Button>
-                ) : null}
+                ) : isFriend ? (
+                    <Button
+                        accessibilityLabel="Friends, options"
+                        className="flex-row items-center gap-1 self-start"
+                        size="sm"
+                        variant="outline"
+                        disabled={requestBusy}
+                        onPress={onOpenMenu}
+                    >
+                        <Text>Friends</Text>
+                        <Ionicons
+                            name="chevron-down"
+                            size={14}
+                            color={foreground}
+                        />
+                    </Button>
+                ) : (
+                    <>
+                        <Button
+                            accessibilityLabel={friendLabel}
+                            className="self-start"
+                            size="sm"
+                            variant="outline"
+                            disabled={requestBusy}
+                            onPress={onFriendPress}
+                        >
+                            <Text>{friendLabel}</Text>
+                        </Button>
+                        <Button
+                            accessibilityLabel={`More options for ${name}`}
+                            className="w-9 self-start px-0"
+                            size="sm"
+                            variant="outline"
+                            onPress={onOpenMenu}
+                        >
+                            <Ionicons
+                                name="ellipsis-horizontal"
+                                size={16}
+                                color={foreground}
+                            />
+                        </Button>
+                    </>
+                )}
                 <Text className="text-sm text-muted-foreground">
                     {friendCount === 1 ? "1 friend" : `${friendCount} friends`}
                 </Text>

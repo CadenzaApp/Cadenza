@@ -13,19 +13,24 @@ use serde_json::Value;
 use crate::{
     AppState,
     auth::SupabaseClaims,
-    db::notification::{self, NotificationCursor as DbNotificationCursor},
-    db::social::{
-        self, CommentsCursor as DbCommentsCursor, FeedExclude, InterestDelta,
-        TopicPostsCursor as DbTopicPostsCursor,
+    db::{
+        audience::{PrivacyField, visible_friend_ids},
+        friend_relations,
+        notification::{self, NotificationCursor as DbNotificationCursor},
+        social::{
+            self, CommentsCursor as DbCommentsCursor, FeedExclude, InterestDelta,
+            TopicPostsCursor as DbTopicPostsCursor,
+        },
     },
     err::CadenzaError,
     routes::json::social::{
         CommentsCursor, CreateCommentResponse, CreatePostResponse, FeedResponse,
         FriendshipsResponse, NotificationCursor, NotificationsResponse, PostCommentsResponse,
-        SocialAuthor, SocialComment, SocialNotification, SocialPost, TopicPostsCursor,
-        TopicPostsResponse, UserPostsResponse, UserSearchPerson, UserSearchResponse,
+        SocialAuthor, SocialComment, SocialFriend, SocialNotification, SocialPost,
+        TopicPostsCursor, TopicPostsResponse, UserPostsResponse, UserSearchPerson,
+        UserSearchResponse,
     },
-    services::social_feed::SocialFeedService,
+    services::{realtime::SharedPresence, social_feed::SocialFeedService},
 };
 
 const POST_CONTENT_MAX: usize = 500;
@@ -386,8 +391,9 @@ async fn topic_posts(
 /// Sending the same request again responds with `null` and sends nothing. A
 /// new request notifies the recipient. If they already requested the caller,
 /// the row becomes `complete` and they are notified that it was accepted. 409
-/// `FriendshipAlreadyExists` when the pair is already friends. 422 when
-/// `user_id` is the caller.
+/// `FriendshipAlreadyExists` when the pair is already friends. 403
+/// `UserBlocked` when either one blocked the other. 422 when `user_id` is the
+/// caller.
 async fn request_friendship(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
@@ -531,16 +537,25 @@ async fn mark_notifications_read(
     Ok(Json(Value::Null))
 }
 
-/// The signed-in user's friends and pending requests.
+/// The signed-in user's friends, pending requests, and blocked accounts.
+/// Friends sort favorites first, then online, then by username. `online` is
+/// false for a friend who hides their now playing from friends.
 ///
 /// ```json
-/// { "incoming": [ { "user_id": "...", "username": "ada" } ], "outgoing": [], "friends": [] }
+/// { "incoming": [ { "user_id": "...", "username": "ada" } ], "outgoing": [], "friends": [ { "user_id": "...", "username": "bo", "online": true, "favorite": false } ], "blocked": [] }
 /// ```
 async fn friendships(
     State(db): State<DatabaseConnection>,
+    State(presence): State<SharedPresence>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
 ) -> Result<Json<FriendshipsResponse>, CadenzaError> {
-    let lists = social::list_friendships(&db, claims.user_id).await?;
+    let (lists, favorites, visible, blocked) = tokio::try_join!(
+        social::list_friendships(&db, claims.user_id),
+        friend_relations::favorite_ids(&db, claims.user_id),
+        visible_friend_ids(&db, claims.user_id, PrivacyField::NowPlaying),
+        friend_relations::blocked_people(&db, claims.user_id),
+    )?;
+    let online = presence.online_among(&visible);
     let people = |list: Vec<social::FriendPerson>| {
         list.into_iter()
             .map(|person| SocialAuthor {
@@ -549,11 +564,66 @@ async fn friendships(
             })
             .collect()
     };
+    // list_friendships is username order and the sort is stable, so that
+    // order holds inside each group
+    let mut friends: Vec<SocialFriend> = lists
+        .friends
+        .into_iter()
+        .map(|person| SocialFriend {
+            online: online.contains(&person.user_id),
+            favorite: favorites.contains(&person.user_id),
+            user_id: person.user_id.to_string(),
+            username: person.username,
+        })
+        .collect();
+    friends.sort_by_key(|friend| (!friend.favorite, !friend.online));
     Ok(Json(FriendshipsResponse {
         incoming: people(lists.incoming),
         outgoing: people(lists.outgoing),
-        friends: people(lists.friends),
+        friends,
+        blocked: people(blocked),
     }))
+}
+
+/// Marks a friend a favorite, or with DELETE, drops it. 404 when they are not
+/// a friend. Responds with `null`.
+async fn favorite_friend(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Value>, CadenzaError> {
+    friend_relations::favorite_friend(&db, claims.user_id, user_id).await?;
+    Ok(Json(Value::Null))
+}
+
+async fn unfavorite_friend(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Value>, CadenzaError> {
+    friend_relations::unfavorite_friend(&db, claims.user_id, user_id).await?;
+    Ok(Json(Value::Null))
+}
+
+/// Blocks `user_id`, or with DELETE, unblocks. A block ends any friendship or
+/// request between the two and hides each one's posts from the other. An
+/// unblock does not bring the friendship back. Responds with `null`.
+async fn block_user(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Value>, CadenzaError> {
+    friend_relations::block_user(&db, claims.user_id, user_id).await?;
+    Ok(Json(Value::Null))
+}
+
+async fn unblock_user(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Value>, CadenzaError> {
+    friend_relations::unblock_user(&db, claims.user_id, user_id).await?;
+    Ok(Json(Value::Null))
 }
 
 /// Accepts an incoming friend request from `user_id`. Sets that row to
@@ -792,6 +862,11 @@ pub fn get_social_router() -> Router<AppState> {
         .route("/notifications", get(notifications))
         .route("/notifications/read", post(mark_notifications_read))
         .route("/friends/{user_id}/accept", post(accept_friendship))
+        .route(
+            "/friends/{user_id}/favorite",
+            post(favorite_friend).delete(unfavorite_friend),
+        )
+        .route("/blocks/{user_id}", post(block_user).delete(unblock_user))
         .route(
             "/friends/{user_id}",
             post(request_friendship).delete(delete_friendship),

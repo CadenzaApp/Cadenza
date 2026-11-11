@@ -10,6 +10,7 @@ import {
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Toast, useToast } from "@/components/custom/toast";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
 import { CreatePostDialog } from "@/features/social/CreatePostDialog";
@@ -137,25 +138,11 @@ export function DiscussPage({
     }
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
-    const [toast, setToast] = useState<string | null>(null);
-    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const { toast, showToast } = useToast();
     const focusedSongIdRef = useRef(focusedSong.id);
     useEffect(() => {
         focusedSongIdRef.current = focusedSong.id;
     }, [focusedSong.id]);
-
-    const showToast = useCallback((message: string) => {
-        if (toastTimer.current) clearTimeout(toastTimer.current);
-        setToast(message);
-        toastTimer.current = setTimeout(() => setToast(null), 3000);
-    }, []);
-
-    useEffect(
-        () => () => {
-            if (toastTimer.current) clearTimeout(toastTimer.current);
-        },
-        [],
-    );
 
     const handleDeleted = useCallback((postId: number) => {
         setCreated((current) =>
@@ -360,17 +347,7 @@ export function DiscussPage({
                 lockedTopic={topic}
             />
 
-            {toast ? (
-                <View
-                    pointerEvents="none"
-                    accessibilityRole="alert"
-                    className="absolute left-5 right-5 top-3 rounded-2xl bg-foreground px-4 py-3"
-                >
-                    <Text className="text-center text-sm text-background">
-                        {toast}
-                    </Text>
-                </View>
-            ) : null}
+            <Toast toast={toast} />
         </View>
     );
 }

@@ -7,6 +7,9 @@
 use std::collections::HashMap;
 
 use crate::db::entity::{comment_likes, comments, post_likes, posts, profile};
+use crate::db::friend_relations::{
+    NOT_BLOCKED_AUTHOR, blocked_either_way, clear_favorites_between,
+};
 use crate::err::CadenzaError;
 use crate::services::notification::{NewNotification, NotificationType, push_notification};
 use chrono::{DateTime, TimeZone, Utc};
@@ -103,6 +106,10 @@ pub struct PublicProfile {
     pub friend_request_received: bool,
     /// The viewer and this user have a completed friendship.
     pub is_friend: bool,
+    /// The viewer marked this friend a favorite.
+    pub is_favorite: bool,
+    /// The viewer blocked this user.
+    pub blocked: bool,
 }
 
 /// One named interest a score update wants to move.
@@ -786,7 +793,8 @@ pub async fn get_posts(
     }
     let rows = PostRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT
+        format!(
+            "SELECT
              p.post_id,
              p.user_id AS author_id,
              p.content,
@@ -803,7 +811,9 @@ pub async fn get_posts(
              p.comments AS comment_count
          FROM posts p
          LEFT JOIN profile pr ON pr.uid = p.user_id
-         WHERE p.post_id = ANY($2::bigint[])",
+         WHERE p.post_id = ANY($2::bigint[])
+           AND {NOT_BLOCKED_AUTHOR}"
+        ),
         vec![viewer_id.into(), bigint_array(post_ids)],
     ))
     .all(db)
@@ -855,6 +865,8 @@ pub async fn find_public_profile(
         friend_request_sent: false,
         friend_request_received: false,
         is_friend: false,
+        is_favorite: false,
+        blocked: false,
     }))
 }
 
@@ -936,7 +948,8 @@ pub async fn is_friend(
 /// "sent you a friend request", in the same transaction as the insert. If the other
 /// person already sent a request, this accepts it and the row becomes
 /// `complete`, which notifies them that it was accepted. A completed
-/// friendship is [`CadenzaError::FriendshipAlreadyExists`].
+/// friendship is [`CadenzaError::FriendshipAlreadyExists`], and a block
+/// either way is [`CadenzaError::UserBlocked`].
 pub async fn request_friendship(
     db: &DatabaseConnection,
     sender_id: Uuid,
@@ -946,6 +959,9 @@ pub async fn request_friendship(
         return Err(CadenzaError::InvalidRequestBody(
             "you cannot send yourself a friend request".into(),
         ));
+    }
+    if blocked_either_way(db, sender_id, recipient_id).await? {
+        return Err(CadenzaError::UserBlocked);
     }
     let (user1, user2) = ordered_friend_users(sender_id, recipient_id);
     let status = friend_request_status(recipient_id, user1);
@@ -1003,8 +1019,8 @@ pub async fn request_friendship(
     }
 }
 
-/// Deletes the friendship row for this pair, whatever its status is.
-/// A missing row is a no-op. `user1` is the lexicographically smaller uuid.
+/// Deletes the friendship row for this pair, whatever its status is, and
+/// both favorites. A missing row is a no-op. `user1` is the lexicographically smaller uuid.
 ///
 /// Ignoring an incoming request also marks that person's "sent you a friend
 /// request" notification `ignored`.
@@ -1040,6 +1056,7 @@ pub async fn delete_friendship(
             resolve_friend_request_notification(&txn, user_id, other_id, "ignored").await?;
         }
     }
+    clear_favorites_between(&txn, user_id, other_id).await?;
     txn.commit().await?;
     Ok(())
 }
@@ -1343,6 +1360,7 @@ fn topic_posts_statement(
             format!(
                 "{TOPIC_POSTS_SELECT}
                  WHERE p.topic_mk_id = $2
+                   AND {NOT_BLOCKED_AUTHOR}
                  ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
                  LIMIT $3"
             ),
@@ -1357,6 +1375,7 @@ fn topic_posts_statement(
             format!(
                 "{TOPIC_POSTS_SELECT}
                  WHERE p.topic_mk_id = $2
+                   AND {NOT_BLOCKED_AUTHOR}
                    AND (p.likes, p.created_at, p.post_id) < ($3, $4, $5)
                  ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
                  LIMIT $6"
@@ -1386,7 +1405,8 @@ pub async fn get_friends_feed(
 ) -> Result<Vec<SocialPost>, CadenzaError> {
     let rows = PostRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT
+        format!(
+            "SELECT
              p.post_id,
              p.user_id AS author_id,
              p.content,
@@ -1413,8 +1433,10 @@ pub async fn get_friends_feed(
              )
          )
            AND ($2::timestamptz IS NULL OR p.created_at < $2)
+           AND {NOT_BLOCKED_AUTHOR}
          ORDER BY p.created_at DESC, p.post_id DESC
-         LIMIT $3",
+         LIMIT $3"
+        ),
         vec![
             viewer_id.into(),
             before.map(|at| at.fixed_offset()).into(),
@@ -1434,7 +1456,8 @@ pub async fn get_author_posts(
 ) -> Result<Vec<SocialPost>, CadenzaError> {
     let rows = PostRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT
+        format!(
+            "SELECT
              p.post_id,
              p.user_id AS author_id,
              p.content,
@@ -1452,7 +1475,9 @@ pub async fn get_author_posts(
          FROM posts p
          LEFT JOIN profile pr ON pr.uid = p.user_id
          WHERE p.user_id = $2
-         ORDER BY p.created_at DESC",
+           AND {NOT_BLOCKED_AUTHOR}
+         ORDER BY p.created_at DESC"
+        ),
         vec![viewer_id.into(), author_id.into()],
     ))
     .all(db)

@@ -39,7 +39,9 @@ use tokio::{
 use crate::{
     AppState,
     auth::SupabaseClaims,
-    services::realtime::{Event, SharedEventBus, Topic, access::can_subscribe},
+    services::realtime::{
+        Event, SharedEventBus, SharedPresence, Topic, access::can_subscribe, publish_version,
+    },
 };
 
 /// How long a new socket has to send `auth`.
@@ -96,8 +98,27 @@ async fn ws_handler(
     State(db): State<DatabaseConnection>,
     State(decoder): State<Decoder<SupabaseClaims>>,
     State(bus): State<SharedEventBus>,
+    State(presence): State<SharedPresence>,
 ) -> Response {
-    ws.on_upgrade(move |socket| run_socket(socket, db, decoder, bus))
+    ws.on_upgrade(move |socket| async move {
+        let Some(user_id) = run_socket(socket, db, decoder, bus.clone(), presence.clone()).await
+        else {
+            return;
+        };
+        if presence.disconnect(user_id) {
+            publish_presence(&bus, user_id);
+        }
+    })
+}
+
+/// Tells anyone watching `user_id` that they came online or went offline.
+fn publish_presence(bus: &SharedEventBus, user_id: Uuid) {
+    publish_version(
+        bus,
+        Topic::User(user_id),
+        Utc::now().timestamp_millis(),
+        "presence",
+    );
 }
 
 async fn send(socket: &mut WebSocket, message: &ServerMessage) -> bool {
@@ -135,18 +156,24 @@ async fn authenticate(
     Some((claims.user_id, claims.expiration as i64))
 }
 
+/// Runs one socket to its end. Returns the user once they authenticated, who
+/// was counted online for its whole life and is the caller's to count off.
 async fn run_socket(
     mut socket: WebSocket,
     db: DatabaseConnection,
     decoder: Decoder<SupabaseClaims>,
     bus: SharedEventBus,
-) {
+    presence: SharedPresence,
+) -> Option<Uuid> {
     let Some((user_id, expires_at)) = authenticate(&mut socket, &decoder).await else {
         close(socket, "auth failed").await;
-        return;
+        return None;
     };
+    if presence.connect(user_id) {
+        publish_presence(&bus, user_id);
+    }
     if !send(&mut socket, &ServerMessage::Ready { user_id }).await {
-        return;
+        return Some(user_id);
     }
 
     let until_expiry = (expires_at - Utc::now().timestamp()).max(0) as u64;
@@ -202,7 +229,7 @@ async fn run_socket(
                 for task in subscriptions.into_values() {
                     task.abort();
                 }
-                return;
+                return Some(user_id);
             }
         }
     }
@@ -210,6 +237,7 @@ async fn run_socket(
     for task in subscriptions.into_values() {
         task.abort();
     }
+    Some(user_id)
 }
 
 /// Checks access and starts forwarding the topic's events into `tx`.

@@ -4,6 +4,8 @@ import useSWRInfinite from "swr/infinite";
 
 import { useAccount } from "../account";
 import { fetchAPIData, useAPIData, useAPIMutation } from "../api-actions";
+import { useRealtimeTopics } from "../realtime";
+import type { RealtimeTopic } from "../realtime-protocol";
 import {
     applyCommentContent,
     applyCommentLike,
@@ -712,7 +714,8 @@ type UserPostsResponse = {
  *     useUserPosts(authorId);
  * ```
  */
-const EMPTY_PEOPLE: Friendships["friends"] = [];
+const EMPTY_PEOPLE: Friendships["incoming"] = [];
+const EMPTY_FRIENDS: Friendships["friends"] = [];
 
 type FriendRequestPayload = {
     user_id: string;
@@ -952,15 +955,90 @@ export function useMarkNotificationsRead() {
     };
 }
 
-/** The signed-in user's friends and pending requests. */
+/** The signed-in user's friends, pending requests, and blocked accounts. */
 export function useFriendships() {
     const x = useAPIData<Friendships>("/social/friends");
     return {
         incoming: x.data?.incoming ?? EMPTY_PEOPLE,
         outgoing: x.data?.outgoing ?? EMPTY_PEOPLE,
-        friends: x.data?.friends ?? EMPTY_PEOPLE,
+        friends: x.data?.friends ?? EMPTY_FRIENDS,
+        blocked: x.data?.blocked ?? EMPTY_PEOPLE,
         friendshipsLoading: x.isLoading,
         friendshipsErr: x.error,
+        reloadFriendships: x.mutate,
+    };
+}
+
+/**
+ * `useFriendships`, refetched the moment a friend comes online or goes
+ * offline, through the realtime socket. For screens that show who is online;
+ * everything else reads `useFriendships` and skips the subscriptions.
+ */
+export function useFriendshipsWithPresence() {
+    const friendships = useFriendships();
+    const { friends, reloadFriendships } = friendships;
+    const topics = useMemo<RealtimeTopic[]>(
+        () => friends.map((friend) => ({ kind: "user", id: friend.user_id })),
+        [friends],
+    );
+    useRealtimeTopics(topics, (event) => {
+        if (event.kind === "presence") void reloadFriendships();
+    });
+    return friendships;
+}
+
+/** Every read a favorite, a block, or an unblock can change. */
+function relationTouched(userId: string, accountId: string | undefined) {
+    return [
+        { path: "/social/friends" },
+        { path: "/social/feed" },
+        { path: "/social/feed/friends" },
+        { path: "/listening/friends" },
+        { path: `/social/posts/user/${userId}` },
+        ...(accountId ? [{ path: `/social/posts/user/${accountId}` }] : []),
+    ];
+}
+
+/** Marks or unmarks a friend a favorite, which sorts them first. */
+export function useFavoriteFriend() {
+    const { account } = useAccount();
+    const add = useAPIMutation<FriendRequestPayload, null>(
+        "POST",
+        ({ user_id }) => `/social/friends/${user_id}/favorite`,
+        ({ user_id }) => relationTouched(user_id, account?.id),
+    );
+    const remove = useAPIMutation<FriendRequestPayload, null>(
+        "DELETE",
+        ({ user_id }) => `/social/friends/${user_id}/favorite`,
+        ({ user_id }) => relationTouched(user_id, account?.id),
+    );
+    return {
+        setFavorite: (user_id: string, favorite: boolean) =>
+            (favorite ? add : remove).trigger({ user_id }),
+        favoriteLoading: add.isMutating || remove.isMutating,
+    };
+}
+
+/**
+ * Blocks or unblocks `user_id`. A block ends the friendship and hides each
+ * one's posts from the other; an unblock does not bring the friendship back.
+ */
+export function useBlockUser() {
+    const { account } = useAccount();
+    const block = useAPIMutation<FriendRequestPayload, null>(
+        "POST",
+        ({ user_id }) => `/social/blocks/${user_id}`,
+        ({ user_id }) => relationTouched(user_id, account?.id),
+    );
+    const unblock = useAPIMutation<FriendRequestPayload, null>(
+        "DELETE",
+        ({ user_id }) => `/social/blocks/${user_id}`,
+        ({ user_id }) => relationTouched(user_id, account?.id),
+    );
+    return {
+        setBlocked: (user_id: string, blocked: boolean) =>
+            (blocked ? block : unblock).trigger({ user_id }),
+        blockLoading: block.isMutating || unblock.isMutating,
     };
 }
 

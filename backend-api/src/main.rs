@@ -32,7 +32,7 @@ use crate::{
         invite_codes::RedeemLimiter,
         metadata_tags::{MetadataCrawlConfig, MetadataCrawler, spawn_metadata_crawl},
         notification::spawn_notification_cleanup,
-        realtime::{InMemoryBus, SharedEventBus},
+        realtime::{InMemoryBus, InMemoryPresence, SharedEventBus, SharedPresence},
         social_feed::{self, SocialFeedService},
         song_metadata::SongMetadataService,
         tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
@@ -50,6 +50,8 @@ struct AppState {
     assistant_service: AssistantService,
     /// Pushes "this changed" to realtime subscribers. See services::realtime.
     event_bus: SharedEventBus,
+    /// Who has the app open. See services::realtime::presence.
+    presence: SharedPresence,
     redeem_limiter: RedeemLimiter,
 }
 
@@ -165,6 +167,7 @@ async fn main() {
         social_feed_service,
         assistant_service,
         event_bus: std::sync::Arc::new(InMemoryBus::new()),
+        presence: std::sync::Arc::new(InMemoryPresence::new()),
         redeem_limiter: RedeemLimiter::new(),
     };
 

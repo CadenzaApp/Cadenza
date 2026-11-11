@@ -12,6 +12,7 @@
 //! instance, without touching anything that publishes or subscribes.
 pub mod access;
 pub mod memory_bus;
+pub mod presence;
 
 use std::sync::Arc;
 
@@ -21,6 +22,7 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 pub use memory_bus::InMemoryBus;
+pub use presence::{InMemoryPresence, SharedPresence};
 
 /// What a subscriber listens to.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -74,7 +76,8 @@ pub trait EventBus: Send + Sync {
 pub type SharedEventBus = Arc<dyn EventBus>;
 
 /// Publishes that `topic` is now at `version`. The kinds a client acts on:
-/// `now_playing`, `playlist`, `session`, and `ended`.
+/// `now_playing`, `presence`, `live_session`, `playlist`, `session`, and
+/// `ended`.
 pub fn publish_version(bus: &SharedEventBus, topic: Topic, version: i64, kind: &str) {
     bus.publish(Event::new(topic, version, kind));
 }

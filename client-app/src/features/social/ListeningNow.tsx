@@ -43,6 +43,12 @@ const CARD_ARTWORK_SIZE = 104;
 /** Small tiles in the row, and the session tile, are this wide. */
 const TILE_WIDTH = 112;
 
+/**
+ * The session tile never gets shorter than this, even beside the one line
+ * shown when no friend is playing.
+ */
+const TILE_MIN_HEIGHT = 156;
+
 /** Past this many friends listening, the header offers See all. */
 const STRIP_SEE_ALL_AFTER = 4;
 
@@ -162,8 +168,8 @@ function SessionTile() {
                     onPress={() =>
                         router.push(`/live-session/${mySessionId}` as Href)
                     }
-                    className="flex-1 gap-2 p-3 active:opacity-60"
-                    style={{ width: TILE_WIDTH }}
+                    className="grow gap-2 p-3 active:opacity-60"
+                    style={{ width: TILE_WIDTH, minHeight: TILE_MIN_HEIGHT }}
                 >
                     <LiveChip />
                     <Text
@@ -185,7 +191,10 @@ function SessionTile() {
 
     return (
         <GlassPanel>
-            <View className="flex-1 gap-2 p-3" style={{ width: TILE_WIDTH }}>
+            <View
+                className="grow gap-2 p-3"
+                style={{ width: TILE_WIDTH, minHeight: TILE_MIN_HEIGHT }}
+            >
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Start a live session"

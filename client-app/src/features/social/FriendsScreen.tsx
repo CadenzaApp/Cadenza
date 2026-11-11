@@ -1,12 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation, useRouter } from "expo-router";
-import {
-    useCallback,
-    useLayoutEffect,
-    useRef,
-    useState,
-    type ReactNode,
-} from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import {
     Image,
     Pressable,
@@ -17,16 +11,19 @@ import {
 import Animated from "react-native-reanimated";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
+import { Toast, useToast } from "@/components/custom/toast";
 import { Button } from "@/components/ui/button";
 import { GlassPanel } from "@/components/ui/glass-panel";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useFriendsListening } from "@/lib/routes/listening";
 import {
     useAcceptFriendRequest,
+    useBlockUser,
     useCancelFriendRequest,
-    useFriendships,
+    useFavoriteFriend,
+    useFriendshipsWithPresence,
     useUserSearch,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
@@ -39,28 +36,39 @@ import { isUsableArtworkUrl } from "@/lib/utils";
 
 import { LiveChip } from "./LiveChip";
 import { Initials } from "./MemberRow";
+import { isFriendOnline } from "./presence";
 
 /** How long typing has to pause before a user search runs. */
 const SEARCH_DEBOUNCE_MS = 300;
 
 /**
  * Search, then requests, then friends listening now, then the rest of your
- * friends, then requests you sent. Listening is the only live presence there
- * is, so it gets its own section.
+ * friends, then requests you sent, then accounts you blocked. Friends come
+ * favorites first, then online, with a green dot on each one online and a
+ * star to favorite.
  */
 export function FriendsScreen() {
     const navigation = useNavigation();
     const router = useRouter();
     const { listBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll();
-    const { foreground, primaryForeground, mutedForeground } =
+    const { foreground, primaryForeground, mutedForeground, brand } =
         useAppTheme().colors;
-    const { incoming, outgoing, friends, friendshipsLoading, friendshipsErr } =
-        useFriendships();
+    const {
+        incoming,
+        outgoing,
+        friends,
+        blocked,
+        friendshipsLoading,
+        friendshipsErr,
+    } = useFriendshipsWithPresence();
+    const { setFavorite, favoriteLoading } = useFavoriteFriend();
+    const { setBlocked, blockLoading } = useBlockUser();
     const { friendsListening } = useFriendsListening();
     const listeningById = new Map(
         (friendsListening ?? []).map((friend) => [friend.user_id, friend]),
     );
+    const listeningIds = new Set(listeningById.keys());
     const listening = friends.filter((friend) =>
         listeningById.has(friend.user_id),
     );
@@ -73,26 +81,17 @@ export function FriendsScreen() {
         useCancelFriendRequest();
     const requestBusy =
         acceptFriendRequestLoading || cancelFriendRequestLoading;
-    const [toast, setToast] = useState<string | null>(null);
-    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const showToast = useCallback((message: string) => {
-        if (toastTimer.current) clearTimeout(toastTimer.current);
-        setToast(message);
-        toastTimer.current = setTimeout(() => setToast(null), 3000);
-    }, []);
-
-    useLayoutEffect(() => {
-        return () => {
-            if (toastTimer.current) clearTimeout(toastTimer.current);
-        };
-    }, []);
+    const { toast, showToast } = useToast();
 
     useLayoutEffect(() => {
         navigation.setOptions({ title: "Friends" });
     }, [navigation]);
 
     const nobody =
-        friends.length === 0 && incoming.length === 0 && outgoing.length === 0;
+        friends.length === 0 &&
+        incoming.length === 0 &&
+        outgoing.length === 0 &&
+        blocked.length === 0;
 
     const openProfile = (userId: string) => {
         router.push(`/social/user/${userId}`);
@@ -172,7 +171,7 @@ export function FriendsScreen() {
                         <PersonSection
                             title="Listening now"
                             people={listening}
-                            listening
+                            online={() => true}
                             subtitle={(person) => {
                                 const np = listeningById.get(
                                     person.user_id,
@@ -204,14 +203,49 @@ export function FriendsScreen() {
                         <PersonSection
                             title="Friends"
                             people={notListening}
+                            online={(person) =>
+                                isFriendOnline(person, listeningIds)
+                            }
                             onPress={openProfile}
-                            renderActions={() => (
-                                <Ionicons
-                                    name="chevron-forward"
-                                    size={16}
-                                    color={mutedForeground}
-                                />
-                            )}
+                            renderActions={(person) => {
+                                const { favorite } = person;
+                                return (
+                                    <Pressable
+                                        accessibilityRole="button"
+                                        accessibilityLabel={
+                                            favorite
+                                                ? `Remove ${person.username} from favorites`
+                                                : `Favorite ${person.username}`
+                                        }
+                                        accessibilityState={{
+                                            selected: favorite,
+                                        }}
+                                        disabled={favoriteLoading}
+                                        hitSlop={8}
+                                        onPress={() =>
+                                            void setFavorite(
+                                                person.user_id,
+                                                !favorite,
+                                            )
+                                        }
+                                        className="active:opacity-60"
+                                    >
+                                        <Ionicons
+                                            name={
+                                                favorite
+                                                    ? "star"
+                                                    : "star-outline"
+                                            }
+                                            size={20}
+                                            color={
+                                                favorite
+                                                    ? brand
+                                                    : mutedForeground
+                                            }
+                                        />
+                                    </Pressable>
+                                );
+                            }}
                         />
                     ) : null}
                     {outgoing.length > 0 ? (
@@ -237,6 +271,39 @@ export function FriendsScreen() {
                                         size={18}
                                         color={foreground}
                                     />
+                                </Button>
+                            )}
+                        />
+                    ) : null}
+                    {blocked.length > 0 ? (
+                        <PersonSection
+                            title="Blocked"
+                            people={blocked}
+                            onPress={openProfile}
+                            renderActions={(person) => (
+                                <Button
+                                    accessibilityLabel={`Unblock ${person.username}`}
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={blockLoading}
+                                    onPress={async () => {
+                                        try {
+                                            await setBlocked(
+                                                person.user_id,
+                                                false,
+                                            );
+                                            showToast(
+                                                `Unblocked ${person.username}`,
+                                            );
+                                        } catch {
+                                            showToast(
+                                                `Couldn't unblock ${person.username}`,
+                                                true,
+                                            );
+                                        }
+                                    }}
+                                >
+                                    <Text>Unblock</Text>
                                 </Button>
                             )}
                         />
@@ -270,26 +337,12 @@ export function FriendsScreen() {
                     ) : null}
                 </Animated.ScrollView>
             </ScreenScrollMarker>
-            {toast ? (
-                <View
-                    pointerEvents="none"
-                    accessibilityRole="alert"
-                    className="absolute left-5 right-5 top-3 rounded-2xl bg-foreground px-4 py-3"
-                >
-                    <Text className="text-center text-sm text-background">
-                        {toast}
-                    </Text>
-                </View>
-            ) : null}
+            <Toast toast={toast} />
         </View>
     );
 }
 
-function SearchSection({
-    onPress,
-}: {
-    onPress: (userId: string) => void;
-}) {
+function SearchSection({ onPress }: { onPress: (userId: string) => void }) {
     const { height: screenHeight } = useWindowDimensions();
     const [query, setQuery] = useState("");
     const [headerHeight, setHeaderHeight] = useState(0);
@@ -409,21 +462,21 @@ function PersonRow({
     );
 }
 
-function PersonSection({
+function PersonSection<Person extends SocialPerson>({
     title,
     people,
-    listening = false,
+    online,
     subtitle,
     onPress,
     renderActions,
 }: {
     title: string;
-    people: SocialPerson[];
-    /** Green dots on the avatars. */
-    listening?: boolean;
-    subtitle?: (person: SocialPerson) => string | undefined;
+    people: Person[];
+    /** Which avatars get the green dot. None when left out. */
+    online?: (person: Person) => boolean;
+    subtitle?: (person: Person) => string | undefined;
     onPress: (userId: string) => void;
-    renderActions?: (person: SocialPerson) => ReactNode;
+    renderActions?: (person: Person) => ReactNode;
 }) {
     return (
         <View className="mt-6 gap-2">
@@ -447,7 +500,7 @@ function PersonSection({
                                 >
                                     <Initials
                                         username={person.username}
-                                        listening={listening}
+                                        online={online?.(person) ?? false}
                                     />
                                     <View className="min-w-0 flex-1">
                                         <Text

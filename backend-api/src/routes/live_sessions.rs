@@ -4,7 +4,7 @@ use axum::{
     routing::{get, patch, post},
 };
 use axum_jwt_auth::Claims;
-use chrono::Duration;
+use chrono::{Duration, Utc};
 use sea_orm::{DatabaseConnection, prelude::Uuid};
 
 use crate::{
@@ -44,6 +44,16 @@ fn ended(bus: &SharedEventBus, session_id: Uuid, version: i64) -> Json<SessionVe
     })
 }
 
+/// Tells anyone watching these users to refetch what they are playing, which
+/// carries the session they are live in. For a start, an end, a join, or a
+/// leave, so friends' Listening now drops or gains the live chip at once.
+fn publish_presence(bus: &SharedEventBus, user_ids: &[Uuid]) {
+    let at = Utc::now().timestamp_millis();
+    for user_id in user_ids {
+        publish_version(bus, Topic::User(*user_id), at, "live_session");
+    }
+}
+
 fn parse_role(role: &str) -> Result<SessionRole, CadenzaError> {
     SessionRole::parse(role).ok_or_else(|| {
         CadenzaError::InvalidRequestBody(
@@ -60,6 +70,7 @@ fn parse_role(role: &str) -> Result<SessionRole, CadenzaError> {
 /// ```
 async fn start_handler(
     State(db): State<DatabaseConnection>,
+    State(bus): State<SharedEventBus>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(body): Json<StartLiveSession>,
 ) -> Result<Json<LiveSessionId>, CadenzaError> {
@@ -77,6 +88,7 @@ async fn start_handler(
         body.allow_join_without_code.unwrap_or(true),
     )
     .await?;
+    publish_presence(&bus, &[claims.user_id]);
     Ok(Json(LiveSessionId {
         session_id: Some(session_id),
     }))
@@ -125,6 +137,7 @@ async fn end_handler(
     Path(session_id): Path<Uuid>,
 ) -> Result<Json<SessionVersion>, CadenzaError> {
     let version = sessions::end_session(&db, claims.user_id, session_id).await?;
+    publish_presence(&bus, &sessions::present_member_ids(&db, session_id).await?);
     Ok(ended(&bus, session_id, version))
 }
 
@@ -138,6 +151,7 @@ async fn join_handler(
     Path(session_id): Path<Uuid>,
 ) -> Result<Json<SessionVersion>, CadenzaError> {
     let version = sessions::join_session(&db, claims.user_id, session_id, false).await?;
+    publish_presence(&bus, &[claims.user_id]);
     Ok(changed(&bus, session_id, version))
 }
 
@@ -149,8 +163,14 @@ async fn leave_handler(
     Path(session_id): Path<Uuid>,
 ) -> Result<Json<SessionVersion>, CadenzaError> {
     match sessions::leave_session(&db, claims.user_id, session_id).await? {
-        Left::Left(version) => Ok(changed(&bus, session_id, version)),
-        Left::Ended(version) => Ok(ended(&bus, session_id, version)),
+        Left::Left(version) => {
+            publish_presence(&bus, &[claims.user_id]);
+            Ok(changed(&bus, session_id, version))
+        }
+        Left::Ended(version) => {
+            publish_presence(&bus, &sessions::present_member_ids(&db, session_id).await?);
+            Ok(ended(&bus, session_id, version))
+        }
     }
 }
 

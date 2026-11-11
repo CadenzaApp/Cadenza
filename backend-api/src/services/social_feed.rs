@@ -17,6 +17,7 @@ use sea_orm::DatabaseConnection;
 use sea_orm::prelude::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::db::friend_relations;
 use crate::db::social::{
     self, CommentsCursor, FeedCandidate, FeedExclude, InterestDelta, PublicProfile, SocialPost,
     TopicPostsCursor, UpsertedInterest,
@@ -327,12 +328,22 @@ impl SocialFeedService {
         viewer_id: Uuid,
         author_id: Uuid,
     ) -> Result<(PublicProfile, Vec<SocialPost>), CadenzaError> {
-        let (posts, profile, friend_request_sent, friend_request_received, is_friend) = tokio::try_join!(
+        let (
+            posts,
+            profile,
+            friend_request_sent,
+            friend_request_received,
+            is_friend,
+            favorites,
+            blocked,
+        ) = tokio::try_join!(
             social::get_author_posts(db, viewer_id, author_id),
             social::find_public_profile(db, author_id),
             social::friend_request_sent(db, viewer_id, author_id),
             social::friend_request_sent(db, author_id, viewer_id),
             social::is_friend(db, viewer_id, author_id),
+            friend_relations::favorite_ids(db, viewer_id),
+            friend_relations::has_blocked(db, viewer_id, author_id),
         )?;
         let mut profile = profile.unwrap_or_else(|| PublicProfile {
             user_id: author_id,
@@ -345,10 +356,14 @@ impl SocialFeedService {
             friend_request_sent: false,
             friend_request_received: false,
             is_friend: false,
+            is_favorite: false,
+            blocked: false,
         });
         profile.friend_request_sent = friend_request_sent;
         profile.friend_request_received = friend_request_received;
         profile.is_friend = is_friend;
+        profile.is_favorite = is_friend && favorites.contains(&author_id);
+        profile.blocked = blocked;
         Ok((profile, posts))
     }
 
