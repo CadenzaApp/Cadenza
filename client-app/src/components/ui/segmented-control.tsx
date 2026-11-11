@@ -45,6 +45,8 @@ export function SegmentedControl<T extends string>({
 /**
  * One option, an equal share of the row. Selection colors are inline styles:
  * toggled classes lagged a step behind when the theme changed under them.
+ * The fill clips itself. A background inside the panel's clip paints square
+ * unless this view hides its own overflow.
  */
 function Segment({
     label,
@@ -69,7 +71,8 @@ function Segment({
             className="flex-1 active:opacity-60"
         >
             <View
-                className="h-16 items-center justify-center gap-1 rounded-2xl"
+                collapsable={false}
+                className="h-16 items-center justify-center gap-1 overflow-hidden rounded-2xl"
                 style={{
                     backgroundColor: selected ? colors.brand : "transparent",
                 }}
