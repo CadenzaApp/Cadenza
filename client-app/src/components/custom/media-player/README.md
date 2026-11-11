@@ -43,7 +43,7 @@ On a committed native collapse, the floating renderer owns the width and artwork
 removes insertion/removal fades. Movement below the threshold leaves native glass untouched. Run `npx pod-install` and rebuild iOS after changing
 the patch. Scroll minimization remains UIKit-owned.
 
-Sort and Library Tags' plus action share `useBottomRowActionButton`. Their sources own their
+Sort and the plus actions on Library Tags and Social share `useBottomRowActionButton` (the plus ones through `BottomRowActionBubble`). Their sources own their
 sheets; the host owns placement. The assistant button is always the row's rightmost
 control, whenever the row shows except under multiselect; a row action sits one slot to its
 left and both share the same lift, scale, and dock. Floating bottom glass always clips to its radius. Unclipped, it

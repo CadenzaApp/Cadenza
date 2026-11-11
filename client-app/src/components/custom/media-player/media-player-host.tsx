@@ -39,6 +39,9 @@ import { AssistantRowButton } from "@/features/assistant/assistant-button";
 
 import { MediaPlayer } from "./media-player";
 
+/** Where the row action docks while the player is a circle. */
+const CIRCLE_DOCK_X = GLASS_TAB_BAR ? SEARCH_DOCK_X : 0;
+
 const FALLBACK_TAB_BAR_HEIGHT = Platform.select({
     ios: 49,
     android: 80,
@@ -270,9 +273,12 @@ function MediaPlayerRow({
     const assistantStyle = useAnimatedStyle(() => ({
         transform: [
             {
+                // the same dock as the row action, so it stays over Search
+                // in circle mode too
                 translateX:
                     assistantX.get() +
-                    sortDockX.get() * (1 - circleStack.get()),
+                    sortDockX.get() * (1 - circleStack.get()) +
+                    CIRCLE_DOCK_X * circleStack.get(),
             },
             {
                 translateY:
@@ -289,9 +295,12 @@ function MediaPlayerRow({
     const sortStyle = useAnimatedStyle(() => ({
         transform: [
             {
+                // collapsing to the circle drops the native player's dock,
+                // but Search stays where it is, so the button stays over it
                 translateX:
                     sortX.get() +
-                    sortDockX.get() * (1 - circleStack.get()) -
+                    sortDockX.get() * (1 - circleStack.get()) +
+                    CIRCLE_DOCK_X * circleStack.get() -
                     sortShift.get() *
                         (PLAYER_CONTROL_SIZE * sortScale.get() +
                             PLAYER_ROW_GAP),

@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import Animated from "react-native-reanimated";
 
+import { BottomRowActionBubble } from "@/components/custom/bottom-row-action-bubble";
 import { Toast, useToast } from "@/components/custom/toast";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import {
@@ -126,6 +127,7 @@ export function SocialFeedScreen() {
     );
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
+    const openCompose = useCallback(() => setComposeOpen(true), []);
     const { toast, showToast } = useToast();
 
     const feed = useMemo((): FeedRow[] => {
@@ -176,12 +178,6 @@ export function SocialFeedScreen() {
                             />
                         ) : null}
                     </View>
-                    <GlassIconButton
-                        accessibilityLabel="Create a new post"
-                        onPress={() => setComposeOpen(true)}
-                    >
-                        <Ionicons name="add" size={24} color={colors.text} />
-                    </GlassIconButton>
                 </View>
             ),
         });
@@ -462,6 +458,12 @@ export function SocialFeedScreen() {
                 />
             </ScreenScrollMarker>
 
+            <BottomRowActionBubble
+                icon="add"
+                accessibilityLabel="Create a new post"
+                expanded={composeOpen}
+                onPress={openCompose}
+            />
             <CreatePostDialog
                 open={composeOpen}
                 onOpenChange={setComposeOpen}

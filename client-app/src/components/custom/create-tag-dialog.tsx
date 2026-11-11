@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import {
     ActivityIndicator,
     Pressable,
@@ -8,12 +8,7 @@ import {
     useWindowDimensions,
     View,
 } from "react-native";
-import { ScreenFloatingBubble } from "@/components/custom/floating-bubble";
-import { useBottomRowActionButton } from "@/lib/screen-overlay";
-import {
-    PLAYER_CONTROL_SIZE,
-    PLAYER_SIDE_INSET,
-} from "@/lib/screen-overlay-geometry";
+import { BottomRowActionBubble } from "@/components/custom/bottom-row-action-bubble";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { TagColorPicker } from "@/components/custom/tag-color-picker";
 import { TAG_COLOR_OPTIONS } from "@/lib/tag-color-palette";
@@ -60,34 +55,16 @@ const TYPE_HELP_TEXT =
  * player opens it from a menu row where a floating bubble makes no sense.
  */
 export function CreateTagBubble() {
-    const { colors } = useTheme();
     const [open, setOpen] = useState(false);
-
-    const action = useMemo(
-        () => ({
-            expanded: open,
-            icon: "add" as const,
-            accessibilityLabel: "Create a new tag",
-            onPress: () => setOpen(true),
-        }),
-        [open],
-    );
-    const showLocal = useBottomRowActionButton(action);
-
+    const openDialog = useCallback(() => setOpen(true), []);
     return (
         <>
-            {showLocal ? (
-                <ScreenFloatingBubble
-                    size={PLAYER_CONTROL_SIZE}
-                    rightOffset={PLAYER_SIDE_INSET}
-                    bordered={false}
-                    shadow={false}
-                    onPress={action.onPress}
-                    accessibilityLabel="Create a new tag"
-                >
-                    <Ionicons name="add" size={28} color={colors.text} />
-                </ScreenFloatingBubble>
-            ) : null}
+            <BottomRowActionBubble
+                icon="add"
+                accessibilityLabel="Create a new tag"
+                expanded={open}
+                onPress={openDialog}
+            />
             <CreateTagDialog open={open} onOpenChange={setOpen} />
         </>
     );
