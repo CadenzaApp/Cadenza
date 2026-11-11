@@ -150,8 +150,9 @@ export function StartSessionScreen({
             >
                 {!current ? (
                     <Text className="text-base leading-6 text-foreground">
-                        Turn what you're playing into a live session, so friends
-                        can listen and add songs with you.
+                        {
+                            "Turn what you're playing into a live session, so friends can listen and add songs with you."
+                        }
                     </Text>
                 ) : null}
                 <Section title="Name">

@@ -13,6 +13,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
+import { Text } from "@/components/ui/text";
 import { LiveSessionBar } from "@/features/live-session/LiveSessionBar";
 import { useShownLiveSession } from "@/features/live-session/use-current-session";
 
@@ -131,11 +132,15 @@ export function PlayerPager() {
                     }}
                 >
                     <View style={{ width }}>
-                        <DiscussPage
-                            focusedSong={focusedSong}
-                            enabled={visitedTabs.has("discuss")}
-                            active={selectedTab === "discuss"}
-                        />
+                        {focusedSong ? (
+                            <DiscussPage
+                                focusedSong={focusedSong}
+                                enabled={visitedTabs.has("discuss")}
+                                active={selectedTab === "discuss"}
+                            />
+                        ) : (
+                            <NoSongPage />
+                        )}
                     </View>
                     <View style={{ width }}>
                         <QueueOpenContext.Provider value={setQueueOpen}>
@@ -143,10 +148,14 @@ export function PlayerPager() {
                         </QueueOpenContext.Provider>
                     </View>
                     <View style={{ width }}>
-                        <TagsPage
-                            focusedSong={focusedSong}
-                            enabled={visitedTabs.has("tags")}
-                        />
+                        {focusedSong ? (
+                            <TagsPage
+                                focusedSong={focusedSong}
+                                enabled={visitedTabs.has("tags")}
+                            />
+                        ) : (
+                            <NoSongPage />
+                        )}
                     </View>
                 </Animated.ScrollView>
             </View>
@@ -195,6 +204,17 @@ export function PlayerPager() {
                     })}
                 </PlayerBarShell>
             )}
+        </View>
+    );
+}
+
+/** Discuss and Tags in a live session with nothing playing. */
+function NoSongPage() {
+    return (
+        <View className="flex-1 items-center justify-center px-6">
+            <Text className="text-center text-muted-foreground">
+                Nothing playing yet.
+            </Text>
         </View>
     );
 }

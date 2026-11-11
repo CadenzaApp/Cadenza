@@ -1,4 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, Pressable } from "react-native";
 
@@ -13,26 +14,24 @@ import { useAppTheme } from "@/lib/theme";
 import { useMusicAccess } from "@/lib/use-music-access";
 
 import { OptionRow, errorType } from "./session-parts";
-import { StartSessionModal } from "./StartSessionModal";
 import { useShownLiveSession } from "./use-current-session";
 
 /**
  * The player's live button, where shuffle used to be. Outside a live session
- * it asks to turn what is playing into one, with the session's settings in
- * the same popup. In one it lights up and opens the session's menu:
- * settings, listen mode, leave, and end.
+ * it opens the Go live sheet, which asks to turn what is playing into one. In
+ * one it lights up and opens the session's menu: settings, listen mode,
+ * leave, and end.
  */
 export function LiveButton() {
     const session = useShownLiveSession();
     const fullPlayback = useMusicAccess().can("fullPlayback");
     const { brand, foreground } = useAppTheme().colors;
-    const [open, setOpen] = useState<"menu" | "start" | "settings" | null>(
-        null,
-    );
+    const router = useRouter();
+    const [menuOpen, setMenuOpen] = useState(false);
 
     function press() {
         if (session) {
-            setOpen("menu");
+            setMenuOpen(true);
             return;
         }
         if (!fullPlayback) {
@@ -42,7 +41,7 @@ export function LiveButton() {
             );
             return;
         }
-        setOpen("start");
+        router.push("/live-session/new");
     }
 
     return (
@@ -66,19 +65,10 @@ export function LiveButton() {
             {session ? (
                 <SessionMenu
                     session={session}
-                    open={open === "menu"}
-                    onClose={() => setOpen(null)}
-                    onSettings={() => setOpen("settings")}
+                    open={menuOpen}
+                    onClose={() => setMenuOpen(false)}
+                    onSettings={() => router.push("/live-session/new?edit=1")}
                 />
-            ) : null}
-            {open === "start" ? (
-                <StartSessionModal
-                    title="Turn this into a live session?"
-                    onClose={() => setOpen(null)}
-                />
-            ) : null}
-            {open === "settings" ? (
-                <StartSessionModal editing onClose={() => setOpen(null)} />
             ) : null}
         </>
     );

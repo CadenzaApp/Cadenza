@@ -24,6 +24,7 @@ logic out.
 | `(tabs)/(social)/social/playlist/[id]/index.tsx`                              | `/social/playlist/:id`         | One shared playlist on `TrackCollectionView`. Draws its own header.                                           |
 | `(tabs)/(social)/social/playlist/[id]/members.tsx`                            | `/social/playlist/:id/members` | Members, roles, invite, add friends.                                                                          |
 | `(tabs)/(social)/social/playlist/[id]/reorder.tsx`                            | `/social/playlist/:id/reorder` | Drag songs into a new order.                                                                                  |
+| `live-session/new.tsx`                                                        | `/live-session/new`            | Sheet. Go live, or `?edit=1` for the session's settings.                                                      |
 | `live-session/[id].tsx`                                                       | `/live-session/:id`            | Sheet. Hands an open session to `/player`; says when one is over.                                             |
 | `join/index.tsx`, `join/[code].tsx`                                           | `/join`, `/join/:code`         | Sheet. Join with an invite code. `cadenza://join/CODE` lands on the second and redeems at once.               |
 | `(tabs)/(analytics)/analytics/index.tsx`                                      | `/analytics`                   | The overview: header, #1 hero, stats, heatmap, tag rail, and one card for every ranking.                      |
@@ -188,8 +189,8 @@ shared suggested-tag matching scope.
 
 The settings routes (`/account`, `/apple-music`, `/listening-preferences`, `/appearance`,
 `/privacy`, `/account-details`, `/your-data`, `/apple-music-limits`), the two pickers
-(`/library-categories`, `/add-to-playlist`), `/player`, the live session sheet
-(`/live-session/:id`), and the join sheets (`/join`, `/join/:code`) are
+(`/library-categories`, `/add-to-playlist`), `/player`, the live session sheets
+(`/live-session/new`, `/live-session/:id`), and the join sheets (`/join`, `/join/:code`) are
 sheets. A sheet is a native surface
 over the whole app, so it covers the primary native tab bar and compact player while leaving them
 mounted underneath. Every settings sheet stacks from Account and keeps the same modal context. They are presented

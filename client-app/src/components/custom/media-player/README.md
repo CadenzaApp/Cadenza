@@ -92,6 +92,10 @@ shrinks to nothing on Player, so pulling the artwork down still closes the sheet
 scroll view in the sheet needs nothing more, but anything nested-scrolling placed ahead of
 `SheetScrollRegion` would take its place.
 
+In a live session the sheet stays open with nothing playing (`focusedSong` is null, and Discuss and
+Tags show a placeholder), since the session's controls live here. Outside one it closes when
+playback stops.
+
 `PlayerScopeProvider` resolves a `focusedSong` (id, title, artwork) from `usePlayback()`'s
 `activeTrack` or the route's `tagsSongId` / `tagsSongTitle` / `tagsArtworkUrl` /
 `tagsArtworkColor` params and shares it across the three pages.
@@ -114,8 +118,8 @@ over them like any tab screen. No separate player host is needed.
 Playback state lives in `PlaybackProvider`, not here.
 
 The now playing sheet is also the live session's screen. The transport's left slot is
-`LiveButton` (`@/features/live-session`), a radio icon: outside a session it opens a popup asking
-to go live, with the session settings; in one it turns red and opens the session menu (settings,
+`LiveButton` (`@/features/live-session`), a radio icon: outside a session it opens the Go live sheet
+(`/live-session/new`); in one it turns red and opens the session menu (settings,
 listen mode, hand over, leave, end). In a session a LIVE tag and the session name sit above the
 transport, and the progress bar is red. In a session the pager's tab bar is swapped for `LiveSessionBar` (Requests, People, Add,
 Share as the role allows), and the pages still swipe. Both bars share `player-bar.tsx`. The queue

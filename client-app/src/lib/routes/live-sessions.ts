@@ -213,7 +213,10 @@ export function useStartLiveSession() {
             approve_joins?: boolean;
         },
         { session_id: string }
-    >("POST", "/live-sessions", [{ path: "/live-sessions/current" }]);
+    >("POST", "/live-sessions", [{ path: "/live-sessions/current" }], {
+        // the player sheet opened next stays open only once this is known
+        invalidation: "await",
+    });
     return {
         startLiveSession: x.trigger,
         startLiveSessionLoading: x.isMutating,
@@ -271,6 +274,7 @@ export function useJoinLiveSession() {
         "POST",
         ({ session_id }) => `/live-sessions/${session_id}/join`,
         [{ path: "/live-sessions/current" }],
+        { invalidation: "await" },
     );
     return {
         joinLiveSession: x.trigger,

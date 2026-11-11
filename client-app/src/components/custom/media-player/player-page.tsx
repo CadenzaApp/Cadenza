@@ -296,12 +296,28 @@ export function PlayerPage() {
 
     const seekGesture = useExclusiveGestures(seekPanGesture, seekTapGesture);
 
+    // a session with nothing playing still needs its controls, so the host
+    // can add songs or go live from here
     if (!activeTrack) {
         return (
-            <View className="flex-1 items-center justify-center px-6">
-                <Text className="text-muted-foreground">
-                    Nothing playing right now.
+            <View className="flex-1 items-center justify-center gap-4 px-6">
+                {live ? (
+                    <View className="flex-row items-center gap-2">
+                        <LiveChip />
+                        <Text
+                            className="max-w-60 text-sm font-semibold text-foreground"
+                            numberOfLines={1}
+                        >
+                            {live.name}
+                        </Text>
+                    </View>
+                ) : null}
+                <Text className="text-center text-muted-foreground">
+                    {live
+                        ? "Nothing playing yet. Add songs to start."
+                        : "Nothing playing right now."}
                 </Text>
+                <LiveButton />
             </View>
         );
     }
