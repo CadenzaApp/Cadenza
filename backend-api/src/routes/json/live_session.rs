@@ -68,13 +68,15 @@ impl From<QueueEntry> for LiveSessionEntry {
     }
 }
 
-/// Where playback is, projected to `as_of` (server clock).
+/// Where playback is, projected to `as_of` (server clock). `command_seq`
+/// moves only when someone other than the host's phone changes playback.
 #[derive(Serialize)]
 pub struct LiveSessionPlayback {
     pub entry_id: Option<i64>,
     pub position_ms: i64,
     pub is_playing: bool,
     pub as_of: DateTime<Utc>,
+    pub command_seq: i64,
 }
 
 #[derive(Serialize)]
@@ -158,6 +160,7 @@ impl From<SessionSnapshot> for LiveSessionSnapshot {
                 position_ms: snapshot.playback.position_ms,
                 is_playing: snapshot.playback.is_playing,
                 as_of: snapshot.playback.as_of,
+                command_seq: session.command_seq,
             },
             created_at: session.created_at.with_timezone(&Utc),
         }

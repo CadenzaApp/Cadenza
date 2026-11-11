@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Playback, PlaybackQueueType, type MusicItem } from "@apple-musickit";
 
-import { useLocalPlaybackCommands, usePlayback } from "@/lib/playback";
+import {
+    useLocalPlaybackCommands,
+    useLocalPlaybackState,
+} from "@/lib/playback";
 import type { PlaySource } from "@/lib/play-source";
 import { serverNow } from "@/lib/realtime";
 import {
@@ -12,6 +15,7 @@ import {
 
 import {
     expectedPositionMs,
+    hostTarget,
     reconcile,
     shouldCorrectDrift,
     type QueueOp,
@@ -78,6 +82,12 @@ export function sessionTarget(session: LiveSession): LiveSessionEntry[] {
  * matched, and drift past 2 s is corrected at most every 5 s. A version the
  * host's own report produced is skipped, since the phone is already there.
  *
+ * The host's phone goes where the session is only when someone steered it
+ * (`command_seq` moved), or when it first picks up a session playing another
+ * song. Any other version, like a join or a queue edit, only lines up the
+ * songs after the one the phone plays. Otherwise the server's projection,
+ * which lags the phone, would pause, rewind, or skip it.
+ *
  * The host's own player controls keep working: a skip or seek on the phone
  * shows up in the next report and the session follows. Members control the
  * session from its screen.
@@ -88,7 +98,7 @@ export function useSessionPlayer(
     session: LiveSession | null,
     canPlay: boolean,
 ) {
-    const playback = usePlayback();
+    const playback = useLocalPlaybackState();
     // the local player itself: the app's commands go to the session while
     // it plays here, through `useSessionSink`
     const commands = useLocalPlaybackCommands();
@@ -114,6 +124,8 @@ export function useSessionPlayer(
     );
 
     const ownVersions = useRef<number[]>([]);
+    /** The last `command_seq` followed, by session. */
+    const followed = useRef<{ sessionId: string; seq: number } | null>(null);
     const lastSeekAt = useRef(0);
     const applying = useRef(false);
     const savedQueue = useRef<{ tracks: MusicItem[]; index: number } | null>(
@@ -147,6 +159,7 @@ export function useSessionPlayer(
                 }
             })();
         }
+        if (!active) followed.current = null;
         wasActive.current = active;
         // only the edge matters, not every queue change
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -160,10 +173,33 @@ export function useSessionPlayer(
         if (applying.current) return;
         applying.current = true;
 
+        const phoneSong = playback.activeTrack
+            ? songIdOf(playback.activeTrack)
+            : null;
+        const seq = session.playback.command_seq;
+        const last = followed.current;
+        // a host picking up a session follows it only when it has another
+        // song to go to; a new, empty one leaves the phone playing
+        const steered =
+            !isHost ||
+            (last?.sessionId === session.session_id
+                ? seq !== last.seq
+                : target.length > 0 && phoneSong !== target[0].song_id);
+        followed.current = { sessionId: session.session_id, seq };
+        const queueTarget = steered
+            ? target
+            : hostTarget(
+                  [
+                      ...(session.current ? [session.current] : []),
+                      ...session.up_next,
+                  ],
+                  phoneSong,
+              );
+
         void (async () => {
             try {
                 await applyQueue();
-                await applyPlayState();
+                if (steered) await applyPlayState();
             } catch (error) {
                 console.warn("Could not follow the live session:", error);
             } finally {
@@ -172,13 +208,13 @@ export function useSessionPlayer(
         })();
 
         async function applyQueue() {
-            if (target.length === 0) return;
+            if (queueTarget.length === 0) return;
             const ops = reconcile(
                 {
                     songIds: playback.queue.map(songIdOf),
                     index: playback.queueIndex,
                 },
-                target.map((entry) => entry.song_id),
+                queueTarget.map((entry) => entry.song_id),
             );
             for (const op of ops) await runOp(op);
         }
@@ -187,7 +223,7 @@ export function useSessionPlayer(
             switch (op.kind) {
                 case "replace":
                     await commands.playQueue({
-                        tracks: target.map(entryToTrack),
+                        tracks: queueTarget.map(entryToTrack),
                         startIndex: 0,
                         chosenStart: true,
                         source,
@@ -198,7 +234,9 @@ export function useSessionPlayer(
                     await commands.moveQueueItem(op.from, op.to);
                     break;
                 case "insert": {
-                    const entry = target.find((e) => e.song_id === op.songId);
+                    const entry = queueTarget.find(
+                        (e) => e.song_id === op.songId,
+                    );
                     if (!entry) break;
                     const next = playback.queueIndex + 1;
                     await commands.playNext([entryToTrack(entry)]);
@@ -213,6 +251,11 @@ export function useSessionPlayer(
         }
 
         async function applyPlayState() {
+            // steered past the last song: the session plays nothing now
+            if (target.length === 0) {
+                if (playback.isPlaying) await Playback.pause();
+                return;
+            }
             const wantPlaying = session!.playback.is_playing;
             if (wantPlaying !== playback.isPlaying && playback.activeTrack) {
                 await commands.togglePlayback(playback.activeTrack);

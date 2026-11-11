@@ -64,6 +64,22 @@ export function reconcile(
     return ops;
 }
 
+/**
+ * The session songs the host's phone should hold when nobody steered
+ * playback: from the song the phone is playing on, found at or after the
+ * session's current song. The phone may be a song ahead of the session, since
+ * its report has not landed yet, so the session's own current song is not the
+ * start. Empty when the phone plays something the session does not have.
+ */
+export function hostTarget<T extends { song_id: string }>(
+    entries: readonly T[],
+    playingSongId: string | null,
+): T[] {
+    if (playingSongId === null) return [];
+    const at = entries.findIndex((entry) => entry.song_id === playingSongId);
+    return at >= 0 ? entries.slice(at) : [];
+}
+
 /** Applies `ops` to a plain list, the same way the native queue will. */
 export function applyOps(local: LocalQueue, ops: readonly QueueOp[]): string[] {
     const items = [...local.songIds];

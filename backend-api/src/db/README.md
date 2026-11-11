@@ -363,6 +363,8 @@ transaction, so the database tests can run them inside one that rolls back.
   `services::live_sessions::project`, so members stay right while the host's phone is in the
   background. The host's reports re-anchor it. No report for 30 minutes ends the session.
   Adding to an empty session anchors on the first song, at the host's `StartAt` when given.
+  `command_seq` counts anchor moves the host's phone did not make (`AnchorBy::Command`), so the
+  host follows those and ignores versions that only echo its own reports.
 - A post can attach a shared playlist (`posts.shared_playlist_id`,
   `sql/post_shared_playlists.sql`), never along with `topic_mk_id`. Every post read fills its
   card from `shared_playlists::playlist_cards`, one query per page. Deleting the playlist

@@ -24,6 +24,8 @@ How playback stays in step:
 - The host's phone is the speaker and the source of truth. It reports on song change, play or
   pause, a seek, and every 10 s, and skips re-applying versions its own reports made. So the
   host's normal player controls work: they show up in the next report.
+- The host's phone changes song, play state, or position only when `playback.command_seq` moved
+  (someone steered it). A join or queue edit only lines up the songs after the one it plays.
 - A synced member follows: queue ops from `reconcile`, play or pause matched, and a seek when
   more than 2 s off, at most every 5 s. Members never report.
 - A member who stops playing along gets their old queue back, paused.
@@ -47,6 +49,6 @@ Gotchas:
   session is seeded, and leave the host's queue on the first sync.
 - With `UIBackgroundModes: audio` the host keeps reporting in the background on iOS. Android
   needs the media service described in `modules/apple-musickit/README.md`.
-- Listen along opens at most one session per song, so ending one does not reopen it until the
-  next song. Its sessions are flagged `listen_along`, so joining them checks the Listen along
+- Listen along opens at most one session per song, and never for the song that was playing in
+  the last session, so ending any session does not open one until the next song. Its sessions are flagged `listen_along`, so joining them checks the Listen along
   audience, not the Live sessions one.

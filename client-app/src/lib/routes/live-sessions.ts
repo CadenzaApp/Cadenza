@@ -41,6 +41,8 @@ export type LiveSessionPlayback = {
     position_ms: number;
     is_playing: boolean;
     as_of: string;
+    /** Moves only when someone other than the host's phone changes playback. */
+    command_seq: number;
 };
 
 /** `GET /live-sessions/{id}`. */

@@ -28,23 +28,21 @@ function tell(title: string, message: string) {
 }
 
 /**
- * While a live session plays on this phone, the app's player commands go to
- * the session instead of the local player, so every play, queue, and skip
- * button in the app works on the session.
+ * While the caller is in a live session, the app's player commands go to the
+ * session instead of the local player, so every play, queue, and skip button
+ * in the app works on the session.
  *
  * On the host only queue changes go to the session. The host's transport
  * stays local: the phone is the speaker, and its reports carry each skip or
- * seek to the session. On a synced member everything goes to the session,
- * and play, pause, skip, and seek are locked unless their role allows them.
+ * seek to the session. On a member, synced or remote, everything goes to the
+ * session, and play, pause, skip, and seek are locked unless their role
+ * allows them.
  *
  * Songs land as the caller's role allows: played now by a controller, queued
  * by a queue editor, suggested by a suggester. Library only songs are left
  * out, since nobody else could play them.
  */
-export function useSessionSink(
-    session: LiveSession | null,
-    playingHere: boolean,
-) {
+export function useSessionSink(session: LiveSession | null) {
     const playback = usePlayback();
     const local = useLocalPlaybackCommands();
     const writes = useLiveSessionWrites(session?.session_id ?? "none");
@@ -58,7 +56,7 @@ export function useSessionSink(
 
     const role = session?.my_role ?? null;
     const sink = useMemo<PlaybackSink | null>(() => {
-        if (!playingHere || role === null) return null;
+        if (role === null) return null;
         const isHost = role === "host";
 
         async function run(what: string, write: () => Promise<unknown>) {
@@ -208,7 +206,7 @@ export function useSessionSink(
         };
         // the commands read everything else from `latest` at call time
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [local, playingHere, role, session?.session_id]);
+    }, [local, role, session?.session_id]);
 
     usePlaybackSink(sink);
 }

@@ -52,6 +52,9 @@ pub struct SessionRow {
     pub position_ms: i64,
     pub position_at: DateTime<FixedOffset>,
     pub version: i64,
+    /// Bumped by every playback change the host's phone did not make. See
+    /// `AnchorBy`.
+    pub command_seq: i64,
     pub host_seen_at: DateTime<FixedOffset>,
     pub created_at: DateTime<FixedOffset>,
     pub ended_at: Option<DateTime<FixedOffset>>,
@@ -77,7 +80,7 @@ impl SessionRow {
 const SESSION_COLUMNS: &str =
     "s.session_id, s.host_id, COALESCE(h.username, 'unknown') AS host_username,
      s.name, s.default_role::text AS default_role, s.allow_join_without_code,
-     s.current_entry_id, s.is_playing, s.position_ms, s.position_at, s.version,
+     s.current_entry_id, s.is_playing, s.position_ms, s.position_at, s.version, s.command_seq,
      s.host_seen_at, s.created_at, s.ended_at, s.listen_along";
 
 #[derive(Clone, Debug, FromQueryResult)]
@@ -292,24 +295,38 @@ async fn bump(txn: &DatabaseTransaction, session_id: Uuid) -> Result<i64, Cadenz
 }
 
 /// Sets the anchor. `current_entry_id` changes only when `entry` is `Some`.
+/// Who moved playback. Only a command bumps `command_seq`, which is how the
+/// host's phone tells a change it must follow from its own report coming back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AnchorBy {
+    /// The host's phone, saying what it already does.
+    HostPhone,
+    /// Anyone else, or the host from the session screen.
+    Command,
+}
+
 async fn set_anchor(
     txn: &DatabaseTransaction,
     session_id: Uuid,
     entry: Option<Option<i64>>,
     is_playing: bool,
     position_ms: i64,
+    by: AnchorBy,
 ) -> Result<(), CadenzaError> {
+    let steps: i64 = if by == AnchorBy::Command { 1 } else { 0 };
     match entry {
         Some(entry_id) => {
             txn.execute_raw(stmt(
                 "UPDATE live_sessions
-                 SET current_entry_id = $2, is_playing = $3, position_ms = $4, position_at = now()
+                 SET current_entry_id = $2, is_playing = $3, position_ms = $4, position_at = now(),
+                     command_seq = command_seq + $5
                  WHERE session_id = $1",
                 vec![
                     session_id.into(),
                     entry_id.into(),
                     is_playing.into(),
                     position_ms.max(0).into(),
+                    steps.into(),
                 ],
             ))
             .await?
@@ -317,12 +334,14 @@ async fn set_anchor(
         None => {
             txn.execute_raw(stmt(
                 "UPDATE live_sessions
-                 SET is_playing = $2, position_ms = $3, position_at = now()
+                 SET is_playing = $2, position_ms = $3, position_at = now(),
+                     command_seq = command_seq + $4
                  WHERE session_id = $1",
                 vec![
                     session_id.into(),
                     is_playing.into(),
                     position_ms.max(0).into(),
+                    steps.into(),
                 ],
             ))
             .await?
@@ -719,6 +738,8 @@ async fn hand_over(
         Some(here.entry_id),
         here.is_playing,
         here.position_ms,
+        // the new host's phone has to pick it up
+        AnchorBy::Command,
     )
     .await?;
     txn.execute_raw(stmt(
@@ -1002,7 +1023,7 @@ pub async fn add_songs(
                 is_playing: true,
                 ..session.clone()
             };
-            advance_to(&txn, &playing, first_added).await?;
+            advance_to(&txn, &playing, first_added, AnchorBy::Command).await?;
         } else if session.current_entry_id.is_none()
             // an empty session starts on what was just added
             && let Some(first) = queued_entries(&txn, session_id).await?.first()
@@ -1017,6 +1038,12 @@ pub async fn add_songs(
                 Some(Some(first.entry_id)),
                 start.is_playing,
                 start.position_ms,
+                // a seed is the host's phone saying where it already is
+                if starting_at.is_some() {
+                    AnchorBy::HostPhone
+                } else {
+                    AnchorBy::Command
+                },
             )
             .await?;
         }
@@ -1051,7 +1078,15 @@ pub async fn review_suggestion(
         return Err(CadenzaError::NotFound);
     }
     if approve && session.current_entry_id.is_none() {
-        set_anchor(&txn, session_id, Some(Some(entry_id)), true, 0).await?;
+        set_anchor(
+            &txn,
+            session_id,
+            Some(Some(entry_id)),
+            true,
+            0,
+            AnchorBy::Command,
+        )
+        .await?;
     }
     let version = bump(&txn, session_id).await?;
     txn.commit().await?;
@@ -1151,6 +1186,7 @@ async fn advance_to(
     txn: &DatabaseTransaction,
     session: &SessionRow,
     next: Option<i64>,
+    by: AnchorBy,
 ) -> Result<(), CadenzaError> {
     if let Some(current) = session.current_entry_id {
         txn.execute_raw(stmt(
@@ -1161,7 +1197,7 @@ async fn advance_to(
         .await?;
     }
     let playing = next.is_some() && session.is_playing;
-    set_anchor(txn, session.session_id, Some(next), playing, 0).await?;
+    set_anchor(txn, session.session_id, Some(next), playing, 0, by).await?;
     renumber(txn, session.session_id).await
 }
 
@@ -1190,14 +1226,29 @@ pub async fn playback_command(
                 None,
                 command == PlaybackCommand::Play && session.current_entry_id.is_some(),
                 here.position_ms,
+                AnchorBy::Command,
             )
             .await?;
         }
         PlaybackCommand::Seek { position_ms } => {
-            set_anchor(&txn, session_id, None, session.is_playing, position_ms).await?;
+            set_anchor(
+                &txn,
+                session_id,
+                None,
+                session.is_playing,
+                position_ms,
+                AnchorBy::Command,
+            )
+            .await?;
         }
         PlaybackCommand::Next => {
-            advance_to(&txn, &session, up_next.first().map(|entry| entry.entry_id)).await?;
+            advance_to(
+                &txn,
+                &session,
+                up_next.first().map(|entry| entry.entry_id),
+                AnchorBy::Command,
+            )
+            .await?;
         }
         PlaybackCommand::Jump { entry_id } => {
             if !up_next.iter().any(|entry| entry.entry_id == entry_id) {
@@ -1224,7 +1275,7 @@ pub async fn playback_command(
                 is_playing: true,
                 ..session.clone()
             };
-            advance_to(&txn, &playing, Some(entry_id)).await?;
+            advance_to(&txn, &playing, Some(entry_id), AnchorBy::Command).await?;
         }
     }
     let version = bump(&txn, session_id).await?;
@@ -1279,11 +1330,20 @@ pub async fn host_report(
             Some(Some(target)),
             is_playing,
             position_ms,
+            AnchorBy::HostPhone,
         )
         .await?;
         renumber(&txn, session_id).await?;
     } else {
-        set_anchor(&txn, session_id, None, is_playing, position_ms).await?;
+        set_anchor(
+            &txn,
+            session_id,
+            None,
+            is_playing,
+            position_ms,
+            AnchorBy::HostPhone,
+        )
+        .await?;
     }
 
     // a heartbeat that only confirms the projection is not worth an event
@@ -1316,7 +1376,7 @@ pub async fn host_advance(
     let next = upcoming(&queued, session.current_entry_id)
         .first()
         .map(|entry| entry.entry_id);
-    advance_to(&txn, &session, next).await?;
+    advance_to(&txn, &session, next, AnchorBy::HostPhone).await?;
     txn.execute_raw(stmt(
         "UPDATE live_sessions SET host_seen_at = now() WHERE session_id = $1",
         vec![session_id.into()],
@@ -1383,6 +1443,7 @@ mod tests {
             position_ms,
             position_at: now,
             version: 1,
+            command_seq: 0,
             host_seen_at: now,
             created_at: now,
             ended_at: None,

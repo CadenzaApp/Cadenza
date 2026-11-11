@@ -464,3 +464,74 @@ async fn social_listening_now_playing_reads_run() {
     now_playing::friends_listening(&txn, b).await.unwrap();
     txn.rollback().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_only_commands_move_command_seq() {
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id = $1 AND ended_at IS NULL",
+        [host.into()],
+    ))
+    .await
+    .unwrap();
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Seq",
+            default_role: SessionRole::Controller,
+            allow_join_without_code: true,
+            listen_along: false,
+        },
+    )
+    .await
+    .unwrap();
+    let seq = || async {
+        sessions::get_snapshot(&txn, host, id)
+            .await
+            .unwrap()
+            .session
+            .command_seq
+    };
+
+    // the host's seed and reports, and a join, leave it alone
+    sessions::add_songs(
+        &txn,
+        host,
+        id,
+        &[song("20"), song("21")],
+        sessions::AddAt::End,
+        Some(sessions::StartAt {
+            position_ms: 5_000,
+            is_playing: true,
+        }),
+    )
+    .await
+    .unwrap();
+    let current = sessions::get_snapshot(&txn, host, id)
+        .await
+        .unwrap()
+        .current
+        .unwrap()
+        .entry_id;
+    sessions::host_report(&txn, host, id, Some(current), 9_000, false)
+        .await
+        .unwrap();
+    sessions::join_session(&txn, guest, id, true).await.unwrap();
+    assert_eq!(seq().await, 0);
+
+    // a controller's command moves it
+    sessions::playback_command(&txn, guest, id, PlaybackCommand::Play)
+        .await
+        .unwrap();
+    assert_eq!(seq().await, 1);
+    sessions::playback_command(&txn, guest, id, PlaybackCommand::Next)
+        .await
+        .unwrap();
+    assert_eq!(seq().await, 2);
+
+    txn.rollback().await.unwrap();
+}

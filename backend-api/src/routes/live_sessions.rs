@@ -118,7 +118,7 @@ async fn current_handler(
 /// member, 410 `SessionEnded` once it is over.
 ///
 /// ```json
-/// { "session_id": "...", "name": "Friday", "host": { "user_id": "...", "username": "ada", "role": "controller", "listen_mode": "synced", "is_host": true, "joined_at": "..." }, "default_role": "suggester", "allow_join_without_code": true, "version": 41, "my_role": "suggester", "my_listen_mode": "remote", "members": [], "current": { "entry_id": 7, "song_id": "1440857781", "title": "Motion Sickness", "artist": "Phoebe Bridgers", "artwork_url": "https://...", "duration_ms": 229000, "status": "queued", "added_by": "...", "added_by_username": "ada" }, "up_next": [], "suggestions": [], "playback": { "entry_id": 7, "position_ms": 61000, "is_playing": true, "as_of": "..." }, "created_at": "..." }
+/// { "session_id": "...", "name": "Friday", "host": { "user_id": "...", "username": "ada", "role": "controller", "listen_mode": "synced", "is_host": true, "joined_at": "..." }, "default_role": "suggester", "allow_join_without_code": true, "version": 41, "my_role": "suggester", "my_listen_mode": "remote", "members": [], "current": { "entry_id": 7, "song_id": "1440857781", "title": "Motion Sickness", "artist": "Phoebe Bridgers", "artwork_url": "https://...", "duration_ms": 229000, "status": "queued", "added_by": "...", "added_by_username": "ada" }, "up_next": [], "suggestions": [], "playback": { "entry_id": 7, "position_ms": 61000, "is_playing": true, "as_of": "...", "command_seq": 3 }, "created_at": "..." }
 /// ```
 async fn get_handler(
     State(db): State<DatabaseConnection>,

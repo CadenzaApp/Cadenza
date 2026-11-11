@@ -4,6 +4,7 @@ import test from "node:test";
 import {
     applyOps,
     expectedPositionMs,
+    hostTarget,
     reconcile,
     shouldCorrectDrift,
     type LocalQueue,
@@ -61,4 +62,15 @@ test("drift is corrected past 2 s, at most every 5 s", () => {
     assert.equal(shouldCorrectDrift(10_000, 11_500, 60_000), false);
     assert.equal(shouldCorrectDrift(10_000, 12_500, 60_000), true);
     assert.equal(shouldCorrectDrift(10_000, 12_500, 1_000), false);
+});
+
+test("the host's queue starts on the song its phone plays", () => {
+    const entries = [{ song_id: "a" }, { song_id: "b" }, { song_id: "c" }];
+    // the phone moved on before its report landed
+    assert.deepEqual(hostTarget(entries, "b"), [
+        { song_id: "b" },
+        { song_id: "c" },
+    ]);
+    assert.deepEqual(hostTarget(entries, "x"), []);
+    assert.deepEqual(hostTarget(entries, null), []);
 });

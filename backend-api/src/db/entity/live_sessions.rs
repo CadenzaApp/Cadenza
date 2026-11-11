@@ -23,6 +23,7 @@ pub struct Model {
     pub created_at: DateTimeWithTimeZone,
     pub ended_at: Option<DateTimeWithTimeZone>,
     pub listen_along: bool,
+    pub command_seq: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

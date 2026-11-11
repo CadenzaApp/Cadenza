@@ -158,6 +158,41 @@ const SetPlaybackSinkContext = createContext<
     ((sink: PlaybackSink | null) => void) | null
 >(null);
 
+/**
+ * What the player shows in place of the local player, like a live session
+ * playing on someone else's phone. The local player keeps running underneath;
+ * play logging and now playing still read it.
+ */
+export type PlaybackView = {
+    queue: MusicItem[];
+    queueIndex: number;
+    isPlaying: boolean;
+    /** Seconds into `queue[queueIndex]`. */
+    progress: number;
+};
+
+/** What this phone's player is really doing, under any view. */
+export type LocalPlaybackState = Pick<
+    PlaybackInfo,
+    "activeTrack" | "isPlaying" | "progress" | "queue" | "queueIndex"
+>;
+
+const LocalPlaybackStateContext = createContext<LocalPlaybackState | null>(
+    null,
+);
+
+/**
+ * This phone's player, past any view. Only for whatever drives the local
+ * player, like a live session.
+ */
+export function useLocalPlaybackState() {
+    return useContext(LocalPlaybackStateContext)!;
+}
+
+const SetPlaybackViewContext = createContext<
+    ((view: PlaybackView | null) => void) | null
+>(null);
+
 export function usePlayback() {
     return useContext(PlaybackContext)!;
 }
@@ -201,6 +236,18 @@ export function usePlaybackSink(sink: PlaybackSink | null) {
     }, [setSink, sink]);
 }
 
+/**
+ * Shows `view` in every player surface while it is set. One at a time; pair it
+ * with a sink, since the commands still go to the local player otherwise.
+ */
+export function usePlaybackView(view: PlaybackView | null) {
+    const setView = useContext(SetPlaybackViewContext)!;
+    useEffect(() => {
+        setView(view);
+    }, [setView, view]);
+    useEffect(() => () => setView(null), [setView]);
+}
+
 /** How often the player is read while the app is open. */
 const FOREGROUND_POLL_MS = 750;
 /** How often it is read while the app is in the background and music plays. */
@@ -219,6 +266,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     // controls when the lock changes
     const sinkRef = useRef<PlaybackSink | null>(null);
     const [controlsLocked, setControlsLocked] = useState(false);
+    const [view, setView] = useState<PlaybackView | null>(null);
     const setSink = useCallback((next: PlaybackSink | null) => {
         sinkRef.current = next;
         setControlsLocked(next?.controlsLocked ?? false);
@@ -717,66 +765,108 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 (via().skipToPrevious ?? localCommands.skipToPrevious)(),
         };
     }, [localCommands]);
-    const trackState = useMemo<PlaybackTrackState>(
+    // what the player surfaces show: the view while one is set, else the
+    // local player
+    const shownQueue = view?.queue ?? queue;
+    const shownIndex = view ? view.queueIndex : resolvedQueueIndex;
+    const shownTrack = view
+        ? (view.queue[view.queueIndex] ?? null)
+        : activeTrack;
+    const shownTrackId = shownTrack?.id ?? null;
+    const shownPlaying = view ? view.isPlaying : snapshot.isPlaying;
+    const shownLoading = view ? false : snapshot.isLoading;
+    const localState = useMemo<LocalPlaybackState>(
         () => ({
-            activeTrackId,
             activeTrack,
             isPlaying: snapshot.isPlaying,
-            isLoading: snapshot.isLoading,
+            progress: snapshot.progress,
+            queue,
+            queueIndex: resolvedQueueIndex,
+        }),
+        [
+            activeTrack,
+            snapshot.isPlaying,
+            snapshot.progress,
+            queue,
+            resolvedQueueIndex,
+        ],
+    );
+    const trackState = useMemo<PlaybackTrackState>(
+        () => ({
+            activeTrackId: shownTrackId,
+            activeTrack: shownTrack,
+            isPlaying: shownPlaying,
+            isLoading: shownLoading,
             // back and forward always do something once a song is loaded
-            canSkipToNext: Boolean(activeTrack) && !controlsLocked,
-            canSkipToPrevious: Boolean(activeTrack) && !controlsLocked,
+            canSkipToNext: Boolean(shownTrack) && !controlsLocked,
+            canSkipToPrevious: Boolean(shownTrack) && !controlsLocked,
             controlsLocked,
             isPlayerCollapsed,
         }),
         [
-            activeTrack,
-            activeTrackId,
-            snapshot.isLoading,
-            snapshot.isPlaying,
+            shownTrack,
+            shownTrackId,
+            shownLoading,
+            shownPlaying,
             controlsLocked,
             isPlayerCollapsed,
         ],
     );
 
     return (
-        <SetPlaybackSinkContext.Provider value={setSink}>
-            <LocalPlaybackCommandsContext.Provider value={localCommands}>
-                <PlaybackCommandsContext.Provider value={commands}>
-                    <PlaybackTrackStateContext.Provider value={trackState}>
-                        <PlaybackContext.Provider
-                            value={{
-                                activeTrackId,
-                                activeTrack,
-                                isPlaying: snapshot.isPlaying,
-                                isLoading: snapshot.isLoading,
-                                progress: snapshot.progress,
-                                duration: fullPlayback
-                                    ? (activeTrack?.songDuration ?? 0)
-                                    : (snapshot.duration ?? 0),
-                                isPreview: !fullPlayback,
-                                queue,
-                                queueIndex: resolvedQueueIndex,
-                                upcoming:
-                                    resolvedQueueIndex >= 0
-                                        ? queue.slice(resolvedQueueIndex + 1)
-                                        : [],
-                                shuffleMode:
-                                    snapshot.shuffleMode ?? ShuffleMode.Off,
-                                repeatMode:
-                                    snapshot.repeatMode ?? RepeatMode.Off,
-                                canSkipToNext: trackState.canSkipToNext,
-                                canSkipToPrevious: trackState.canSkipToPrevious,
-                                controlsLocked,
-                                isPlayerCollapsed,
-                                ...commands,
-                            }}
-                        >
-                            {children}
-                        </PlaybackContext.Provider>
-                    </PlaybackTrackStateContext.Provider>
-                </PlaybackCommandsContext.Provider>
-            </LocalPlaybackCommandsContext.Provider>
-        </SetPlaybackSinkContext.Provider>
+        <SetPlaybackViewContext.Provider value={setView}>
+            <LocalPlaybackStateContext.Provider value={localState}>
+                <SetPlaybackSinkContext.Provider value={setSink}>
+                    <LocalPlaybackCommandsContext.Provider
+                        value={localCommands}
+                    >
+                        <PlaybackCommandsContext.Provider value={commands}>
+                            <PlaybackTrackStateContext.Provider
+                                value={trackState}
+                            >
+                                <PlaybackContext.Provider
+                                    value={{
+                                        activeTrackId: shownTrackId,
+                                        activeTrack: shownTrack,
+                                        isPlaying: shownPlaying,
+                                        isLoading: shownLoading,
+                                        progress:
+                                            view?.progress ?? snapshot.progress,
+                                        duration:
+                                            view || fullPlayback
+                                                ? (shownTrack?.songDuration ??
+                                                  0)
+                                                : (snapshot.duration ?? 0),
+                                        isPreview: !view && !fullPlayback,
+                                        queue: shownQueue,
+                                        queueIndex: shownIndex,
+                                        upcoming:
+                                            shownIndex >= 0
+                                                ? shownQueue.slice(
+                                                      shownIndex + 1,
+                                                  )
+                                                : [],
+                                        shuffleMode:
+                                            snapshot.shuffleMode ??
+                                            ShuffleMode.Off,
+                                        repeatMode:
+                                            snapshot.repeatMode ??
+                                            RepeatMode.Off,
+                                        canSkipToNext: trackState.canSkipToNext,
+                                        canSkipToPrevious:
+                                            trackState.canSkipToPrevious,
+                                        controlsLocked,
+                                        isPlayerCollapsed,
+                                        ...commands,
+                                    }}
+                                >
+                                    {children}
+                                </PlaybackContext.Provider>
+                            </PlaybackTrackStateContext.Provider>
+                        </PlaybackCommandsContext.Provider>
+                    </LocalPlaybackCommandsContext.Provider>
+                </SetPlaybackSinkContext.Provider>
+            </LocalPlaybackStateContext.Provider>
+        </SetPlaybackViewContext.Provider>
     );
 }

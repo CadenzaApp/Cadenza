@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 
-import { usePlayback } from "@/lib/playback";
+import { useLocalPlaybackState } from "@/lib/playback";
 import { useSeedSessionQueue } from "@/lib/routes/live-sessions";
 
 import { sessionSongs, trackToSessionSong } from "./session-commands";
@@ -18,7 +18,7 @@ const SEED_LIMIT = 50;
  * added from its screen.
  */
 export function useSeedSession() {
-    const playback = usePlayback();
+    const playback = useLocalPlaybackState();
     const { seedSessionQueue } = useSeedSessionQueue();
     const latest = useRef(playback);
     useEffect(() => {
