@@ -18,12 +18,13 @@ use std::time::Duration;
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
     routes::{
-        analytics::get_analytics_router, events::get_events_router, profile::get_profile_router,
-        queries::get_queries_router, saved_queries::get_saved_queries_router,
-        settings::get_settings_router, social::get_social_router, songs::get_songs_router,
-        tags::get_tags_router,
+        analytics::get_analytics_router, assistant::get_assistant_router,
+        events::get_events_router, profile::get_profile_router, queries::get_queries_router,
+        saved_queries::get_saved_queries_router, settings::get_settings_router,
+        social::get_social_router, songs::get_songs_router, tags::get_tags_router,
     },
     services::{
+        assistant::model::{AssistantService, OpenAiAssistantModel},
         default_tags::{BackfillConfig, spawn_default_tag_backfill},
         metadata_tags::{MetadataCrawlConfig, MetadataCrawler, spawn_metadata_crawl},
         notification::spawn_notification_cleanup,
@@ -41,6 +42,7 @@ struct AppState {
     song_meta_service: SongMetadataService,
     metadata_crawler: MetadataCrawler,
     social_feed_service: SocialFeedService,
+    assistant_service: AssistantService,
 }
 
 /// The pool we are allowed to open against Supabase's pooler.
@@ -86,6 +88,9 @@ async fn main() {
     let tag_gen_service = TagGenerationService::new(OpenAiTagGenerator::new());
 
     let song_meta_service = SongMetadataService::new();
+
+    // the in-app assistant, on the same OPENAI_API_KEY as tag generation
+    let assistant_service = AssistantService::new(OpenAiAssistantModel::new());
 
     let _ml_service = social_feed::spawn_ml_service();
     let social_feed_service = SocialFeedService::new();
@@ -150,6 +155,7 @@ async fn main() {
         song_meta_service,
         metadata_crawler,
         social_feed_service,
+        assistant_service,
     };
 
     // route paths
@@ -163,6 +169,7 @@ async fn main() {
         .nest("/social", get_social_router())
         .nest("/events", get_events_router())
         .nest("/analytics", get_analytics_router())
+        .nest("/assistant", get_assistant_router())
         .route("/test", axum::routing::get(async || "server is reachable"))
         .with_state(app_state)
         .layer(middleware::from_fn(request_log::log_request));
