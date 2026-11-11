@@ -235,6 +235,14 @@ pub struct JoinResult {
     pub status: &'static str,
 }
 
+/// [`JoinResult`] plus which session, for joining someone from Listening now.
+#[derive(Serialize)]
+pub struct JoinListeningResult {
+    pub session_id: Uuid,
+    pub version: i64,
+    pub status: &'static str,
+}
+
 #[derive(Deserialize)]
 pub struct SetLiveSessionRole {
     pub role: String,

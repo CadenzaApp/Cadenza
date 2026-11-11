@@ -2,7 +2,7 @@
  * Where a friend's song is right now, from the position the backend projected
  * to `as_of`. Pure so `listening-progress.test.ts` runs it under `node --test`.
  *
- * The backend only returns playing rows, so this always runs forward.
+ * Only for a playing row; a paused one stays where it is.
  */
 
 /** Position in ms at `nowMs`, never below 0 or past the end. */

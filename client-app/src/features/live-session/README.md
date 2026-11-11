@@ -13,7 +13,6 @@ allows. The backend owns the state; this feature plays it and shows it.
 | `session-commands.ts`         | Pure. Tracks to session songs (catalog only), and local queue positions to session entries. Tested.                                                                         |
 | `session-reconciler.ts`       | Pure. `reconcile` turns the session queue into ops on the local queue, replacing it only when the current song differs. Drift math. Tested.                                 |
 | `use-seed-session.ts`         | Fills a new session with what the phone plays, starting where the phone is in the current song.                                                                             |
-| `listen-along-runner.tsx`     | `ListenAlongRunner`, next to the session runner. With Listen along on, playing opens a listener only session. `listen-along.ts` is its pure rule, tested.                   |
 | `use-live-badge.ts`           | The caller's session name and id, for the player's LIVE line.                                                                                                               |
 | `LiveButton.tsx`              | The player's live icon: asks to go live (with the settings form), or opens the session menu (settings, listen mode, hand over, leave, end).                                 |
 | `LiveSessionBar.tsx`          | The player sheet's bottom bar in a session: Requests, People, Add, Share.                                                                                                   |
@@ -29,10 +28,11 @@ The session's screen is the now playing sheet; see the media-player README.
 How playback stays in step:
 
 - The server keeps an anchor and projects it forward. Controllers' commands are HTTP calls that
-  move the anchor; every member refetches on the realtime event. A play, pause, or seek (or a
-  host report that kept the song) sends a `playback` event carrying the new playback instead,
-  applied straight to the cached snapshot, and the caller's own screen moves before the server
-  answers.
+  move the anchor; every member refetches on the realtime event. A play, pause, seek, shuffle
+  off, or a repeat change that put no songs back (or a host report that kept the song) sends a
+  `playback` event carrying the new playback instead, applied straight to the cached snapshot.
+  The caller's own screen moves before the server answers: shuffle and repeat are held in
+  `lib/session-modes.ts` until the answer lands, and dropped at once if it fails.
 - The host's phone is the speaker and the source of truth. It reports on song change, play or
   pause, a seek, and every 10 s, and skips re-applying versions its own reports made. So the
   host's normal player controls work: they show up in the next report. Each report carries the
@@ -77,9 +77,14 @@ Gotchas:
   first toggle). The host gets an in-app prompt, a Notifications row with Let in / Not now, and
   the person in Requests. A code always joins at once. There are no phone push notifications
   yet, so a closed app sees the request the next time it opens.
-- A listen along session nobody joined runs quietly: `showsAsLive` keeps the player out of live
-  mode (no live bar, tag, or red progress) until someone joins. Going live from the player turns
-  it into a regular session (`listen_along: false`) rather than starting another.
-- Listen along opens at most one session per song, and never for the song that was playing in
-  the last session, so ending any session does not open one until the next song. Its sessions are flagged `listen_along`, so joining them checks the Listen along
+- Playing music opens no session. Listening now shows what a friend plays, and their Join
+  (`useJoinListening`) makes a listen along session for them on the spot, seeded with what they
+  play, then joins it, asking first. Its `listen_along` flag makes joins check the Listen along
   audience, not the Live sessions one.
+- A listen along session nobody is in yet runs quietly: `showsAsLive` keeps the host's player
+  out of live mode (no live bar, tag, or red progress). It ends on its own when the host says Not
+  now to the last request or the last guest leaves. Going live from the player turns it into a
+  regular session (`listen_along: false`).
+- Once anyone has joined, a session stays open until the host ends it, paused or not, and stays
+  on friends' Listening now row the whole time. Only a host alone in one times out (30 minutes
+  without a report).

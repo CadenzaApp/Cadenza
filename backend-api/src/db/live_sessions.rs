@@ -10,21 +10,25 @@
 //! onto the end of the queue or rejects them.
 //!
 //! A non member reads `NotFound`, so a session id does not leak. The host
-//! leaving ends the session; host transfer was the other option and is left
-//! for later.
+//! leaving hands the session to someone else, or ends it.
+//!
+//! A session stays open until the host ends it. The one exception is a host
+//! alone in it: 30 minutes without a report from their phone ends it, so a
+//! session nobody joined does not outlive the music.
 
 use chrono::{DateTime, FixedOffset, Utc};
 use sea_orm::{
-    ConnectionTrait, DatabaseTransaction, DbBackend, FromQueryResult, Statement, Value,
-    prelude::Uuid,
+    ConnectionTrait, DatabaseTransaction, DbBackend, EntityTrait, FromQueryResult, Statement,
+    Value, prelude::Uuid,
 };
 
 use crate::db::Db;
 use crate::db::{
     audience::{PrivacyField, can_see_field},
+    entity::now_playing as now_playing_row,
     invites::{InviteTargetRef, revoke_invites_for},
     notification::NotificationType,
-    now_playing::is_catalog_id,
+    now_playing::{is_catalog_id, is_live, projected_position_ms, read_up_next},
 };
 use crate::err::CadenzaError;
 use crate::services::live_sessions::{
@@ -68,6 +72,8 @@ pub struct SessionRow {
     pub shuffle: bool,
     /// `off`, `all`, or `one`. See [`RepeatMode`].
     pub repeat_mode: String,
+    /// Someone besides the host is in it, so a quiet host does not end it.
+    pub has_guests: bool,
 }
 
 impl SessionRow {
@@ -84,7 +90,8 @@ impl SessionRow {
     }
 
     fn is_open(&self, now: DateTime<Utc>) -> bool {
-        self.ended_at.is_none() && !host_timed_out(self.host_seen_at.with_timezone(&Utc), now)
+        self.ended_at.is_none()
+            && (self.has_guests || !host_timed_out(self.host_seen_at.with_timezone(&Utc), now))
     }
 }
 
@@ -93,7 +100,23 @@ const SESSION_COLUMNS: &str =
      s.name, s.default_role::text AS default_role, s.allow_join_without_code,
      s.current_entry_id, s.is_playing, s.position_ms, s.position_at, s.version, s.command_seq,
      s.host_seen_at, s.created_at, s.ended_at, s.listen_along, s.approve_joins,
-     s.shuffle, s.repeat_mode";
+     s.shuffle, s.repeat_mode,
+     EXISTS (
+         SELECT 1 FROM live_session_members g
+         WHERE g.session_id = s.session_id AND g.user_id <> s.host_id
+           AND g.left_at IS NULL AND NOT g.banned
+     ) AS has_guests";
+
+/// SQL for whether session `s` is still open, the same rule as
+/// [`SessionRow::is_open`]: not ended, and either someone besides the host is
+/// in it or the host reported in the last 30 minutes.
+pub const OPEN_SESSION_SQL: &str = "s.ended_at IS NULL
+     AND (s.host_seen_at > now() - interval '30 minutes'
+          OR EXISTS (
+              SELECT 1 FROM live_session_members g
+              WHERE g.session_id = s.session_id AND g.user_id <> s.host_id
+                AND g.left_at IS NULL AND NOT g.banned
+          ))";
 
 #[derive(Clone, Debug, FromQueryResult)]
 pub struct SessionMember {
@@ -507,11 +530,11 @@ async fn mark_played(
 
 /// On repeat all, once the current song is the last one queued, the played
 /// songs go back on after it: in the order they played, or shuffled. Does
-/// nothing otherwise.
+/// nothing otherwise. Returns whether it put any back.
 async fn refill_for_repeat(
     txn: &DatabaseTransaction,
     session_id: Uuid,
-) -> Result<(), CadenzaError> {
+) -> Result<bool, CadenzaError> {
     let refilled = txn
         .execute_raw(stmt(
             "UPDATE live_session_queue q
@@ -536,10 +559,11 @@ async fn refill_for_repeat(
             vec![session_id.into()],
         ))
         .await?;
-    if refilled.rows_affected() > 0 {
+    let refilled = refilled.rows_affected() > 0;
+    if refilled {
         renumber(txn, session_id).await?;
     }
-    Ok(())
+    Ok(refilled)
 }
 
 /// Puts the songs after the current one in a random order.
@@ -615,9 +639,11 @@ async fn end_stale_sessions_of<C: ConnectionTrait>(
     host_id: Uuid,
 ) -> Result<(), CadenzaError> {
     db.execute_raw(stmt(
-        "UPDATE live_sessions SET ended_at = now(), is_playing = false, version = version + 1
-         WHERE host_id = $1 AND ended_at IS NULL
-           AND host_seen_at < now() - interval '30 minutes'",
+        &format!(
+            "UPDATE live_sessions s
+             SET ended_at = now(), is_playing = false, version = version + 1
+             WHERE s.host_id = $1 AND s.ended_at IS NULL AND NOT ({OPEN_SESSION_SQL})"
+        ),
         vec![host_id.into()],
     ))
     .await?;
@@ -644,13 +670,14 @@ pub async fn present_member_ids(db: &impl Db, session_id: Uuid) -> Result<Vec<Uu
 pub async fn current_session_id(db: &impl Db, user_id: Uuid) -> Result<Option<Uuid>, CadenzaError> {
     let row = db
         .query_one_raw(stmt(
-            "SELECT s.session_id FROM live_session_members m
-             JOIN live_sessions s ON s.session_id = m.session_id
-             WHERE m.user_id = $1 AND m.left_at IS NULL AND NOT m.banned
-               AND s.ended_at IS NULL
-               AND s.host_seen_at > now() - interval '30 minutes'
-             ORDER BY (s.host_id = $1) DESC, m.joined_at DESC
-             LIMIT 1",
+            &format!(
+                "SELECT s.session_id FROM live_session_members m
+                 JOIN live_sessions s ON s.session_id = m.session_id
+                 WHERE m.user_id = $1 AND m.left_at IS NULL AND NOT m.banned
+                   AND {OPEN_SESSION_SQL}
+                 ORDER BY (s.host_id = $1) DESC, m.joined_at DESC
+                 LIMIT 1"
+            ),
             vec![user_id.into()],
         ))
         .await?;
@@ -856,6 +883,126 @@ pub async fn join_session(
     Ok(Joined::Member(version))
 }
 
+/// What joining someone from Listening now did.
+#[derive(Clone, Copy, Debug)]
+pub struct JoinedListening {
+    pub session_id: Uuid,
+    pub joined: Joined,
+    /// The session was made for this join, so the owner's phone has to hear
+    /// about it.
+    pub created: bool,
+}
+
+/// Joins `owner` from Listening now: the open session they are in, or with
+/// none, a listen along session made for them right then, seeded with what
+/// they are playing. The owner hosts it, and it stays open until they end it
+/// once anyone is in. Making one needs their `listen_along` audience to
+/// include the viewer, and a song playing. Joining then goes through
+/// [`join_session`], so the owner is asked first while `approve_joins` is on.
+pub async fn join_listening(
+    db: &impl Db,
+    viewer: Uuid,
+    owner: Uuid,
+) -> Result<JoinedListening, CadenzaError> {
+    if viewer == owner {
+        return Err(CadenzaError::InvalidRequestBody(
+            "that is your own listening".into(),
+        ));
+    }
+    if let Some(session_id) = current_session_id(db, owner).await? {
+        let joined = join_session(db, viewer, session_id, false).await?;
+        return Ok(JoinedListening {
+            session_id,
+            joined,
+            created: false,
+        });
+    }
+    if !can_see_field(db, viewer, owner, PrivacyField::ListenAlong).await? {
+        return Err(CadenzaError::Forbidden(
+            "they have not turned on listen along".into(),
+        ));
+    }
+    let now = Utc::now();
+    let playing = now_playing_row::Entity::find_by_id(owner)
+        .one(db)
+        .await?
+        .filter(|row| is_live(row, now))
+        .ok_or(CadenzaError::NotFound)?;
+
+    let username = db
+        .query_one_raw(stmt(
+            "SELECT username FROM profile WHERE uid = $1",
+            vec![owner.into()],
+        ))
+        .await?
+        .map(|row| row.try_get::<String>("", "username"))
+        .transpose()?;
+    let name = match username {
+        Some(username) => format!("Listening with {username}"),
+        None => "Listening along".to_owned(),
+    };
+    let session_id = start_session(
+        db,
+        owner,
+        NewSession {
+            name: &name,
+            default_role: SessionRole::Listener,
+            allow_join_without_code: true,
+            listen_along: true,
+            approve_joins: true,
+        },
+    )
+    .await?;
+
+    // a second join racing this one finds it already seeded
+    let seeded = load_session(db, session_id, false)
+        .await?
+        .is_some_and(|session| session.current_entry_id.is_some());
+    if !seeded {
+        let songs: Vec<NewQueueSong> = std::iter::once(NewQueueSong {
+            song_id: playing.song_id.clone(),
+            title: playing.title.clone(),
+            artist: playing.artist.clone(),
+            artwork_url: playing.artwork_url.clone(),
+            duration_ms: playing.duration_ms,
+        })
+        .chain(
+            read_up_next(&playing.up_next)
+                .into_iter()
+                .filter_map(|song| {
+                    let song_id = song.song_id.filter(|id| is_catalog_id(id))?;
+                    Some(NewQueueSong {
+                        song_id,
+                        title: song.title,
+                        artist: song.artist,
+                        artwork_url: song.artwork_url,
+                        duration_ms: None,
+                    })
+                }),
+        )
+        .collect();
+        add_songs(
+            db,
+            owner,
+            session_id,
+            &songs,
+            AddAt::End,
+            Some(StartAt {
+                position_ms: projected_position_ms(&playing, now),
+                is_playing: playing.is_playing,
+            }),
+        )
+        .await?;
+    }
+
+    let joined = join_session(db, viewer, session_id, false).await?;
+    Ok(JoinedListening {
+        session_id,
+        joined,
+        created: true,
+    })
+}
+
 async fn add_member(
     txn: &DatabaseTransaction,
     session: &SessionRow,
@@ -948,7 +1095,7 @@ pub async fn answer_join_request(
     session_id: Uuid,
     user_id: Uuid,
     accept: bool,
-) -> Result<i64, CadenzaError> {
+) -> Result<Answered, CadenzaError> {
     let txn = db.begin().await?;
     let (session, _) = lock_for(&txn, session_id, host_id, SessionAction::Manage).await?;
     let status = if accept { "accepted" } else { "ignored" };
@@ -989,10 +1136,58 @@ pub async fn answer_join_request(
             },
         )
         .await?;
+    } else if let Some(version) = end_if_unused(&txn, &session).await? {
+        txn.commit().await?;
+        return Ok(Answered {
+            version,
+            ended: true,
+        });
     }
     let version = bump(&txn, session_id).await?;
     txn.commit().await?;
-    Ok(version)
+    Ok(Answered {
+        version,
+        ended: false,
+    })
+}
+
+/// What answering a join request did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Answered {
+    pub version: i64,
+    /// Turning away the last one waiting on a listen along session nobody
+    /// is in ended it.
+    pub ended: bool,
+}
+
+/// A listen along session is there for the people who joined it. Once nobody
+/// besides the host is in it or waiting to be, it ends and the host just
+/// listens again. Returns the final version when it ended.
+async fn end_if_unused(
+    txn: &DatabaseTransaction,
+    session: &SessionRow,
+) -> Result<Option<i64>, CadenzaError> {
+    if !session.listen_along {
+        return Ok(None);
+    }
+    let row = txn
+        .query_one_raw(stmt(
+            "SELECT EXISTS (
+                 SELECT 1 FROM live_session_members g
+                 WHERE g.session_id = $1 AND g.user_id <> $2
+                   AND g.left_at IS NULL AND NOT g.banned
+             ) OR EXISTS (
+                 SELECT 1 FROM live_session_join_requests r
+                 WHERE r.session_id = $1 AND r.status = 'pending'
+             ) AS used",
+            vec![session.session_id.into(), session.host_id.into()],
+        ))
+        .await?
+        .ok_or_else(|| CadenzaError::DatabaseError("exists returned nothing".into()))?;
+    if row.try_get::<bool>("", "used")? {
+        return Ok(None);
+    }
+    Ok(Some(end_locked(txn, session).await?))
 }
 
 /// What leaving did.
@@ -1002,7 +1197,8 @@ pub enum Left {
     Left(i64),
     /// The host left and `new_host` hosts it now, at this version.
     HandedOver { version: i64, new_host: Uuid },
-    /// The host left with nobody to hand it to, so it ended, at this version.
+    /// The host left with nobody to hand it to, or the last guest left a
+    /// listen along session, so it ended, at this version.
     Ended(i64),
 }
 
@@ -1029,6 +1225,10 @@ pub async fn leave_session(
         vec![session_id.into(), user_id.into()],
     ))
     .await?;
+    if let Some(version) = end_if_unused(&txn, &session).await? {
+        txn.commit().await?;
+        return Ok(Left::Ended(version));
+    }
     let version = bump(&txn, session_id).await?;
     txn.commit().await?;
     Ok(Left::Left(version))
@@ -1530,11 +1730,13 @@ async fn advance_to(
     let playing = next.is_some() && session.is_playing;
     set_anchor(txn, session.session_id, Some(next), playing, 0, by).await?;
     renumber(txn, session.session_id).await?;
-    refill_for_repeat(txn, session.session_id).await
+    refill_for_repeat(txn, session.session_id).await?;
+    Ok(())
 }
 
-/// A transport command. Controller or host. Play, pause, and seek move only
-/// playback, so the change carries it.
+/// A transport command. Controller or host. Play, pause, seek, shuffle off,
+/// and a repeat change that put no songs back move only playback, so the
+/// change carries it.
 pub async fn playback_command(
     db: &impl Db,
     user_id: Uuid,
@@ -1551,7 +1753,8 @@ pub async fn playback_command(
     let up_next = upcoming(&queued, session.current_entry_id);
     let here = projected_playback(&session, current, &up_next, now);
 
-    match command {
+    // whether the queue stayed put, so only playback moved
+    let only_playback = match command {
         PlaybackCommand::Play | PlaybackCommand::Pause => {
             set_anchor(
                 &txn,
@@ -1562,6 +1765,7 @@ pub async fn playback_command(
                 AnchorBy::Command,
             )
             .await?;
+            false
         }
         PlaybackCommand::Seek { position_ms } => {
             set_anchor(
@@ -1573,6 +1777,7 @@ pub async fn playback_command(
                 AnchorBy::Command,
             )
             .await?;
+            true
         }
         PlaybackCommand::Next => {
             advance_to(
@@ -1582,6 +1787,7 @@ pub async fn playback_command(
                 AnchorBy::Command,
             )
             .await?;
+            true
         }
         PlaybackCommand::Previous => {
             let last_played = txn
@@ -1631,6 +1837,7 @@ pub async fn playback_command(
                     .await?;
                 }
             }
+            !on
         }
         PlaybackCommand::Shuffle { on } => {
             txn.execute_raw(stmt(
@@ -1638,9 +1845,11 @@ pub async fn playback_command(
                 vec![session_id.into(), on.into()],
             ))
             .await?;
+            // off keeps the order; on reorders the queue
             if on {
                 shuffle_upcoming(&txn, session_id, session.current_entry_id).await?;
             }
+            false
         }
         PlaybackCommand::Repeat { mode } => {
             txn.execute_raw(stmt(
@@ -1648,7 +1857,7 @@ pub async fn playback_command(
                 vec![session_id.into(), mode.as_str().into()],
             ))
             .await?;
-            refill_for_repeat(&txn, session_id).await?;
+            !refill_for_repeat(&txn, session_id).await?
         }
         PlaybackCommand::Jump { entry_id } => {
             if !up_next.iter().any(|entry| entry.entry_id == entry_id) {
@@ -1666,14 +1875,14 @@ pub async fn playback_command(
                 ..session.clone()
             };
             advance_to(&txn, &playing, Some(entry_id), AnchorBy::Command).await?;
+            false
         }
-    }
+    };
     let version = bump(&txn, session_id).await?;
-    let playback = match command {
-        PlaybackCommand::Play | PlaybackCommand::Pause | PlaybackCommand::Seek { .. } => {
-            Some(playback_now(&txn, session_id).await?)
-        }
-        _ => None,
+    let playback = if only_playback {
+        Some(playback_now(&txn, session_id).await?)
+    } else {
+        None
     };
     txn.commit().await?;
     Ok(Change { version, playback })
@@ -1868,6 +2077,7 @@ mod tests {
             approve_joins: true,
             shuffle: false,
             repeat_mode: "off".into(),
+            has_guests: false,
         }
     }
 
@@ -1907,5 +2117,8 @@ mod tests {
         assert!(s.is_open(Utc::now()));
         s.host_seen_at = (Utc::now() - Duration::minutes(31)).fixed_offset();
         assert!(!s.is_open(Utc::now()));
+        // with someone else in it, it stays until the host ends it
+        s.has_guests = true;
+        assert!(s.is_open(Utc::now()));
     }
 }

@@ -23,8 +23,11 @@ export type NowPlaying = {
     album: string | null;
     artwork_url: string | null;
     duration_ms: number | null;
+    /** False for a friend listed only for their live session, paused. */
+    is_playing: boolean;
     position_ms: number;
     as_of: string;
+    /** Set only when the session shows as live. */
     live_session_id: string | null;
     /** The next songs in their queue, at most two. Empty while shuffling. */
     up_next: UpNextSong[];
@@ -35,7 +38,10 @@ export type FriendListening = {
     username: string;
     /** `live_session_id` is set when they host or play along in a session. */
     now_playing: NowPlaying;
-    /** The viewer may join that session without a code. */
+    /**
+     * The viewer may join without a code: that session, or with none, one
+     * made for them by joining.
+     */
     can_join: boolean;
 };
 

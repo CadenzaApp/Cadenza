@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::{
     audience::{PrivacyField, can_see_field, visible_friend_ids},
     entity::now_playing::{self, Column},
+    live_sessions::OPEN_SESSION_SQL,
 };
 use crate::err::CadenzaError;
 
@@ -66,10 +67,15 @@ pub struct NowPlayingUpdate {
 pub struct ListeningUser {
     pub user_id: Uuid,
     pub username: String,
-    /// `live_session_id` is the open session they host or play along in.
+    /// `live_session_id` is the open session they host or play along in,
+    /// when it shows as live: anything but a listen along session nobody
+    /// joined.
     pub now_playing: now_playing::Model,
-    /// The viewer may join that session without a code.
+    /// The viewer may join without a code: that session, or with none, a
+    /// listen along session made for them by joining.
     pub can_join: bool,
+    /// In a live session that shows as live, so listed even while paused.
+    pub in_live_session: bool,
 }
 
 /// Whether `song_id` can be shared. A library id (`i.` prefix) means nothing on
@@ -221,10 +227,12 @@ struct ListeningRow {
     up_next: serde_json::Value,
     updated_at: DateTime<FixedOffset>,
     can_join: bool,
+    shows_live: bool,
 }
 
 /// `viewer`'s friends who are playing something now and let friends see it,
-/// most recently updated first.
+/// most recently updated first. A friend in a live session stays on the list
+/// while it is open, paused or not.
 pub async fn friends_listening(
     db: &impl ConnectionTrait,
     viewer: Uuid,
@@ -236,17 +244,40 @@ pub async fn friends_listening(
 
     let rows = ListeningRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT COALESCE(p.username, 'unknown') AS username,
-                np.user_id, np.song_id, np.title, np.artist, np.album, np.artwork_url,
-                np.duration_ms, np.is_playing, np.position_ms, np.position_at,
-                np.up_next, np.updated_at,
+        &format!(
+            "SELECT f.user_id, COALESCE(p.username, 'unknown') AS username,
+                -- their phone's row, or with none (they stopped the music) the
+                -- song their session is on, or the session's name
+                COALESCE(np.song_id, ce.song_id, '') AS song_id,
+                COALESCE(np.title, ce.title, ls.name) AS title,
+                CASE WHEN np.user_id IS NULL THEN ce.artist ELSE np.artist END AS artist,
+                np.album,
+                CASE WHEN np.user_id IS NULL THEN ce.artwork_url ELSE np.artwork_url END
+                    AS artwork_url,
+                CASE WHEN np.user_id IS NULL THEN ce.duration_ms ELSE np.duration_ms END
+                    AS duration_ms,
+                COALESCE(np.is_playing, ls.is_playing AND ce.entry_id IS NOT NULL, false)
+                    AS is_playing,
+                COALESCE(np.position_ms, ls.position_ms, 0) AS position_ms,
+                COALESCE(np.position_at, ls.position_at, now()) AS position_at,
+                COALESCE(np.up_next, '[]'::jsonb) AS up_next,
+                COALESCE(np.updated_at, ls.position_at, now()) AS updated_at,
                 ls.session_id AS live_session_id,
-                COALESCE(ls.can_join, false) AS can_join
-         FROM now_playing np
-         LEFT JOIN profile p ON p.uid = np.user_id
+                COALESCE(ls.shows_live, false) AS shows_live,
+                -- with no session, joining makes a listen along one, so the
+                -- listen along audience decides; the viewer is a friend
+                COALESCE(
+                    ls.can_join,
+                    COALESCE(op.listen_along, 'nobody') IN ('friends', 'everyone')
+                ) AS can_join
+         FROM unnest($1::uuid[]) AS f(user_id)
+         LEFT JOIN now_playing np ON np.user_id = f.user_id
+         LEFT JOIN profile p ON p.uid = f.user_id
+         LEFT JOIN privacy_settings op ON op.user_id = f.user_id
          -- the open session they host, or play along in on their own device
          LEFT JOIN LATERAL (
-             SELECT s.session_id,
+             SELECT s.session_id, s.name, s.current_entry_id, s.is_playing,
+                    s.position_ms, s.position_at,
                     s.allow_join_without_code
                     AND NOT EXISTS (
                         SELECT 1 FROM live_session_members b
@@ -258,25 +289,31 @@ pub async fn friends_listening(
                                   ELSE COALESCE(hp.session_join, 'friends') END
                         WHEN 'everyone' THEN true
                         WHEN 'friends' THEN s.host_id = $2 OR EXISTS (
-                            SELECT 1 FROM friendships f
-                            WHERE f.status = 'complete'
-                              AND f.user1 = LEAST(s.host_id, $2)
-                              AND f.user2 = GREATEST(s.host_id, $2)
+                            SELECT 1 FROM friendships fr
+                            WHERE fr.status = 'complete'
+                              AND fr.user1 = LEAST(s.host_id, $2)
+                              AND fr.user2 = GREATEST(s.host_id, $2)
                         )
                         ELSE false
-                    END AS can_join
+                    END AS can_join,
+                    NOT s.listen_along OR EXISTS (
+                        SELECT 1 FROM live_session_members g
+                        WHERE g.session_id = s.session_id AND g.user_id <> s.host_id
+                          AND g.left_at IS NULL AND NOT g.banned
+                    ) AS shows_live
              FROM live_session_members m
              JOIN live_sessions s ON s.session_id = m.session_id
              LEFT JOIN privacy_settings hp ON hp.user_id = s.host_id
-             WHERE m.user_id = np.user_id AND m.left_at IS NULL AND NOT m.banned
-               AND s.ended_at IS NULL
-               AND s.host_seen_at > now() - interval '30 minutes'
-               AND (s.host_id = np.user_id OR m.listen_mode = 'synced')
-             ORDER BY (s.host_id = np.user_id) DESC
+             WHERE m.user_id = f.user_id AND m.left_at IS NULL AND NOT m.banned
+               AND {OPEN_SESSION_SQL}
+               AND (s.host_id = f.user_id OR m.listen_mode = 'synced')
+             ORDER BY (s.host_id = f.user_id) DESC
              LIMIT 1
          ) ls ON true
-         WHERE np.user_id = ANY($1) AND np.is_playing
-         ORDER BY np.updated_at DESC",
+         LEFT JOIN live_session_queue ce ON ce.entry_id = ls.current_entry_id
+         WHERE np.is_playing OR COALESCE(ls.shows_live, false)
+         ORDER BY COALESCE(np.updated_at, ls.position_at) DESC"
+        ),
         vec![uuid_array(&ids), viewer.into()],
     ))
     .all(db)
@@ -286,6 +323,7 @@ pub async fn friends_listening(
     Ok(rows
         .into_iter()
         .map(|row| ListeningUser {
+            in_live_session: row.shows_live,
             user_id: row.user_id,
             username: row.username,
             can_join: row.can_join,
@@ -300,12 +338,12 @@ pub async fn friends_listening(
                 is_playing: row.is_playing,
                 position_ms: row.position_ms,
                 position_at: row.position_at,
-                live_session_id: row.live_session_id,
+                live_session_id: row.live_session_id.filter(|_| row.shows_live),
                 up_next: row.up_next,
                 updated_at: row.updated_at,
             },
         })
-        .filter(|user| is_live(&user.now_playing, now))
+        .filter(|user| user.in_live_session || is_live(&user.now_playing, now))
         .collect())
 }
 

@@ -442,6 +442,89 @@ async fn social_listening_listen_along_has_its_own_audience() {
 
 #[tokio::test]
 #[ignore]
+async fn social_listening_joining_someone_listening_makes_a_session() {
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now()
+         WHERE host_id = ANY(ARRAY[$1, $2]::uuid[]) AND ended_at IS NULL",
+        [host.into(), guest.into()],
+    ))
+    .await
+    .unwrap();
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "INSERT INTO privacy_settings (user_id, listen_along) VALUES ($1, 'everyone')
+         ON CONFLICT (user_id) DO UPDATE SET listen_along = 'everyone'",
+        [host.into()],
+    ))
+    .await
+    .unwrap();
+    now_playing::upsert_now_playing(
+        &txn,
+        host,
+        NowPlayingUpdate {
+            song_id: "1440857781".into(),
+            title: "song".into(),
+            artist: None,
+            album: None,
+            artwork_url: None,
+            duration_ms: Some(200_000),
+            is_playing: true,
+            position_ms: 30_000,
+            up_next: vec![now_playing::UpNextSong {
+                song_id: Some("1440857790".into()),
+                title: "next".into(),
+                artist: None,
+                artwork_url: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    // nothing open, so joining makes one from what is playing, and asks
+    let first = sessions::join_listening(&txn, guest, host).await.unwrap();
+    assert!(first.created);
+    assert!(matches!(first.joined, sessions::Joined::Asked(_)));
+    let snap = sessions::get_snapshot(&txn, host, first.session_id)
+        .await
+        .unwrap();
+    assert!(snap.session.listen_along);
+    assert_eq!(snap.current.unwrap().song_id, "1440857781");
+    let next: Vec<_> = snap.up_next.iter().map(|e| e.song_id.as_str()).collect();
+    assert_eq!(next, ["1440857790"]);
+    assert_eq!(snap.join_requests.len(), 1);
+
+    // not now, with nobody else in it, ends it
+    let answered = sessions::answer_join_request(&txn, host, first.session_id, guest, false)
+        .await
+        .unwrap();
+    assert!(answered.ended);
+
+    // again, let in this time; the last guest leaving ends it too
+    let second = sessions::join_listening(&txn, guest, host).await.unwrap();
+    assert!(second.created);
+    assert_ne!(second.session_id, first.session_id);
+    sessions::answer_join_request(&txn, host, second.session_id, guest, true)
+        .await
+        .unwrap();
+    let again = sessions::join_listening(&txn, guest, host).await.unwrap();
+    assert!(!again.created);
+    assert_eq!(again.session_id, second.session_id);
+    assert!(matches!(
+        sessions::leave_session(&txn, guest, second.session_id)
+            .await
+            .unwrap(),
+        sessions::Left::Ended(_)
+    ));
+
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
 async fn social_listening_now_playing_reads_run() {
     let txn = scratch().await;
     let (a, b) = two_users(&txn).await;
@@ -658,12 +741,14 @@ async fn social_listening_back_repeat_and_stale_reports() {
     assert!(playback.projected.position_ms >= 90_000);
     assert_eq!(playback.session.version, change.version);
 
-    // repeat all: on the last song, the played ones come back after it
-    command(PlaybackCommand::Repeat {
+    // repeat all: on the last song, the played ones come back after it.
+    // Not on it yet, so only playback moved and the change carries it.
+    let change = command(PlaybackCommand::Repeat {
         mode: RepeatMode::All,
     })
     .await
     .unwrap();
+    assert_eq!(change.playback.unwrap().session.repeat_mode, "all");
     command(PlaybackCommand::Next).await.unwrap();
     assert_eq!(songs().await, ["32", "30", "31"]);
 
@@ -738,6 +823,34 @@ async fn social_listening_joining_without_a_code_asks_the_host() {
         sessions::answer_join_request(&txn, host, id, guest, true).await,
         Err(CadenzaError::NotFound)
     ));
+
+    // a repeat all that puts songs back moved the queue, so it does not
+    let off = command(PlaybackCommand::Repeat {
+        mode: RepeatMode::Off,
+    })
+    .await
+    .unwrap();
+    assert!(off.playback.is_some());
+    command(PlaybackCommand::Next).await.unwrap();
+    command(PlaybackCommand::Next).await.unwrap();
+    assert_eq!(songs().await, ["31"]);
+    let refill = command(PlaybackCommand::Repeat {
+        mode: RepeatMode::All,
+    })
+    .await
+    .unwrap();
+    assert!(refill.playback.is_none());
+    assert_eq!(songs().await.len(), 3);
+
+    // shuffle on reorders the queue; off only flips the flag
+    let on = command(PlaybackCommand::Shuffle { on: true })
+        .await
+        .unwrap();
+    assert!(on.playback.is_none());
+    let off = command(PlaybackCommand::Shuffle { on: false })
+        .await
+        .unwrap();
+    assert!(!off.playback.unwrap().session.shuffle);
 
     txn.rollback().await.unwrap();
 }

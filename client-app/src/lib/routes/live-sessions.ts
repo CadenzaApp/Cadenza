@@ -1,10 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { mutate } from "swr";
 
 import { useAccount } from "../account";
 import { invalidateAPIData, useAPIData, useAPIMutation } from "../api-actions";
 import { matchesEndpoint } from "../api-endpoints";
 import { serverNow, useRealtimeTopic } from "../realtime";
+import {
+    holdSessionModes,
+    pendingSessionModes,
+    subscribeSessionModes,
+    withPendingModes,
+    type SessionModes,
+} from "../session-modes";
 import type { CreateInviteBody, Invite } from "./invites";
 
 export type SessionRole =
@@ -249,6 +256,18 @@ function optimisticPlayback(
     }
 }
 
+/** The shuffle or repeat a command sets, or null for any other command. */
+function modesOf(body: PlaybackBody): Partial<SessionModes> | null {
+    switch (body.kind) {
+        case "shuffle":
+            return { shuffle: body.on };
+        case "repeat":
+            return { repeat_mode: body.mode };
+        default:
+            return null;
+    }
+}
+
 /** Whether a session read failed because the session is over or gone. */
 export function isSessionGone(error: unknown) {
     const type = (error as { error_type?: string } | null)?.error_type;
@@ -260,7 +279,8 @@ export function isSessionGone(error: unknown) {
  * socket. A 410 `SessionEnded` comes back as the error, and then the snapshot
  * is undefined: SWR would keep the last one, and a member would go on seeing
  * the session as live. An end also refetches `/live-sessions/current`, since
- * only the host's own write invalidates it.
+ * only the host's own write invalidates it. A shuffle or repeat the caller
+ * just set shows over the snapshot until the server answers.
  */
 export function useLiveSession(id: string | null) {
     const x = useAPIData<LiveSession>(`/live-sessions/${id}`, undefined, {
@@ -286,8 +306,21 @@ export function useLiveSession(id: string | null) {
     useEffect(() => {
         if (gone) void invalidateAPIData([{ path: "/live-sessions/current" }]);
     }, [gone]);
+    const pending = useSyncExternalStore(subscribeSessionModes, () =>
+        id ? pendingSessionModes(id) : undefined,
+    );
+    const shown = useMemo(
+        () =>
+            x.data && pending
+                ? {
+                      ...x.data,
+                      playback: withPendingModes(x.data.playback, pending),
+                  }
+                : x.data,
+        [x.data, pending],
+    );
     return {
-        liveSession: gone ? undefined : x.data,
+        liveSession: gone ? undefined : shown,
         liveSessionLoading: x.isLoading,
         liveSessionErr: x.error,
         reloadLiveSession: x.mutate,
@@ -362,23 +395,31 @@ export function useAnswerJoinRequest() {
 /** `joined`, or `asked` when the host has to let the caller in. */
 export type JoinResult = { version: number; status: "joined" | "asked" };
 
-export function useJoinLiveSession() {
-    const x = useAPIMutation<{ session_id: string }, JoinResult>(
+/**
+ * Joins a friend from Listening now: the session they are in, or with none, a
+ * listen along session the backend makes for them right then.
+ */
+export function useJoinListening() {
+    const x = useAPIMutation<
+        { user_id: string },
+        JoinResult & { session_id: string }
+    >(
         "POST",
-        ({ session_id }) => `/live-sessions/${session_id}/join`,
+        ({ user_id }) => `/live-sessions/listen-along/${user_id}`,
         [{ path: "/live-sessions/current" }],
         { invalidation: "await" },
     );
     return {
-        joinLiveSession: x.trigger,
-        joinLiveSessionLoading: x.isMutating,
+        joinListening: x.trigger,
+        joinListeningLoading: x.isMutating,
     };
 }
 
 /**
  * Every write to one session. Each refetches the snapshot after; the socket
- * tells everyone else. Playback is quicker: play, pause, and seek show at
- * once, and a change that moved only playback is applied from the response.
+ * tells everyone else. Playback is quicker: play, pause, seek, shuffle, and
+ * repeat show at once, and a change that moved only playback is applied from
+ * the response. A failed one goes back.
  */
 export function useLiveSessionWrites(id: string) {
     const base = `/live-sessions/${id}`;
@@ -393,6 +434,9 @@ export function useLiveSessionWrites(id: string) {
     );
 
     async function sendPlayback(body: PlaybackBody) {
+        const modes = modesOf(body);
+        // held until the cache has the server's word, so they never flick back
+        const release = modes ? holdSessionModes(id, modes) : () => {};
         await patchSession(id, (session) => {
             const next = optimisticPlayback(session.playback, body);
             return next ? { ...session, playback: next } : session;
@@ -401,12 +445,16 @@ export function useLiveSessionWrites(id: string) {
             const result = await playback.trigger(body);
             if (result?.playback && result.version !== null) {
                 await applyPlaybackChange(id, result.version, result.playback);
+                release();
             } else if (result?.version !== null) {
-                void invalidateAPIData(touched);
+                void invalidateAPIData(touched).finally(release);
+            } else {
+                release();
             }
             return result;
         } catch (error) {
             // undo the optimistic change
+            release();
             void invalidateAPIData(touched);
             throw error;
         }

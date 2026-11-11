@@ -54,7 +54,7 @@ const FIELDS: readonly {
         field: "listen_along",
         title: "Listen along",
         footnote:
-            "When you play music, a live session starts on its own so these people can listen with you.",
+            "Who can join you from Listening now. Joining starts a live session, which stays open until you end it.",
     },
 ];
 

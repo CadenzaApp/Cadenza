@@ -19,7 +19,7 @@ import {
     type RecentPlay,
     type UpNextSong,
 } from "@/lib/routes/listening";
-import { useJoinLiveSession } from "@/lib/routes/live-sessions";
+import { useJoinListening } from "@/lib/routes/live-sessions";
 import { useAppTheme } from "@/lib/theme";
 import { isUsableArtworkUrl } from "@/lib/utils";
 
@@ -55,8 +55,9 @@ const STRIP_SEE_ALL_AFTER = 4;
  * The Listening now row at the top of the feed: your session tile first
  * (start one, enter a code, or open yours), then the most recent friend as a
  * full card, then the rest as small tiles. Tapping a friend opens their
- * profile. Join appears on a card whose friend is in a session the viewer may
- * join.
+ * profile. Join appears on a card whose friend the viewer may join: their
+ * session, or with none, one made for them on the spot. A friend in a live
+ * session stays on the row while it is open, paused or not.
  */
 export function ListeningNowStrip() {
     const router = useRouter();
@@ -243,6 +244,7 @@ function FriendCard({
         >
             <ListeningCard
                 nowPlaying={friend.now_playing}
+                userId={friend.user_id}
                 username={friend.username}
                 canJoin={friend.can_join}
             />
@@ -303,6 +305,7 @@ export function ProfileListening({ userId }: { userId: string }) {
             {nowPlaying ? (
                 <ListeningCard
                     nowPlaying={nowPlaying}
+                    userId={userId}
                     // the backend says no when it is not allowed; a code is the way in then
                     canJoin={account?.id !== userId}
                 />
@@ -319,21 +322,22 @@ export function ProfileListening({ userId }: { userId: string }) {
 /**
  * One person's listening: who (when `username` is given, else a Playing now
  * label, for a profile), the song, then the artwork with live progress and up
- * to two up next songs beside it. In a live session it carries a LIVE chip,
- * and a Join button when `canJoin`.
+ * to two up next songs beside it. In a live session it carries a LIVE chip.
+ * With `canJoin` it has a Join button, which makes a session if there is none.
  */
 function ListeningCard({
     nowPlaying,
+    userId,
     username,
     canJoin = false,
 }: {
     nowPlaying: NowPlaying;
+    userId: string;
     username?: string;
     canJoin?: boolean;
 }) {
     const { brand } = useAppTheme().colors;
     const sessionId = nowPlaying.live_session_id;
-    const joinable = Boolean(sessionId && canJoin);
 
     return (
         <GlassPanel>
@@ -377,15 +381,15 @@ function ListeningCard({
                         </View>
                     </View>
                     {/* the session's chip, and right under it the way in */}
-                    {sessionId ? (
+                    {sessionId || canJoin ? (
                         <View className="items-end gap-2">
                             {/* as tall as the avatar row, so the chip lines up with the name */}
                             <View className="h-8 justify-center">
-                                <LiveChip />
+                                {sessionId ? <LiveChip /> : null}
                             </View>
-                            {joinable ? (
+                            {canJoin ? (
                                 <JoinButton
-                                    sessionId={sessionId}
+                                    userId={userId}
                                     username={username}
                                 />
                             ) : null}
@@ -410,23 +414,25 @@ function ListeningCard({
 
 /** Joins without a code, then opens the session. */
 function JoinButton({
-    sessionId,
+    userId,
     username,
 }: {
-    sessionId: string;
+    userId: string;
     username?: string;
 }) {
     const router = useRouter();
-    const { joinLiveSession, joinLiveSessionLoading } = useJoinLiveSession();
+    const { joinListening, joinListeningLoading } = useJoinListening();
     const [state, setState] = useState<"idle" | "asked" | "refused">(() =>
-        hasAskedToJoin(sessionId) ? "asked" : "idle",
+        hasAskedToJoin(userId) ? "asked" : "idle",
     );
 
     async function join() {
         try {
-            const { status } = await joinLiveSession({ session_id: sessionId });
+            const { status, session_id } = await joinListening({
+                user_id: userId,
+            });
             if (status === "asked") {
-                markAskedToJoin(sessionId);
+                markAskedToJoin(session_id, userId);
                 setState("asked");
                 return;
             }
@@ -451,7 +457,7 @@ function JoinButton({
                 size="sm"
                 icon="enter-outline"
                 label="Join"
-                loading={joinLiveSessionLoading}
+                loading={joinListeningLoading}
                 accessibilityLabel={`Join ${username ?? "their"}'s session`}
                 onPress={() => void join()}
             />
@@ -461,14 +467,17 @@ function JoinButton({
 
 /** A bar and `m:ss` times, ticking once a second. */
 function LiveProgress({ nowPlaying }: { nowPlaying: NowPlaying }) {
-    const { position_ms, as_of, duration_ms } = nowPlaying;
+    const { position_ms, as_of, duration_ms, is_playing } = nowPlaying;
     const [now, setNow] = useState(() => Date.now());
     useEffect(() => {
+        if (!is_playing) return;
         const timer = setInterval(() => setNow(Date.now()), 1000);
         return () => clearInterval(timer);
-    }, []);
+    }, [is_playing]);
 
-    const position = livePositionMs(position_ms, as_of, duration_ms, now);
+    const position = is_playing
+        ? livePositionMs(position_ms, as_of, duration_ms, now)
+        : position_ms;
     const fraction = duration_ms ? Math.min(1, position / duration_ms) : 0;
 
     return (

@@ -361,7 +361,10 @@ transaction, so the database tests can run them inside one that rolls back.
 - A live session's playback is an anchor (`current_entry_id`, `is_playing`, `position_ms` at
   `position_at`). Reads project it forward through the queued entries' `duration_ms` with
   `services::live_sessions::project`, so members stay right while the host's phone is in the
-  background. The host's reports re-anchor it. No report for 30 minutes ends the session.
+  background. The host's reports re-anchor it. A session stays open until the host ends it; only a
+  host alone in it times out, after 30 minutes without a report (`OPEN_SESSION_SQL` and
+  `SessionRow::is_open` hold the rule). A listen along session ends once nobody but the host is
+  in it or waiting (`end_if_unused`).
   Adding to an empty session anchors on the first song, at the host's `StartAt` when given.
   `command_seq` counts anchor moves the host's phone did not make (`AnchorBy::Command`), so the
   host follows those and ignores versions that only echo its own reports. A report that names an
@@ -376,8 +379,12 @@ transaction, so the database tests can run them inside one that rolls back.
   card from `shared_playlists::playlist_cards`, one query per page. Deleting the playlist
   drops the attachment.
 - `GET /listening/friends` reads a friend's open session at query time (the one they host, or
-  play along in), and `can_join` from the host's `session_join` audience and bans. Nothing
+  play along in), and `can_join` from the host's `session_join` audience and bans, or with no
+  session from their `listen_along` audience. A friend in a session that shows as live is listed
+  while it is open, paused or with no now playing row (then the session's current song). Nothing
   writes `now_playing.live_session_id`.
+- `join_listening` makes a listen along session for someone playing, seeded from their
+  `now_playing` row (song, position, up next), then joins it.
 
 ## The query compiler
 

@@ -52,6 +52,9 @@ pub struct NowPlaying {
     pub album: Option<String>,
     pub artwork_url: Option<String>,
     pub duration_ms: Option<i64>,
+    /// False for a friend listed only for their live session, while it is
+    /// paused or has nothing playing.
+    pub is_playing: bool,
     pub position_ms: i64,
     pub as_of: DateTime<Utc>,
     pub live_session_id: Option<Uuid>,
@@ -69,6 +72,7 @@ impl NowPlaying {
             album: row.album,
             artwork_url: row.artwork_url,
             duration_ms: row.duration_ms,
+            is_playing: row.is_playing,
             as_of: now,
             live_session_id: row.live_session_id,
         }
@@ -82,7 +86,8 @@ pub struct FriendListening {
     pub username: String,
     /// `live_session_id` is set when they host or play along in a session.
     pub now_playing: NowPlaying,
-    /// The viewer may join that session without a code.
+    /// The viewer may join without a code: that session, or with none, by
+    /// making a listen along one (`POST /live-sessions/listen-along/{user_id}`).
     pub can_join: bool,
 }
 

@@ -21,9 +21,9 @@ use crate::{
     routes::json::{
         invite::{CreateInvite, Invite},
         live_session::{
-            AddToQueue, AnswerJoinRequest, JoinResult, LiveSessionId, LiveSessionPlayback,
-            LiveSessionSnapshot, PatchLiveSession, PlaybackBody, QueueEntryAction, SessionVersion,
-            SetListenMode, SetLiveSessionRole, StartLiveSession,
+            AddToQueue, AnswerJoinRequest, JoinListeningResult, JoinResult, LiveSessionId,
+            LiveSessionPlayback, LiveSessionSnapshot, PatchLiveSession, PlaybackBody,
+            QueueEntryAction, SessionVersion, SetListenMode, SetLiveSessionRole, StartLiveSession,
         },
     },
     services::{
@@ -200,6 +200,46 @@ async fn join_handler(
     Ok(Json(JoinResult { version, status }))
 }
 
+/// Joins `user_id` from Listening now: the session they are in, or with none,
+/// a listen along session made for them now from what they are playing. 403
+/// when their listen along audience leaves the caller out, 404 when nothing
+/// is playing. Asks first like any join while `approve_joins` is on.
+///
+/// ```json
+/// { "session_id": "...", "version": 3, "status": "asked" }
+/// ```
+async fn join_listening_handler(
+    State(db): State<DatabaseConnection>,
+    State(bus): State<SharedEventBus>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<JoinListeningResult>, CadenzaError> {
+    let result = sessions::join_listening(&db, claims.user_id, user_id).await?;
+    let version = result.joined.version();
+    publish_version(
+        &bus,
+        Topic::LiveSession(result.session_id),
+        version,
+        "session",
+    );
+    // the owner's phone learns it hosts a session, and starts playing it
+    if result.created {
+        publish_presence(&bus, &[user_id]);
+    }
+    let status = match result.joined {
+        Joined::Member(_) => {
+            publish_presence(&bus, &[claims.user_id]);
+            "joined"
+        }
+        Joined::Asked(_) => "asked",
+    };
+    Ok(Json(JoinListeningResult {
+        session_id: result.session_id,
+        version,
+        status,
+    }))
+}
+
 /// Lets someone who asked to join in, or turns them away. Host only. 404 when
 /// they are not waiting.
 async fn answer_join_handler(
@@ -209,14 +249,18 @@ async fn answer_join_handler(
     Path((session_id, user_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<AnswerJoinRequest>,
 ) -> Result<Json<SessionVersion>, CadenzaError> {
-    let version =
+    let answered =
         sessions::answer_join_request(&db, claims.user_id, session_id, user_id, body.accept)
             .await?;
+    if answered.ended {
+        publish_presence(&bus, &[claims.user_id]);
+        return Ok(ended(&bus, session_id, answered.version));
+    }
     // the person let in refetches their current session off their own topic
     if body.accept {
         publish_presence(&bus, &[user_id]);
     }
-    Ok(changed(&bus, session_id, version))
+    Ok(changed(&bus, session_id, answered.version))
 }
 
 /// Leaves. The host leaving hands it to another member, or ends it when
@@ -237,7 +281,9 @@ async fn leave_handler(
             Ok(changed(&bus, session_id, version))
         }
         Left::Ended(version) => {
-            publish_presence(&bus, &sessions::present_member_ids(&db, session_id).await?);
+            let mut told = sessions::present_member_ids(&db, session_id).await?;
+            told.push(claims.user_id);
+            publish_presence(&bus, &told);
             Ok(ended(&bus, session_id, version))
         }
     }
@@ -463,6 +509,7 @@ pub fn get_live_sessions_router() -> Router<AppState> {
             get(get_handler).delete(end_handler).patch(patch_handler),
         )
         .route("/{id}/join", post(join_handler))
+        .route("/listen-along/{user_id}", post(join_listening_handler))
         .route("/{id}/join-requests/{user_id}", post(answer_join_handler))
         .route("/{id}/leave", post(leave_handler))
         .route(
