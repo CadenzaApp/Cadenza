@@ -53,11 +53,23 @@ export type QueryRoute = {
     params: { query: string; suggested: string; name?: string };
 };
 
+export type SharedPlaylistRoute = {
+    pathname: "/social/playlist/[id]";
+    params: { id: string };
+};
+
+export type LiveSessionRoute = {
+    pathname: "/live-session/[id]";
+    params: { id: string };
+};
+
 export type DimensionRoute =
     | ArtistRoute
     | AlbumRoute
     | PlaylistRoute
-    | QueryRoute;
+    | QueryRoute
+    | SharedPlaylistRoute
+    | LiveSessionRoute;
 
 /**
  * The artist page for a ranking row, or null when no play of it recorded a
@@ -133,6 +145,28 @@ export function queryRouteFor(entity: RankedEntity): QueryRoute | null {
             suggested: source.suggested ? "1" : "",
             name: entity.label ?? undefined,
         },
+    };
+}
+
+/** The shared playlist's page, on the Social tab. */
+export function sharedPlaylistRouteFor(
+    entity: RankedEntity,
+): SharedPlaylistRoute | null {
+    if (!entity.entity_id) return null;
+    return {
+        pathname: "/social/playlist/[id]",
+        params: { id: entity.entity_id },
+    };
+}
+
+/** The session's sheet, which says so when the session is over. */
+export function liveSessionRouteFor(
+    entity: RankedEntity,
+): LiveSessionRoute | null {
+    if (!entity.entity_id) return null;
+    return {
+        pathname: "/live-session/[id]",
+        params: { id: entity.entity_id },
     };
 }
 
@@ -231,6 +265,28 @@ export const DIMENSIONS: DimensionDescriptor[] = [
         artworkCollection: null,
         hrefFor: queryRouteFor,
         seeAllHref: rankingHref("query"),
+    },
+    {
+        name: "shared_playlist",
+        label: "Shared",
+        icon: "people",
+        pageTitle: "Most Played Shared Playlists",
+        emptyLabel: "Nothing played from a shared playlist in this window yet.",
+        roundArtwork: false,
+        artworkCollection: null,
+        hrefFor: sharedPlaylistRouteFor,
+        seeAllHref: rankingHref("shared_playlist"),
+    },
+    {
+        name: "live_session",
+        label: "Live",
+        icon: "radio",
+        pageTitle: "Most Played Live Sessions",
+        emptyLabel: "Nothing played in a live session in this window yet.",
+        roundArtwork: false,
+        artworkCollection: null,
+        hrefFor: liveSessionRouteFor,
+        seeAllHref: rankingHref("live_session"),
     },
 ];
 

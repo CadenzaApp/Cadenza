@@ -7,7 +7,9 @@ import {
     DIMENSIONS,
     dimensionByName,
     playlistRouteFor,
+    liveSessionRouteFor,
     queryRouteFor,
+    sharedPlaylistRouteFor,
     type RankedEntity,
 } from "./dimensions.ts";
 import { encodeQuerySource } from "../../lib/play-source.ts";
@@ -221,4 +223,19 @@ test("a query reruns with its tree and its suggested flag", () => {
 test("a query whose id is not a query is inert", () => {
     assert.equal(queryRouteFor(entity({ entity_id: "p.abc" })), null);
     assert.equal(queryRouteFor(entity()), null);
+});
+
+test("shared playlists and live sessions open by their id", () => {
+    const entity = {
+        key: "7",
+        label: "Road trip",
+        sub_label: null,
+        entity_id: "7",
+    };
+    assert.deepEqual(sharedPlaylistRouteFor(entity), {
+        pathname: "/social/playlist/[id]",
+        params: { id: "7" },
+    });
+    assert.deepEqual(liveSessionRouteFor(entity)?.params, { id: "7" });
+    assert.equal(sharedPlaylistRouteFor({ ...entity, entity_id: null }), null);
 });
