@@ -43,8 +43,6 @@ type MediaPlayerQueueProps = {
     onOpenArtist?: () => void;
     onToggleShuffle: () => void;
     onCycleRepeat: () => void;
-    /** False in a live session, whose queue has no shuffle or repeat. */
-    showModes?: boolean;
     /**
      * False when the queue is not the user's to change, like a live session
      * role below queue editor: no dragging, no remove, no handles.
@@ -84,7 +82,6 @@ export function MediaPlayerQueue({
     onOpenArtist,
     onToggleShuffle,
     onCycleRepeat,
-    showModes = true,
     editable = true,
     onPlayUpcoming,
     onRemoveUpcoming,
@@ -108,29 +105,27 @@ export function MediaPlayerQueue({
                 onOpenArtist={onOpenArtist}
             />
 
-            {showModes ? (
-                <View className="mt-3 flex-row gap-2">
-                    <ModePill
-                        label="Shuffle"
-                        icon="shuffle"
-                        active={shuffleOn}
-                        textColor={textColor}
-                        onPress={onToggleShuffle}
-                    />
-                    <ModePill
-                        label={repeatLabel(repeatMode)}
-                        icon={
-                            repeatMode === RepeatMode.One
-                                ? "repeat-outline"
-                                : "repeat"
-                        }
-                        badge={repeatMode === RepeatMode.One ? "1" : undefined}
-                        active={repeatOn}
-                        textColor={textColor}
-                        onPress={onCycleRepeat}
-                    />
-                </View>
-            ) : null}
+            <View className="mt-3 flex-row gap-2">
+                <ModePill
+                    label="Shuffle"
+                    icon="shuffle"
+                    active={shuffleOn}
+                    textColor={textColor}
+                    onPress={onToggleShuffle}
+                />
+                <ModePill
+                    label={repeatLabel(repeatMode)}
+                    icon={
+                        repeatMode === RepeatMode.One
+                            ? "repeat-outline"
+                            : "repeat"
+                    }
+                    badge={repeatMode === RepeatMode.One ? "1" : undefined}
+                    active={repeatOn}
+                    textColor={textColor}
+                    onPress={onCycleRepeat}
+                />
+            </View>
 
             <Text className="mb-1 mt-4 text-xl font-bold text-foreground">
                 Continue Playing

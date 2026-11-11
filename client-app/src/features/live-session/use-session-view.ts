@@ -60,13 +60,18 @@ export function useSessionView(session: LiveSession | null, showing: boolean) {
             now,
         );
         const durationMs = current?.duration_ms ?? null;
+        // repeat one loops in place; anything else waits at the end for the
+        // next snapshot
+        const shownMs = !durationMs
+            ? positionMs
+            : session.playback.repeat_mode === "one"
+              ? positionMs % durationMs
+              : Math.min(positionMs, durationMs);
         return {
             queue,
             queueIndex: current ? 0 : -1,
             isPlaying: Boolean(current) && session.playback.is_playing,
-            progress:
-                (durationMs ? Math.min(positionMs, durationMs) : positionMs) /
-                1000,
+            progress: shownMs / 1000,
         };
     }, [now, queue, session, showing, target]);
 

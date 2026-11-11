@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useRef } from "react";
-import { Playback, PlaybackQueueType, type MusicItem } from "@apple-musickit";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+    Playback,
+    PlaybackQueueType,
+    RepeatMode,
+    ShuffleMode,
+    type MusicItem,
+} from "@apple-musickit";
 
 import {
     useLocalPlaybackCommands,
@@ -79,8 +85,14 @@ export function sessionTarget(session: LiveSession): LiveSessionEntry[] {
  *
  * Each new snapshot version is applied: the queue is brought in line with
  * `reconcile` (replaced only when the current song differs), play or pause is
- * matched, and drift past 2 s is corrected at most every 5 s. A version the
- * host's own report produced is skipped, since the phone is already there.
+ * matched, and drift past 2 s is corrected at most every 5 s, or right away
+ * for a new command like a seek. A version the host's own report produced is
+ * skipped, since the phone is already there. A version that lands while the
+ * last one is still being applied is applied after it.
+ *
+ * The session's shuffle and repeat are its own, so the phone's shuffle stays
+ * off and its repeat is on only to loop one song. Repeat all is the server
+ * putting played songs back in the queue.
  *
  * The host's phone goes where the session is only when someone steered it
  * (`command_seq` moved), or when it first picks up a session playing another
@@ -89,8 +101,9 @@ export function sessionTarget(session: LiveSession): LiveSessionEntry[] {
  * which lags the phone, would pause, rewind, or skip it.
  *
  * The host's own player controls keep working: a skip or seek on the phone
- * shows up in the next report and the session follows. Members control the
- * session from its screen.
+ * shows up in the next report and the session follows. Each report carries the
+ * last command the phone followed, so one sent before the phone caught up with
+ * a command cannot undo it.
  *
  * A member leaving gets their old queue back, paused.
  */
@@ -128,6 +141,10 @@ export function useSessionPlayer(
     const followed = useRef<{ sessionId: string; seq: number } | null>(null);
     const lastSeekAt = useRef(0);
     const applying = useRef(false);
+    /** The last version applied or skipped. */
+    const appliedVersion = useRef<number | null>(null);
+    // bumped when an apply finishes, so a version that landed meanwhile runs
+    const [settled, setSettled] = useState(0);
     const savedQueue = useRef<{ tracks: MusicItem[]; index: number } | null>(
         null,
     );
@@ -159,7 +176,10 @@ export function useSessionPlayer(
                 }
             })();
         }
-        if (!active) followed.current = null;
+        if (!active) {
+            followed.current = null;
+            appliedVersion.current = null;
+        }
         wasActive.current = active;
         // only the edge matters, not every queue change
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,21 +189,33 @@ export function useSessionPlayer(
     const version = session?.version;
     useEffect(() => {
         if (!active || !session || version === undefined) return;
-        if (ownVersions.current.includes(version)) return;
-        if (applying.current) return;
+        if (applying.current || appliedVersion.current === version) return;
+        const seq = session.playback.command_seq;
+        const last = followed.current;
+        const sameSession = last?.sessionId === session.session_id;
+        // a command since the last version this phone followed
+        const commanded = sameSession && seq !== last.seq;
+        // our own report, unless a command came in with it
+        if (
+            ownVersions.current.includes(version) &&
+            sameSession &&
+            !commanded
+        ) {
+            appliedVersion.current = version;
+            return;
+        }
         applying.current = true;
+        appliedVersion.current = version;
 
         const phoneSong = playback.activeTrack
             ? songIdOf(playback.activeTrack)
             : null;
-        const seq = session.playback.command_seq;
-        const last = followed.current;
         // a host picking up a session follows it only when it has another
         // song to go to; a new, empty one leaves the phone playing
         const steered =
             !isHost ||
-            (last?.sessionId === session.session_id
-                ? seq !== last.seq
+            (sameSession
+                ? commanded
                 : target.length > 0 && phoneSong !== target[0].song_id);
         followed.current = { sessionId: session.session_id, seq };
         const queueTarget = steered
@@ -198,14 +230,30 @@ export function useSessionPlayer(
 
         void (async () => {
             try {
+                await applyModes();
                 await applyQueue();
                 if (steered) await applyPlayState();
             } catch (error) {
                 console.warn("Could not follow the live session:", error);
             } finally {
                 applying.current = false;
+                setSettled((n) => n + 1);
             }
         })();
+
+        async function applyModes() {
+            if (playback.shuffleMode !== ShuffleMode.Off) {
+                await commands.setShuffleMode(ShuffleMode.Off);
+            }
+            const mode = session!.playback.repeat_mode;
+            // one song on repeat all loops the same way as repeat one
+            const loopOne =
+                mode === "one" || (mode === "all" && target.length === 1);
+            const repeat = loopOne ? RepeatMode.One : RepeatMode.Off;
+            if (playback.repeatMode !== repeat) {
+                await commands.setRepeatMode(repeat);
+            }
+        }
 
         async function applyQueue() {
             if (queueTarget.length === 0) return;
@@ -267,11 +315,16 @@ export function useSessionPlayer(
                 serverNow(),
             );
             const now = Date.now();
+            // a command, like a seek or back, is followed at once; only drift
+            // waits out the interval
+            const sinceSeek = commanded
+                ? Number.POSITIVE_INFINITY
+                : now - lastSeekAt.current;
             if (
                 shouldCorrectDrift(
                     playback.progress * 1000,
                     expected,
-                    now - lastSeekAt.current,
+                    sinceSeek,
                 )
             ) {
                 lastSeekAt.current = now;
@@ -280,7 +333,7 @@ export function useSessionPlayer(
         }
         // a new version is the trigger; the rest is read at that moment
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [active, version]);
+    }, [active, version, settled]);
 
     // the host reports what its phone is really doing
     const activeSong = playback.activeTrack
@@ -319,11 +372,16 @@ export function useSessionPlayer(
 
         void (async () => {
             try {
+                const seen = followed.current;
                 const result = await writes.sendPlayback({
                     kind: "report",
                     entry_id: entryId,
                     position_ms: positionMs,
                     is_playing: playback.isPlaying,
+                    command_seq:
+                        seen?.sessionId === session.session_id
+                            ? seen.seq
+                            : null,
                 });
                 if (result?.version != null) {
                     ownVersions.current = [

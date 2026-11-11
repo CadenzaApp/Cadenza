@@ -364,7 +364,13 @@ transaction, so the database tests can run them inside one that rolls back.
   background. The host's reports re-anchor it. No report for 30 minutes ends the session.
   Adding to an empty session anchors on the first song, at the host's `StartAt` when given.
   `command_seq` counts anchor moves the host's phone did not make (`AnchorBy::Command`), so the
-  host follows those and ignores versions that only echo its own reports.
+  host follows those and ignores versions that only echo its own reports. A report that names an
+  older `command_seq` is ignored. A report off the projection by over 3 s is a seek on the phone
+  and bumps the version so members follow.
+- A played entry keeps `played_at` (`sql/live_session_modes.sql`), which `previous` walks back
+  through. `shuffle` reorders the upcoming songs when turned on. On `repeat_mode` `all`, once the
+  current song is the last queued one, `refill_for_repeat` puts the played songs back after it;
+  `one` loops the current song in the projection.
 - A post can attach a shared playlist (`posts.shared_playlist_id`,
   `sql/post_shared_playlists.sql`), never along with `topic_mk_id`. Every post read fills its
   card from `shared_playlists::playlist_cards`, one query per page. Deleting the playlist

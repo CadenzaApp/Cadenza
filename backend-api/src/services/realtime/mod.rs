@@ -1,5 +1,8 @@
-//! Realtime push. Postgres holds every durable state; this only tells
-//! subscribers that something changed, so they refetch it over HTTP.
+//! Realtime push. Postgres holds every durable state; this mostly tells
+//! subscribers that something changed, so they refetch it over HTTP. The one
+//! exception is a live session's `playback` event, which carries the new
+//! playback so a pause or seek lands without a refetch. Only members can
+//! subscribe to a session topic, and they could read the same over HTTP.
 //!
 //! Mutations never go over the socket. A handler writes through `db/`, then
 //! publishes an [`Event`] naming the topic and its new version. The socket
@@ -76,8 +79,8 @@ pub trait EventBus: Send + Sync {
 pub type SharedEventBus = Arc<dyn EventBus>;
 
 /// Publishes that `topic` is now at `version`. The kinds a client acts on:
-/// `now_playing`, `presence`, `live_session`, `playlist`, `session`, and
-/// `ended`.
+/// `now_playing`, `presence`, `live_session`, `playlist`, `session`,
+/// `playback`, and `ended`.
 pub fn publish_version(bus: &SharedEventBus, topic: Topic, version: i64, kind: &str) {
     bus.publish(Event::new(topic, version, kind));
 }

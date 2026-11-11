@@ -13,22 +13,22 @@ use crate::{
     db::{
         invites::{InviteTargetRef, NewInvite, create_invite},
         live_sessions::{
-            self as sessions, AddAt, Joined, Left, NewSession, PlaybackCommand, SessionPatch,
-            StartAt,
+            self as sessions, AddAt, Change, Joined, Left, NewSession, PlaybackCommand,
+            SessionPatch, StartAt,
         },
     },
     err::CadenzaError,
     routes::json::{
         invite::{CreateInvite, Invite},
         live_session::{
-            AddToQueue, AnswerJoinRequest, JoinResult, LiveSessionId, LiveSessionSnapshot,
-            PatchLiveSession, PlaybackBody, QueueEntryAction, SessionVersion, SetListenMode,
-            SetLiveSessionRole, StartLiveSession,
+            AddToQueue, AnswerJoinRequest, JoinResult, LiveSessionId, LiveSessionPlayback,
+            LiveSessionSnapshot, PatchLiveSession, PlaybackBody, QueueEntryAction, SessionVersion,
+            SetListenMode, SetLiveSessionRole, StartLiveSession,
         },
     },
     services::{
-        live_sessions::SessionRole,
-        realtime::{SharedEventBus, Topic, publish_version},
+        live_sessions::{RepeatMode, SessionRole},
+        realtime::{Event, SharedEventBus, Topic, publish_version},
     },
 };
 
@@ -37,6 +37,29 @@ fn changed(bus: &SharedEventBus, session_id: Uuid, version: i64) -> Json<Session
     Json(SessionVersion {
         version: Some(version),
         ended: false,
+        playback: None,
+    })
+}
+
+/// Publishes a playback write. One that moved only playback sends the new
+/// playback with the event, so members apply it without a refetch.
+fn playback_changed(
+    bus: &SharedEventBus,
+    session_id: Uuid,
+    change: Change,
+) -> Json<SessionVersion> {
+    let Some(now) = change.playback else {
+        return changed(bus, session_id, change.version);
+    };
+    let playback = LiveSessionPlayback::from(&now);
+    let data = serde_json::to_value(&playback).unwrap_or(serde_json::Value::Null);
+    bus.publish(
+        Event::new(Topic::LiveSession(session_id), change.version, "playback").with_data(data),
+    );
+    Json(SessionVersion {
+        version: Some(change.version),
+        ended: false,
+        playback: Some(playback),
     })
 }
 
@@ -45,6 +68,7 @@ fn ended(bus: &SharedEventBus, session_id: Uuid, version: i64) -> Json<SessionVe
     Json(SessionVersion {
         version: Some(version),
         ended: true,
+        playback: None,
     })
 }
 
@@ -338,9 +362,12 @@ async fn remove_queue_handler(
 }
 
 /// Playback, tagged by `kind`. Controllers and the host: `play`, `pause`,
-/// `seek {position_ms}`, `next`, `jump {entry_id}`. The host's device only:
-/// `report {entry_id, position_ms, is_playing}` on track change, play or
-/// pause, and every 10 s, and `advance {from_entry_id}` when a song ends.
+/// `seek {position_ms}`, `next`, `previous`, `jump {entry_id}`,
+/// `shuffle {on}`, `repeat {mode}`. `previous` restarts the song, or within
+/// 4 s of its start goes back to the last one played. The host's device only:
+/// `report {entry_id, position_ms, is_playing, command_seq}` on track change,
+/// play or pause, and every 10 s, and `advance {from_entry_id}` when a song
+/// ends. A report older than the latest command is ignored.
 /// `version` is null when a report changed nothing worth telling anyone.
 async fn playback_handler(
     State(db): State<DatabaseConnection>,
@@ -351,30 +378,51 @@ async fn playback_handler(
 ) -> Result<Json<SessionVersion>, CadenzaError> {
     let user = claims.user_id;
     let command = |command| sessions::playback_command(&db, user, session_id, command);
-    let version = match body {
+    let change = match body {
         PlaybackBody::Play => Some(command(PlaybackCommand::Play).await?),
         PlaybackBody::Pause => Some(command(PlaybackCommand::Pause).await?),
         PlaybackBody::Seek { position_ms } => {
             Some(command(PlaybackCommand::Seek { position_ms }).await?)
         }
         PlaybackBody::Next => Some(command(PlaybackCommand::Next).await?),
+        PlaybackBody::Previous => Some(command(PlaybackCommand::Previous).await?),
         PlaybackBody::Jump { entry_id } => Some(command(PlaybackCommand::Jump { entry_id }).await?),
+        PlaybackBody::Shuffle { on } => Some(command(PlaybackCommand::Shuffle { on }).await?),
+        PlaybackBody::Repeat { mode } => {
+            let mode = RepeatMode::parse(&mode).ok_or_else(|| {
+                CadenzaError::InvalidRequestBody("repeat is off, all, or one".into())
+            })?;
+            Some(command(PlaybackCommand::Repeat { mode }).await?)
+        }
         PlaybackBody::Report {
             entry_id,
             position_ms,
             is_playing,
+            command_seq,
         } => {
-            sessions::host_report(&db, user, session_id, entry_id, position_ms, is_playing).await?
+            let report = sessions::HostReport {
+                entry_id,
+                position_ms,
+                is_playing,
+                command_seq,
+            };
+            sessions::host_report(&db, user, session_id, report).await?
         }
         PlaybackBody::Advance { from_entry_id } => {
-            sessions::host_advance(&db, user, session_id, from_entry_id).await?
+            sessions::host_advance(&db, user, session_id, from_entry_id)
+                .await?
+                .map(|version| Change {
+                    version,
+                    playback: None,
+                })
         }
     };
-    match version {
-        Some(version) => Ok(changed(&bus, session_id, version)),
+    match change {
+        Some(change) => Ok(playback_changed(&bus, session_id, change)),
         None => Ok(Json(SessionVersion {
             version: None,
             ended: false,
+            playback: None,
         })),
     }
 }

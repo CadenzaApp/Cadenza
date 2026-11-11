@@ -12,14 +12,17 @@ export type RealtimeTopic =
     | { kind: "shared_playlist"; id: number };
 
 /**
- * One change. `kind` is `now_playing`, `playlist`, `session`, or `ended`
- * from the backend, or `resync` from this client after a reconnect or a lag,
- * when events may have been missed and the subscriber should refetch.
+ * One change. `kind` is `now_playing`, `playlist`, `session`, `playback`,
+ * or `ended` from the backend, or `resync` from this client after a reconnect
+ * or a lag, when events may have been missed and the subscriber should
+ * refetch. `data` is null except on `playback`, where it is the session's new
+ * playback.
  */
 export type RealtimeEvent = {
     topic: RealtimeTopic;
     version: number;
     kind: string;
+    data?: unknown;
 };
 
 export type ServerMessage =

@@ -2,7 +2,10 @@ use chrono::{DateTime, Utc};
 use sea_orm::prelude::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::db::live_sessions::{NewQueueSong, QueueEntry, SessionMember, SessionSnapshot};
+use crate::db::live_sessions::{
+    NewQueueSong, PlaybackNow, ProjectedPlayback, QueueEntry, SessionMember, SessionRow,
+    SessionSnapshot,
+};
 use crate::services::live_sessions::{Actor, SessionRole};
 
 #[derive(Deserialize)]
@@ -72,6 +75,7 @@ impl From<QueueEntry> for LiveSessionEntry {
 
 /// Where playback is, projected to `as_of` (server clock). `command_seq`
 /// moves only when someone other than the host's phone changes playback.
+/// `repeat_mode` is `off`, `all`, or `one`.
 #[derive(Serialize)]
 pub struct LiveSessionPlayback {
     pub entry_id: Option<i64>,
@@ -79,6 +83,28 @@ pub struct LiveSessionPlayback {
     pub is_playing: bool,
     pub as_of: DateTime<Utc>,
     pub command_seq: i64,
+    pub shuffle: bool,
+    pub repeat_mode: String,
+}
+
+impl LiveSessionPlayback {
+    fn new(projected: &ProjectedPlayback, session: &SessionRow) -> Self {
+        Self {
+            entry_id: projected.entry_id,
+            position_ms: projected.position_ms,
+            is_playing: projected.is_playing,
+            as_of: projected.as_of,
+            command_seq: session.command_seq,
+            shuffle: session.shuffle,
+            repeat_mode: session.repeat_mode.clone(),
+        }
+    }
+}
+
+impl From<&PlaybackNow> for LiveSessionPlayback {
+    fn from(now: &PlaybackNow) -> Self {
+        Self::new(&now.projected, &now.session)
+    }
 }
 
 #[derive(Serialize)]
@@ -121,6 +147,7 @@ fn member(row: SessionMember, host_id: Uuid) -> LiveSessionMember {
 impl From<SessionSnapshot> for LiveSessionSnapshot {
     fn from(snapshot: SessionSnapshot) -> Self {
         let session = snapshot.session;
+        let playback = LiveSessionPlayback::new(&snapshot.playback, &session);
         let host_id = session.host_id;
         let members: Vec<LiveSessionMember> = snapshot
             .members
@@ -173,13 +200,7 @@ impl From<SessionSnapshot> for LiveSessionSnapshot {
             current: snapshot.current.map(Into::into),
             up_next: snapshot.up_next.into_iter().map(Into::into).collect(),
             suggestions: snapshot.suggestions.into_iter().map(Into::into).collect(),
-            playback: LiveSessionPlayback {
-                entry_id: snapshot.playback.entry_id,
-                position_ms: snapshot.playback.position_ms,
-                is_playing: snapshot.playback.is_playing,
-                as_of: snapshot.playback.as_of,
-                command_seq: session.command_seq,
-            },
+            playback,
             created_at: session.created_at.with_timezone(&Utc),
         }
     }
@@ -282,13 +303,23 @@ pub enum PlaybackBody {
         position_ms: i64,
     },
     Next,
+    Previous,
     Jump {
         entry_id: i64,
+    },
+    Shuffle {
+        on: bool,
+    },
+    /// `off`, `all`, or `one`.
+    Repeat {
+        mode: String,
     },
     Report {
         entry_id: Option<i64>,
         position_ms: i64,
         is_playing: bool,
+        /// The last `command_seq` the phone followed.
+        command_seq: Option<i64>,
     },
     Advance {
         from_entry_id: i64,
@@ -301,4 +332,8 @@ pub struct SessionVersion {
     /// projection.
     pub version: Option<i64>,
     pub ended: bool,
+    /// The new playback, when the write moved only that. The `playback`
+    /// event carries the same.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub playback: Option<LiveSessionPlayback>,
 }

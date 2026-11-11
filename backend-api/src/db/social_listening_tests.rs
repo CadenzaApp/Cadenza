@@ -19,7 +19,7 @@ use crate::db::{
     shared_playlists::{self as playlists, MemberRemoved, PlaylistRole},
 };
 use crate::err::CadenzaError;
-use crate::services::live_sessions::SessionRole;
+use crate::services::live_sessions::{RepeatMode, SessionRole};
 
 async fn scratch() -> DatabaseTransaction {
     dotenvy::dotenv().ok();
@@ -282,9 +282,13 @@ async fn social_listening_live_session_flow() {
             .is_none()
     );
 
-    sessions::host_report(&txn, host, id, None, 5_000, false)
-        .await
-        .unwrap();
+    let report = sessions::HostReport {
+        entry_id: None,
+        position_ms: 5_000,
+        is_playing: false,
+        command_seq: None,
+    };
+    sessions::host_report(&txn, host, id, report).await.unwrap();
     let snap = sessions::get_snapshot(&txn, guest, id).await.unwrap();
     assert!(!snap.playback.is_playing);
     assert_eq!(snap.playback.position_ms, 5_000);
@@ -522,9 +526,13 @@ async fn social_listening_only_commands_move_command_seq() {
         .current
         .unwrap()
         .entry_id;
-    sessions::host_report(&txn, host, id, Some(current), 9_000, false)
-        .await
-        .unwrap();
+    let report = sessions::HostReport {
+        entry_id: Some(current),
+        position_ms: 9_000,
+        is_playing: false,
+        command_seq: Some(0),
+    };
+    sessions::host_report(&txn, host, id, report).await.unwrap();
     sessions::join_session(&txn, guest, id, true).await.unwrap();
     assert_eq!(seq().await, 0);
 
@@ -537,6 +545,127 @@ async fn social_listening_only_commands_move_command_seq() {
         .await
         .unwrap();
     assert_eq!(seq().await, 2);
+
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_back_repeat_and_stale_reports() {
+    let txn = scratch().await;
+    let (host, _) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id = $1 AND ended_at IS NULL",
+        [host.into()],
+    ))
+    .await
+    .unwrap();
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Back",
+            default_role: SessionRole::Controller,
+            allow_join_without_code: true,
+            listen_along: false,
+            approve_joins: false,
+        },
+    )
+    .await
+    .unwrap();
+    sessions::add_songs(
+        &txn,
+        host,
+        id,
+        &[song("30"), song("31"), song("32")],
+        sessions::AddAt::End,
+        Some(sessions::StartAt {
+            position_ms: 0,
+            is_playing: true,
+        }),
+    )
+    .await
+    .unwrap();
+    let songs = || async {
+        let snap = sessions::get_snapshot(&txn, host, id).await.unwrap();
+        let mut ids = vec![snap.current.unwrap().song_id];
+        ids.extend(snap.up_next.into_iter().map(|entry| entry.song_id));
+        ids
+    };
+    let command = |command| sessions::playback_command(&txn, host, id, command);
+    // paused, so positions do not run on: now() is fixed for the transaction
+    command(PlaybackCommand::Pause).await.unwrap();
+
+    command(PlaybackCommand::Next).await.unwrap();
+    command(PlaybackCommand::Next).await.unwrap();
+    assert_eq!(songs().await, ["32"]);
+
+    // near the start, back goes to the song before, and again
+    command(PlaybackCommand::Previous).await.unwrap();
+    assert_eq!(songs().await, ["31", "32"]);
+    command(PlaybackCommand::Previous).await.unwrap();
+    assert_eq!(songs().await, ["30", "31", "32"]);
+    // nothing before the first, so it restarts
+    command(PlaybackCommand::Previous).await.unwrap();
+    assert_eq!(songs().await, ["30", "31", "32"]);
+
+    // past the threshold, back restarts the song
+    command(PlaybackCommand::Next).await.unwrap();
+    command(PlaybackCommand::Seek {
+        position_ms: 60_000,
+    })
+    .await
+    .unwrap();
+    command(PlaybackCommand::Previous).await.unwrap();
+    let snap = sessions::get_snapshot(&txn, host, id).await.unwrap();
+    assert_eq!(snap.current.unwrap().song_id, "31");
+    assert!(snap.playback.position_ms < 4_000);
+
+    // a report from before the latest command is only the host being there
+    let entry = sessions::get_snapshot(&txn, host, id)
+        .await
+        .unwrap()
+        .current
+        .unwrap()
+        .entry_id;
+    let stale = sessions::HostReport {
+        entry_id: Some(entry),
+        position_ms: 90_000,
+        is_playing: true,
+        command_seq: Some(0),
+    };
+    assert!(
+        sessions::host_report(&txn, host, id, stale)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let snap = sessions::get_snapshot(&txn, host, id).await.unwrap();
+    assert!(snap.playback.position_ms < 4_000);
+
+    // a seek on the phone is news to everyone else
+    let seek = sessions::HostReport {
+        command_seq: Some(snap.session.command_seq),
+        ..stale
+    };
+    // and carries the new playback, since the queue did not move
+    let change = sessions::host_report(&txn, host, id, seek)
+        .await
+        .unwrap()
+        .unwrap();
+    let playback = change.playback.unwrap();
+    assert!(playback.projected.position_ms >= 90_000);
+    assert_eq!(playback.session.version, change.version);
+
+    // repeat all: on the last song, the played ones come back after it
+    command(PlaybackCommand::Repeat {
+        mode: RepeatMode::All,
+    })
+    .await
+    .unwrap();
+    command(PlaybackCommand::Next).await.unwrap();
+    assert_eq!(songs().await, ["32", "30", "31"]);
 
     txn.rollback().await.unwrap();
 }

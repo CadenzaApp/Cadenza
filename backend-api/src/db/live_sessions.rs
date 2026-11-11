@@ -6,7 +6,7 @@
 //!
 //! The queue: `queued` entries in `position` order are what will play. The
 //! current one is `current_entry_id` and stays `queued` until it ends, when it
-//! becomes `played`. `suggested` entries wait for the host, who approves them
+//! becomes `played` with a `played_at`, which is what back walks. `suggested` entries wait for the host, who approves them
 //! onto the end of the queue or rejects them.
 //!
 //! A non member reads `NotFound`, so a session id does not leak. The host
@@ -28,8 +28,8 @@ use crate::db::{
 };
 use crate::err::CadenzaError;
 use crate::services::live_sessions::{
-    Actor, Anchor, Projected, SessionAction, SessionRole, add_lands_as, allowed, host_timed_out,
-    project,
+    Actor, Anchor, Projected, REPORT_JUMP_MS, RESTART_THRESHOLD_MS, RepeatMode, SessionAction,
+    SessionRole, add_lands_as, allowed, host_timed_out, project,
 };
 use crate::services::notification::{NewNotification, push_notification};
 
@@ -65,9 +65,16 @@ pub struct SessionRow {
     pub listen_along: bool,
     /// Someone joining without a code asks first, and the host lets them in.
     pub approve_joins: bool,
+    pub shuffle: bool,
+    /// `off`, `all`, or `one`. See [`RepeatMode`].
+    pub repeat_mode: String,
 }
 
 impl SessionRow {
+    pub fn repeat(&self) -> RepeatMode {
+        RepeatMode::parse(&self.repeat_mode).unwrap_or(RepeatMode::Off)
+    }
+
     fn anchor(&self) -> Anchor {
         Anchor {
             is_playing: self.is_playing,
@@ -85,7 +92,8 @@ const SESSION_COLUMNS: &str =
     "s.session_id, s.host_id, COALESCE(h.username, 'unknown') AS host_username,
      s.name, s.default_role::text AS default_role, s.allow_join_without_code,
      s.current_entry_id, s.is_playing, s.position_ms, s.position_at, s.version, s.command_seq,
-     s.host_seen_at, s.created_at, s.ended_at, s.listen_along, s.approve_joins";
+     s.host_seen_at, s.created_at, s.ended_at, s.listen_along, s.approve_joins,
+     s.shuffle, s.repeat_mode";
 
 #[derive(Clone, Debug, FromQueryResult)]
 pub struct SessionMember {
@@ -130,6 +138,23 @@ pub struct ProjectedPlayback {
     pub position_ms: i64,
     pub is_playing: bool,
     pub as_of: DateTime<Utc>,
+}
+
+/// Where playback is right after a write, with the session row it was
+/// projected from.
+#[derive(Clone, Debug)]
+pub struct PlaybackNow {
+    pub session: SessionRow,
+    pub projected: ProjectedPlayback,
+}
+
+/// What a playback write did.
+#[derive(Clone, Debug)]
+pub struct Change {
+    pub version: i64,
+    /// Set when the write moved only playback, not the queue or members, so
+    /// the new playback can go out with the event and nobody has to refetch.
+    pub playback: Option<PlaybackNow>,
 }
 
 /// Everything a member's screen shows.
@@ -197,14 +222,36 @@ pub struct StartAt {
     pub is_playing: bool,
 }
 
+/// What the host's phone reports. See [`host_report`].
+#[derive(Clone, Copy, Debug)]
+pub struct HostReport {
+    pub entry_id: Option<i64>,
+    pub position_ms: i64,
+    pub is_playing: bool,
+    /// The last `command_seq` the phone followed. `None` from an older app.
+    pub command_seq: Option<i64>,
+}
+
 /// A transport command from a controller or the host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlaybackCommand {
     Play,
     Pause,
-    Seek { position_ms: i64 },
+    Seek {
+        position_ms: i64,
+    },
     Next,
-    Jump { entry_id: i64 },
+    /// Back: restarts the song, or near its start goes to the last one played.
+    Previous,
+    Jump {
+        entry_id: i64,
+    },
+    Shuffle {
+        on: bool,
+    },
+    Repeat {
+        mode: RepeatMode,
+    },
 }
 
 fn check_name(name: &str) -> Result<String, CadenzaError> {
@@ -405,6 +452,23 @@ fn upcoming(queued: &[QueueEntry], current: Option<i64>) -> Vec<QueueEntry> {
         .collect()
 }
 
+/// Playback as of this transaction, after its writes.
+async fn playback_now(
+    txn: &DatabaseTransaction,
+    session_id: Uuid,
+) -> Result<PlaybackNow, CadenzaError> {
+    let session = load_session(txn, session_id, false)
+        .await?
+        .ok_or(CadenzaError::NotFound)?;
+    let queued = queued_entries(txn, session_id).await?;
+    let current = session
+        .current_entry_id
+        .and_then(|id| queued.iter().find(|entry| entry.entry_id == id));
+    let up_next = upcoming(&queued, session.current_entry_id);
+    let projected = projected_playback(&session, current, &up_next, Utc::now());
+    Ok(PlaybackNow { session, projected })
+}
+
 /// Renumbers queued positions 0..n in their current order.
 async fn renumber(txn: &DatabaseTransaction, session_id: Uuid) -> Result<(), CadenzaError> {
     txn.execute_raw(stmt(
@@ -418,6 +482,84 @@ async fn renumber(txn: &DatabaseTransaction, session_id: Uuid) -> Result<(), Cad
     ))
     .await?;
     Ok(())
+}
+
+/// Marks `entry_ids` played, in that order.
+async fn mark_played(
+    txn: &DatabaseTransaction,
+    session_id: Uuid,
+    entry_ids: &[i64],
+) -> Result<(), CadenzaError> {
+    if entry_ids.is_empty() {
+        return Ok(());
+    }
+    txn.execute_raw(stmt(
+        "UPDATE live_session_queue SET status = 'played', played_at = now()
+         WHERE session_id = $1 AND entry_id = ANY($2)",
+        vec![
+            session_id.into(),
+            crate::db::shared_playlists::bigint_array(entry_ids),
+        ],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// On repeat all, once the current song is the last one queued, the played
+/// songs go back on after it: in the order they played, or shuffled. Does
+/// nothing otherwise.
+async fn refill_for_repeat(
+    txn: &DatabaseTransaction,
+    session_id: Uuid,
+) -> Result<(), CadenzaError> {
+    let refilled = txn
+        .execute_raw(stmt(
+            "UPDATE live_session_queue q
+             SET status = 'queued', played_at = NULL, position = 1000000 + r.rn
+             FROM (
+                 SELECT p.entry_id,
+                        row_number() OVER (
+                            ORDER BY CASE WHEN s.shuffle THEN random() END,
+                                     p.played_at, p.position, p.entry_id
+                        ) AS rn
+                 FROM live_session_queue p
+                 JOIN live_sessions s ON s.session_id = p.session_id
+                 WHERE p.session_id = $1 AND p.status = 'played'
+                   AND s.repeat_mode = 'all' AND s.current_entry_id IS NOT NULL
+                   AND NOT EXISTS (
+                       SELECT 1 FROM live_session_queue u
+                       WHERE u.session_id = $1 AND u.status = 'queued'
+                         AND u.entry_id <> s.current_entry_id
+                   )
+             ) r
+             WHERE q.entry_id = r.entry_id",
+            vec![session_id.into()],
+        ))
+        .await?;
+    if refilled.rows_affected() > 0 {
+        renumber(txn, session_id).await?;
+    }
+    Ok(())
+}
+
+/// Puts the songs after the current one in a random order.
+async fn shuffle_upcoming(
+    txn: &DatabaseTransaction,
+    session_id: Uuid,
+    current: Option<i64>,
+) -> Result<(), CadenzaError> {
+    txn.execute_raw(stmt(
+        "UPDATE live_session_queue q SET position = 1000000 + r.rn
+         FROM (
+             SELECT entry_id, row_number() OVER (ORDER BY random()) AS rn
+             FROM live_session_queue
+             WHERE session_id = $1 AND status = 'queued' AND entry_id IS DISTINCT FROM $2
+         ) r
+         WHERE q.entry_id = r.entry_id",
+        vec![session_id.into(), current.into()],
+    ))
+    .await?;
+    renumber(txn, session_id).await
 }
 
 /// Starts a session hosted by `host_id`, or returns the open one they already
@@ -606,14 +748,22 @@ pub fn projected_playback(
             as_of: now,
         };
     };
+    // repeat one loops the current song; repeat all loops what is queued,
+    // which by the last song holds the played ones again
+    let repeat = session.repeat();
+    let ahead = if repeat == RepeatMode::One {
+        &[][..]
+    } else {
+        up_next
+    };
     let durations: Vec<Option<i64>> = std::iter::once(current.duration_ms)
-        .chain(up_next.iter().map(|entry| entry.duration_ms))
+        .chain(ahead.iter().map(|entry| entry.duration_ms))
         .collect();
     let Projected {
         entries_ahead,
         position_ms,
         finished,
-    } = project(session.anchor(), &durations, now);
+    } = project(session.anchor(), &durations, repeat != RepeatMode::Off, now);
     let entry_id = if entries_ahead == 0 {
         current.entry_id
     } else {
@@ -955,15 +1105,7 @@ async fn hand_over(
             .map(|entry| entry.entry_id)
             .collect();
         if !before.is_empty() {
-            txn.execute_raw(stmt(
-                "UPDATE live_session_queue SET status = 'played'
-                 WHERE session_id = $1 AND entry_id = ANY($2)",
-                vec![
-                    session.session_id.into(),
-                    crate::db::shared_playlists::bigint_array(&before),
-                ],
-            ))
-            .await?;
+            mark_played(txn, session.session_id, &before).await?;
             renumber(txn, session.session_id).await?;
         }
     }
@@ -1328,6 +1470,7 @@ pub async fn remove_entry(
     ))
     .await?;
     renumber(&txn, session_id).await?;
+    refill_for_repeat(&txn, session_id).await?;
     let version = bump(&txn, session_id).await?;
     txn.commit().await?;
     Ok(version)
@@ -1382,25 +1525,22 @@ async fn advance_to(
     by: AnchorBy,
 ) -> Result<(), CadenzaError> {
     if let Some(current) = session.current_entry_id {
-        txn.execute_raw(stmt(
-            "UPDATE live_session_queue SET status = 'played'
-             WHERE session_id = $1 AND entry_id = $2",
-            vec![session.session_id.into(), current.into()],
-        ))
-        .await?;
+        mark_played(txn, session.session_id, &[current]).await?;
     }
     let playing = next.is_some() && session.is_playing;
     set_anchor(txn, session.session_id, Some(next), playing, 0, by).await?;
-    renumber(txn, session.session_id).await
+    renumber(txn, session.session_id).await?;
+    refill_for_repeat(txn, session.session_id).await
 }
 
-/// A transport command. Controller or host. Returns the new version.
+/// A transport command. Controller or host. Play, pause, and seek move only
+/// playback, so the change carries it.
 pub async fn playback_command(
     db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     command: PlaybackCommand,
-) -> Result<i64, CadenzaError> {
+) -> Result<Change, CadenzaError> {
     let txn = db.begin().await?;
     let (session, _) = lock_for(&txn, session_id, user_id, SessionAction::Control).await?;
     let now = Utc::now();
@@ -1443,6 +1583,73 @@ pub async fn playback_command(
             )
             .await?;
         }
+        PlaybackCommand::Previous => {
+            let last_played = txn
+                .query_one_raw(stmt(
+                    "SELECT entry_id FROM live_session_queue
+                     WHERE session_id = $1 AND status = 'played'
+                     ORDER BY played_at DESC NULLS LAST, position DESC, entry_id DESC
+                     LIMIT 1",
+                    vec![session_id.into()],
+                ))
+                .await?
+                .map(|row| row.try_get::<i64>("", "entry_id"))
+                .transpose()?;
+            let restart = here.entry_id.is_some() && here.position_ms > RESTART_THRESHOLD_MS;
+            match last_played.filter(|_| !restart) {
+                Some(entry_id) => {
+                    // back in the queue, ahead of what was current
+                    txn.execute_raw(stmt(
+                        "UPDATE live_session_queue
+                         SET status = 'queued', played_at = NULL, position = -1
+                         WHERE session_id = $1 AND entry_id = $2",
+                        vec![session_id.into(), entry_id.into()],
+                    ))
+                    .await?;
+                    // a session that ran out plays again
+                    let playing = session.is_playing || session.current_entry_id.is_none();
+                    set_anchor(
+                        &txn,
+                        session_id,
+                        Some(Some(entry_id)),
+                        playing,
+                        0,
+                        AnchorBy::Command,
+                    )
+                    .await?;
+                    renumber(&txn, session_id).await?;
+                }
+                None => {
+                    set_anchor(
+                        &txn,
+                        session_id,
+                        None,
+                        session.is_playing,
+                        0,
+                        AnchorBy::Command,
+                    )
+                    .await?;
+                }
+            }
+        }
+        PlaybackCommand::Shuffle { on } => {
+            txn.execute_raw(stmt(
+                "UPDATE live_sessions SET shuffle = $2 WHERE session_id = $1",
+                vec![session_id.into(), on.into()],
+            ))
+            .await?;
+            if on {
+                shuffle_upcoming(&txn, session_id, session.current_entry_id).await?;
+            }
+        }
+        PlaybackCommand::Repeat { mode } => {
+            txn.execute_raw(stmt(
+                "UPDATE live_sessions SET repeat_mode = $2 WHERE session_id = $1",
+                vec![session_id.into(), mode.as_str().into()],
+            ))
+            .await?;
+            refill_for_repeat(&txn, session_id).await?;
+        }
         PlaybackCommand::Jump { entry_id } => {
             if !up_next.iter().any(|entry| entry.entry_id == entry_id) {
                 return Err(CadenzaError::NotFound);
@@ -1453,17 +1660,7 @@ pub async fn playback_command(
                 .take_while(|entry| entry.entry_id != entry_id)
                 .map(|entry| entry.entry_id)
                 .collect();
-            if !skipped.is_empty() {
-                txn.execute_raw(stmt(
-                    "UPDATE live_session_queue SET status = 'played'
-                     WHERE session_id = $1 AND entry_id = ANY($2)",
-                    vec![
-                        session_id.into(),
-                        crate::db::shared_playlists::bigint_array(&skipped),
-                    ],
-                ))
-                .await?;
-            }
+            mark_played(&txn, session_id, &skipped).await?;
             let playing = SessionRow {
                 is_playing: true,
                 ..session.clone()
@@ -1472,22 +1669,37 @@ pub async fn playback_command(
         }
     }
     let version = bump(&txn, session_id).await?;
+    let playback = match command {
+        PlaybackCommand::Play | PlaybackCommand::Pause | PlaybackCommand::Seek { .. } => {
+            Some(playback_now(&txn, session_id).await?)
+        }
+        _ => None,
+    };
     txn.commit().await?;
-    Ok(version)
+    Ok(Change { version, playback })
 }
 
 /// The host's device saying what it is really doing. Re-anchors on it. When
 /// it is on a later queued entry than the server thought, everything before
-/// that entry is marked played. Host only. Returns the new version, or `None`
-/// when nothing changed enough to tell anyone.
+/// that entry is marked played. Host only. Returns the change, carrying
+/// playback when the queue stayed put, or `None` when nothing changed enough
+/// to tell anyone.
+///
+/// `command_seq` is the last command the phone has followed. A report from
+/// before a newer one describes playback that command already replaced, so it
+/// only counts as the host being there.
 pub async fn host_report(
     db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
-    entry_id: Option<i64>,
-    position_ms: i64,
-    is_playing: bool,
-) -> Result<Option<i64>, CadenzaError> {
+    report: HostReport,
+) -> Result<Option<Change>, CadenzaError> {
+    let HostReport {
+        entry_id,
+        position_ms,
+        is_playing,
+        command_seq,
+    } = report;
     let txn = db.begin().await?;
     let (session, _) = lock_for(&txn, session_id, user_id, SessionAction::Report).await?;
     txn.execute_raw(stmt(
@@ -1495,9 +1707,24 @@ pub async fn host_report(
         vec![session_id.into()],
     ))
     .await?;
+    if command_seq.is_some_and(|seen| seen < session.command_seq) {
+        txn.commit().await?;
+        return Ok(None);
+    }
 
     let queued = queued_entries(&txn, session_id).await?;
     let known = entry_id.filter(|id| queued.iter().any(|entry| entry.entry_id == *id));
+    // where everyone else thinks the phone is, to tell a seek from a heartbeat
+    let here = {
+        let current = session
+            .current_entry_id
+            .and_then(|id| queued.iter().find(|entry| entry.entry_id == id));
+        let up_next = upcoming(&queued, session.current_entry_id);
+        projected_playback(&session, current, &up_next, Utc::now())
+    };
+    let jumped = known.is_some()
+        && known == here.entry_id
+        && (here.position_ms - position_ms).abs() > REPORT_JUMP_MS;
     let moved_on = known.is_some() && known != session.current_entry_id;
     if moved_on {
         let target = known.unwrap();
@@ -1506,17 +1733,7 @@ pub async fn host_report(
             .take_while(|entry| entry.entry_id != target)
             .map(|entry| entry.entry_id)
             .collect();
-        if !before.is_empty() {
-            txn.execute_raw(stmt(
-                "UPDATE live_session_queue SET status = 'played'
-                 WHERE session_id = $1 AND entry_id = ANY($2)",
-                vec![
-                    session_id.into(),
-                    crate::db::shared_playlists::bigint_array(&before),
-                ],
-            ))
-            .await?;
-        }
+        mark_played(&txn, session_id, &before).await?;
         set_anchor(
             &txn,
             session_id,
@@ -1527,6 +1744,7 @@ pub async fn host_report(
         )
         .await?;
         renumber(&txn, session_id).await?;
+        refill_for_repeat(&txn, session_id).await?;
     } else {
         set_anchor(
             &txn,
@@ -1540,14 +1758,20 @@ pub async fn host_report(
     }
 
     // a heartbeat that only confirms the projection is not worth an event
-    let changed = moved_on || is_playing != session.is_playing;
-    let version = if changed {
-        Some(bump(&txn, session_id).await?)
+    let changed = moved_on || jumped || is_playing != session.is_playing;
+    let change = if changed {
+        let version = bump(&txn, session_id).await?;
+        let playback = if moved_on {
+            None
+        } else {
+            Some(playback_now(&txn, session_id).await?)
+        };
+        Some(Change { version, playback })
     } else {
         None
     };
     txn.commit().await?;
-    Ok(version)
+    Ok(change)
 }
 
 /// The host's device reached the end of `from_entry_id`. Guarded by the id,
@@ -1642,6 +1866,8 @@ mod tests {
             ended_at: None,
             listen_along: false,
             approve_joins: true,
+            shuffle: false,
+            repeat_mode: "off".into(),
         }
     }
 

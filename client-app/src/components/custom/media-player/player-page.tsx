@@ -65,6 +65,13 @@ const MIN_DETAILS_HEIGHT = 160;
 /** Mirrors the `DetailScreen` header, for estimates. */
 const SHEET_HEADER_HEIGHT = 76;
 
+/** A session's repeat mode as the player spells it. */
+const SESSION_REPEAT = {
+    off: RepeatMode.Off,
+    all: RepeatMode.All,
+    one: RepeatMode.One,
+} as const;
+
 /** What the page shows above the scrubber. */
 type PlayerView = "artwork" | "queue";
 
@@ -358,9 +365,19 @@ export function PlayerPage() {
         });
     }
 
+    // a session's modes are its own; setting them goes to it through the sink
+    const shownShuffle = live
+        ? live.playback.shuffle
+            ? ShuffleMode.Songs
+            : ShuffleMode.Off
+        : shuffleMode;
+    const shownRepeat = live
+        ? SESSION_REPEAT[live.playback.repeat_mode]
+        : repeatMode;
+
     function toggleShuffle() {
         void setShuffleMode(
-            shuffleMode === ShuffleMode.Off
+            shownShuffle === ShuffleMode.Off
                 ? ShuffleMode.Songs
                 : ShuffleMode.Off,
         );
@@ -369,9 +386,9 @@ export function PlayerPage() {
     /** Off, all, one, and back, the order Apple Music cycles in. */
     function cycleRepeat() {
         const next =
-            repeatMode === RepeatMode.Off
+            shownRepeat === RepeatMode.Off
                 ? RepeatMode.All
-                : repeatMode === RepeatMode.All
+                : shownRepeat === RepeatMode.All
                   ? RepeatMode.One
                   : RepeatMode.Off;
         void setRepeatMode(next);
@@ -393,8 +410,8 @@ export function PlayerPage() {
                 <MediaPlayerQueue
                     track={track}
                     upcoming={upcoming}
-                    shuffleMode={shuffleMode}
-                    repeatMode={repeatMode}
+                    shuffleMode={shownShuffle}
+                    repeatMode={shownRepeat}
                     favoriteStatus={favoriteStatus}
                     isFavoriteStatusLoading={isFavoriteStatusLoading}
                     isUpdatingFavorite={isUpdatingFavorite}
@@ -404,7 +421,6 @@ export function PlayerPage() {
                     onOpenMenu={() => setMenuOpen(true)}
                     onToggleShuffle={toggleShuffle}
                     onCycleRepeat={cycleRepeat}
-                    showModes={!live}
                     editable={!live || sessionCan.editQueue(live.my_role)}
                     onPlayUpcoming={(index) =>
                         void playQueueItem(queuePositionOf(index))

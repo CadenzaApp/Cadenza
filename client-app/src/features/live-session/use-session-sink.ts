@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Alert } from "react-native";
-import type { MusicItem } from "@apple-musickit";
+import { RepeatMode, ShuffleMode, type MusicItem } from "@apple-musickit";
 
 import {
     useLocalPlaybackCommands,
@@ -16,6 +16,7 @@ import {
     type LiveSession,
     type QueueSongBody,
 } from "@/lib/routes/live-sessions";
+import { RESTART_THRESHOLD_SECONDS } from "@/lib/transport";
 
 import {
     sessionSongs,
@@ -27,16 +28,26 @@ function tell(title: string, message: string) {
     Alert.alert(title, message);
 }
 
+/** The native mode as the session spells it. */
+function sessionRepeat(mode: RepeatMode) {
+    return mode === RepeatMode.One
+        ? "one"
+        : mode === RepeatMode.All
+          ? "all"
+          : "off";
+}
+
 /**
  * While the caller is in a live session, the app's player commands go to the
  * session instead of the local player, so every play, queue, and skip button
  * in the app works on the session.
  *
- * On the host only queue changes go to the session. The host's transport
- * stays local: the phone is the speaker, and its reports carry each skip or
- * seek to the session. On a member, synced or remote, everything goes to the
- * session, and play, pause, skip, and seek are locked unless their role
- * allows them.
+ * On the host, queue changes, back, shuffle, and repeat go to the session,
+ * since only the session knows what played before. Play, pause, skip, and seek
+ * stay local: the phone is the speaker, and its reports carry them to the
+ * session. On a member, synced or
+ * remote, everything goes to the session, and play, pause, skip, seek, and
+ * the modes are locked unless their role allows them.
  *
  * Songs land as the caller's role allows: played now by a controller, queued
  * by a queue editor, suggested by a suggester. Library only songs are left
@@ -142,21 +153,6 @@ export function useSessionSink(session: LiveSession | null) {
                 );
             },
         };
-        if (isHost) {
-            return {
-                ...queueCommands,
-                // a new song would replace the phone's queue, so it goes
-                // through the session; play or pause stays on the phone
-                togglePlayback: async (track, source) => {
-                    if (latest.current.playback.activeTrackId === track.id) {
-                        await local.togglePlayback(track, source);
-                    } else {
-                        await add([track], "now");
-                    }
-                },
-            };
-        }
-
         const canControl = sessionCan.control(role);
         async function control(what: string, write: () => Promise<unknown>) {
             if (!canControl) {
@@ -169,8 +165,49 @@ export function useSessionSink(session: LiveSession | null) {
             body,
         ) => latest.current.writes.sendPlayback(body);
 
-        return {
+        const sessionCommands: PlaybackSink = {
             ...queueCommands,
+            skipToPrevious: () =>
+                control("go back", () => send({ kind: "previous" })),
+            setShuffleMode: (mode) =>
+                control("change shuffle", () =>
+                    send({ kind: "shuffle", on: mode !== ShuffleMode.Off }),
+                ),
+            setRepeatMode: (mode) =>
+                control("change repeat", () =>
+                    send({ kind: "repeat", mode: sessionRepeat(mode) }),
+                ),
+        };
+
+        if (isHost) {
+            return {
+                ...sessionCommands,
+                // a restart is quicker on the phone, and its report tells
+                // the session
+                skipToPrevious: async () => {
+                    if (
+                        latest.current.playback.progress >
+                        RESTART_THRESHOLD_SECONDS
+                    ) {
+                        await local.seekTo(0);
+                    } else {
+                        await sessionCommands.skipToPrevious!();
+                    }
+                },
+                // a new song would replace the phone's queue, so it goes
+                // through the session; play or pause stays on the phone
+                togglePlayback: async (track, source) => {
+                    if (latest.current.playback.activeTrackId === track.id) {
+                        await local.togglePlayback(track, source);
+                    } else {
+                        await add([track], "now");
+                    }
+                },
+            };
+        }
+
+        return {
+            ...sessionCommands,
             controlsLocked: !canControl,
             playQueueItem: async (index) => {
                 const found = entryAt(index);
@@ -198,11 +235,6 @@ export function useSessionSink(session: LiveSession | null) {
                     }),
                 ),
             skipToNext: () => control("skip", () => send({ kind: "next" })),
-            // a session keeps no history, so back restarts the song
-            skipToPrevious: () =>
-                control("restart the song", () =>
-                    send({ kind: "seek", position_ms: 0 }),
-                ),
         };
         // the commands read everything else from `latest` at call time
         // eslint-disable-next-line react-hooks/exhaustive-deps

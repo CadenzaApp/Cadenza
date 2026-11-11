@@ -123,8 +123,8 @@ The now playing sheet is also the live session's screen. The transport's left sl
 listen mode, hand over, leave, end). In a session a LIVE tag and the session name sit above the
 transport, and the progress bar is red. In a session the pager's tab bar is swapped for `LiveSessionBar` (Requests, People, Add,
 Share as the role allows), and the pages still swipe. Both bars share `player-bar.tsx`. The queue
-is the player's own, without shuffle or repeat, and read only (no drag, remove, or handles) below
-queue editor. A member whose phone does not play the session
+is the player's own, read only (no drag, remove, or handles) below queue editor. Its shuffle and
+repeat pills show and set the session's modes. A member whose phone does not play the session
 sees it here anyway, through `usePlaybackView`.
 
 The compact player shows "LIVE . {session name}" in place of the artist, from

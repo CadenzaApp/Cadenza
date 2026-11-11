@@ -25,6 +25,9 @@ pub struct Model {
     pub listen_along: bool,
     pub command_seq: i64,
     pub approve_joins: bool,
+    pub shuffle: bool,
+    #[sea_orm(column_type = "Text")]
+    pub repeat_mode: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

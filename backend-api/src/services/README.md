@@ -406,7 +406,7 @@ append each call and its output, and repeat until the model answers with text. I
 ## Realtime
 
 `GET /realtime/ws` is push only. Writes stay on HTTP; after commit a handler publishes
-`{topic, version, kind}` and subscribers refetch over HTTP. An event carries no private data,
+`{topic, version, kind, data}` and subscribers refetch over HTTP. An event carries no private data,
 so the audience checks stay in the HTTP reads, and access is checked once per subscribe.
 
 - First frame `auth {token}` within 5 s (the Supabase JWT, never in the URL), answered by
@@ -416,6 +416,9 @@ so the audience checks stay in the HTTP reads, and access is checked once per su
 - Topics: `user` (now playing, needs the `now_playing` audience), `live_session` (members),
   `shared_playlist` (members). A `user` event's kind is `now_playing`, `presence` (came
   online or went offline), or `live_session` (started, joined, left, or ended a session).
+  A `live_session` event's kind is `session` (refetch), `ended`, or `playback`, which carries
+  `data`: the new playback, sent only for a write that moved nothing else (play, pause, seek, a
+  host report that kept the song). Members apply it without a refetch.
 - Presence: a user is online while one of their sockets is open. The client closes its
   socket in the background, so this is "has the app open". `GET /social/friends` reads it.
 - `InMemoryBus` and `InMemoryPresence` work for one backend instance. A second instance

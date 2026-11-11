@@ -96,6 +96,42 @@ pub fn host_timed_out(host_seen_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
     now - host_seen_at > HOST_TIMEOUT
 }
 
+/// A session's repeat mode. Off stops after the last song; all puts the
+/// played songs back once the last one is current; one loops the current song.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepeatMode {
+    Off,
+    All,
+    One,
+}
+
+impl RepeatMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::All => "all",
+            Self::One => "one",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "off" => Some(Self::Off),
+            "all" => Some(Self::All),
+            "one" => Some(Self::One),
+            _ => None,
+        }
+    }
+}
+
+/// Back past this far into a song restarts it instead of going to the one
+/// before. Matches the app's own player.
+pub const RESTART_THRESHOLD_MS: i64 = 4_000;
+
+/// A host report this far off the projection is a seek or restart on the
+/// phone, which everyone else follows. Matches the app's report threshold.
+pub const REPORT_JUMP_MS: i64 = 3_000;
+
 /// The anchor as stored.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Anchor {
@@ -118,10 +154,22 @@ pub struct Projected {
 /// Walks the anchor forward to `now`. `durations` is the current entry's
 /// duration, then each upcoming entry's, in order. An unknown duration stops
 /// the walk in that entry, since there is no way to know when it ended.
-pub fn project(anchor: Anchor, durations: &[Option<i64>], now: DateTime<Utc>) -> Projected {
+///
+/// `wrap` loops back to the first entry past the last one, for repeat. It
+/// needs every duration; with one unknown the walk stops in it as usual.
+pub fn project(
+    anchor: Anchor,
+    durations: &[Option<i64>],
+    wrap: bool,
+    now: DateTime<Utc>,
+) -> Projected {
     let mut position = anchor.position_ms.max(0);
     if anchor.is_playing {
         position += (now - anchor.position_at).num_milliseconds().max(0);
+    }
+    let total: Option<i64> = durations.iter().copied().sum();
+    if let Some(total) = total.filter(|total| wrap && *total > 0) {
+        position %= total;
     }
     let mut index = 0;
     while let Some(Some(duration)) = durations.get(index) {
@@ -196,7 +244,7 @@ mod tests {
     #[test]
     fn projection_stays_in_the_current_song() {
         let (a, at) = anchor(true, 10_000);
-        let p = project(a, &[Some(200_000)], at + Duration::seconds(5));
+        let p = project(a, &[Some(200_000)], false, at + Duration::seconds(5));
         assert_eq!(p.entries_ahead, 0);
         assert_eq!(p.position_ms, 15_000);
         assert!(!p.finished);
@@ -208,6 +256,7 @@ mod tests {
         let p = project(
             a,
             &[Some(200_000), Some(100_000), Some(100_000)],
+            false,
             at + Duration::seconds(130),
         );
         // 190 + 130 = 320: past the first (200), 120 into the second (100),
@@ -217,13 +266,37 @@ mod tests {
     }
 
     #[test]
+    fn projection_wraps_on_repeat() {
+        let (a, at) = anchor(true, 0);
+        let p = project(
+            a,
+            &[Some(1_000), Some(2_000)],
+            true,
+            at + Duration::seconds(4),
+        );
+        // 4 s over a 3 s loop: 1 s in, the start of the second song
+        assert_eq!(p.entries_ahead, 1);
+        assert_eq!(p.position_ms, 0);
+        assert!(!p.finished);
+
+        let one = project(a, &[Some(1_000)], true, at + Duration::milliseconds(2_500));
+        assert_eq!(one.entries_ahead, 0);
+        assert_eq!(one.position_ms, 500);
+    }
+
+    #[test]
     fn projection_stops_at_an_unknown_length_and_at_the_end() {
         let (a, at) = anchor(true, 0);
-        let unknown = project(a, &[None, Some(1_000)], at + Duration::seconds(500));
+        let unknown = project(a, &[None, Some(1_000)], false, at + Duration::seconds(500));
         assert_eq!(unknown.entries_ahead, 0);
         assert_eq!(unknown.position_ms, 500_000);
 
-        let end = project(a, &[Some(1_000), Some(1_000)], at + Duration::seconds(10));
+        let end = project(
+            a,
+            &[Some(1_000), Some(1_000)],
+            false,
+            at + Duration::seconds(10),
+        );
         assert!(end.finished);
         assert_eq!(end.entries_ahead, 1);
     }
@@ -231,7 +304,7 @@ mod tests {
     #[test]
     fn paused_does_not_move() {
         let (a, at) = anchor(false, 42_000);
-        let p = project(a, &[Some(200_000)], at + Duration::seconds(60));
+        let p = project(a, &[Some(200_000)], false, at + Duration::seconds(60));
         assert_eq!(p.position_ms, 42_000);
     }
 

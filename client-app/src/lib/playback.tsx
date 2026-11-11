@@ -142,7 +142,7 @@ const LocalPlaybackCommandsContext = createContext<PlaybackCommands | null>(
 /** The commands a sink can take over. */
 export type SinkableCommand = Exclude<
     keyof PlaybackCommands,
-    "setShuffleMode" | "setRepeatMode" | "setPlayerCollapsed"
+    "setPlayerCollapsed"
 >;
 
 /**
@@ -174,7 +174,13 @@ export type PlaybackView = {
 /** What this phone's player is really doing, under any view. */
 export type LocalPlaybackState = Pick<
     PlaybackInfo,
-    "activeTrack" | "isPlaying" | "progress" | "queue" | "queueIndex"
+    | "activeTrack"
+    | "isPlaying"
+    | "progress"
+    | "queue"
+    | "queueIndex"
+    | "shuffleMode"
+    | "repeatMode"
 >;
 
 const LocalPlaybackStateContext = createContext<LocalPlaybackState | null>(
@@ -754,6 +760,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 (via().removeQueueItem ?? localCommands.removeQueueItem)(index),
             playQueueItem: (index) =>
                 (via().playQueueItem ?? localCommands.playQueueItem)(index),
+            setShuffleMode: (mode) =>
+                (via().setShuffleMode ?? localCommands.setShuffleMode)(mode),
+            setRepeatMode: (mode) =>
+                (via().setRepeatMode ?? localCommands.setRepeatMode)(mode),
             togglePlayback: (track, source) =>
                 (via().togglePlayback ?? localCommands.togglePlayback)(
                     track,
@@ -782,11 +792,15 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             progress: snapshot.progress,
             queue,
             queueIndex: resolvedQueueIndex,
+            shuffleMode: snapshot.shuffleMode ?? ShuffleMode.Off,
+            repeatMode: snapshot.repeatMode ?? RepeatMode.Off,
         }),
         [
             activeTrack,
             snapshot.isPlaying,
             snapshot.progress,
+            snapshot.shuffleMode,
+            snapshot.repeatMode,
             queue,
             resolvedQueueIndex,
         ],

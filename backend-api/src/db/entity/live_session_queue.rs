@@ -22,6 +22,7 @@ pub struct Model {
     pub status: SessionEntryStatus,
     pub added_by: Option<Uuid>,
     pub added_at: DateTimeWithTimeZone,
+    pub played_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

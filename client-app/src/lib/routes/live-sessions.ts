@@ -1,8 +1,10 @@
 import { useEffect } from "react";
+import { mutate } from "swr";
 
 import { useAccount } from "../account";
 import { invalidateAPIData, useAPIData, useAPIMutation } from "../api-actions";
-import { useRealtimeTopic } from "../realtime";
+import { matchesEndpoint } from "../api-endpoints";
+import { serverNow, useRealtimeTopic } from "../realtime";
 import type { CreateInviteBody, Invite } from "./invites";
 
 export type SessionRole =
@@ -44,6 +46,9 @@ export type LiveSessionPlayback = {
     as_of: string;
     /** Moves only when someone other than the host's phone changes playback. */
     command_seq: number;
+    /** The session's own modes, the same for everyone. */
+    shuffle: boolean;
+    repeat_mode: "off" | "all" | "one";
 };
 
 /** Someone who asked to join, waiting on the host. */
@@ -82,7 +87,12 @@ export type LiveSession = {
 /** Songs one add can carry. Mirrors `MAX_SONGS_PER_ADD` on the backend. */
 export const MAX_SESSION_ADD = 100;
 
-export type SessionVersion = { version: number | null; ended: boolean };
+export type SessionVersion = {
+    version: number | null;
+    ended: boolean;
+    /** The new playback, when the write moved only that. */
+    playback?: LiveSessionPlayback;
+};
 
 /** A song to add, as the client knows it. */
 export type QueueSongBody = {
@@ -98,12 +108,18 @@ export type PlaybackBody =
     | { kind: "pause" }
     | { kind: "seek"; position_ms: number }
     | { kind: "next" }
+    /** Restarts the song, or near its start goes to the last one played. */
+    | { kind: "previous" }
     | { kind: "jump"; entry_id: number }
+    | { kind: "shuffle"; on: boolean }
+    | { kind: "repeat"; mode: LiveSessionPlayback["repeat_mode"] }
     | {
           kind: "report";
           entry_id: number | null;
           position_ms: number;
           is_playing: boolean;
+          /** The last command this phone followed; older reports are ignored. */
+          command_seq: number | null;
       }
     | { kind: "advance"; from_entry_id: number };
 
@@ -164,6 +180,75 @@ export function useMyLiveSession() {
     };
 }
 
+/** Changes the cached snapshot of session `id` in place, without a fetch. */
+async function patchSession(
+    id: string,
+    update: (session: LiveSession) => LiveSession | null,
+) {
+    let missed = false;
+    await mutate(
+        (key) => matchesEndpoint(key, { path: `/live-sessions/${id}` }),
+        (current?: LiveSession) => {
+            if (!current) return current;
+            const next = update(current);
+            if (next === null) missed = true;
+            return next ?? current;
+        },
+        { revalidate: false },
+    );
+    if (missed) await invalidateAPIData([{ path: `/live-sessions/${id}` }]);
+}
+
+/**
+ * Applies a playback only change at `version` straight to the cached
+ * snapshot, from the `playback` event or the write's own response, so a pause
+ * or seek lands without a refetch. A snapshot more than one version behind
+ * has missed something else, so it refetches instead.
+ */
+function applyPlaybackChange(
+    id: string,
+    version: number,
+    playback: LiveSessionPlayback,
+) {
+    return patchSession(id, (session) => {
+        if (session.version >= version) return session;
+        if (session.version !== version - 1) return null;
+        return { ...session, version, playback };
+    });
+}
+
+/**
+ * What a play, pause, or seek will do, applied to the cached snapshot before
+ * the server answers, so the caller's own screen moves at once. The version
+ * stays, so the server's change still applies over it.
+ */
+function optimisticPlayback(
+    playback: LiveSessionPlayback,
+    body: PlaybackBody,
+): LiveSessionPlayback | null {
+    const now = serverNow();
+    const position =
+        playback.position_ms +
+        (playback.is_playing
+            ? Math.max(0, now - Date.parse(playback.as_of))
+            : 0);
+    const at = new Date(now).toISOString();
+    switch (body.kind) {
+        case "play":
+        case "pause":
+            return {
+                ...playback,
+                is_playing: body.kind === "play" && playback.entry_id !== null,
+                position_ms: position,
+                as_of: at,
+            };
+        case "seek":
+            return { ...playback, position_ms: body.position_ms, as_of: at };
+        default:
+            return null;
+    }
+}
+
 /** Whether a session read failed because the session is over or gone. */
 export function isSessionGone(error: unknown) {
     const type = (error as { error_type?: string } | null)?.error_type;
@@ -184,6 +269,14 @@ export function useLiveSession(id: string | null) {
     useRealtimeTopic(id ? { kind: "live_session", id } : null, (event) => {
         if (event.kind === "ended") {
             void invalidateAPIData([{ path: "/live-sessions/current" }]);
+        }
+        if (event.kind === "playback" && event.data) {
+            void applyPlaybackChange(
+                id!,
+                event.version,
+                event.data as LiveSessionPlayback,
+            );
+            return;
         }
         if (event.kind === "resync" || event.version !== x.data?.version) {
             void x.mutate();
@@ -284,7 +377,8 @@ export function useJoinLiveSession() {
 
 /**
  * Every write to one session. Each refetches the snapshot after; the socket
- * tells everyone else.
+ * tells everyone else. Playback is quicker: play, pause, and seek show at
+ * once, and a change that moved only playback is applied from the response.
  */
 export function useLiveSessionWrites(id: string) {
     const base = `/live-sessions/${id}`;
@@ -295,7 +389,28 @@ export function useLiveSessionWrites(id: string) {
         "POST",
         `${base}/playback`,
         touched,
+        { invalidation: "none" },
     );
+
+    async function sendPlayback(body: PlaybackBody) {
+        await patchSession(id, (session) => {
+            const next = optimisticPlayback(session.playback, body);
+            return next ? { ...session, playback: next } : session;
+        });
+        try {
+            const result = await playback.trigger(body);
+            if (result?.playback && result.version !== null) {
+                await applyPlaybackChange(id, result.version, result.playback);
+            } else if (result?.version !== null) {
+                void invalidateAPIData(touched);
+            }
+            return result;
+        } catch (error) {
+            // undo the optimistic change
+            void invalidateAPIData(touched);
+            throw error;
+        }
+    }
     const addSongs = useAPIMutation<
         { songs: QueueSongBody[]; position?: number; play_now?: boolean },
         SessionVersion
@@ -356,7 +471,7 @@ export function useLiveSessionWrites(id: string) {
     );
 
     return {
-        sendPlayback: playback.trigger,
+        sendPlayback,
         addSongs: addSongs.trigger,
         moveEntry: (entry_id: number, position: number) =>
             entryAction.trigger({ entry_id, action: "move", position }),

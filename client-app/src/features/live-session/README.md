@@ -29,25 +29,34 @@ The session's screen is the now playing sheet; see the media-player README.
 How playback stays in step:
 
 - The server keeps an anchor and projects it forward. Controllers' commands are HTTP calls that
-  move the anchor; every member refetches on the realtime event.
+  move the anchor; every member refetches on the realtime event. A play, pause, or seek (or a
+  host report that kept the song) sends a `playback` event carrying the new playback instead,
+  applied straight to the cached snapshot, and the caller's own screen moves before the server
+  answers.
 - The host's phone is the speaker and the source of truth. It reports on song change, play or
   pause, a seek, and every 10 s, and skips re-applying versions its own reports made. So the
-  host's normal player controls work: they show up in the next report.
+  host's normal player controls work: they show up in the next report. Each report carries the
+  last `command_seq` the phone followed, and the server ignores one older than the latest
+  command, so a heartbeat in flight cannot undo a member's seek or back.
 - The host's phone changes song, play state, or position only when `playback.command_seq` moved
   (someone steered it). A join or queue edit only lines up the songs after the one it plays.
 - A synced member follows: queue ops from `reconcile`, play or pause matched, and a seek when
-  more than 2 s off, at most every 5 s. Members never report.
+  more than 2 s off, at most every 5 s (a new command seeks at once). Members never report.
+- Shuffle and repeat are the session's (`playback.shuffle`, `playback.repeat_mode`), the same
+  for everyone. A phone playing the session keeps its own shuffle off and repeats only to loop
+  one song; the server shuffles the queue and, on repeat all, puts played songs back.
 - A member who stops playing along gets their old queue back, paused.
 - The host leaving hands the session to another member, whose phone becomes the speaker. With
   nobody left it ends.
 
 The app's player buttons in a session, through `usePlaybackSink` in `@/lib/playback`:
 
-- On the host, queue changes (play a song, play next, add to queue, move, remove) go to the
-  session. Play, pause, skip, and seek stay on the phone and reach the session in its reports.
-- On a member, synced or remote, everything goes to the session. Play, pause, skip, and seek are locked
-  (`controlsLocked`) unless the role is controller. Back restarts the song, since a session has
-  no history.
+- On the host, queue changes (play a song, play next, add to queue, move, remove), back,
+  shuffle, and repeat go to the session. Play, pause, skip, and seek stay on the phone and reach
+  the session in its reports. A back that only restarts the song stays on the phone too.
+- On a member, synced or remote, everything goes to the session. Play, pause, skip, seek, back,
+  and the modes are locked (`controlsLocked`) unless the role is controller.
+- Back is `previous`: past 4 s it restarts the song, otherwise it goes to the last song played.
 - Playing a song plays it now for a controller or the host, queues it next for a queue editor,
   and suggests it for a suggester. A remote member's player shows the session too, and its
   buttons go to the session the same way.
