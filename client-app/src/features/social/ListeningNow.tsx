@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, ScrollView, View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
+import { MarqueeText } from "@/components/custom/marquee-text";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { GlassPill } from "@/components/ui/glass-pill";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -271,12 +272,9 @@ function CompactListeningTile({ friend }: { friend: FriendListening }) {
                 ) : null}
             </View>
             <View className="mt-2 gap-0.5">
-                <Text
-                    className="text-sm font-semibold text-foreground"
-                    numberOfLines={1}
-                >
+                <MarqueeText className="text-sm font-semibold text-foreground">
                     {nowPlaying.title}
-                </Text>
+                </MarqueeText>
                 <View className="flex-row items-center gap-1">
                     <Initials username={friend.username} size={20} />
                     <Text
@@ -338,50 +336,63 @@ function ListeningCard({
 }) {
     const { brand } = useAppTheme().colors;
     const sessionId = nowPlaying.live_session_id;
+    const joinable = Boolean(sessionId && canJoin);
 
     return (
         <GlassPanel>
             <View className="gap-3 p-4">
-                <View className="flex-row items-center gap-2">
-                    {username ? (
-                        <>
-                            <Initials username={username} size={32} />
-                            <Text
-                                className="min-w-0 flex-1 font-semibold text-foreground"
-                                numberOfLines={1}
-                            >
-                                {username}
-                            </Text>
-                        </>
-                    ) : (
-                        <View className="flex-1 flex-row items-center gap-1">
-                            <Ionicons
-                                name="musical-note"
-                                size={12}
-                                color={brand}
-                            />
-                            <Text className="text-xs font-semibold uppercase tracking-wider text-brand">
-                                Playing now
-                            </Text>
+                <View className="flex-row gap-3">
+                    <View className="min-w-0 flex-1 gap-3">
+                        <View className="flex-row items-center gap-2">
+                            {username ? (
+                                <>
+                                    <Initials username={username} size={32} />
+                                    <Text
+                                        className="min-w-0 flex-1 font-semibold text-foreground"
+                                        numberOfLines={1}
+                                    >
+                                        {username}
+                                    </Text>
+                                </>
+                            ) : (
+                                <View className="flex-1 flex-row items-center gap-1">
+                                    <Ionicons
+                                        name="musical-note"
+                                        size={12}
+                                        color={brand}
+                                    />
+                                    <Text className="text-xs font-semibold uppercase tracking-wider text-brand">
+                                        Playing now
+                                    </Text>
+                                </View>
+                            )}
                         </View>
-                    )}
-                    {sessionId ? <LiveChip /> : null}
-                </View>
 
-                <View>
-                    <Text
-                        className="text-lg font-semibold text-foreground"
-                        numberOfLines={1}
-                    >
-                        {nowPlaying.title}
-                    </Text>
-                    {nowPlaying.artist ? (
-                        <Text
-                            className="text-sm text-muted-foreground"
-                            numberOfLines={1}
-                        >
-                            {nowPlaying.artist}
-                        </Text>
+                        <View>
+                            <MarqueeText className="text-lg font-semibold text-foreground">
+                                {nowPlaying.title}
+                            </MarqueeText>
+                            {nowPlaying.artist ? (
+                                <MarqueeText className="text-sm text-muted-foreground">
+                                    {nowPlaying.artist}
+                                </MarqueeText>
+                            ) : null}
+                        </View>
+                    </View>
+                    {/* the session's chip, and right under it the way in */}
+                    {sessionId ? (
+                        <View className="items-end gap-2">
+                            {/* as tall as the avatar row, so the chip lines up with the name */}
+                            <View className="h-8 justify-center">
+                                <LiveChip />
+                            </View>
+                            {joinable ? (
+                                <JoinButton
+                                    sessionId={sessionId}
+                                    username={username}
+                                />
+                            ) : null}
+                        </View>
                     ) : null}
                 </View>
 
@@ -393,12 +404,6 @@ function ListeningCard({
                     <View className="min-w-0 flex-1 gap-3">
                         <LiveProgress nowPlaying={nowPlaying} />
                         <UpNext songs={nowPlaying.up_next} />
-                        {sessionId && canJoin ? (
-                            <JoinButton
-                                sessionId={sessionId}
-                                username={username}
-                            />
-                        ) : null}
                     </View>
                 </View>
             </View>
@@ -429,13 +434,13 @@ function JoinButton({
 
     if (refused) {
         return (
-            <Text className="text-xs text-muted-foreground">
+            <Text className="max-w-28 text-right text-xs text-muted-foreground">
                 Ask {username ?? "them"} for a code to join.
             </Text>
         );
     }
     return (
-        <View className="items-start">
+        <View className="items-end">
             <GlassPill
                 size="sm"
                 icon="enter-outline"

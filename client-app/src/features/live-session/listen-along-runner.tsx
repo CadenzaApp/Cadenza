@@ -31,8 +31,14 @@ export function ListenAlongRunner() {
     const seedSession = useSeedSession();
 
     const songId = activeTrack ? shareableSongId(activeTrack) : null;
-    const [openedFor, setOpenedFor] = useState<string | null>(null);
+    const [lastSessionSong, setLastSessionSong] = useState<string | null>(null);
     const opening = useRef(false);
+
+    // any session counts, so ending one by hand does not open another
+    // straight away for the same song
+    if (mySessionId !== null && songId !== null && songId !== lastSessionSong) {
+        setLastSessionSong(songId);
+    }
 
     const open = shouldOpenListenAlong({
         enabled: privacy.listen_along !== "nobody",
@@ -40,14 +46,14 @@ export function ListenAlongRunner() {
         inSession: mySessionLoading ? null : mySessionId !== null,
         isPlaying,
         songId,
-        openedFor,
+        lastSessionSong,
     });
 
     useEffect(() => {
         if (!open || opening.current) return;
         opening.current = true;
         void (async () => {
-            setOpenedFor(songId);
+            setLastSessionSong(songId);
             try {
                 const { session_id } = await startLiveSession({
                     name: profile?.username

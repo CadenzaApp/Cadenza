@@ -12,7 +12,7 @@ const playing: ListenAlongState = {
     inSession: false,
     isPlaying: true,
     songId: "1",
-    openedFor: null,
+    lastSessionSong: null,
 };
 
 test("playing a shareable song with listen along on opens a session", () => {
@@ -35,9 +35,16 @@ test("nothing opens while in a session or before that is known", () => {
 });
 
 test("an ended session reopens on the next song, not the same one", () => {
-    assert.equal(shouldOpenListenAlong({ ...playing, openedFor: "1" }), false);
     assert.equal(
-        shouldOpenListenAlong({ ...playing, openedFor: "1", songId: "2" }),
+        shouldOpenListenAlong({ ...playing, lastSessionSong: "1" }),
+        false,
+    );
+    assert.equal(
+        shouldOpenListenAlong({
+            ...playing,
+            lastSessionSong: "1",
+            songId: "2",
+        }),
         true,
     );
 });
