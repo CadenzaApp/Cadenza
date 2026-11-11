@@ -5,6 +5,7 @@ import { Image, Pressable, ScrollView, View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
 import { InviteCodePopup } from "@/components/custom/invite-code-popup";
+import { ReorderableList } from "@/components/custom/reorderable-list";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { SongSearchSheet } from "@/components/custom/song-search-sheet";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ import { isUsableArtworkUrl } from "@/lib/utils";
 import { formatTrackTime } from "../social/listening-progress";
 import { LiveChip } from "../social/LiveChip";
 import { MemberRow, RoleMenu } from "../social/MemberRow";
+import { sessionSongs } from "./session-commands";
 import { expectedPositionMs } from "./session-reconciler";
 
 type Tab = "queue" | "requests" | "people";
@@ -201,6 +203,78 @@ function SessionView({ session }: { session: LiveSession }) {
         { value: "people", label: `People ${session.members.length}` },
     ];
 
+    const activeTab = tabs.some((t) => t.value === tab) ? tab : "queue";
+
+    const top = (
+        <>
+            <NowPlayingBlock
+                session={session}
+                entry={playing}
+                canControl={sessionCan.control(role)}
+                onCommand={(body, failure) =>
+                    void run(() => writes.sendPlayback(body), failure)
+                }
+            />
+
+            {!isHost ? (
+                <View className="gap-1">
+                    <SegmentedControl
+                        size="sm"
+                        options={LISTEN_MODES.map((option) =>
+                            option.value === "synced"
+                                ? {
+                                      ...option,
+                                      disabled: !fullPlayback,
+                                  }
+                                : option,
+                        )}
+                        value={session.my_listen_mode}
+                        onChange={(mode) =>
+                            void run(
+                                () => writes.setListenMode(mode),
+                                "Couldn't switch.",
+                            )
+                        }
+                    />
+                    <Text className="text-xs text-muted-foreground">
+                        {!fullPlayback
+                            ? "Listening here needs an Apple Music subscription."
+                            : session.my_listen_mode === "synced"
+                              ? "Plays on this phone, in step with the host."
+                              : "Plays on the host's phone. You see and control it here."}
+                    </Text>
+                </View>
+            ) : null}
+
+            {notice ? (
+                <Text
+                    accessibilityRole="alert"
+                    className="text-sm text-destructive"
+                >
+                    {notice}
+                </Text>
+            ) : null}
+
+            <SegmentedControl
+                size="sm"
+                options={tabs}
+                value={activeTab}
+                onChange={setTab}
+            />
+        </>
+    );
+    const addButton = sessionCan.suggest(role) ? (
+        <View className="items-center">
+            <GlassPill
+                icon="add"
+                label={
+                    sessionCan.editQueue(role) ? "Add songs" : "Suggest a song"
+                }
+                onPress={() => setAdding(true)}
+            />
+        </View>
+    ) : null;
+
     return (
         <DetailScreen
             presentation="sheet"
@@ -233,231 +307,205 @@ function SessionView({ session }: { session: LiveSession }) {
                 </View>
             }
         >
-            <ScrollView
-                className="flex-1"
-                contentContainerClassName="gap-6 px-5 pb-16 pt-2"
-            >
-                <NowPlayingBlock
-                    session={session}
-                    entry={playing}
-                    canControl={sessionCan.control(role)}
-                    onCommand={(body, failure) =>
-                        void run(() => writes.sendPlayback(body), failure)
-                    }
-                />
-
-                {!isHost ? (
-                    <View className="gap-1">
-                        <SegmentedControl
-                            size="sm"
-                            options={LISTEN_MODES.map((option) =>
-                                option.value === "synced"
-                                    ? { ...option, disabled: !fullPlayback }
-                                    : option,
-                            )}
-                            value={session.my_listen_mode}
-                            onChange={(mode) =>
-                                void run(
-                                    () => writes.setListenMode(mode),
-                                    "Couldn't switch.",
-                                )
-                            }
-                        />
-                        <Text className="text-xs text-muted-foreground">
-                            {!fullPlayback
-                                ? "Listening here needs an Apple Music subscription."
-                                : session.my_listen_mode === "synced"
-                                  ? "Plays on this phone, in step with the host."
-                                  : "Plays on the host's phone. You see and control it here."}
+            {/* editors drag the queue, so the page scrolls inside the
+                reorderable list with everything above it as its header */}
+            {activeTab === "queue" && sessionCan.editQueue(role) ? (
+                <ReorderableList
+                    style={{ flex: 1 }}
+                    contentContainerStyle={{
+                        paddingHorizontal: 20,
+                        paddingTop: 8,
+                        paddingBottom: 64,
+                    }}
+                    header={<View className="gap-6 pb-3">{top}</View>}
+                    footer={<View className="pt-3">{addButton}</View>}
+                    empty={
+                        <Text className="py-4 text-center text-sm text-muted-foreground">
+                            Nothing up next.
                         </Text>
-                    </View>
-                ) : null}
-
-                {notice ? (
-                    <Text
-                        accessibilityRole="alert"
-                        className="text-sm text-destructive"
-                    >
-                        {notice}
-                    </Text>
-                ) : null}
-
-                <SegmentedControl
-                    size="sm"
-                    options={tabs}
-                    value={tabs.some((t) => t.value === tab) ? tab : "queue"}
-                    onChange={setTab}
+                    }
+                    data={upcoming}
+                    itemHeight={ENTRY_ROW_HEIGHT}
+                    keyExtractor={(entry) => String(entry.entry_id)}
+                    onReorder={(from, to) => {
+                        const entry = upcoming[from];
+                        if (!entry || from === to) return;
+                        void run(
+                            () => writes.moveEntry(entry.entry_id, to),
+                            "Couldn't move it.",
+                        );
+                    }}
+                    renderItem={({ item, index }) => (
+                        <EntryRow
+                            entry={item}
+                            first={index === 0}
+                            draggable
+                            onMenu={() => setEntryMenu(item)}
+                        />
+                    )}
                 />
+            ) : (
+                <ScrollView
+                    className="flex-1"
+                    contentContainerClassName="gap-6 px-5 pb-16 pt-2"
+                >
+                    {top}
 
-                {tab === "queue" ? (
-                    <View className="gap-3">
-                        {upcoming.length === 0 ? (
+                    {activeTab === "queue" ? (
+                        <View className="gap-3">
+                            {upcoming.length === 0 ? (
+                                <Text className="py-4 text-center text-sm text-muted-foreground">
+                                    Nothing up next.
+                                </Text>
+                            ) : (
+                                <GlassPanel>
+                                    {upcoming.map((entry, index) => (
+                                        <EntryRow
+                                            key={entry.entry_id}
+                                            entry={entry}
+                                            first={index === 0}
+                                        />
+                                    ))}
+                                </GlassPanel>
+                            )}
+                            {addButton}
+                        </View>
+                    ) : null}
+
+                    {activeTab === "requests" ? (
+                        requests.length === 0 ? (
                             <Text className="py-4 text-center text-sm text-muted-foreground">
-                                Nothing up next.
+                                {isHost
+                                    ? "No suggestions waiting."
+                                    : "You have no suggestions waiting."}
                             </Text>
                         ) : (
                             <GlassPanel>
-                                {upcoming.map((entry, index) => (
+                                {requests.map((entry, index) => (
                                     <EntryRow
                                         key={entry.entry_id}
                                         entry={entry}
                                         first={index === 0}
-                                        onMenu={
-                                            sessionCan.editQueue(role)
-                                                ? () => setEntryMenu(entry)
-                                                : undefined
+                                        trailing={
+                                            isHost ? (
+                                                <View className="flex-row gap-2">
+                                                    <Button
+                                                        accessibilityLabel={`Reject ${entry.title} from ${entry.added_by_username ?? "someone"}`}
+                                                        className="w-9 px-0"
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onPress={() =>
+                                                            void run(
+                                                                () =>
+                                                                    writes.reviewSuggestion(
+                                                                        entry.entry_id,
+                                                                        false,
+                                                                    ),
+                                                                "Couldn't reject it.",
+                                                            )
+                                                        }
+                                                    >
+                                                        <Ionicons
+                                                            name="close"
+                                                            size={18}
+                                                            color={
+                                                                colors.foreground
+                                                            }
+                                                        />
+                                                    </Button>
+                                                    <Button
+                                                        accessibilityLabel={`Approve ${entry.title} from ${entry.added_by_username ?? "someone"}`}
+                                                        className="w-9 px-0"
+                                                        size="sm"
+                                                        onPress={() =>
+                                                            void run(
+                                                                () =>
+                                                                    writes.reviewSuggestion(
+                                                                        entry.entry_id,
+                                                                        true,
+                                                                    ),
+                                                                "Couldn't approve it.",
+                                                            )
+                                                        }
+                                                    >
+                                                        <Ionicons
+                                                            name="checkmark"
+                                                            size={18}
+                                                            color={
+                                                                colors.primaryForeground
+                                                            }
+                                                        />
+                                                    </Button>
+                                                </View>
+                                            ) : (
+                                                <Pressable
+                                                    accessibilityRole="button"
+                                                    accessibilityLabel={`Withdraw ${entry.title}`}
+                                                    onPress={() =>
+                                                        void run(
+                                                            () =>
+                                                                writes.removeEntry(
+                                                                    entry.entry_id,
+                                                                ),
+                                                            "Couldn't withdraw it.",
+                                                        )
+                                                    }
+                                                    className="active:opacity-60"
+                                                >
+                                                    <Text className="text-xs text-muted-foreground">
+                                                        Waiting · Withdraw
+                                                    </Text>
+                                                </Pressable>
+                                            )
                                         }
                                     />
                                 ))}
                             </GlassPanel>
-                        )}
-                        {sessionCan.suggest(role) ? (
-                            <View className="items-center">
-                                <GlassPill
-                                    icon="add"
-                                    label={
-                                        sessionCan.editQueue(role)
-                                            ? "Add songs"
-                                            : "Suggest a song"
-                                    }
-                                    onPress={() => setAdding(true)}
-                                />
-                            </View>
-                        ) : null}
-                    </View>
-                ) : null}
+                        )
+                    ) : null}
 
-                {tab === "requests" ? (
-                    requests.length === 0 ? (
-                        <Text className="py-4 text-center text-sm text-muted-foreground">
-                            {isHost
-                                ? "No suggestions waiting."
-                                : "You have no suggestions waiting."}
-                        </Text>
-                    ) : (
+                    {activeTab === "people" ? (
                         <GlassPanel>
-                            {requests.map((entry, index) => (
-                                <EntryRow
-                                    key={entry.entry_id}
-                                    entry={entry}
-                                    first={index === 0}
-                                    trailing={
-                                        isHost ? (
-                                            <View className="flex-row gap-2">
-                                                <Button
-                                                    accessibilityLabel={`Reject ${entry.title} from ${entry.added_by_username ?? "someone"}`}
-                                                    className="w-9 px-0"
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onPress={() =>
-                                                        void run(
-                                                            () =>
-                                                                writes.reviewSuggestion(
-                                                                    entry.entry_id,
-                                                                    false,
-                                                                ),
-                                                            "Couldn't reject it.",
-                                                        )
-                                                    }
-                                                >
-                                                    <Ionicons
-                                                        name="close"
-                                                        size={18}
-                                                        color={
-                                                            colors.foreground
-                                                        }
-                                                    />
-                                                </Button>
-                                                <Button
-                                                    accessibilityLabel={`Approve ${entry.title} from ${entry.added_by_username ?? "someone"}`}
-                                                    className="w-9 px-0"
-                                                    size="sm"
-                                                    onPress={() =>
-                                                        void run(
-                                                            () =>
-                                                                writes.reviewSuggestion(
-                                                                    entry.entry_id,
-                                                                    true,
-                                                                ),
-                                                            "Couldn't approve it.",
-                                                        )
-                                                    }
-                                                >
-                                                    <Ionicons
-                                                        name="checkmark"
-                                                        size={18}
-                                                        color={
-                                                            colors.primaryForeground
-                                                        }
-                                                    />
-                                                </Button>
-                                            </View>
-                                        ) : (
-                                            <Pressable
-                                                accessibilityRole="button"
-                                                accessibilityLabel={`Withdraw ${entry.title}`}
-                                                onPress={() =>
-                                                    void run(
-                                                        () =>
-                                                            writes.removeEntry(
-                                                                entry.entry_id,
-                                                            ),
-                                                        "Couldn't withdraw it.",
-                                                    )
-                                                }
-                                                className="active:opacity-60"
-                                            >
-                                                <Text className="text-xs text-muted-foreground">
-                                                    Waiting · Withdraw
-                                                </Text>
-                                            </Pressable>
-                                        )
-                                    }
-                                />
+                            {session.members.map((member, index) => (
+                                <View key={member.user_id}>
+                                    {index > 0 ? (
+                                        <View className="ml-[68px] h-px bg-border" />
+                                    ) : null}
+                                    <MemberRow
+                                        username={member.username}
+                                        isYou={member.user_id === account?.id}
+                                        roleLabel={
+                                            member.is_host
+                                                ? "Host"
+                                                : SESSION_ROLE_LABELS[
+                                                      member.role
+                                                  ]
+                                        }
+                                        subtitle={
+                                            member.listen_mode === "synced"
+                                                ? "Listening here"
+                                                : "Remote"
+                                        }
+                                        subtitleIcon={
+                                            member.listen_mode === "synced"
+                                                ? "volume-high-outline"
+                                                : "phone-portrait-outline"
+                                        }
+                                        manageable={isHost && !member.is_host}
+                                        onPress={() =>
+                                            isHost && !member.is_host
+                                                ? setMemberMenu(member)
+                                                : router.push(
+                                                      `/social/user/${member.user_id}` as Href,
+                                                  )
+                                        }
+                                    />
+                                </View>
                             ))}
                         </GlassPanel>
-                    )
-                ) : null}
-
-                {tab === "people" ? (
-                    <GlassPanel>
-                        {session.members.map((member, index) => (
-                            <View key={member.user_id}>
-                                {index > 0 ? (
-                                    <View className="ml-[68px] h-px bg-border" />
-                                ) : null}
-                                <MemberRow
-                                    username={member.username}
-                                    isYou={member.user_id === account?.id}
-                                    roleLabel={
-                                        member.is_host
-                                            ? "Host"
-                                            : SESSION_ROLE_LABELS[member.role]
-                                    }
-                                    subtitle={
-                                        member.listen_mode === "synced"
-                                            ? "Listening here"
-                                            : "Remote"
-                                    }
-                                    subtitleIcon={
-                                        member.listen_mode === "synced"
-                                            ? "volume-high-outline"
-                                            : "phone-portrait-outline"
-                                    }
-                                    manageable={isHost && !member.is_host}
-                                    onPress={() =>
-                                        isHost && !member.is_host
-                                            ? setMemberMenu(member)
-                                            : router.push(
-                                                  `/social/user/${member.user_id}` as Href,
-                                              )
-                                    }
-                                />
-                            </View>
-                        ))}
-                    </GlassPanel>
-                ) : null}
-            </ScrollView>
+                    ) : null}
+                </ScrollView>
+            )}
 
             {adding ? (
                 <SongSearchSheet
@@ -469,19 +517,8 @@ function SessionView({ session }: { session: LiveSession }) {
                     actionLabel={sessionCan.editQueue(role) ? "Add" : "Suggest"}
                     onClose={() => setAdding(false)}
                     onPick={async (song) => {
-                        await writes.addSongs({
-                            songs: [
-                                {
-                                    song_id: song.catalogId ?? song.id,
-                                    title: song.title,
-                                    artist: song.artistName ?? null,
-                                    artwork_url: song.artworkUrl ?? null,
-                                    duration_ms: song.songDuration
-                                        ? Math.round(song.songDuration * 1000)
-                                        : null,
-                                },
-                            ],
-                        });
+                        const songs = sessionSongs([song]);
+                        if (songs.length > 0) await writes.addSongs({ songs });
                     }}
                 />
             ) : null}
@@ -584,6 +621,15 @@ function SessionView({ session }: { session: LiveSession }) {
                                     );
                                 }}
                             />
+                            {session.members.length > 1 ? (
+                                <OptionRow
+                                    label="Leave and hand it over"
+                                    onPress={() => {
+                                        setOptionsOpen(false);
+                                        setConfirm("leave");
+                                    }}
+                                />
+                            ) : null}
                             <OptionRow
                                 label="End session"
                                 destructive
@@ -616,7 +662,9 @@ function SessionView({ session }: { session: LiveSession }) {
                 description={
                     confirm === "end"
                         ? "Everyone in it is let go, and its codes stop working."
-                        : "Your own queue comes back."
+                        : isHost
+                          ? "Another member becomes the host, and the music moves to their phone."
+                          : "Your own queue comes back."
                 }
                 confirmLabel={confirm === "end" ? "End" : "Leave"}
                 pendingLabel={confirm === "end" ? "Ending..." : "Leaving..."}
@@ -800,14 +848,20 @@ function NowPlayingBlock({
     );
 }
 
+/** Every queue row is this tall, which the reorderable list positions by. */
+const ENTRY_ROW_HEIGHT = 64;
+
 function EntryRow({
     entry,
     first,
+    draggable = false,
     onMenu,
     trailing,
 }: {
     entry: LiveSessionEntry;
     first: boolean;
+    /** Shows the drag handle. The list owns the long press. */
+    draggable?: boolean;
     onMenu?: () => void;
     trailing?: React.ReactNode;
 }) {
@@ -816,9 +870,11 @@ function EntryRow({
         ? ` · added by ${entry.added_by_username}`
         : "";
     return (
-        <View>
-            {first ? null : <View className="ml-[68px] h-px bg-border" />}
-            <View className="flex-row items-center gap-3 px-4 py-3">
+        <View style={{ height: ENTRY_ROW_HEIGHT }}>
+            {first ? null : (
+                <View className="absolute left-[68px] right-0 top-0 h-px bg-border" />
+            )}
+            <View className="flex-1 flex-row items-center gap-3 px-4">
                 {isUsableArtworkUrl(entry.artwork_url) ? (
                     <Image
                         source={{ uri: entry.artwork_url! }}
@@ -858,6 +914,14 @@ function EntryRow({
                             />
                         </Pressable>
                     ) : null)}
+                {draggable ? (
+                    <Ionicons
+                        accessibilityLabel="Hold to drag"
+                        name="reorder-two"
+                        size={20}
+                        color={colors.mutedForeground}
+                    />
+                ) : null}
             </View>
         </View>
     );

@@ -13,6 +13,7 @@ pub struct Model {
     pub session_join: Audience,
     pub playlist_add: Audience,
     pub updated_at: DateTimeWithTimeZone,
+    pub listen_along: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

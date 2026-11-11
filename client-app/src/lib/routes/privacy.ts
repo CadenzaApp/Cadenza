@@ -13,7 +13,19 @@ export type PrivacySettings = {
     session_join: Audience;
     /** Who can add this user to a shared playlist without a code. */
     playlist_add: Audience;
+    /**
+     * The phone opens a listener only live session whenever this user plays,
+     * so `session_join` can join from Listening now.
+     */
+    listen_along: boolean;
 };
+
+/** The settings that pick an audience. */
+export type AudienceField = {
+    [K in keyof PrivacySettings]: PrivacySettings[K] extends Audience
+        ? K
+        : never;
+}[keyof PrivacySettings];
 
 /** What the backend returns for a user who never changed one. */
 export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
@@ -21,6 +33,7 @@ export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
     listening_history: "friends",
     session_join: "friends",
     playlist_add: "friends",
+    listen_along: false,
 };
 
 /**

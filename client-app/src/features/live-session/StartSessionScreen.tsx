@@ -10,18 +10,16 @@ import {
     type SegmentOption,
 } from "@/components/ui/segmented-control";
 import { Text } from "@/components/ui/text";
-import { shareableSongId } from "@/lib/now-playing-change";
-import { usePlayback } from "@/lib/playback";
 import { useProfile } from "@/lib/routes/profile";
 import {
     useLiveSession,
     useLiveSessionWrites,
     useMyLiveSession,
-    useSeedSessionQueue,
     useStartLiveSession,
-    type QueueSongBody,
     type SessionRole,
 } from "@/lib/routes/live-sessions";
+
+import { useSeedSession } from "./use-seed-session";
 
 type Joining = "friends" | "code";
 
@@ -44,9 +42,6 @@ const ROLE_HELP: Record<SessionRole, string> = {
     controller: "They can also play, pause, and skip.",
 };
 
-/** The most of the host's own queue a new session starts with. */
-const SEED_LIMIT = 50;
-
 /**
  * Starts a live session, or with `editId` changes one's settings. Music plays
  * on the host's phone, and their current queue becomes the session's.
@@ -54,12 +49,11 @@ const SEED_LIMIT = 50;
 export function StartSessionScreen({ editId }: { editId?: string }) {
     const router = useRouter();
     const { profile } = useProfile();
-    const playback = usePlayback();
     const { mySessionId } = useMyLiveSession();
     const { liveSession: mine } = useLiveSession(mySessionId);
     const { liveSession: editing } = useLiveSession(editId ?? null);
     const { startLiveSession, startLiveSessionLoading } = useStartLiveSession();
-    const { seedSessionQueue } = useSeedSessionQueue();
+    const seedSession = useSeedSession();
     const writes = useLiveSessionWrites(editId ?? "none");
 
     const alreadyHosting = !editId && mine?.my_role === "host";
@@ -110,7 +104,7 @@ export function StartSessionScreen({ editId }: { editId?: string }) {
                 default_role: roleValue,
                 allow_join_without_code: joiningValue === "friends",
             });
-            await seedFromQueue(session_id);
+            await seedSession(session_id);
             router.replace(`/live-session/${session_id}` as Href);
         } catch {
             setError(
@@ -120,36 +114,6 @@ export function StartSessionScreen({ editId }: { editId?: string }) {
             );
         } finally {
             setSaving(false);
-        }
-    }
-
-    /** The playing song and what is after it, catalog songs only. */
-    async function seedFromQueue(sessionId: string) {
-        const from = Math.max(0, playback.queueIndex);
-        const songs: QueueSongBody[] = playback.queue
-            .slice(from, from + SEED_LIMIT)
-            .flatMap((track) => {
-                const songId = shareableSongId(track);
-                return songId
-                    ? [
-                          {
-                              song_id: songId,
-                              title: track.title,
-                              artist: track.artistName ?? null,
-                              artwork_url: track.artworkUrl ?? null,
-                              duration_ms: track.songDuration
-                                  ? Math.round(track.songDuration * 1000)
-                                  : null,
-                          },
-                      ]
-                    : [];
-            });
-        if (songs.length === 0) return;
-        try {
-            await seedSessionQueue({ session_id: sessionId, songs });
-        } catch (error) {
-            // the session still works; songs can be added from its screen
-            console.warn("Could not seed the session queue:", error);
         }
     }
 

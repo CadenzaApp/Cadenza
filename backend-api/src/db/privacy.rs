@@ -1,4 +1,5 @@
-//! Per user privacy settings: who can see each part of their listening. A user
+//! Per user privacy settings: who can see each part of their listening, and
+//! whether friends can listen along without being invited. A user
 //! with no row reads the defaults, and the row is created on their first
 //! change. The check that reads these is `db::audience`.
 
@@ -19,6 +20,7 @@ pub struct PrivacyPatch {
     pub listening_history: Option<Audience>,
     pub session_join: Option<Audience>,
     pub playlist_add: Option<Audience>,
+    pub listen_along: Option<bool>,
 }
 
 /// The settings a user with no row gets.
@@ -30,6 +32,7 @@ fn default_privacy(user_id: Uuid) -> privacy_settings::Model {
         session_join: PrivacyField::SessionJoin.default_audience(),
         playlist_add: PrivacyField::PlaylistAdd.default_audience(),
         updated_at: Utc::now().fixed_offset(),
+        listen_along: false,
     }
 }
 
@@ -65,6 +68,7 @@ pub async fn update_privacy(
         session_join: Set(patch.session_join.clone().unwrap_or(defaults.session_join)),
         playlist_add: Set(patch.playlist_add.clone().unwrap_or(defaults.playlist_add)),
         updated_at: Set(Utc::now().fixed_offset()),
+        listen_along: Set(patch.listen_along.unwrap_or(defaults.listen_along)),
     };
 
     let changed = changed_columns(&patch);
@@ -91,6 +95,7 @@ fn changed_columns(patch: &PrivacyPatch) -> Vec<Column> {
             Column::ListeningHistory => patch.listening_history.is_some(),
             Column::SessionJoin => patch.session_join.is_some(),
             Column::PlaylistAdd => patch.playlist_add.is_some(),
+            Column::ListenAlong => patch.listen_along.is_some(),
             Column::UpdatedAt => true,
             Column::UserId => false,
         })

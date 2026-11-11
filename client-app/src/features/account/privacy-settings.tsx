@@ -7,6 +7,7 @@ import {
 import {
     usePrivacySettings,
     type Audience,
+    type AudienceField,
     type PrivacySettings,
 } from "@/lib/routes/privacy";
 
@@ -24,9 +25,14 @@ const AUDIENCES: readonly SegmentOption<Audience>[] = [
     { value: "nobody", label: "Nobody", icon: "eye-off-outline" },
 ];
 
+const ON_OFF: readonly SegmentOption<"on" | "off">[] = [
+    { value: "off", label: "Off" },
+    { value: "on", label: "On", icon: "radio-outline" },
+];
+
 /** One picker per privacy setting, in the order they show. */
 const FIELDS: readonly {
-    field: keyof PrivacySettings;
+    field: AudienceField;
     title: string;
     footnote: string;
 }[] = [
@@ -98,6 +104,16 @@ export function PrivacySettingsScreen() {
                     />
                 </SettingsSection>
             ))}
+            <SettingsSection
+                title="Listen along"
+                footnote="While on, playing music opens a live session for you. Anyone who can join your live sessions can listen along from Listening now. Only songs from the Apple Music catalog are shared, so songs only in your library leave your queue while it is on."
+            >
+                <SegmentedControl
+                    options={ON_OFF}
+                    value={privacy.listen_along ? "on" : "off"}
+                    onChange={(value) => save({ listen_along: value === "on" })}
+                />
+            </SettingsSection>
             <SaveError error={updatePrivacyErr} />
             <SettingsSection title="Your data">
                 <SettingsPoints points={points} />

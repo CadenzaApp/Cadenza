@@ -40,6 +40,8 @@ pub struct PrivacySettings {
     pub listening_history: Audience,
     pub session_join: Audience,
     pub playlist_add: Audience,
+    /// The phone opens a listener only live session whenever this user plays.
+    pub listen_along: bool,
 }
 
 impl From<privacy_settings::Model> for PrivacySettings {
@@ -49,6 +51,7 @@ impl From<privacy_settings::Model> for PrivacySettings {
             listening_history: model.listening_history.into(),
             session_join: model.session_join.into(),
             playlist_add: model.playlist_add.into(),
+            listen_along: model.listen_along,
         }
     }
 }
@@ -60,6 +63,7 @@ pub struct PatchPrivacySettings {
     pub listening_history: Option<Audience>,
     pub session_join: Option<Audience>,
     pub playlist_add: Option<Audience>,
+    pub listen_along: Option<bool>,
 }
 
 impl From<PatchPrivacySettings> for PrivacyPatch {
@@ -69,6 +73,7 @@ impl From<PatchPrivacySettings> for PrivacyPatch {
             listening_history: body.listening_history.map(Into::into),
             session_join: body.session_join.map(Into::into),
             playlist_add: body.playlist_add.map(Into::into),
+            listen_along: body.listen_along,
         }
     }
 }
