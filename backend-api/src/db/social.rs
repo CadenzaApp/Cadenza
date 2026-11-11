@@ -1,4 +1,5 @@
-//! Social posts, likes, comments, view status, interests, and the ranked feed's SQL.
+//! Social posts, likes, comments, view status, interests, friendships, user
+//! search, notifications, and the ranked feed's SQL.
 //!
 //! Ranking math that does not need the database lives here too. Turning text
 //! into vectors is `services::social_feed`, which calls the python model.
@@ -7,11 +8,12 @@ use std::collections::HashMap;
 
 use crate::db::entity::{comment_likes, comments, post_likes, posts, profile};
 use crate::err::CadenzaError;
+use crate::services::notification::{NewNotification, NotificationType, push_notification};
 use chrono::{DateTime, TimeZone, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
     ActiveValue::{NotSet, Set},
-    ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
+    ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
     FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect, QueryTrait, RuntimeErr,
     Statement, TransactionTrait, Value,
     sea_query::{ArrayType, Expr, ExprTrait, Func, OnConflict},
@@ -20,6 +22,16 @@ use sea_orm::{
 /// How many posts one `/feed` call returns. A shorter page means that exclude
 /// mode is exhausted.
 pub const FEED_SIZE: i64 = 10;
+
+/// How many posts one `GET /social/posts/topic` call returns.
+pub const TOPIC_POST_LIMIT: i64 = 10;
+
+/// How many comments one `GET /social/posts/:id/comments` call returns.
+pub const COMMENT_PAGE_LIMIT: u64 = 20;
+
+/// Second line of a received friend-request notification. Accept and ignore
+/// find the row by this text.
+const FRIEND_REQUEST_RECEIVED: &str = "sent you a friend request";
 
 /// Flat extra on [`score_post`] when the author is a completed friend.
 pub const FRIEND_SCORE_BOOST: f64 = 10_000.0;
@@ -162,8 +174,9 @@ pub async fn delete_post(
 
 /// The author's post clocks. `created_at` keeps the age component of
 /// `embedding_w_bday`. `edited_at` is the database time of the last edit, or
-/// `None` when the text has never changed. `None` for the whole value when
-/// the post is missing or owned by someone else.
+/// `None` when the text has never changed. `topic_mk_id` is set when the post
+/// has a topic, so an edit can prefix the embedding. `None` for the whole
+/// value when the post is missing or owned by someone else.
 pub async fn author_post_clock(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -171,7 +184,7 @@ pub async fn author_post_clock(
 ) -> Result<Option<PostClock>, CadenzaError> {
     let row = PostClockRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT created_at, edited_at FROM posts WHERE post_id = $1 AND user_id = $2",
+        "SELECT created_at, edited_at, topic_mk_id FROM posts WHERE post_id = $1 AND user_id = $2",
         vec![post_id.into(), user_id.into()],
     ))
     .one(db)
@@ -179,13 +192,15 @@ pub async fn author_post_clock(
     Ok(row.map(|row| PostClock {
         created_at: row.created_at.with_timezone(&Utc),
         edited_at: row.edited_at.map(|edited_at| edited_at.with_timezone(&Utc)),
+        topic_mk_id: row.topic_mk_id,
     }))
 }
 
-/// `created_at` and the database time of the last edit.
+/// `created_at`, the database time of the last edit, and the stored topic id.
 pub struct PostClock {
     pub created_at: DateTime<Utc>,
     pub edited_at: Option<DateTime<Utc>>,
+    pub topic_mk_id: Option<String>,
 }
 
 /// True when the client's `incoming` time is the same instant or later than
@@ -308,7 +323,74 @@ pub async fn unlike_post(
     Ok(())
 }
 
+/// The other person's username, or `"unknown"` when they have no profile.
+async fn actor_username(db: &impl ConnectionTrait, user_id: Uuid) -> Result<String, CadenzaError> {
+    let row = profile::Entity::find_by_id(user_id).one(db).await?;
+    Ok(match row {
+        Some(row) if !row.username.trim().is_empty() => row.username,
+        _ => "unknown".to_owned(),
+    })
+}
+
+/// A comment stores `post_id`. A friend request stores the sender and an
+/// unanswered resolution.
+fn notification_metadata(
+    notif_type: NotificationType,
+    sender_id: Uuid,
+    post_id: Option<i64>,
+) -> serde_json::Value {
+    match notif_type {
+        NotificationType::Comment => serde_json::json!({ "post_id": post_id }),
+        NotificationType::FriendReqReceived | NotificationType::FriendReqAccepted => {
+            serde_json::json!({
+                "sender_id": sender_id,
+                "resolution": null,
+            })
+        }
+    }
+}
+
+/// One unread notification for `recipient_id`. A comment's title is
+/// `<username> commented on your post` and its content is the comment. A
+/// friend request's title is the other person's username. The same person
+/// gets nothing, so a comment on your own post is quiet.
+async fn notify_user(
+    db: &impl ConnectionTrait,
+    recipient_id: Uuid,
+    sender_id: Uuid,
+    content: &str,
+    notif_type: NotificationType,
+    post_id: Option<i64>,
+) -> Result<(), CadenzaError> {
+    if recipient_id == sender_id {
+        return Ok(());
+    }
+    let username = actor_username(db, sender_id).await?;
+    let title = match notif_type {
+        NotificationType::Comment => format!("{username} commented on your post"),
+        NotificationType::FriendReqReceived | NotificationType::FriendReqAccepted => username,
+    };
+    push_notification(
+        db,
+        NewNotification {
+            user_id: recipient_id,
+            title,
+            content: content.to_owned(),
+            notif_type,
+            metadata: notification_metadata(notif_type, sender_id, post_id),
+        },
+    )
+    .await?;
+    Ok(())
+}
+
 /// Inserts a comment and returns its id. `NotFound` when the post is gone.
+///
+/// The post's author gets a `comment` notification, title
+/// "<username> commented on your post" and content the comment, in this same
+/// transaction. Metadata is `{"post_id"}`.
+/// The author commenting on their own post gets none. A failed notification
+/// rolls the comment back.
 pub async fn insert_comment(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -347,6 +429,31 @@ pub async fn insert_comment(
         .filter(posts::Column::PostId.eq(post_id))
         .exec(&txn)
         .await?;
+    let author = txn
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT user_id FROM posts WHERE post_id = $1",
+            vec![post_id.into()],
+        ))
+        .await?;
+    let Some(author) = author else {
+        txn.rollback().await?;
+        return Err(CadenzaError::NotFound);
+    };
+    let author_id: Uuid = author.try_get_by_index(0)?;
+    if let Err(err) = notify_user(
+        &txn,
+        author_id,
+        user_id,
+        content,
+        NotificationType::Comment,
+        Some(post_id),
+    )
+    .await
+    {
+        txn.rollback().await?;
+        return Err(err);
+    }
     txn.commit().await?;
     Ok(comment_id)
 }
@@ -439,17 +546,75 @@ async fn finish_stale_edit(
     Ok(())
 }
 
-/// Comments on `post_id`, most liked first, then newest, then comment id.
+/// Where the next comments page starts. The columns are the sort key, in order.
+#[derive(Clone, Debug)]
+pub struct CommentsCursor {
+    pub likes: i64,
+    pub created_at: DateTime<Utc>,
+    pub comment_id: i64,
+}
+
+/// One page of comments, plus the cursor for the following page when this one is full.
+pub struct CommentPage {
+    pub comments: Vec<SocialComment>,
+    pub next: Option<CommentsCursor>,
+}
+
+/// Comments on `post_id`, at most [`COMMENT_PAGE_LIMIT`], most liked first.
+///
+/// Order is `likes` desc, `created_at` desc, `comment_id` desc. `created_at` is
+/// not unique, so `comment_id` finishes the order and the cursor. `cursor` is
+/// `None` for the first page. Later pages pass the previous `next`.
 pub async fn get_post_comments(
     db: &DatabaseConnection,
     viewer_id: Uuid,
     post_id: i64,
-) -> Result<Vec<SocialComment>, CadenzaError> {
-    let rows = comments_on_post(viewer_id, post_id)
+    cursor: Option<CommentsCursor>,
+) -> Result<CommentPage, CadenzaError> {
+    let rows = comments_page(viewer_id, post_id, cursor)
         .into_model::<CommentRow>()
         .all(db)
         .await?;
-    Ok(rows.iter().map(CommentRow::to_comment).collect())
+    let next = (rows.len() as u64 == COMMENT_PAGE_LIMIT)
+        .then(|| rows.last())
+        .flatten()
+        .map(|row| CommentsCursor {
+            likes: row.likes,
+            created_at: row.created_at.with_timezone(&Utc),
+            comment_id: row.comment_id,
+        });
+    Ok(CommentPage {
+        comments: rows.iter().map(CommentRow::to_comment).collect(),
+        next,
+    })
+}
+
+/// [`comments_on_post`] plus the page size, and the cursor filter when there is one.
+fn comments_page(
+    viewer_id: Uuid,
+    post_id: i64,
+    cursor: Option<CommentsCursor>,
+) -> sea_orm::Select<comments::Entity> {
+    let mut query = comments_on_post(viewer_id, post_id);
+    if let Some(cursor) = cursor {
+        let created_at = cursor.created_at.fixed_offset();
+        query = query.filter(
+            Condition::any()
+                .add(comments::Column::Likes.lt(cursor.likes))
+                .add(
+                    Condition::all()
+                        .add(comments::Column::Likes.eq(cursor.likes))
+                        .add(comments::Column::CreatedAt.lt(created_at)),
+                )
+                .add(
+                    Condition::all()
+                        .add(comments::Column::Likes.eq(cursor.likes))
+                        .add(comments::Column::CreatedAt.eq(created_at))
+                        .add(comments::Column::CommentId.lt(cursor.comment_id)),
+                ),
+        );
+    }
+    query.limit(COMMENT_PAGE_LIMIT)
 }
 
 /// The select behind [`get_post_comments`]. A missing profile becomes
@@ -766,9 +931,12 @@ pub async fn is_friend(
 ///
 /// `user1` is the lexicographically smaller uuid. Status is `to_user1` when
 /// the recipient is `user1`, and `to_user2` when they are `user2`. Sending the
-/// same request again is a no-op. If the other person already sent a request,
-/// this accepts it and the row becomes `complete`. A completed friendship is
-/// [`CadenzaError::FriendshipAlreadyExists`].
+/// same request again is a no-op and sends nothing. A new request notifies
+/// `recipient_id`: `friend_req_received`, title the sender's username, content
+/// "sent you a friend request", in the same transaction as the insert. If the other
+/// person already sent a request, this accepts it and the row becomes
+/// `complete`, which notifies them that it was accepted. A completed
+/// friendship is [`CadenzaError::FriendshipAlreadyExists`].
 pub async fn request_friendship(
     db: &DatabaseConnection,
     sender_id: Uuid,
@@ -782,7 +950,8 @@ pub async fn request_friendship(
     let (user1, user2) = ordered_friend_users(sender_id, recipient_id);
     let status = friend_request_status(recipient_id, user1);
     let incoming = friend_request_status(sender_id, user1);
-    let inserted = db
+    let txn = db.begin().await?;
+    let inserted = txn
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "INSERT INTO friendships (created_at, user1, user2, status)
@@ -793,8 +962,25 @@ pub async fn request_friendship(
         ))
         .await?;
     if inserted.is_some() {
+        if let Err(err) = notify_user(
+            &txn,
+            recipient_id,
+            sender_id,
+            FRIEND_REQUEST_RECEIVED,
+            NotificationType::FriendReqReceived,
+            None,
+        )
+        .await
+        {
+            txn.rollback().await?;
+            return Err(err);
+        }
+        txn.commit().await?;
         return Ok(());
     }
+    // The conflicting row is locked until this transaction ends. Release it
+    // before the follow-up read, and before accept, which updates that row.
+    txn.rollback().await?;
     let existing = db
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
@@ -819,6 +1005,9 @@ pub async fn request_friendship(
 
 /// Deletes the friendship row for this pair, whatever its status is.
 /// A missing row is a no-op. `user1` is the lexicographically smaller uuid.
+///
+/// Ignoring an incoming request also marks that person's "sent you a friend
+/// request" notification `ignored`.
 pub async fn delete_friendship(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -830,10 +1019,48 @@ pub async fn delete_friendship(
         ));
     }
     let (user1, user2) = ordered_friend_users(user_id, other_id);
-    db.execute_raw(Statement::from_sql_and_values(
+    let incoming = friend_request_status(user_id, user1);
+    let txn = db.begin().await?;
+    let existing = txn
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT status::text FROM friendships WHERE user1 = $1 AND user2 = $2",
+            vec![user1.into(), user2.into()],
+        ))
+        .await?;
+    txn.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
         "DELETE FROM friendships WHERE user1 = $1 AND user2 = $2",
         vec![user1.into(), user2.into()],
+    ))
+    .await?;
+    if let Some(existing) = existing {
+        let status: String = existing.try_get_by_index(0)?;
+        if status == incoming {
+            resolve_friend_request_notification(&txn, user_id, other_id, "ignored").await?;
+        }
+    }
+    txn.commit().await?;
+    Ok(())
+}
+
+/// Marks unanswered "sent you a friend request" rows from `actor_id` to
+/// `recipient_id`. Rows that already have a resolution stay as they are.
+async fn resolve_friend_request_notification(
+    db: &impl ConnectionTrait,
+    recipient_id: Uuid,
+    actor_id: Uuid,
+    resolution: &str,
+) -> Result<(), CadenzaError> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE notifications
+         SET metadata = jsonb_set(metadata, '{resolution}', to_jsonb($3::text), true)
+         WHERE user_id = $1
+           AND \"type\" = 'friend_req_received'
+           AND metadata->>'sender_id' = $2::text
+           AND metadata->>'resolution' IS NULL",
+        vec![recipient_id.into(), actor_id.into(), resolution.into()],
     ))
     .await?;
     Ok(())
@@ -844,6 +1071,11 @@ pub async fn delete_friendship(
 /// The caller has to be the recipient: `to_user1` when they are `user1`, or
 /// `to_user2` when they are `user2`. `user1` is the lexicographically smaller
 /// uuid. Anything else, including a missing row, is [`CadenzaError::NotFound`].
+///
+/// The original sender gets a `friend_req_accepted` notification, title the accepter's
+/// username and content "accepted your friend request", in the same
+/// transaction as the update. Their "sent you a friend request" notification
+/// is marked `accepted` in that transaction too.
 pub async fn accept_friendship(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -856,7 +1088,8 @@ pub async fn accept_friendship(
     }
     let (user1, user2) = ordered_friend_users(user_id, other_id);
     let status = friend_request_status(user_id, user1);
-    let updated = db
+    let txn = db.begin().await?;
+    let updated = txn
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "UPDATE friendships
@@ -867,8 +1100,24 @@ pub async fn accept_friendship(
         ))
         .await?;
     if updated.is_none() {
+        txn.rollback().await?;
         return Err(CadenzaError::NotFound);
     }
+    if let Err(err) = notify_user(
+        &txn,
+        other_id,
+        user_id,
+        "accepted your friend request",
+        NotificationType::FriendReqAccepted,
+        None,
+    )
+    .await
+    {
+        txn.rollback().await?;
+        return Err(err);
+    }
+    resolve_friend_request_notification(&txn, user_id, other_id, "accepted").await?;
+    txn.commit().await?;
     Ok(())
 }
 
@@ -938,16 +1187,132 @@ pub async fn list_friendships(
     Ok(lists)
 }
 
-/// Posts whose topic is this Apple Music catalog id, most liked first.
-/// Equal scores fall back to newest first, then post id.
+/// `%term%` for a case-insensitive contains match. `%`, `_`, and `\` in the
+/// term are escaped so they match themselves.
+fn like_contains_pattern(term: &str) -> String {
+    let mut pattern = String::with_capacity(term.len() + 2);
+    pattern.push('%');
+    for ch in term.chars() {
+        if matches!(ch, '%' | '_' | '\\') {
+            pattern.push('\\');
+        }
+        pattern.push(ch);
+    }
+    pattern.push('%');
+    pattern
+}
+
+const USER_SEARCH_SQL: &str = "\
+SELECT
+    pr.uid AS user_id,
+    pr.username,
+    EXISTS (
+        SELECT 1 FROM friendships f
+        WHERE f.status = 'complete'
+          AND f.user1 = LEAST($1, pr.uid)
+          AND f.user2 = GREATEST($1, pr.uid)
+    ) AS is_friend
+FROM profile pr
+WHERE pr.uid <> $1
+  AND lower(pr.username) LIKE lower($2) ESCAPE '\\'
+ORDER BY pr.username, pr.uid
+LIMIT $3";
+
+/// The statement [`search_users`] runs. `None` when the trimmed search is
+/// empty, so a blank box does not hit the database.
+fn user_search_statement(viewer_id: Uuid, search: &str, limit: u64) -> Option<Statement> {
+    let term = search.trim();
+    if term.is_empty() {
+        return None;
+    }
+    Some(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        USER_SEARCH_SQL,
+        vec![
+            viewer_id.into(),
+            like_contains_pattern(term).into(),
+            (limit as i64).into(),
+        ],
+    ))
+}
+
+/// One person from a username search.
+pub struct UserSearchHit {
+    pub user_id: Uuid,
+    pub username: String,
+    /// The caller and this person have a completed friendship.
+    pub is_friend: bool,
+}
+
+/// People whose username contains `search`, other than `viewer_id`.
+///
+/// Case insensitive. A blank or whitespace-only search returns no one.
+/// `limit` is the caller's cap. Username order, then user id.
+/// `is_friend` is true only for a `complete` friendship, not a pending request.
+/// `sql/profile_username_search.sql` is the index this uses.
+pub async fn search_users(
+    db: &DatabaseConnection,
+    viewer_id: Uuid,
+    search: &str,
+    limit: u64,
+) -> Result<Vec<UserSearchHit>, CadenzaError> {
+    let Some(statement) = user_search_statement(viewer_id, search, limit) else {
+        return Ok(Vec::new());
+    };
+    let rows = UserSearchRow::find_by_statement(statement).all(db).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| UserSearchHit {
+            user_id: row.user_id,
+            username: row.username,
+            is_friend: row.is_friend,
+        })
+        .collect())
+}
+
+/// Where the next topic-posts page starts. The columns are the sort key, in order.
+#[derive(Clone, Debug)]
+pub struct TopicPostsCursor {
+    pub likes: i64,
+    pub created_at: DateTime<Utc>,
+    pub post_id: i64,
+}
+
+/// One page of topic posts, plus the cursor for the following page when this one is full.
+pub struct TopicPostPage {
+    pub posts: Vec<SocialPost>,
+    pub next: Option<TopicPostsCursor>,
+}
+
+/// Posts whose topic is this Apple Music catalog id, at most [`TOPIC_POST_LIMIT`].
+///
+/// Order is `likes` desc, `created_at` desc, `post_id` desc. `created_at` is
+/// not unique, so `post_id` finishes the order and the cursor. `cursor` is
+/// `None` for the first page. Later pages pass the previous `next`.
 pub async fn get_topic_posts(
     db: &DatabaseConnection,
     viewer_id: Uuid,
     topic_mk_id: &str,
-) -> Result<Vec<SocialPost>, CadenzaError> {
-    let rows = PostRow::find_by_statement(Statement::from_sql_and_values(
-        DbBackend::Postgres,
-        "SELECT
+    cursor: Option<TopicPostsCursor>,
+) -> Result<TopicPostPage, CadenzaError> {
+    let rows = PostRow::find_by_statement(topic_posts_statement(viewer_id, topic_mk_id, cursor))
+        .all(db)
+        .await?;
+    let next = (rows.len() as i64 == TOPIC_POST_LIMIT)
+        .then(|| rows.last())
+        .flatten()
+        .map(|row| TopicPostsCursor {
+            likes: row.likes,
+            created_at: row.created_at.with_timezone(&Utc),
+            post_id: row.post_id,
+        });
+    Ok(TopicPostPage {
+        posts: rows.iter().map(PostRow::to_post).collect(),
+        next,
+    })
+}
+
+const TOPIC_POSTS_SELECT: &str = "SELECT
              p.post_id,
              p.user_id AS author_id,
              p.content,
@@ -963,14 +1328,49 @@ pub async fn get_topic_posts(
              ) AS liked,
              p.comments AS comment_count
          FROM posts p
-         LEFT JOIN profile pr ON pr.uid = p.user_id
-         WHERE p.topic_mk_id = $2
-         ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC",
-        vec![viewer_id.into(), topic_mk_id.into()],
-    ))
-    .all(db)
-    .await?;
-    Ok(rows.iter().map(PostRow::to_post).collect())
+         LEFT JOIN profile pr ON pr.uid = p.user_id";
+
+/// The statement behind [`get_topic_posts`]. All three sort columns are descending,
+/// so a row comparison `<` is the rows that sort after the cursor.
+fn topic_posts_statement(
+    viewer_id: Uuid,
+    topic_mk_id: &str,
+    cursor: Option<TopicPostsCursor>,
+) -> Statement {
+    match cursor {
+        None => Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            format!(
+                "{TOPIC_POSTS_SELECT}
+                 WHERE p.topic_mk_id = $2
+                 ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
+                 LIMIT $3"
+            ),
+            vec![
+                viewer_id.into(),
+                topic_mk_id.into(),
+                TOPIC_POST_LIMIT.into(),
+            ],
+        ),
+        Some(cursor) => Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            format!(
+                "{TOPIC_POSTS_SELECT}
+                 WHERE p.topic_mk_id = $2
+                   AND (p.likes, p.created_at, p.post_id) < ($3, $4, $5)
+                 ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
+                 LIMIT $6"
+            ),
+            vec![
+                viewer_id.into(),
+                topic_mk_id.into(),
+                cursor.likes.into(),
+                cursor.created_at.into(),
+                cursor.post_id.into(),
+                TOPIC_POST_LIMIT.into(),
+            ],
+        ),
+    }
 }
 
 /// One author's posts, newest first.
@@ -1568,6 +1968,7 @@ impl CommentRow {
 struct PostClockRow {
     created_at: DateTime<chrono::FixedOffset>,
     edited_at: Option<DateTime<chrono::FixedOffset>>,
+    topic_mk_id: Option<String>,
 }
 
 #[derive(Debug, FromQueryResult)]
@@ -1575,6 +1976,13 @@ struct FriendshipListRow {
     user_id: Uuid,
     username: String,
     kind: String,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct UserSearchRow {
+    user_id: Uuid,
+    username: String,
+    is_friend: bool,
 }
 
 #[derive(Debug, FromQueryResult)]
@@ -1691,6 +2099,66 @@ mod tests {
     }
 
     #[test]
+    fn user_search_pattern_escapes_like_wildcards() {
+        assert_eq!(like_contains_pattern("ada"), "%ada%");
+        assert_eq!(like_contains_pattern("o'brien"), "%o'brien%");
+        assert_eq!(like_contains_pattern("100%"), "%100\\%%");
+        assert_eq!(like_contains_pattern("a_b"), "%a\\_b%");
+        assert_eq!(like_contains_pattern("a\\b"), "%a\\\\b%");
+    }
+
+    #[test]
+    fn user_search_skips_a_blank_term() {
+        let viewer = Uuid::nil();
+        assert!(user_search_statement(viewer, "", 20).is_none());
+        assert!(user_search_statement(viewer, "   ", 20).is_none());
+        assert!(user_search_statement(viewer, "\n\t", 20).is_none());
+    }
+
+    #[test]
+    fn user_search_binds_the_caller_the_pattern_and_the_limit() {
+        let viewer = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+        let statement = user_search_statement(viewer, "  Ada_x  ", 20).unwrap();
+
+        assert!(statement.sql.contains("pr.uid <> $1"), "{}", statement.sql);
+        assert!(
+            statement
+                .sql
+                .contains("lower(pr.username) LIKE lower($2) ESCAPE '\\'"),
+            "{}",
+            statement.sql
+        );
+        assert!(
+            statement.sql.contains("f.status = 'complete'"),
+            "{}",
+            statement.sql
+        );
+        assert!(
+            statement.sql.contains("f.user1 = LEAST($1, pr.uid)"),
+            "{}",
+            statement.sql
+        );
+        assert!(
+            statement.sql.contains("f.user2 = GREATEST($1, pr.uid)"),
+            "{}",
+            statement.sql
+        );
+        assert!(statement.sql.contains("AS is_friend"), "{}", statement.sql);
+        assert!(
+            statement.sql.contains("ORDER BY pr.username, pr.uid"),
+            "{}",
+            statement.sql
+        );
+        assert!(statement.sql.contains("LIMIT $3"), "{}", statement.sql);
+        assert!(!statement.sql.contains("Ada_x"), "{}", statement.sql);
+
+        let values = &statement.values.as_ref().unwrap().0;
+        assert_eq!(values[0], Value::from(viewer));
+        assert_eq!(values[1], Value::from("%Ada\\_x%"));
+        assert_eq!(values[2], Value::from(20_i64));
+    }
+
+    #[test]
     fn friend_request_status_names_the_recipient() {
         let smaller = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
         let larger = Uuid::parse_str("ffffffff-ffff-ffff-ffff-ffffffffffff").unwrap();
@@ -1723,5 +2191,72 @@ mod tests {
             "{sql}"
         );
         assert!(sql.contains(r#""comments"."edited_at""#), "{sql}");
+    }
+
+    #[test]
+    fn comments_page_limits_and_seeks_past_the_cursor() {
+        let first = comments_page(Uuid::nil(), 4, None)
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(first.contains("LIMIT 20"), "{first}");
+        assert!(!first.contains(r#""comments"."likes" <"#), "{first}");
+
+        let cursor = CommentsCursor {
+            likes: 3,
+            created_at: Utc.with_ymd_and_hms(2026, 10, 16, 18, 0, 0).unwrap(),
+            comment_id: 9,
+        };
+        let next = comments_page(Uuid::nil(), 4, Some(cursor))
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(next.contains("LIMIT 20"), "{next}");
+        assert!(next.contains(r#""comments"."likes" < 3"#), "{next}");
+        assert!(next.contains(r#""comments"."likes" = 3"#), "{next}");
+        assert!(next.contains(r#""comments"."comment_id" < 9"#), "{next}");
+    }
+
+    #[test]
+    fn topic_posts_statement_pages_by_likes() {
+        let viewer = Uuid::nil();
+        let first = topic_posts_statement(viewer, "1615585008", None);
+        assert!(
+            first.sql.contains("WHERE p.topic_mk_id = $2"),
+            "{}",
+            first.sql
+        );
+        assert!(
+            first
+                .sql
+                .contains("ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC"),
+            "{}",
+            first.sql
+        );
+        assert!(first.sql.contains("LIMIT $3"), "{}", first.sql);
+        assert!(!first.sql.contains(" < "), "{}", first.sql);
+        let values = &first.values.as_ref().unwrap().0;
+        assert_eq!(values[2], Value::from(TOPIC_POST_LIMIT));
+
+        let created_at = Utc.with_ymd_and_hms(2026, 10, 16, 18, 0, 0).unwrap();
+        let next = topic_posts_statement(
+            viewer,
+            "1615585008",
+            Some(TopicPostsCursor {
+                likes: 4,
+                created_at,
+                post_id: 12,
+            }),
+        );
+        assert!(
+            next.sql
+                .contains("(p.likes, p.created_at, p.post_id) < ($3, $4, $5)"),
+            "{}",
+            next.sql
+        );
+        assert!(next.sql.contains("LIMIT $6"), "{}", next.sql);
+        let values = &next.values.as_ref().unwrap().0;
+        assert_eq!(values[2], Value::from(4_i64));
+        assert_eq!(values[3], Value::from(created_at));
+        assert_eq!(values[4], Value::from(12_i64));
+        assert_eq!(values[5], Value::from(TOPIC_POST_LIMIT));
     }
 }

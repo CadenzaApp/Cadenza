@@ -13,12 +13,17 @@ use serde_json::Value;
 use crate::{
     AppState,
     auth::SupabaseClaims,
-    db::social::{self, FeedExclude, InterestDelta},
+    db::notification::{self, NotificationCursor as DbNotificationCursor},
+    db::social::{
+        self, CommentsCursor as DbCommentsCursor, FeedExclude, InterestDelta,
+        TopicPostsCursor as DbTopicPostsCursor,
+    },
     err::CadenzaError,
     routes::json::social::{
-        CreateCommentResponse, CreatePostResponse, FeedResponse, FriendshipsResponse,
-        PostCommentsResponse, SocialAuthor, SocialComment, SocialPost, TopicPostsResponse,
-        UserPostsResponse,
+        CommentsCursor, CreateCommentResponse, CreatePostResponse, FeedResponse,
+        FriendshipsResponse, NotificationCursor, NotificationsResponse, PostCommentsResponse,
+        SocialAuthor, SocialComment, SocialNotification, SocialPost, TopicPostsCursor,
+        TopicPostsResponse, UserPostsResponse, UserSearchPerson, UserSearchResponse,
     },
     services::social_feed::SocialFeedService,
 };
@@ -172,13 +177,19 @@ struct EditContentBody {
     content: String,
     /// Client time in milliseconds, the same clock a like sends.
     timestamp: i64,
+    #[serde(default)]
+    topic_song_title: Option<String>,
+    #[serde(default)]
+    topic_artist_name: Option<String>,
 }
 
 /// Replaces the signed-in user's post text. `content` is trimmed and at most
 /// 500 characters. `timestamp` is the client's edit time. One older than the
 /// stored `edited_at` is ignored. A kept edit sets `edited_at` to `now()` and
-/// re-embeds the stored text. 404 when the post is missing or belongs to
-/// someone else. Responds with `null`.
+/// re-embeds the stored text. When the post has a topic, `topic_song_title`
+/// and `topic_artist_name` prefix that embedding the same way as create.
+/// 404 when the post is missing or belongs to someone else. Responds with
+/// `null`.
 async fn update_post(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
@@ -188,8 +199,20 @@ async fn update_post(
 ) -> Result<Json<Value>, CadenzaError> {
     let content = require_content(&body.content, POST_CONTENT_MAX)?;
     let edited_at = edited_at_from_millis(body.timestamp)?;
+    let topic_song_title =
+        parse_optional_text(body.topic_song_title, "topic_song_title", TOPIC_NAME_MAX)?;
+    let topic_artist_name =
+        parse_optional_text(body.topic_artist_name, "topic_artist_name", TOPIC_NAME_MAX)?;
     social
-        .update_post(&db, claims.user_id, post_id, content, edited_at)
+        .update_post(
+            &db,
+            claims.user_id,
+            post_id,
+            content,
+            edited_at,
+            topic_song_title.as_deref(),
+            topic_artist_name.as_deref(),
+        )
         .await?;
     Ok(Json(Value::Null))
 }
@@ -205,6 +228,23 @@ async fn delete_post(
 ) -> Result<Json<Value>, CadenzaError> {
     social.delete_post(&db, claims.user_id, post_id).await?;
     Ok(Json(Value::Null))
+}
+
+/// One post, the same shape as a feed row. 404 when it is gone.
+///
+/// ```json
+/// { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008", "comment_count": 0 }
+/// ```
+async fn get_post(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(post_id): Path<i64>,
+) -> Result<Json<SocialPost>, CadenzaError> {
+    let mut posts = social::get_posts(&db, claims.user_id, &[post_id]).await?;
+    let Some(post) = posts.pop() else {
+        return Err(CadenzaError::NotFound);
+    };
+    Ok(Json(post.into()))
 }
 
 fn require_content(raw: &str, max_chars: usize) -> Result<&str, CadenzaError> {
@@ -263,12 +303,36 @@ async fn mark_viewed(
 #[derive(Deserialize)]
 struct TopicPostsQuery {
     topic_mk_id: String,
+    likes: Option<i64>,
+    created_at: Option<DateTime<Utc>>,
+    post_id: Option<i64>,
 }
 
-/// Posts whose topic is this Apple Music catalog id, most liked first.
+impl TopicPostsQuery {
+    /// `None` is the first page. The three cursor fields travel together.
+    fn cursor(&self) -> Result<Option<DbTopicPostsCursor>, CadenzaError> {
+        match (self.likes, self.created_at, self.post_id) {
+            (None, None, None) => Ok(None),
+            (Some(likes), Some(created_at), Some(post_id)) => Ok(Some(DbTopicPostsCursor {
+                likes,
+                created_at,
+                post_id,
+            })),
+            _ => Err(CadenzaError::InvalidRequestBody(
+                "likes, created_at, and post_id are set together".into(),
+            )),
+        }
+    }
+}
+
+/// Posts whose topic is this Apple Music catalog id, at most 10. Most liked
+/// first, then newest, then post id.
+///
+/// Omit `likes`, `created_at`, and `post_id` for the first page. Pass `next`
+/// from the previous response as those three fields for the following page.
 ///
 /// ```json
-/// { "posts": [ { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008", "comment_count": 0 } ] }
+/// { "posts": [ { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008", "comment_count": 0 } ], "next": null }
 /// ```
 async fn topic_posts(
     State(db): State<DatabaseConnection>,
@@ -276,13 +340,19 @@ async fn topic_posts(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Query(query): Query<TopicPostsQuery>,
 ) -> Result<Json<TopicPostsResponse>, CadenzaError> {
+    let cursor = query.cursor()?;
     let topic_mk_id = parse_optional_text(Some(query.topic_mk_id), "topic_mk_id", TOPIC_MK_ID_MAX)?
         .ok_or_else(|| CadenzaError::InvalidRequestBody("topic_mk_id is required".into()))?;
-    let posts = social
-        .topic_posts(&db, claims.user_id, &topic_mk_id)
+    let page = social
+        .topic_posts(&db, claims.user_id, &topic_mk_id, cursor)
         .await?;
     Ok(Json(TopicPostsResponse {
-        posts: posts.into_iter().map(SocialPost::from).collect(),
+        posts: page.posts.into_iter().map(SocialPost::from).collect(),
+        next: page.next.map(|cursor| TopicPostsCursor {
+            likes: cursor.likes,
+            created_at: cursor.created_at,
+            post_id: cursor.post_id,
+        }),
     }))
 }
 
@@ -290,8 +360,9 @@ async fn topic_posts(
 ///
 /// `user1` is the lexicographically smaller uuid. Status is `to_user1` when
 /// that person is the recipient, and `to_user2` when the other person is.
-/// Sending the same request again responds with `null`. If they already
-/// requested the caller, the row becomes `complete`. 409
+/// Sending the same request again responds with `null` and sends nothing. A
+/// new request notifies the recipient. If they already requested the caller,
+/// the row becomes `complete` and they are notified that it was accepted. 409
 /// `FriendshipAlreadyExists` when the pair is already friends. 422 when
 /// `user_id` is the caller.
 async fn request_friendship(
@@ -312,6 +383,128 @@ async fn delete_friendship(
     Path(user_id): Path<Uuid>,
 ) -> Result<Json<Value>, CadenzaError> {
     social::delete_friendship(&db, claims.user_id, user_id).await?;
+    Ok(Json(Value::Null))
+}
+
+/// How many people one search returns when it does not say.
+const DEFAULT_USER_SEARCH_LIMIT: u64 = 20;
+/// The most people one search can ask for.
+const MAX_USER_SEARCH_LIMIT: u64 = 50;
+
+#[derive(Deserialize)]
+struct UserSearchQuery {
+    /// A blank search returns no one.
+    #[serde(default)]
+    search: String,
+    /// How many to return, 20 when left out and never more than 50.
+    #[serde(default)]
+    limit: Option<u64>,
+}
+
+/// People whose username contains `search`, other than the caller.
+///
+/// Case insensitive. A blank search returns no one. `limit` defaults to 20
+/// and is at most 50. Username order.
+///
+/// ```json
+/// { "users": [ { "user_id": "...", "username": "ada", "is_friend": false } ] }
+/// ```
+async fn search_users(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(query): Query<UserSearchQuery>,
+) -> Result<Json<UserSearchResponse>, CadenzaError> {
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_USER_SEARCH_LIMIT)
+        .clamp(1, MAX_USER_SEARCH_LIMIT);
+    let people = social::search_users(&db, claims.user_id, &query.search, limit).await?;
+    Ok(Json(UserSearchResponse {
+        users: people
+            .into_iter()
+            .map(|person| UserSearchPerson {
+                user_id: person.user_id.to_string(),
+                username: person.username,
+                is_friend: person.is_friend,
+            })
+            .collect(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct NotificationQuery {
+    unread: Option<bool>,
+    created_at: Option<DateTime<Utc>>,
+    notif_id: Option<i64>,
+}
+
+impl NotificationQuery {
+    /// `None` is the first page. The three cursor fields travel together.
+    fn cursor(&self) -> Result<Option<DbNotificationCursor>, CadenzaError> {
+        match (self.unread, self.created_at, self.notif_id) {
+            (None, None, None) => Ok(None),
+            (Some(unread), Some(created_at), Some(notif_id)) => Ok(Some(DbNotificationCursor {
+                unread,
+                created_at,
+                notif_id,
+            })),
+            _ => Err(CadenzaError::InvalidRequestBody(
+                "unread, created_at, and notif_id are set together".into(),
+            )),
+        }
+    }
+}
+
+/// The signed-in user's notifications, at most 20. Unread first, then newest,
+/// with `notif_id` breaking a `created_at` tie.
+///
+/// Omit the query params for the first page. Pass `next` from the previous
+/// response as `unread`, `created_at`, and `notif_id` for the following page.
+///
+/// ```json
+/// { "notifications": [ { "notif_id": 1, "title": "miles.davis", "content": "sent you a friend request", "type": "friend_req_received", "created_at": "2026-11-10T18:00:00Z", "unread": true, "metadata": { "sender_id": "00000000-0000-0000-0000-000000000000", "resolution": null } } ], "next": null }
+/// ```
+async fn notifications(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(query): Query<NotificationQuery>,
+) -> Result<Json<NotificationsResponse>, CadenzaError> {
+    let page = notification::list_notifications(&db, claims.user_id, query.cursor()?).await?;
+    Ok(Json(NotificationsResponse {
+        notifications: page
+            .notifications
+            .into_iter()
+            .map(|row| SocialNotification {
+                notif_id: row.notif_id,
+                title: row.title,
+                content: row.content,
+                notif_type: row.notif_type,
+                created_at: row.created_at,
+                unread: row.unread,
+                metadata: row.metadata,
+            })
+            .collect(),
+        next: page.next.map(|cursor| NotificationCursor {
+            unread: cursor.unread,
+            created_at: cursor.created_at,
+            notif_id: cursor.notif_id,
+        }),
+    }))
+}
+
+#[derive(Deserialize)]
+struct MarkNotificationsReadBody {
+    notif_ids: Vec<i64>,
+}
+
+/// Marks the signed-in user's notifications in `notif_ids` read. Ids that are
+/// not theirs are ignored. Responds with `null`.
+async fn mark_notifications_read(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(body): Json<MarkNotificationsReadBody>,
+) -> Result<Json<Value>, CadenzaError> {
+    notification::mark_notifications_read(&db, claims.user_id, &body.notif_ids).await?;
     Ok(Json(Value::Null))
 }
 
@@ -341,8 +534,8 @@ async fn friendships(
 }
 
 /// Accepts an incoming friend request from `user_id`. Sets that row to
-/// `complete`. 404 when there is no request waiting on the caller. Responds
-/// with `null`.
+/// `complete` and notifies the sender. 404 when there is no request waiting
+/// on the caller. Responds with `null`.
 async fn accept_friendship(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
@@ -407,22 +600,56 @@ async fn unlike_post(
     Ok(Json(Value::Null))
 }
 
-/// Comments on this post, most liked first, then newest.
+#[derive(Deserialize)]
+struct CommentsQuery {
+    likes: Option<i64>,
+    created_at: Option<DateTime<Utc>>,
+    comment_id: Option<i64>,
+}
+
+impl CommentsQuery {
+    /// `None` is the first page. The three cursor fields travel together.
+    fn cursor(&self) -> Result<Option<DbCommentsCursor>, CadenzaError> {
+        match (self.likes, self.created_at, self.comment_id) {
+            (None, None, None) => Ok(None),
+            (Some(likes), Some(created_at), Some(comment_id)) => Ok(Some(DbCommentsCursor {
+                likes,
+                created_at,
+                comment_id,
+            })),
+            _ => Err(CadenzaError::InvalidRequestBody(
+                "likes, created_at, and comment_id are set together".into(),
+            )),
+        }
+    }
+}
+
+/// Comments on this post, at most 20. Most liked first, then newest, then
+/// comment id.
+///
+/// Omit the query params for the first page. Pass `next` from the previous
+/// response as `likes`, `created_at`, and `comment_id` for the following page.
 ///
 /// ```json
-/// { "comments": [ { "comment_id": 1, "post_id": 4, "content": "this", "likes": 2, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" } } ] }
+/// { "comments": [ { "comment_id": 1, "post_id": 4, "content": "this", "likes": 2, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" } } ], "next": null }
 /// ```
 async fn get_comments(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Path(post_id): Path<i64>,
+    Query(query): Query<CommentsQuery>,
 ) -> Result<Json<PostCommentsResponse>, CadenzaError> {
-    let comments = social
-        .get_post_comments(&db, claims.user_id, post_id)
+    let page = social
+        .get_post_comments(&db, claims.user_id, post_id, query.cursor()?)
         .await?;
     Ok(Json(PostCommentsResponse {
-        comments: comments.into_iter().map(SocialComment::from).collect(),
+        comments: page.comments.into_iter().map(SocialComment::from).collect(),
+        next: page.next.map(|cursor| CommentsCursor {
+            likes: cursor.likes,
+            created_at: cursor.created_at,
+            comment_id: cursor.comment_id,
+        }),
     }))
 }
 
@@ -432,7 +659,8 @@ struct CreateCommentBody {
 }
 
 /// Creates a comment on this post for the signed-in user. `content` is at
-/// most 500 characters. 404 when the post is gone.
+/// most 500 characters. The post's author is notified, unless they wrote the
+/// comment. 404 when the post is gone.
 ///
 /// ```json
 /// { "comment_id": 1 }
@@ -528,11 +756,17 @@ pub fn get_social_router() -> Router<AppState> {
         .route("/interests/update", patch(update_interests))
         .route("/interests/decay", patch(decay_interests))
         .route("/posts", post(create_post))
-        .route("/posts/{post_id}", delete(delete_post).patch(update_post))
+        .route(
+            "/posts/{post_id}",
+            get(get_post).delete(delete_post).patch(update_post),
+        )
         .route("/posts/views", post(mark_viewed))
         .route("/posts/topic", get(topic_posts))
         .route("/posts/user/{author_id}", get(user_posts))
+        .route("/users", get(search_users))
         .route("/friends", get(friendships))
+        .route("/notifications", get(notifications))
+        .route("/notifications/read", post(mark_notifications_read))
         .route("/friends/{user_id}/accept", post(accept_friendship))
         .route(
             "/friends/{user_id}",

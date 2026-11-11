@@ -132,10 +132,46 @@ export type SocialComment = {
     };
 };
 
+/** What happened. The phone picks a glyph from this. */
+export type NotificationType =
+    | "friend_req_received"
+    | "friend_req_accepted"
+    | "comment";
+
+/**
+ * Extra fields on a notification. A comment stores `post_id`. A friend
+ * request stores `sender_id` and `resolution`.
+ */
+export type NotificationMetadata = {
+    sender_id?: string;
+    resolution?: "accepted" | "ignored" | null;
+    post_id?: number;
+};
+
+/**
+ * One notification from `GET /social/notifications`.
+ * Unread rows come first, newest first, then `notif_id` descending.
+ */
+export type SocialNotification = {
+    notif_id: number;
+    title: string;
+    content: string;
+    type: NotificationType;
+    /** RFC 3339 in UTC */
+    created_at: string;
+    unread: boolean;
+    metadata: NotificationMetadata;
+};
+
 /** One person from `GET /social/friends`. */
 export type SocialPerson = {
     user_id: string;
     username: string;
+};
+
+/** One person from `GET /social/users`. `is_friend` is a completed friendship. */
+export type UserSearchPerson = SocialPerson & {
+    is_friend: boolean;
 };
 
 /** Completed friends and pending requests in both directions. */

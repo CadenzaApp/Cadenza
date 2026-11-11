@@ -18,8 +18,8 @@ use sea_orm::prelude::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::db::social::{
-    self, FeedCandidate, FeedExclude, InterestDelta, PublicProfile, SocialComment, SocialPost,
-    UpsertedInterest,
+    self, CommentsCursor, FeedCandidate, FeedExclude, InterestDelta, PublicProfile, SocialPost,
+    TopicPostsCursor, UpsertedInterest,
 };
 use crate::err::CadenzaError;
 
@@ -172,13 +172,15 @@ impl SocialFeedService {
         social::insert_post(db, user_id, content, &embedding, &with_bday, topic_mk_id).await
     }
 
-    /// Replaces the author's post text. Re-embeds the stored content without
-    /// the topic-name prefix, because those names are not stored. The age
-    /// component of `embedding_w_bday` stays the original `created_at`.
-    /// `client_time` is compared with the stored `edited_at`; an older one is
-    /// ignored, before the embed and again in the write. A kept edit stamps
-    /// `edited_at` with the database clock. `NotFound` when the post is
-    /// missing or owned by someone else.
+    /// Replaces the author's post text. When the post has a topic, the
+    /// embedding is prefixed with the song or artist names from the request,
+    /// the same way as [`Self::create_post`]. Stored `content` is the user's
+    /// text. Names on a topic-less post are ignored. The age component of
+    /// `embedding_w_bday` stays the original `created_at`. `client_time` is
+    /// compared with the stored `edited_at`; an older one is ignored, before
+    /// the embed and again in the write. A kept edit stamps `edited_at` with
+    /// the database clock. `NotFound` when the post is missing or owned by
+    /// someone else.
     pub async fn update_post(
         &self,
         db: &DatabaseConnection,
@@ -186,6 +188,8 @@ impl SocialFeedService {
         post_id: i64,
         content: &str,
         client_time: DateTime<Utc>,
+        topic_song_title: Option<&str>,
+        topic_artist_name: Option<&str>,
     ) -> Result<(), CadenzaError> {
         let Some(clock) = social::author_post_clock(db, user_id, post_id).await? else {
             return Err(CadenzaError::NotFound);
@@ -193,7 +197,15 @@ impl SocialFeedService {
         if !social::edit_replaces(clock.edited_at, client_time) {
             return Ok(());
         }
-        let embedding = self.embed_post(content).await?;
+        let to_embed = match clock
+            .topic_mk_id
+            .as_deref()
+            .and_then(|_| topic_embedding_prefix(topic_song_title, topic_artist_name))
+        {
+            Some(prefix) => format!("{prefix}{content}"),
+            None => content.to_owned(),
+        };
+        let embedding = self.embed_post(&to_embed).await?;
         let mut with_bday = Vec::with_capacity(embedding.len() + 1);
         with_bday.push(social::days_since_posts_epoch(clock.created_at) as f64);
         with_bday.extend_from_slice(&embedding);
@@ -296,14 +308,16 @@ impl SocialFeedService {
         Ok(page)
     }
 
-    /// Posts whose topic is `topic_mk_id`, most liked first.
+    /// One page of posts whose topic is `topic_mk_id`, most liked first.
+    /// `cursor` is `None` for the first page.
     pub async fn topic_posts(
         &self,
         db: &DatabaseConnection,
         viewer_id: Uuid,
         topic_mk_id: &str,
-    ) -> Result<Vec<SocialPost>, CadenzaError> {
-        social::get_topic_posts(db, viewer_id, topic_mk_id).await
+        cursor: Option<TopicPostsCursor>,
+    ) -> Result<social::TopicPostPage, CadenzaError> {
+        social::get_topic_posts(db, viewer_id, topic_mk_id, cursor).await
     }
 
     /// Profile header plus that author's posts, newest first.
@@ -450,18 +464,20 @@ impl SocialFeedService {
         social::mark_posts_viewed(db, user_id, post_ids).await
     }
 
-    /// Comments on `post_id`, most liked first.
+    /// One page of comments on `post_id`, most liked first.
+    /// `cursor` is `None` for the first page.
     pub async fn get_post_comments(
         &self,
         db: &DatabaseConnection,
         viewer_id: Uuid,
         post_id: i64,
-    ) -> Result<Vec<SocialComment>, CadenzaError> {
-        social::get_post_comments(db, viewer_id, post_id).await
+        cursor: Option<CommentsCursor>,
+    ) -> Result<social::CommentPage, CadenzaError> {
+        social::get_post_comments(db, viewer_id, post_id, cursor).await
     }
 
     /// Stores a comment on `post_id` and returns its id. `NotFound` when the
-    /// post is gone.
+    /// post is gone. The post's author is notified, unless they wrote it.
     pub async fn create_comment(
         &self,
         db: &DatabaseConnection,

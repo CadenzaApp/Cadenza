@@ -7,25 +7,31 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import {
     useAcceptFriendRequest,
     useCancelFriendRequest,
     useFriendships,
+    useUserSearch,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useAppTheme } from "@/lib/theme";
 import type { SocialPerson } from "@/lib/types";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 import { initialsFromUsername } from "./format";
 
-/** Incoming requests, then outgoing requests, then friends. */
+/** How long typing has to pause before a user search runs. */
+const SEARCH_DEBOUNCE_MS = 300;
+
+/** Search, then incoming requests, outgoing requests, and friends. */
 export function FriendsScreen() {
     const navigation = useNavigation();
     const router = useRouter();
@@ -86,6 +92,7 @@ export function FriendsScreen() {
                     ]}
                     showsVerticalScrollIndicator={false}
                 >
+                    <SearchSection onPress={openProfile} />
                     {incoming.length > 0 ? (
                         <PersonSection
                             title="Incoming requests"
@@ -190,6 +197,134 @@ export function FriendsScreen() {
     );
 }
 
+function SearchSection({
+    onPress,
+}: {
+    onPress: (userId: string) => void;
+}) {
+    const { height: screenHeight } = useWindowDimensions();
+    const [query, setQuery] = useState("");
+    const [headerHeight, setHeaderHeight] = useState(0);
+    const sectionMaxHeight = screenHeight / 2;
+    const listMaxHeight = Math.max(0, sectionMaxHeight - headerHeight);
+    const settled = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS);
+    // clearing the field drops the list at once, with no pause
+    const term = query.trim() && settled ? settled : "";
+    const { foreground } = useAppTheme().colors;
+    const { users, userSearchLoading, userSearchErr } = useUserSearch(term);
+    const shown = term.length > 0 ? users : [];
+    const status =
+        term.length === 0
+            ? null
+            : userSearchErr
+              ? "Couldn't search."
+              : userSearchLoading && shown.length === 0
+                ? "Loading..."
+                : shown.length === 0
+                  ? "No people found."
+                  : null;
+
+    return (
+        <View style={{ maxHeight: sectionMaxHeight }}>
+            <View
+                className="gap-2 pb-2 pt-3"
+                onLayout={(event) =>
+                    setHeaderHeight(event.nativeEvent.layout.height)
+                }
+            >
+                <Text className="text-sm font-semibold text-muted-foreground">
+                    search
+                </Text>
+                <Input
+                    value={query}
+                    onChangeText={setQuery}
+                    placeholder="Find people"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                    accessibilityLabel="Search people"
+                />
+            </View>
+            <ScrollView
+                style={{ maxHeight: listMaxHeight }}
+                contentContainerClassName="pb-3"
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+            >
+                {shown.map((person) => (
+                    <PersonRow
+                        key={person.user_id}
+                        person={person}
+                        onPress={onPress}
+                        actions={
+                            person.is_friend ? (
+                                <Ionicons
+                                    name="people"
+                                    size={18}
+                                    color={foreground}
+                                    accessibilityLabel="Friend"
+                                />
+                            ) : null
+                        }
+                    />
+                ))}
+                {status ? (
+                    <Text className="py-2 text-sm text-muted-foreground">
+                        {status}
+                    </Text>
+                ) : null}
+            </ScrollView>
+        </View>
+    );
+}
+
+function PersonRow({
+    person,
+    onPress,
+    actions,
+}: {
+    person: SocialPerson;
+    onPress?: (userId: string) => void;
+    actions?: ReactNode;
+}) {
+    const identity = (
+        <>
+            <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
+                <Text className="text-sm font-semibold text-foreground">
+                    {initialsFromUsername(person.username)}
+                </Text>
+            </View>
+            <Text
+                className="min-w-0 flex-1 text-base text-foreground"
+                numberOfLines={1}
+            >
+                {person.username}
+            </Text>
+        </>
+    );
+
+    return (
+        <View className="flex-row items-center gap-3 py-2">
+            {onPress ? (
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={person.username}
+                    onPress={() => onPress(person.user_id)}
+                    className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-60"
+                >
+                    {identity}
+                </Pressable>
+            ) : (
+                <View className="min-w-0 flex-1 flex-row items-center gap-3">
+                    {identity}
+                </View>
+            )}
+            {actions}
+        </View>
+    );
+}
+
 function PersonSection({
     title,
     people,
@@ -209,30 +344,12 @@ function PersonSection({
                 {title}
             </Text>
             {people.map((person) => (
-                <View
+                <PersonRow
                     key={person.user_id}
-                    className="flex-row items-center gap-3 py-2"
-                >
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={person.username}
-                        onPress={() => onPress(person.user_id)}
-                        className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-60"
-                    >
-                        <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
-                            <Text className="text-sm font-semibold text-foreground">
-                                {initialsFromUsername(person.username)}
-                            </Text>
-                        </View>
-                        <Text
-                            className="min-w-0 flex-1 text-base text-foreground"
-                            numberOfLines={1}
-                        >
-                            {person.username}
-                        </Text>
-                    </Pressable>
-                    {renderActions?.(person)}
-                </View>
+                    person={person}
+                    onPress={onPress}
+                    actions={renderActions?.(person)}
+                />
             ))}
             {emptyLabel ? (
                 <Text className="py-2 text-sm text-muted-foreground">

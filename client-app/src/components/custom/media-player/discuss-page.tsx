@@ -1,7 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshControl, ScrollView, View } from "react-native";
+import {
+    ActivityIndicator,
+    RefreshControl,
+    ScrollView,
+    View,
+} from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -11,6 +16,7 @@ import { CreatePostDialog } from "@/features/social/CreatePostDialog";
 import { PostCard } from "@/features/social/PostCard";
 import { topicCreateFields, topicMkId } from "@/features/social/topic";
 import type { PostTopic, SocialPost } from "@/features/social/types";
+import { useLoadMoreOnScroll } from "@/lib/load-more-on-scroll";
 import { useSongInfo } from "@/lib/musickit-hooks";
 import { useOpenSocialProfile } from "@/lib/use-open-social-profile";
 import { useProfile } from "@/lib/routes/profile";
@@ -77,8 +83,14 @@ export function DiscussPage({
     }, [active]);
 
     useEffect(() => () => flushPendingLikesRef.current(), []);
-    const { posts, topicPostsLoading, topicPostsErr, refreshTopicPosts } =
-        useTopicPosts(focusedSong.id, enabled);
+    const {
+        posts,
+        topicPostsLoading,
+        topicPostsErr,
+        refreshTopicPosts,
+        isLoadingNextPage,
+        loadNextPage,
+    } = useTopicPosts(focusedSong.id, enabled);
     const songIds = useMemo(
         () => (enabled ? [focusedSong.id] : null),
         [enabled, focusedSong.id],
@@ -228,6 +240,11 @@ export function DiscussPage({
         }
     }, [refreshTopicPosts]);
 
+    const loadMore = useCallback(() => {
+        void loadNextPage();
+    }, [loadNextPage]);
+    const loadMoreScroll = useLoadMoreOnScroll(loadMore);
+
     const loading = rankedPosts.length === 0 && topicPostsLoading;
     const emptyLabel = loading
         ? "Loading posts..."
@@ -276,6 +293,7 @@ export function DiscussPage({
                         <PostCard
                             key={post.post_id}
                             post={post}
+                            topicHint={topic}
                             showTopic={false}
                             onLikedChange={rememberLike}
                             onAuthorPress={openSocialProfile}
@@ -285,6 +303,11 @@ export function DiscussPage({
                     ))}
                 </View>
             )}
+            {isLoadingNextPage ? (
+                <View className="items-center py-4">
+                    <ActivityIndicator color={colors.text} />
+                </View>
+            ) : null}
         </>
     );
     const scroller = screenScroll ? (
@@ -300,6 +323,10 @@ export function DiscussPage({
                 refreshControl={refreshControl}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
+                onLayout={loadMoreScroll.onLayout}
+                onContentSizeChange={loadMoreScroll.onContentSizeChange}
+                onMomentumScrollEnd={loadMoreScroll.onMomentumScrollEnd}
+                onScrollEndDrag={loadMoreScroll.onScrollEndDrag}
             >
                 {postList}
             </Animated.ScrollView>
@@ -311,6 +338,12 @@ export function DiscussPage({
             refreshControl={refreshControl}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={loadMoreScroll.onScroll}
+            onLayout={loadMoreScroll.onLayout}
+            onContentSizeChange={loadMoreScroll.onContentSizeChange}
+            onMomentumScrollEnd={loadMoreScroll.onMomentumScrollEnd}
+            onScrollEndDrag={loadMoreScroll.onScrollEndDrag}
         >
             {postList}
         </ScrollView>

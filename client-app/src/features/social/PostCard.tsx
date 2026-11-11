@@ -22,7 +22,7 @@ import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostCommentsDialog } from "./PostCommentsDialog";
 import { PostOptionsMenu } from "./PostOptionsMenu";
 import { PostTopicCard } from "./PostTopicCard";
-import { useResolvedTopic } from "./topic";
+import { topicCreateFields, useResolvedTopic } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
 
 type Props = {
@@ -79,10 +79,9 @@ export function PostCard({
     const { updatePost } = useUpdatePost();
     const updateCachedPostContent = useUpdateCachedPostContent();
     const isOwnPost = account?.id === post.author.user_id;
-    const topic = useResolvedTopic(
-        showTopic ? post.topic_mk_id : null,
-        showTopic ? topicHint : null,
-    );
+    // Resolved even when the card hides the topic, so an edit can send the
+    // same title and artist the create request uses for the embedding.
+    const topic = useResolvedTopic(post.topic_mk_id, topicHint);
     const [liked, setLiked] = useState(post.liked);
     const likedRef = useRef(liked);
     const [commentsOpen, setCommentsOpen] = useState(false);
@@ -179,7 +178,19 @@ export function PostCard({
         onEdited?.(post.post_id, content, editedAt);
         void updateCachedPostContent(post.post_id, content, editedAt);
         try {
-            await updatePost(post.post_id, content, editedAtMs);
+            const names =
+                post.topic_mk_id && topic ? topicCreateFields(topic) : null;
+            await updatePost(
+                post.post_id,
+                content,
+                editedAtMs,
+                names
+                    ? {
+                          topic_song_title: names.topic_song_title,
+                          topic_artist_name: names.topic_artist_name,
+                      }
+                    : undefined,
+            );
         } catch (error) {
             console.error("Editing a post failed", error);
             setSavedEdit(previous);
@@ -290,7 +301,7 @@ export function PostCard({
                     ) : null}
                 </View>
 
-                {topic ? (
+                {showTopic && topic ? (
                     <PostTopicCard
                         topic={topic}
                         cardId={String(post.post_id)}

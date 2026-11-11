@@ -3,6 +3,7 @@ pub mod analytics;
 pub mod entity;
 pub mod events;
 pub mod metadata_tags;
+pub mod notification;
 pub mod profile;
 pub mod queries;
 pub mod saved_queries;

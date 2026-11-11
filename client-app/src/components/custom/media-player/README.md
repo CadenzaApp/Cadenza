@@ -93,7 +93,7 @@ scroll view in the sheet needs nothing more, but anything nested-scrolling place
 `tagsArtworkColor` params and shares it across the three pages.
 
 Only `PlayerPage` touches playback. `TagsPage` and `DiscussPage` take `focusedSong` and never read
-`usePlayback()`. Discuss lists posts whose topic is that song, most liked first. Its compose
+`usePlayback()`. Discuss lists posts whose topic is that song, most liked first, ten at a time. Its compose
 dialog is the media tab's new-post dialog with the topic locked to that song. Tapping an author closes this sheet, or the standalone `/discuss/:songId` screen, and opens that person's profile on the Social tab. `DetailScreen` hands the sampled artwork color to the same mode-aware Oklch
 gradient hook as `TrackCollectionView`, then paints those stops once behind the header and the
 transparent pager, so there is no second gradient boundary below the title. The pager is the gesture surface;

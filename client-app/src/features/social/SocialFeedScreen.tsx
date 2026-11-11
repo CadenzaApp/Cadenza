@@ -28,6 +28,7 @@ import {
     useCreatePost,
     useFeed,
     useMarkPostsViewed,
+    useNotifications,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
@@ -76,6 +77,8 @@ export function SocialFeedScreen() {
     } = useFeed();
     const { createPost } = useCreatePost();
     const { markPostsViewed } = useMarkPostsViewed();
+    const { notifications, invalidateNotifications } = useNotifications();
+    const showRedDot = notifications.some((item) => item.unread);
     const { profile } = useProfile();
     const markedViewedIds = useRef(new Set<number>());
     const pendingViewedIds = useRef(new Set<number>());
@@ -101,10 +104,11 @@ export function SocialFeedScreen() {
 
     useFocusEffect(
         useCallback(() => {
+            void invalidateNotifications();
             return () => {
                 void stopTopicPreview();
             };
-        }, []),
+        }, [invalidateNotifications]),
     );
 
     const [created, setCreated] = useState<SocialPost[]>([]);
@@ -162,6 +166,24 @@ export function SocialFeedScreen() {
         navigation.setOptions({
             headerRight: () => (
                 <View className="flex-row items-center gap-2">
+                    <View>
+                        <GlassIconButton
+                            accessibilityLabel="Notifications"
+                            onPress={() => router.push("/social/notifications")}
+                        >
+                            <Ionicons
+                                name="notifications"
+                                size={22}
+                                color={colors.text}
+                            />
+                        </GlassIconButton>
+                        {showRedDot ? (
+                            <View
+                                pointerEvents="none"
+                                className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive"
+                            />
+                        ) : null}
+                    </View>
                     <GlassIconButton
                         accessibilityLabel="Friends"
                         onPress={() => router.push("/social/friends")}
@@ -192,7 +214,7 @@ export function SocialFeedScreen() {
                 </View>
             ),
         });
-    }, [navigation, colors.text, account?.id, router]);
+    }, [navigation, colors.text, account?.id, router, showRedDot]);
 
     const handleCreate = useCallback(
         async (content: string, topic?: PostTopic | null) => {

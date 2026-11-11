@@ -139,6 +139,13 @@ pub fn user_data_counts() -> Vec<DataCount> {
             MetricUnit::Count,
             "count(distinct payload->>'source_id') filter (where payload->>'source_kind' = 'playlist')",
         ),
+        rows(
+            "notifications",
+            Social,
+            "Notifications",
+            "count(*)",
+            "notifications where user_id = $1",
+        ),
         rows("posts", Social, "Posts", "count(*)", "posts where user_id = $1"),
         rows("comments", Social, "Comments", "count(*)", "comments where user_id = $1"),
         rows("post_likes", Social, "Posts you liked", "count(*)", "post_likes where user_id = $1"),

@@ -15,12 +15,16 @@ import { Button } from "@/components/ui/button";
 import { DialogCloseButton } from "@/components/ui/dialog-close-button";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
-import { pinComments } from "@/lib/post-comment";
+import { useLoadMoreOnScroll } from "@/lib/load-more-on-scroll";
+import {
+    pinComments,
+    sortCommentsByLikes,
+    withPostedComments,
+} from "@/lib/post-comment";
 import { useProfile } from "@/lib/routes/profile";
 import { useAppTheme } from "@/lib/theme";
 import {
     useCreateComment,
-    useInsertCachedComment,
     useLikeComment,
     useLikePost,
     usePostComments,
@@ -80,18 +84,24 @@ export function PostCommentsDialog({
         screenWidth - SCREEN_MARGIN * 2,
         MAX_DIALOG_WIDTH,
     );
-    const { comments, postCommentsLoading, postCommentsErr } = usePostComments(
-        post.post_id,
-        open,
-    );
+    const {
+        comments,
+        postCommentsLoading,
+        postCommentsErr,
+        isLoadingNextPage,
+        loadNextPage,
+        insertComment,
+    } = usePostComments(post.post_id, open);
+    const loadMoreScroll = useLoadMoreOnScroll(loadNextPage);
     const { createComment } = useCreateComment();
-    const insertCachedComment = useInsertCachedComment();
     const updateCommentCount = useUpdateCachedPostCommentCount();
     const { profile } = useProfile(open);
     const [draft, setDraft] = useState("");
     const [sending, setSending] = useState(false);
     // Newest first. Cleared only when this dialog unmounts.
     const [pinnedIds, setPinnedIds] = useState<number[]>([]);
+    // Kept here so a comment shows before the paged cache includes it.
+    const [posted, setPosted] = useState<SocialComment[]>([]);
 
     useEffect(() => {
         if (!open) setDraft("");
@@ -132,8 +142,15 @@ export function PostCommentsDialog({
                 },
             };
             setDraft("");
-            setPinnedIds((ids) => [commentId, ...ids]);
-            void insertCachedComment(comment);
+            setPosted((rows) => [
+                comment,
+                ...rows.filter((row) => row.comment_id !== commentId),
+            ]);
+            setPinnedIds((ids) => [
+                commentId,
+                ...ids.filter((id) => id !== commentId),
+            ]);
+            void insertComment(comment);
             void updateCommentCount(post.post_id, 1);
             onCommentCreated?.();
         } finally {
@@ -143,7 +160,10 @@ export function PostCommentsDialog({
 
     const trimmedLength = draft.trim().length;
     const canSend = trimmedLength > 0 && trimmedLength <= MAX_COMMENT_LENGTH;
-    const orderedComments = pinComments(comments, pinnedIds);
+    const orderedComments = pinComments(
+        sortCommentsByLikes(withPostedComments(comments, posted, post.post_id)),
+        pinnedIds,
+    );
     const maxDialogHeight = screenHeight - insets.top - insets.bottom - 24;
     const emptyLabel = postCommentsLoading
         ? "Loading comments..."
@@ -174,6 +194,12 @@ export function PostCommentsDialog({
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
                 style={{ maxHeight: maxDialogHeight - DIALOG_PADDING * 2 }}
+                scrollEventThrottle={16}
+                onScroll={loadMoreScroll.onScroll}
+                onLayout={loadMoreScroll.onLayout}
+                onContentSizeChange={loadMoreScroll.onContentSizeChange}
+                onMomentumScrollEnd={loadMoreScroll.onMomentumScrollEnd}
+                onScrollEndDrag={loadMoreScroll.onScrollEndDrag}
             >
                 <View className="gap-3">
                     <PostSummary
@@ -243,6 +269,13 @@ export function PostCommentsDialog({
                                 comment={comment}
                                 onAuthorPress={openAuthor}
                                 onDeleted={() => {
+                                    setPosted((rows) =>
+                                        rows.filter(
+                                            (row) =>
+                                                row.comment_id !==
+                                                comment.comment_id,
+                                        ),
+                                    );
                                     setPinnedIds((ids) =>
                                         ids.filter(
                                             (id) => id !== comment.comment_id,
@@ -250,9 +283,28 @@ export function PostCommentsDialog({
                                     );
                                     onCommentDeleted?.();
                                 }}
+                                onEdited={(content, editedAt) => {
+                                    setPosted((rows) =>
+                                        rows.map((row) =>
+                                            row.comment_id ===
+                                            comment.comment_id
+                                                ? {
+                                                      ...row,
+                                                      content,
+                                                      edited_at: editedAt,
+                                                  }
+                                                : row,
+                                        ),
+                                    );
+                                }}
                             />
                         ))
                     )}
+                    {isLoadingNextPage ? (
+                        <View className="items-center py-3">
+                            <ActivityIndicator color={mutedForeground} />
+                        </View>
+                    ) : null}
                 </View>
             </ScrollView>
         </ModalPopup>
@@ -388,10 +440,12 @@ function CommentRow({
     comment,
     onAuthorPress,
     onDeleted,
+    onEdited,
 }: {
     comment: SocialComment;
     onAuthorPress?: (userId: string) => void;
     onDeleted?: () => void;
+    onEdited?: (content: string, editedAt: string) => void;
 }) {
     const { account } = useAccount();
     const { foreground, like } = useAppTheme().colors;
@@ -426,6 +480,7 @@ function CommentRow({
                 content,
                 editedAt,
             );
+            onEdited?.(content, editedAt);
             setEditing(false);
         } catch (error) {
             console.error("Editing a comment failed", error);

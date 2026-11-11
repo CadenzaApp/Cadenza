@@ -7,11 +7,14 @@ import {
     applyPostCommentDelta,
     commentsPath,
     insertCachedComment,
+    isFirstPostCommentsPageKey,
+    isInfinitePostCommentsKey,
     removeCachedComment,
     isPostCommentsKey,
     isSocialPostPages,
     pinComments,
     sortCommentsByLikes,
+    withPostedComments,
 } from "./post-comment.ts";
 
 const comment = {
@@ -30,6 +33,20 @@ test("commentsPath is the post comments endpoint", () => {
     assert.equal(isPostCommentsKey({ path: commentsPath(4) }, 4), true);
     assert.equal(isPostCommentsKey({ path: commentsPath(4) }, 9), false);
     assert.equal(isPostCommentsKey({ path: "/social/feed" }), false);
+    assert.equal(
+        isFirstPostCommentsPageKey({ path: commentsPath(4), params: {} }, 4),
+        true,
+    );
+    assert.equal(
+        isFirstPostCommentsPageKey(
+            { path: commentsPath(4), params: { likes: "1" } },
+            4,
+        ),
+        false,
+    );
+    const infinite = `$inf$#path:"/social/posts/4/comments",params:#,`;
+    assert.equal(isInfinitePostCommentsKey(infinite, 4), true);
+    assert.equal(isInfinitePostCommentsKey(infinite, 40), false);
 });
 
 test("sorts by likes desc, then newest", () => {
@@ -74,6 +91,24 @@ test("inserting a comment appends and sorts", () => {
     assert.equal(next.comments[0].comment_id, 2);
     assert.equal(next.comments[1].comment_id, 9);
     assert.equal(insertCachedComment(next, added), next);
+});
+
+test("posted comments show until the loaded pages include them", () => {
+    const loaded = [comment];
+    const posted = {
+        ...comment,
+        comment_id: 9,
+        post_id: 4,
+        content: "new",
+    };
+    const otherPost = { ...posted, comment_id: 10, post_id: 8 };
+    const merged = withPostedComments(loaded, [posted, otherPost], 4);
+    assert.deepEqual(
+        merged.map((row) => row.comment_id),
+        [9, 2],
+    );
+    assert.equal(withPostedComments(merged, [posted], 4), merged);
+    assert.equal(withPostedComments(loaded, [], 4), loaded);
 });
 
 test("pinned comments stay first and the rest keep their order", () => {
@@ -149,4 +184,41 @@ test("removing a comment drops only that row", () => {
     assert.deepEqual(next.comments, [other]);
     assert.equal(next.comments[0], other);
     assert.equal(removeCachedComment(cached, 99), cached);
+});
+
+test("a paged comments list updates the page that holds the row", () => {
+    const other = { ...comment, comment_id: 9, likes: 1 };
+    const pages = [
+        {
+            comments: [comment],
+            next: { likes: 3, created_at: comment.created_at, comment_id: 2 },
+        },
+        { comments: [other], next: null },
+    ];
+    const liked = applyCommentLike(pages, 9, true) as typeof pages;
+    assert.equal(liked[0], pages[0]);
+    assert.equal(liked[1].comments[0].likes, 2);
+    assert.equal(liked[1].next, null);
+
+    const inserted = insertCachedComment(pages, {
+        ...comment,
+        comment_id: 11,
+        likes: 0,
+    }) as typeof pages;
+    assert.equal(inserted[0].comments.length, 2);
+    assert.equal(inserted[1], pages[1]);
+    assert.equal(inserted[0].next, pages[0].next);
+
+    const edited = applyCommentContent(
+        pages,
+        9,
+        "edited",
+        "2026-10-17T18:00:00Z",
+    ) as typeof pages;
+    assert.equal(edited[0], pages[0]);
+    assert.equal(edited[1].comments[0].content, "edited");
+
+    const removed = removeCachedComment(pages, 9) as typeof pages;
+    assert.equal(removed[0], pages[0]);
+    assert.deepEqual(removed[1].comments, []);
 });
