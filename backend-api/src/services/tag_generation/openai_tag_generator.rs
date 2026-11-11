@@ -12,7 +12,7 @@ use std::env;
 use std::time::Duration;
 use uuid::Uuid;
 
-const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
+pub(crate) const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 const OPENAI_HTTP_TIMEOUT_SECS: u64 = 60;
 const OPENAI_MODEL: &str = "gpt-4o-mini";
 const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"Generate one word music tags for each given song. Prefer tags that describe the song's genre or sound (e.g. pop, metal, instrumental). Return one entry per input song, copying that song's description back exactly in `song` alongside its tags, so tags are never matched to the wrong song. Generate `requested_tag_count` tags per song. Give every tag a six-digit `#RRGGBB` color. Cadenza replaces the color with one from its accessible tag palette, so the exact color you provide is not important."#;
@@ -69,7 +69,7 @@ fn parse_reset_duration(value: &str) -> Option<Duration> {
 /// headers say when each bucket refills, and the longer of the two is when both are
 /// usable again. A response carrying none of them gives `None`, which means rate
 /// limited with no stated wait rather than not rate limited.
-fn rate_limit_wait(headers: &HeaderMap) -> Option<Duration> {
+pub(crate) fn rate_limit_wait(headers: &HeaderMap) -> Option<Duration> {
     if let Some(secs) =
         header_str(headers, "retry-after").and_then(|value| value.trim().parse::<u64>().ok())
     {

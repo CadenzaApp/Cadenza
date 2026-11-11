@@ -1,4 +1,5 @@
 pub mod analytics;
+pub mod assistant;
 pub mod default_tags;
 pub mod metadata_tags;
 pub mod notification;
