@@ -143,6 +143,25 @@ pub struct SessionPatch {
     pub allow_join_without_code: Option<bool>,
 }
 
+/// Where added songs land.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AddAt {
+    /// After every upcoming song.
+    End,
+    /// Among the upcoming songs, 0 is next.
+    Position(i32),
+    /// Next, and playing right away. Needs control.
+    PlayNow,
+}
+
+/// Where playback starts when songs are added to a session with nothing
+/// current: the host's phone was already mid song when it opened the session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StartAt {
+    pub position_ms: i64,
+    pub is_playing: bool,
+}
+
 /// A transport command from a controller or the host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlaybackCommand {
@@ -606,11 +625,14 @@ pub async fn join_session(
 pub enum Left {
     /// Still going, at this version.
     Left(i64),
-    /// The host left, so it ended, at this version.
+    /// The host left and `new_host` hosts it now, at this version.
+    HandedOver { version: i64, new_host: Uuid },
+    /// The host left with nobody to hand it to, so it ended, at this version.
     Ended(i64),
 }
 
-/// Leaves. The host leaving ends the session.
+/// Leaves. The host leaving hands the session to whoever is best placed to
+/// play it (see [`hand_over`]), or ends it when nobody else is in it.
 pub async fn leave_session(
     db: &impl Db,
     user_id: Uuid,
@@ -619,9 +641,12 @@ pub async fn leave_session(
     let txn = db.begin().await?;
     let (session, actor) = lock_for(&txn, session_id, user_id, SessionAction::View).await?;
     if actor == Actor::Host {
-        let version = end_locked(&txn, &session).await?;
+        let left = match hand_over(&txn, &session).await? {
+            Some((version, new_host)) => Left::HandedOver { version, new_host },
+            None => Left::Ended(end_locked(&txn, &session).await?),
+        };
         txn.commit().await?;
-        return Ok(Left::Ended(version));
+        return Ok(left);
     }
     txn.execute_raw(stmt(
         "UPDATE live_session_members SET left_at = now()
@@ -632,6 +657,90 @@ pub async fn leave_session(
     let version = bump(&txn, session_id).await?;
     txn.commit().await?;
     Ok(Left::Left(version))
+}
+
+/// Makes another member the host, for a host who is leaving. Someone already
+/// playing along comes first, since their phone is ready to be the speaker,
+/// then the highest role, then whoever joined first. Someone hosting their
+/// own open session is passed over. Playback is re-anchored where it is now,
+/// so the new host's phone picks up from there. Returns the new version and
+/// host, or `None` when nobody else is in it.
+async fn hand_over(
+    txn: &DatabaseTransaction,
+    session: &SessionRow,
+) -> Result<Option<(i64, Uuid)>, CadenzaError> {
+    let Some(row) = txn
+        .query_one_raw(stmt(
+            "SELECT m.user_id FROM live_session_members m
+             WHERE m.session_id = $1 AND m.user_id <> $2
+               AND m.left_at IS NULL AND NOT m.banned
+               AND NOT EXISTS (
+                   SELECT 1 FROM live_sessions o
+                   WHERE o.host_id = m.user_id AND o.ended_at IS NULL
+               )
+             ORDER BY (m.listen_mode = 'synced') DESC, m.role DESC, m.joined_at
+             LIMIT 1",
+            vec![session.session_id.into(), session.host_id.into()],
+        ))
+        .await?
+    else {
+        return Ok(None);
+    };
+    let new_host: Uuid = row.try_get("", "user_id")?;
+
+    let queued = queued_entries(txn, session.session_id).await?;
+    let current = session
+        .current_entry_id
+        .and_then(|id| queued.iter().find(|entry| entry.entry_id == id));
+    let up_next = upcoming(&queued, session.current_entry_id);
+    let here = projected_playback(session, current, &up_next, Utc::now());
+    set_anchor(
+        txn,
+        session.session_id,
+        Some(here.entry_id),
+        here.is_playing,
+        here.position_ms,
+    )
+    .await?;
+    txn.execute_raw(stmt(
+        "UPDATE live_sessions SET host_id = $2, host_seen_at = now() WHERE session_id = $1",
+        vec![session.session_id.into(), new_host.into()],
+    ))
+    .await?;
+    // the new host always plays; the old one is gone
+    txn.execute_raw(stmt(
+        "UPDATE live_session_members SET
+             listen_mode = CASE WHEN user_id = $3 THEN 'synced'::listen_mode ELSE listen_mode END,
+             left_at = CASE WHEN user_id = $2 THEN now() ELSE left_at END
+         WHERE session_id = $1 AND user_id IN ($2, $3)",
+        vec![
+            session.session_id.into(),
+            session.host_id.into(),
+            new_host.into(),
+        ],
+    ))
+    .await?;
+    // a projection that ran past what was current leaves those songs played
+    if here.entry_id != session.current_entry_id {
+        let before: Vec<i64> = queued
+            .iter()
+            .take_while(|entry| Some(entry.entry_id) != here.entry_id)
+            .map(|entry| entry.entry_id)
+            .collect();
+        if !before.is_empty() {
+            txn.execute_raw(stmt(
+                "UPDATE live_session_queue SET status = 'played'
+                 WHERE session_id = $1 AND entry_id = ANY($2)",
+                vec![
+                    session.session_id.into(),
+                    crate::db::shared_playlists::bigint_array(&before),
+                ],
+            ))
+            .await?;
+            renumber(txn, session.session_id).await?;
+        }
+    }
+    Ok(Some((bump(txn, session.session_id).await?, new_host)))
 }
 
 async fn end_locked(txn: &DatabaseTransaction, session: &SessionRow) -> Result<i64, CadenzaError> {
@@ -780,15 +889,18 @@ pub async fn set_listen_mode(
     Ok(version)
 }
 
-/// Adds songs. A queue editor, controller, or the host queues them at
-/// `position` among the upcoming songs (or the end). A suggester suggests
-/// them. Returns the new version.
+/// Adds songs. A queue editor, controller, or the host queues them where
+/// `at` says. A suggester suggests them, wherever `at` says, except that
+/// `PlayNow` needs control. A session with nothing current starts on the
+/// first song queued, at `starting_at` when given, else from the top and playing.
+/// Returns the new version.
 pub async fn add_songs(
     db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
     songs: &[NewQueueSong],
-    position: Option<i32>,
+    at: AddAt,
+    starting_at: Option<StartAt>,
 ) -> Result<i64, CadenzaError> {
     if songs.is_empty() || songs.len() > MAX_SONGS_PER_ADD {
         return Err(CadenzaError::InvalidRequestBody(format!(
@@ -805,6 +917,11 @@ pub async fn add_songs(
     let (session, actor) = lock_for(&txn, session_id, user_id, SessionAction::Suggest).await?;
     let status = add_lands_as(actor)
         .ok_or_else(|| CadenzaError::Forbidden("listeners cannot add songs".into()))?;
+    if at == AddAt::PlayNow && !allowed(actor, SessionAction::Control) {
+        return Err(CadenzaError::Forbidden(
+            "only controllers can play a song right away".into(),
+        ));
+    }
 
     let queued = queued_entries(&txn, session_id).await?;
     if status == "queued" && queued.len() as i64 + songs.len() as i64 > MAX_QUEUE {
@@ -819,23 +936,30 @@ pub async fn add_songs(
             .and_then(|id| queued.iter().position(|entry| entry.entry_id == id));
         let first_upcoming = current_index.map_or(0, |i| i + 1) as i32;
         let end = queued.len() as i32;
-        let at = position.map_or(end, |p| (first_upcoming + p.max(0)).min(end));
+        let index = match at {
+            AddAt::End => end,
+            AddAt::Position(p) => (first_upcoming + p.max(0)).min(end),
+            AddAt::PlayNow => first_upcoming,
+        };
         txn.execute_raw(stmt(
             "UPDATE live_session_queue SET position = position + $3
              WHERE session_id = $1 AND status = 'queued' AND position >= $2",
-            vec![session_id.into(), at.into(), (songs.len() as i32).into()],
+            vec![session_id.into(), index.into(), (songs.len() as i32).into()],
         ))
         .await?;
-        at
+        index
     } else {
         i32::MAX / 2
     };
 
+    let mut first_added = None;
     for (offset, song) in songs.iter().enumerate() {
-        txn.execute_raw(stmt(
+        let row = txn
+            .query_one_raw(stmt(
             "INSERT INTO live_session_queue
                  (session_id, song_id, title, artist, artwork_url, duration_ms, position, status, added_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::session_entry_status, $9)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::session_entry_status, $9)
+             RETURNING entry_id",
             vec![
                 session_id.into(),
                 song.song_id.clone().into(),
@@ -848,15 +972,34 @@ pub async fn add_songs(
                 user_id.into(),
             ],
         ))
-        .await?;
+        .await?
+            .ok_or(CadenzaError::NotFound)?;
+        first_added.get_or_insert(row.try_get::<i64>("", "entry_id")?);
     }
     if status == "queued" {
         renumber(&txn, session_id).await?;
-        // an empty session starts on what was just added
-        if session.current_entry_id.is_none()
+        if at == AddAt::PlayNow {
+            let playing = SessionRow {
+                is_playing: true,
+                ..session.clone()
+            };
+            advance_to(&txn, &playing, first_added).await?;
+        } else if session.current_entry_id.is_none()
+            // an empty session starts on what was just added
             && let Some(first) = queued_entries(&txn, session_id).await?.first()
         {
-            set_anchor(&txn, session_id, Some(Some(first.entry_id)), true, 0).await?;
+            let start = starting_at.unwrap_or(StartAt {
+                position_ms: 0,
+                is_playing: true,
+            });
+            set_anchor(
+                &txn,
+                session_id,
+                Some(Some(first.entry_id)),
+                start.is_playing,
+                start.position_ms,
+            )
+            .await?;
         }
     }
     let version = bump(&txn, session_id).await?;

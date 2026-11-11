@@ -318,6 +318,8 @@ function fixture(collapsed = true) {
                 usePlaybackTrackState: () => r.track,
                 usePlaybackCommands: () => commands,
             };
+        if (name === "@/features/live-session/use-live-badge")
+            return { useLiveSessionBadge: () => null };
         if (name === "@/lib/player-presentation")
             return {
                 usePlayerPresentation: () => r.api,

@@ -204,6 +204,15 @@ pub struct AddToQueue {
     pub songs: Vec<QueueSong>,
     /// Among the upcoming songs, 0 is next. Missing means the end.
     pub position: Option<i32>,
+    /// Puts them next and plays the first right away. Controllers and the
+    /// host only. Overrides `position`.
+    #[serde(default)]
+    pub play_now: bool,
+    /// Where playback is on the host's phone, for a session with nothing
+    /// current yet, like one just started from what was already playing.
+    /// Missing starts the first song from the top.
+    pub start_position_ms: Option<i64>,
+    pub start_playing: Option<bool>,
 }
 
 /// `PATCH /live-sessions/{id}/queue/{entry_id}`.

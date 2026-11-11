@@ -63,6 +63,9 @@ export type LiveSession = {
     created_at: string;
 };
 
+/** Songs one add can carry. Mirrors `MAX_SONGS_PER_ADD` on the backend. */
+export const MAX_SESSION_ADD = 100;
+
 export type SessionVersion = { version: number | null; ended: boolean };
 
 /** A song to add, as the client knows it. */
@@ -183,7 +186,13 @@ export function useStartLiveSession() {
  */
 export function useSeedSessionQueue() {
     const x = useAPIMutation<
-        { session_id: string; songs: QueueSongBody[] },
+        {
+            session_id: string;
+            songs: QueueSongBody[];
+            /** Where the host's phone is in the first song, when it is current. */
+            start_position_ms?: number;
+            start_playing?: boolean;
+        },
         SessionVersion
     >("POST", ({ session_id }) => `/live-sessions/${session_id}/queue`, [], {
         invalidation: "none",
@@ -219,7 +228,7 @@ export function useLiveSessionWrites(id: string) {
         touched,
     );
     const addSongs = useAPIMutation<
-        { songs: QueueSongBody[]; position?: number },
+        { songs: QueueSongBody[]; position?: number; play_now?: boolean },
         SessionVersion
     >("POST", `${base}/queue`, touched);
     const entryAction = useAPIMutation<

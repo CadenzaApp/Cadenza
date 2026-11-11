@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Playback, PlaybackQueueType, type MusicItem } from "@apple-musickit";
 
-import { usePlayback, usePlaybackCommands } from "@/lib/playback";
+import { useLocalPlaybackCommands, usePlayback } from "@/lib/playback";
 import type { PlaySource } from "@/lib/play-source";
 import { serverNow } from "@/lib/realtime";
 import {
@@ -43,6 +43,18 @@ function songIdOf(track: MusicItem): string {
     return track.catalogId ?? track.id;
 }
 
+/**
+ * Whether the session plays on this phone: always on the host, and on a
+ * member in `synced` mode. Both need full playback.
+ */
+export function playsHere(session: LiveSession | null, canPlay: boolean) {
+    return (
+        session !== null &&
+        canPlay &&
+        (session.my_role === "host" || session.my_listen_mode === "synced")
+    );
+}
+
 /** The entries that should be in the phone's queue: playing one first. */
 export function sessionTarget(session: LiveSession): LiveSessionEntry[] {
     const entries = [
@@ -77,14 +89,13 @@ export function useSessionPlayer(
     canPlay: boolean,
 ) {
     const playback = usePlayback();
-    const commands = usePlaybackCommands();
+    // the local player itself: the app's commands go to the session while
+    // it plays here, through `useSessionSink`
+    const commands = useLocalPlaybackCommands();
     const writes = useLiveSessionWrites(session?.session_id ?? "none");
 
     const isHost = session?.my_role === "host";
-    const active =
-        session !== null &&
-        canPlay &&
-        (isHost || session.my_listen_mode === "synced");
+    const active = playsHere(session, canPlay);
 
     const target = useMemo(
         () => (session ? sessionTarget(session) : []),

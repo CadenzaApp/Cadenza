@@ -33,6 +33,8 @@ import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-m
 import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
 import { useAlbumRouteForTrack } from "@/lib/album-route";
 import { Text } from "@/components/ui/text";
+import { LiveChip } from "@/features/social/LiveChip";
+import { useLiveSessionBadge } from "@/features/live-session/use-live-badge";
 import { usePlayback } from "@/lib/playback";
 import {
     useArtistPreview,
@@ -94,9 +96,11 @@ export function PlayerPage() {
         setRepeatMode,
         canSkipToNext,
         canSkipToPrevious,
+        controlsLocked,
         duration,
         isPreview,
     } = usePlayback();
+    const live = useLiveSessionBadge();
     const { colors } = useTheme();
     const { brand } = useAppTheme().colors;
     const openScreen = useOpenScreen();
@@ -228,11 +232,13 @@ export function PlayerPage() {
     }
 
     function updateScrubPosition(locationX: number) {
+        if (controlsLocked) return;
         const nextPosition = timeAtSeekLocation(locationX);
         if (nextPosition !== null) setScrubPosition(nextPosition);
     }
 
     async function finishSeek(locationX: number) {
+        if (controlsLocked) return;
         const time = timeAtSeekLocation(locationX);
         if (time === null) {
             setScrubPosition(null);
@@ -476,9 +482,31 @@ export function PlayerPage() {
                 }
             />
 
+            {live ? (
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open live session ${live.name}`}
+                    onPress={() =>
+                        openScreen(`/live-session/${live.sessionId}` as Href, {
+                            closing: "player",
+                        })
+                    }
+                    className="flex-row items-center gap-2 self-center active:opacity-60"
+                >
+                    <LiveChip />
+                    <Text
+                        className="max-w-60 text-sm font-semibold text-foreground"
+                        numberOfLines={1}
+                    >
+                        {live.name}
+                    </Text>
+                </Pressable>
+            ) : null}
+
             <MediaPlayerTransport
                 isPlaying={isPlaying}
                 isLoading={isLoading}
+                canTogglePlayback={!controlsLocked}
                 canSkipToNext={canSkipToNext}
                 canSkipToPrevious={canSkipToPrevious}
                 shuffleMode={shuffleMode}

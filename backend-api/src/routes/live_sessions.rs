@@ -12,7 +12,7 @@ use crate::{
     auth::SupabaseClaims,
     db::{
         invites::{InviteTargetRef, NewInvite, create_invite},
-        live_sessions::{self as sessions, Left, PlaybackCommand, SessionPatch},
+        live_sessions::{self as sessions, AddAt, Left, PlaybackCommand, SessionPatch, StartAt},
     },
     err::CadenzaError,
     routes::json::{
@@ -155,7 +155,8 @@ async fn join_handler(
     Ok(changed(&bus, session_id, version))
 }
 
-/// Leaves. The host leaving ends it.
+/// Leaves. The host leaving hands it to another member, or ends it when
+/// nobody else is in it.
 async fn leave_handler(
     State(db): State<DatabaseConnection>,
     State(bus): State<SharedEventBus>,
@@ -165,6 +166,10 @@ async fn leave_handler(
     match sessions::leave_session(&db, claims.user_id, session_id).await? {
         Left::Left(version) => {
             publish_presence(&bus, &[claims.user_id]);
+            Ok(changed(&bus, session_id, version))
+        }
+        Left::HandedOver { version, new_host } => {
+            publish_presence(&bus, &[claims.user_id, new_host]);
             Ok(changed(&bus, session_id, version))
         }
         Left::Ended(version) => {
@@ -232,7 +237,8 @@ async fn me_handler(
 }
 
 /// Adds songs. Queued for a queue editor, controller, or the host; suggested
-/// for a suggester; 403 for a listener.
+/// for a suggester; 403 for a listener. `play_now` also skips to the first
+/// one, for a controller or the host.
 async fn add_queue_handler(
     State(db): State<DatabaseConnection>,
     State(bus): State<SharedEventBus>,
@@ -241,8 +247,16 @@ async fn add_queue_handler(
     Json(body): Json<AddToQueue>,
 ) -> Result<Json<SessionVersion>, CadenzaError> {
     let songs: Vec<_> = body.songs.into_iter().map(Into::into).collect();
-    let version =
-        sessions::add_songs(&db, claims.user_id, session_id, &songs, body.position).await?;
+    let at = match (body.play_now, body.position) {
+        (true, _) => AddAt::PlayNow,
+        (false, Some(position)) => AddAt::Position(position),
+        (false, None) => AddAt::End,
+    };
+    let start = body.start_position_ms.map(|position_ms| StartAt {
+        position_ms,
+        is_playing: body.start_playing.unwrap_or(true),
+    });
+    let version = sessions::add_songs(&db, claims.user_id, session_id, &songs, at, start).await?;
     Ok(changed(&bus, session_id, version))
 }
 

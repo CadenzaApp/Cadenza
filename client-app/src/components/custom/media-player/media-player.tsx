@@ -16,6 +16,7 @@ import {
     usePlayerGestures,
     usePlayerPresentation,
 } from "@/lib/player-presentation";
+import { useLiveSessionBadge } from "@/features/live-session/use-live-badge";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { PLAYER_CONTROL_SIZE as SIZE } from "@/lib/screen-overlay-geometry";
 import { MediaPlayerCompact } from "./compact";
@@ -43,8 +44,10 @@ export function MediaPlayer({
         isPlaying,
         isLoading,
         canSkipToNext,
+        controlsLocked,
         isPlayerCollapsed,
     } = usePlaybackTrackState();
+    const live = useLiveSessionBadge();
     const { togglePlayback, skipToNext } = usePlaybackCommands();
     const {
         motion,
@@ -177,7 +180,7 @@ export function MediaPlayer({
                         />
                         <Pressable
                             className="h-10 w-10"
-                            disabled={isLoading}
+                            disabled={isLoading || controlsLocked}
                             onPress={() => {
                                 if (canPress())
                                     void togglePlayback(activeTrack);
@@ -234,7 +237,9 @@ export function MediaPlayer({
                                     track={activeTrack}
                                     isPlaying={isPlaying}
                                     isLoading={isLoading}
+                                    canTogglePlayback={!controlsLocked}
                                     canSkipToNext={canSkipToNext}
+                                    liveLabel={live?.name ?? null}
                                     textColor={colors.text}
                                     onCollapse={() => {
                                         if (canPress())

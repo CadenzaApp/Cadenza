@@ -6,6 +6,7 @@ import { useEffect, useRef } from "react";
 import { Image, View, useWindowDimensions } from "react-native";
 import { runOnUI } from "react-native-reanimated";
 
+import { useLiveSessionBadge } from "@/features/live-session/use-live-badge";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { usePlayerPresentation } from "@/lib/player-presentation";
 import { MediaPlayerCompact } from "./compact";
@@ -21,8 +22,9 @@ export function NativePlayerAccessory({
     onArtworkError,
 }: Props) {
     const inline = NativeTabs.BottomAccessory.usePlacement() === "inline";
-    const { activeTrack, isPlaying, isLoading, canSkipToNext } =
+    const { activeTrack, isPlaying, isLoading, canSkipToNext, controlsLocked } =
         usePlaybackTrackState();
+    const live = useLiveSessionBadge();
     const { togglePlayback, skipToNext } = usePlaybackCommands();
     const nativeLayout = usePlayerPresentation();
     const { width: windowWidth } = useWindowDimensions();
@@ -98,7 +100,9 @@ export function NativePlayerAccessory({
                     inline={inline}
                     isPlaying={isPlaying}
                     isLoading={isLoading}
+                    canTogglePlayback={!controlsLocked}
                     canSkipToNext={canSkipToNext}
+                    liveLabel={live?.name ?? null}
                     textColor={colors.text}
                     onCollapse={() => {
                         if (canPress()) runOnUI(motion.collapse)(true);

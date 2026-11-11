@@ -113,6 +113,11 @@ over them like any tab screen. No separate player host is needed.
 
 Playback state lives in `PlaybackProvider`, not here.
 
+In a live session the compact player shows "LIVE . {session name}" in place of the artist, and
+the Player page shows a LIVE pill that closes the sheet and opens `/live-session/:id`. Both read
+`useLiveSessionBadge`. When `controlsLocked` is set (a member whose role cannot control), play,
+skip, and the scrubber are disabled; the commands themselves already go to the session.
+
 The two halves are split by what they render into. `media-player.tsx` owns playback commands and
 the tap that pushes `/player`. `player-scope.tsx` owns the song shared by the sheet routes.
 `player-page.tsx` derives its state from `usePlayback()`. Favorites for the heading/queue heart go through
@@ -147,6 +152,7 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 ## Connects to
 
 - `@/lib/playback::usePlayback` for all transport.
+- `@/features/live-session/use-live-badge` for the LIVE line and pill.
 - `@/features/social` (`PostCard`, `CreatePostDialog`) and `@/lib/routes/social`
   (`useTopicPosts`, `useCreatePost`) for Discuss. A post there has `topic_mk_id` set to the
   focused song.

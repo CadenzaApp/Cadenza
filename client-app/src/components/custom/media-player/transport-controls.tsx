@@ -17,6 +17,7 @@ import {
 export function MediaPlayerTransport({
     isPlaying,
     isLoading,
+    canTogglePlayback = true,
     canSkipToNext,
     canSkipToPrevious,
     shuffleMode,
@@ -31,6 +32,8 @@ export function MediaPlayerTransport({
 }: {
     isPlaying: boolean;
     isLoading: boolean;
+    /** False while a live session's role does not allow play or pause. */
+    canTogglePlayback?: boolean;
     canSkipToNext: boolean;
     canSkipToPrevious: boolean;
     shuffleMode: ShuffleMode;
@@ -75,10 +78,13 @@ export function MediaPlayerTransport({
                 accessibilityLabel={
                     isLoading ? "Loading song" : isPlaying ? "Pause" : "Play"
                 }
-                accessibilityState={{ busy: isLoading }}
-                disabled={isLoading}
+                accessibilityState={{
+                    busy: isLoading,
+                    disabled: !canTogglePlayback,
+                }}
+                disabled={isLoading || !canTogglePlayback}
                 onPress={onTogglePlayback}
-                className="h-20 w-20 items-center justify-center active:opacity-60"
+                className={`h-20 w-20 items-center justify-center active:opacity-60 ${canTogglePlayback ? "" : "opacity-30"}`}
             >
                 {isLoading ? (
                     <ActivityIndicator size="large" color={textColor} />
