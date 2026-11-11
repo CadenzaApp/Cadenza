@@ -52,6 +52,7 @@ const NATIVE_TAB_BAR_HEIGHT = Platform.select({
  */
 const SHEET_SEGMENTS = new Set([
     "account",
+    "assistant",
     "appearance",
     "player",
     "library-categories",

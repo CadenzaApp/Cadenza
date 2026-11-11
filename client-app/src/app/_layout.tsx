@@ -76,6 +76,10 @@ function RootStack() {
             />
             <Stack.Screen name="account" options={sheetScreenOptions(theme)} />
             <Stack.Screen
+                name="assistant"
+                options={sheetScreenOptions(theme)}
+            />
+            <Stack.Screen
                 name="appearance"
                 options={sheetScreenOptions(theme)}
             />
