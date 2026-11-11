@@ -333,6 +333,8 @@ type NewPostPayload = {
     topic_mk_id?: string | null;
     topic_song_title?: string | null;
     topic_artist_name?: string | null;
+    /** Attaches a shared playlist the caller is in, instead of a topic. */
+    shared_playlist_id?: number | null;
 };
 
 type NewPostResponse = {

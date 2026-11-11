@@ -30,7 +30,10 @@ use crate::{
         TopicPostsCursor, TopicPostsResponse, UserPostsResponse, UserSearchPerson,
         UserSearchResponse,
     },
-    services::{realtime::SharedPresence, social_feed::SocialFeedService},
+    services::{
+        realtime::SharedPresence,
+        social_feed::{NewPostTopic, SocialFeedService},
+    },
 };
 
 const POST_CONTENT_MAX: usize = 500;
@@ -161,10 +164,14 @@ struct CreatePostBody {
     topic_song_title: Option<String>,
     #[serde(default)]
     topic_artist_name: Option<String>,
+    #[serde(default)]
+    shared_playlist_id: Option<i64>,
 }
 
 /// Creates a post for the signed-in user. `content` is at most 500 characters.
 /// `topic_mk_id` is an optional Apple Music catalog id of a song or artist.
+/// `shared_playlist_id` attaches a shared playlist the caller is a member of
+/// instead; the two cannot both be set.
 /// `topic_song_title` and `topic_artist_name` are display names from MusicKit,
 /// used only to prefix the embedding; stored content is unchanged.
 ///
@@ -187,15 +194,22 @@ async fn create_post(
         parse_optional_text(body.topic_song_title, "topic_song_title", TOPIC_NAME_MAX)?;
     let topic_artist_name =
         parse_optional_text(body.topic_artist_name, "topic_artist_name", TOPIC_NAME_MAX)?;
+    let topic = match (topic_mk_id.as_deref(), body.shared_playlist_id) {
+        (Some(_), Some(_)) => {
+            return Err(CadenzaError::InvalidRequestBody(
+                "a post attaches a song or artist, or a shared playlist, not both".into(),
+            ));
+        }
+        (Some(mk_id), None) => NewPostTopic::Apple {
+            mk_id,
+            song_title: topic_song_title.as_deref(),
+            artist_name: topic_artist_name.as_deref(),
+        },
+        (None, Some(playlist_id)) => NewPostTopic::SharedPlaylist(playlist_id),
+        (None, None) => NewPostTopic::None,
+    };
     let post_id = social
-        .create_post(
-            &db,
-            claims.user_id,
-            &body.content,
-            topic_mk_id.as_deref(),
-            topic_song_title.as_deref(),
-            topic_artist_name.as_deref(),
-        )
+        .create_post(&db, claims.user_id, &body.content, topic)
         .await?;
     Ok(Json(CreatePostResponse { post_id }))
 }

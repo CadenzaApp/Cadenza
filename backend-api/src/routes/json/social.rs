@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
+use crate::db::shared_playlists::PlaylistCard;
 use crate::db::social::{PublicProfile, SocialComment as CommentRow, SocialPost as PostRow};
 
 /// One post as `/social/feed`, `/social/posts/user/:id`, and
@@ -18,6 +19,7 @@ use crate::db::social::{PublicProfile, SocialComment as CommentRow, SocialPost a
 ///   "edited_at": null,
 ///   "author": { "user_id": "11111111-1111-1111-1111-111111111111", "username": "ada" },
 ///   "topic_mk_id": "1615585008",
+///   "shared_playlist": null,
 ///   "comment_count": 3
 /// }
 /// ```
@@ -33,7 +35,38 @@ pub struct SocialPost {
     pub author: SocialAuthor,
     /// Apple Music catalog id of the attached song or artist, or `null`.
     pub topic_mk_id: Option<String>,
+    /// The attached shared playlist, or `null`. Never set with `topic_mk_id`.
+    pub shared_playlist: Option<PostSharedPlaylist>,
     pub comment_count: i64,
+}
+
+/// A shared playlist on a post. Shown to anyone who sees the post; opening
+/// it needs membership or a code.
+///
+/// ```json
+/// { "playlist_id": 7, "name": "Road trip", "song_count": 24, "member_count": 3,
+///   "cover_song_ids": ["1440857781", "1615585008"] }
+/// ```
+#[derive(Serialize)]
+pub struct PostSharedPlaylist {
+    pub playlist_id: i64,
+    pub name: String,
+    pub song_count: i64,
+    pub member_count: i64,
+    /// The first four songs' catalog ids, for a cover mosaic.
+    pub cover_song_ids: Vec<String>,
+}
+
+impl From<PlaylistCard> for PostSharedPlaylist {
+    fn from(card: PlaylistCard) -> Self {
+        Self {
+            playlist_id: card.playlist_id,
+            name: card.name,
+            song_count: card.song_count,
+            member_count: card.member_count,
+            cover_song_ids: card.cover_song_ids,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -56,6 +89,7 @@ impl From<PostRow> for SocialPost {
                 username: post.author_username,
             },
             topic_mk_id: post.topic_mk_id,
+            shared_playlist: post.shared_playlist.map(Into::into),
             comment_count: post.comment_count,
         }
     }

@@ -20,7 +20,7 @@ import { GlassInput } from "@/components/ui/glass-input";
 import { GlassPill } from "@/components/ui/glass-pill";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
-import { usePlaylistMutations, useSongInfo } from "@/lib/musickit-hooks";
+import { usePlaylistMutations } from "@/lib/musickit-hooks";
 import type { PlaySource } from "@/lib/play-source";
 import { usePlaybackCommands } from "@/lib/playback";
 import {
@@ -29,22 +29,17 @@ import {
     useSharedPlaylistWrites,
     type SharedPlaylistEntry,
 } from "@/lib/routes/shared-playlists";
+import { useCreatePost } from "@/lib/routes/social";
 
+import { CreatePostDialog } from "../social/CreatePostDialog";
 import { Initials } from "../social/MemberRow";
+import { SharedPlaylistPostCard } from "../social/SharedPlaylistPostCard";
+import { entryIdOf, usePlaylistTracks } from "./use-playlist-tracks";
 
 /** Diameter of the floating back button, matching other collections. */
 const HERO_BUTTON_SIZE = 52;
 /** Members shown in the header before "+N". */
 const MEMBER_STACK = 4;
-
-/** A row id that names its entry, since one song can be in twice. */
-function entryTrackId(entryId: number) {
-    return `entry:${entryId}`;
-}
-function entryIdOf(track: MusicItem): number | null {
-    const match = /^entry:(\d+)$/.exec(track.id);
-    return match ? Number(match[1]) : null;
-}
 
 /** Whether an error is the backend's stale version refusal. */
 function isVersionConflict(error: unknown) {
@@ -79,6 +74,8 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
     const [adding, setAdding] = useState(false);
     const [renaming, setRenaming] = useState(false);
     const [confirmLeave, setConfirmLeave] = useState(false);
+    const [sharing, setSharing] = useState(false);
+    const { createPost } = useCreatePost();
     const [notice, setNotice] = useState<string | null>(null);
     const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -88,32 +85,17 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
         noticeTimer.current = setTimeout(() => setNotice(null), 3000);
     }, []);
 
+    const reorderHref = `/social/playlist/${playlistId}/reorder` as Href;
     const role = playlist?.my_role;
     const isOwner = role === "owner";
     const editable = canEditSongs(role);
     const entries = useMemo(() => playlist?.entries ?? [], [playlist]);
 
-    const songIds = useMemo(() => entries.map((e) => e.song_id), [entries]);
-    const { songInfo, songInfoLoading } = useSongInfo(songIds);
-    const tracks = useMemo(() => {
-        const byId = new Map<string, MusicItem>();
-        for (const song of songInfo) {
-            byId.set(song.id, song);
-            if (song.catalogId) byId.set(song.catalogId, song);
-        }
-        return entries.flatMap((entry) => {
-            const song = byId.get(entry.song_id);
-            if (!song) return [];
-            return [
-                {
-                    ...song,
-                    id: entryTrackId(entry.entry_id),
-                    catalogId: entry.song_id,
-                    playbackId: song.playbackId ?? entry.song_id,
-                },
-            ];
-        });
-    }, [entries, songInfo]);
+    const {
+        songIds,
+        tracks,
+        tracksLoading: songInfoLoading,
+    } = usePlaylistTracks(entries);
 
     const source = useMemo<PlaySource | undefined>(
         () =>
@@ -154,28 +136,12 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
 
     const trackMenuActions = useMemo<MusicListTrackAction[]>(() => {
         if (!editable) return [];
-        const move = (track: MusicItem, by: number) => {
-            const entry = entryFor(track);
-            if (!entry) return;
-            const position = entry.position + by;
-            if (position < 0 || position >= entries.length) return;
-            void write(
-                () => writes.moveSong({ entry_id: entry.entry_id, position }),
-                "Couldn't move that song.",
-            );
-        };
         return [
             {
-                id: "shared-move-up",
-                label: "Move up",
-                icon: "arrow-up",
-                onPress: (track) => move(track, -1),
-            },
-            {
-                id: "shared-move-down",
-                label: "Move down",
-                icon: "arrow-down",
-                onPress: (track) => move(track, 1),
+                id: "shared-reorder",
+                label: "Reorder songs",
+                icon: "reorder-three",
+                onPress: () => router.push(reorderHref),
             },
             {
                 id: "shared-remove",
@@ -193,7 +159,7 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
                 },
             },
         ];
-    }, [editable, entries.length, entryFor, write, writes]);
+    }, [editable, entryFor, reorderHref, router, write, writes]);
 
     async function play() {
         if (tracks.length === 0) return;
@@ -388,6 +354,22 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
                             );
                         }}
                     />
+                    {editable ? (
+                        <OptionRow
+                            label="Reorder songs"
+                            onPress={() => {
+                                setOptionsOpen(false);
+                                router.push(reorderHref);
+                            }}
+                        />
+                    ) : null}
+                    <OptionRow
+                        label="Share to feed"
+                        onPress={() => {
+                            setOptionsOpen(false);
+                            setSharing(true);
+                        }}
+                    />
                     <OptionRow
                         label="Save a copy to Apple Music"
                         onPress={() => {
@@ -432,6 +414,32 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
                     onPick={async (song) => {
                         const id = song.catalogId ?? song.id;
                         await writes.addSongs({ song_ids: [id] });
+                    }}
+                />
+            ) : null}
+
+            {playlist ? (
+                <CreatePostDialog
+                    open={sharing}
+                    onOpenChange={setSharing}
+                    title="Share playlist"
+                    lockedAttachment={
+                        <SharedPlaylistPostCard
+                            playlist={{
+                                playlist_id: playlist.playlist_id,
+                                name: playlist.name,
+                                song_count: entries.length,
+                                member_count: members.length,
+                                cover_song_ids: songIds.slice(0, 4),
+                            }}
+                        />
+                    }
+                    onCreate={async (content) => {
+                        await createPost({
+                            content,
+                            shared_playlist_id: playlist.playlist_id,
+                        });
+                        showNotice("Shared to your feed.");
                     }}
                 />
             ) : null}

@@ -135,6 +135,47 @@ fn stmt(sql: &str, values: Vec<Value>) -> Statement {
     Statement::from_sql_and_values(DbBackend::Postgres, sql, values)
 }
 
+/// What a post shows of a shared playlist it attaches. Anyone who sees the
+/// post sees this much; opening the playlist still needs membership.
+#[derive(Clone, Debug, PartialEq, Eq, FromQueryResult)]
+pub struct PlaylistCard {
+    pub playlist_id: i64,
+    pub name: String,
+    pub song_count: i64,
+    pub member_count: i64,
+    /// The first four songs' catalog ids, for a cover mosaic.
+    pub cover_song_ids: Vec<String>,
+}
+
+/// Cards for these playlists, by id. A deleted one is simply missing.
+pub async fn playlist_cards<C: ConnectionTrait>(
+    db: &C,
+    playlist_ids: &[i64],
+) -> Result<std::collections::HashMap<i64, PlaylistCard>, CadenzaError> {
+    if playlist_ids.is_empty() {
+        return Ok(Default::default());
+    }
+    let rows = PlaylistCard::find_by_statement(stmt(
+        "SELECT p.playlist_id, p.name,
+                (SELECT count(*) FROM shared_playlist_songs s
+                 WHERE s.playlist_id = p.playlist_id) AS song_count,
+                (SELECT count(*) FROM shared_playlist_members m
+                 WHERE m.playlist_id = p.playlist_id) AS member_count,
+                ARRAY(SELECT s.song_id FROM shared_playlist_songs s
+                      WHERE s.playlist_id = p.playlist_id
+                      ORDER BY s.position, s.entry_id LIMIT 4) AS cover_song_ids
+         FROM shared_playlists p
+         WHERE p.playlist_id = ANY($1)",
+        vec![bigint_array(playlist_ids)],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|card| (card.playlist_id, card))
+        .collect())
+}
+
 /// The caller's role on a playlist, or `None` when they are not a member.
 pub async fn member_role<C: ConnectionTrait>(
     db: &C,

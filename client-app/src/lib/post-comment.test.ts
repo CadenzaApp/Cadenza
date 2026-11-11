@@ -148,6 +148,7 @@ test("comment count delta updates feed and profile caches", () => {
         edited_at: null,
         author: { user_id: "u", username: "ada" },
         topic_mk_id: null,
+        shared_playlist: null,
         comment_count: 1,
     };
     const feed = applyPostCommentDelta({ feed: [post] }, 4, 1) as {

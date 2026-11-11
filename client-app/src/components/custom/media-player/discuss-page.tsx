@@ -189,6 +189,7 @@ export function DiscussPage({
                     username: profile?.username ?? "unknown",
                 },
                 topic_mk_id: topicMkId(postedTopic),
+                shared_playlist: null,
                 comment_count: 0,
             };
             setCreated((current) => [...current, post]);

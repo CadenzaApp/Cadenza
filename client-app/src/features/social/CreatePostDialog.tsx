@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ArtistItem, MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
     ActivityIndicator,
     Image,
@@ -58,6 +58,12 @@ type Props = {
      * `onCreate` receives this topic.
      */
     lockedTopic?: PostTopic | null;
+    /**
+     * Something attached that is not a song or artist, like a shared
+     * playlist's card. Shown in place of the topic and its search; the caller
+     * sends it with the post, and `onCreate` gets no topic.
+     */
+    lockedAttachment?: ReactNode;
 };
 
 /** Compose dialog for a new post. The button spins until the post exists. */
@@ -68,6 +74,7 @@ export function CreatePostDialog({
     title = "New post",
     submitLabel = "Post",
     lockedTopic,
+    lockedAttachment,
 }: Props) {
     const { mutedForeground, primaryForeground } = useAppTheme().colors;
     const { colors } = useTheme();
@@ -88,7 +95,7 @@ export function CreatePostDialog({
     const [postError, setPostError] = useState<string | null>(null);
     const postingRef = useRef(false);
 
-    const topicLocked = lockedTopic != null;
+    const topicLocked = lockedTopic != null || lockedAttachment != null;
     const selectedTopic = topicLocked ? lockedTopic : topic;
     const catalogSongs = useCatalogSongSearch(
         open && canReadCatalog && !topicLocked,
@@ -247,7 +254,9 @@ export function CreatePostDialog({
                         <Text className="text-sm font-semibold leading-none">
                             Topic
                         </Text>
-                        {selectedTopic ? (
+                        {lockedAttachment ? (
+                            lockedAttachment
+                        ) : selectedTopic ? (
                             <PostTopicCard
                                 topic={selectedTopic}
                                 onRemove={

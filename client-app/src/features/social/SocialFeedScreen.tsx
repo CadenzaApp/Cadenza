@@ -216,6 +216,7 @@ export function SocialFeedScreen() {
                     username: profile?.username ?? "unknown",
                 },
                 topic_mk_id: topic ? topicMkId(topic) : null,
+                shared_playlist: null,
                 comment_count: 0,
             };
             setCreated((current) => [post, ...current]);

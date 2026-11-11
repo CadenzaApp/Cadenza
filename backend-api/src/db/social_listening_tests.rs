@@ -96,6 +96,14 @@ async fn social_listening_shared_playlist_flow() {
     let order: Vec<&str> = detail.entries.iter().map(|e| e.song_id.as_str()).collect();
     assert_eq!(order, vec!["1", "2", "3"]);
 
+    // a post's card shows the first songs and the counts
+    let cards = playlists::playlist_cards(&txn, &[id, -1]).await.unwrap();
+    assert_eq!(cards.len(), 1);
+    let card = &cards[&id];
+    assert_eq!(card.name, "Road trip");
+    assert_eq!((card.song_count, card.member_count), (3, 1));
+    assert_eq!(card.cover_song_ids, vec!["1", "2", "3"]);
+
     // a code joins as editor
     let invite = create_invite(
         &txn,
@@ -195,16 +203,28 @@ async fn social_listening_live_session_flow() {
     assert!(sessions::is_participant(&txn, id, guest).await.unwrap());
 
     // the host's songs are queued and start playing
-    sessions::add_songs(&txn, host, id, &[song("10"), song("11")], None)
-        .await
-        .unwrap();
+    sessions::add_songs(
+        &txn,
+        host,
+        id,
+        &[song("10"), song("11")],
+        sessions::AddAt::End,
+        // the host's phone was 30 s into the first song
+        Some(sessions::StartAt {
+            position_ms: 30_000,
+            is_playing: true,
+        }),
+    )
+    .await
+    .unwrap();
     let snap = sessions::get_snapshot(&txn, guest, id).await.unwrap();
     assert_eq!(snap.current.as_ref().unwrap().song_id, "10");
     assert_eq!(snap.up_next.len(), 1);
     assert!(snap.playback.is_playing);
+    assert!(snap.playback.position_ms >= 30_000);
 
     // a suggester's song waits for the host
-    sessions::add_songs(&txn, guest, id, &[song("12")], None)
+    sessions::add_songs(&txn, guest, id, &[song("12")], sessions::AddAt::End, None)
         .await
         .unwrap();
     let snap = sessions::get_snapshot(&txn, host, id).await.unwrap();
@@ -259,6 +279,21 @@ async fn social_listening_live_session_flow() {
         .await
         .unwrap();
 
+    // play now puts the song first and plays it, for a controller only
+    sessions::add_songs(
+        &txn,
+        guest,
+        id,
+        &[song("13")],
+        sessions::AddAt::PlayNow,
+        None,
+    )
+    .await
+    .unwrap();
+    let snap = sessions::get_snapshot(&txn, guest, id).await.unwrap();
+    assert_eq!(snap.current.as_ref().unwrap().song_id, "13");
+    assert!(snap.playback.is_playing);
+
     // kicked means gone for good, code or not
     sessions::kick_member(&txn, host, id, guest).await.unwrap();
     assert!(matches!(
@@ -270,6 +305,47 @@ async fn social_listening_live_session_flow() {
     assert!(matches!(
         sessions::get_snapshot(&txn, host, id).await,
         Err(CadenzaError::SessionEnded)
+    ));
+
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_host_leaving_hands_the_session_over() {
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id IN ($1, $2) AND ended_at IS NULL",
+        [host.into(), guest.into()],
+    ))
+    .await
+    .unwrap();
+
+    let id = sessions::start_session(&txn, host, "Handover", SessionRole::Suggester, true)
+        .await
+        .unwrap();
+    sessions::join_session(&txn, guest, id, true).await.unwrap();
+    sessions::add_songs(&txn, host, id, &[song("20")], sessions::AddAt::End, None)
+        .await
+        .unwrap();
+
+    // the guest hosts it now, and the old host is out
+    assert!(matches!(
+        sessions::leave_session(&txn, host, id).await.unwrap(),
+        sessions::Left::HandedOver { new_host, .. } if new_host == guest
+    ));
+    let snap = sessions::get_snapshot(&txn, guest, id).await.unwrap();
+    assert_eq!(snap.me, crate::services::live_sessions::Actor::Host);
+    assert_eq!(snap.my_listen_mode, "synced");
+    assert_eq!(snap.current.as_ref().unwrap().song_id, "20");
+    assert!(!sessions::is_participant(&txn, id, host).await.unwrap());
+
+    // the last one out ends it
+    assert!(matches!(
+        sessions::leave_session(&txn, guest, id).await.unwrap(),
+        sessions::Left::Ended(_)
     ));
 
     txn.rollback().await.unwrap();

@@ -10,6 +10,7 @@ use crate::db::entity::{comment_likes, comments, post_likes, posts, profile};
 use crate::db::friend_relations::{
     NOT_BLOCKED_AUTHOR, blocked_either_way, clear_favorites_between,
 };
+use crate::db::shared_playlists::{PlaylistCard, playlist_cards};
 use crate::err::CadenzaError;
 use crate::services::notification::{NewNotification, NotificationType, push_notification};
 use chrono::{DateTime, TimeZone, Utc};
@@ -74,6 +75,9 @@ pub struct SocialPost {
     /// Apple Music catalog id of the attached song or artist, when the author
     /// picked one. Kind is not stored; the client asks MusicKit.
     pub topic_mk_id: Option<String>,
+    /// The attached shared playlist, instead of a song or artist. `None` too
+    /// once the playlist is deleted.
+    pub shared_playlist: Option<PlaylistCard>,
     pub comment_count: i64,
 }
 
@@ -141,12 +145,14 @@ pub async fn insert_post(
     embedding: &[f64],
     embedding_w_bday: &[f64],
     topic_mk_id: Option<&str>,
+    shared_playlist_id: Option<i64>,
 ) -> Result<i64, CadenzaError> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
-            "INSERT INTO posts (user_id, content, embedding, embedding_w_bday, topic_mk_id)
-             VALUES ($1, $2, $3::vector, $4::vector, $5)
+            "INSERT INTO posts
+                 (user_id, content, embedding, embedding_w_bday, topic_mk_id, shared_playlist_id)
+             VALUES ($1, $2, $3::vector, $4::vector, $5, $6)
              RETURNING post_id",
             vec![
                 user_id.into(),
@@ -154,6 +160,7 @@ pub async fn insert_post(
                 vector_literal(embedding).into(),
                 vector_literal(embedding_w_bday).into(),
                 topic_mk_id.map(str::to_owned).into(),
+                shared_playlist_id.into(),
             ],
         ))
         .await?
@@ -802,6 +809,7 @@ pub async fn get_posts(
              p.created_at,
              p.edited_at,
              p.topic_mk_id,
+             p.shared_playlist_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
@@ -819,14 +827,12 @@ pub async fn get_posts(
     .all(db)
     .await?;
 
-    let by_id: HashMap<i64, PostRow> = rows.into_iter().map(|row| (row.post_id, row)).collect();
-    let mut posts = Vec::new();
-    for post_id in post_ids {
-        if let Some(row) = by_id.get(post_id) {
-            posts.push(row.to_post());
-        }
-    }
-    Ok(posts)
+    let mut by_id: HashMap<i64, PostRow> = rows.into_iter().map(|row| (row.post_id, row)).collect();
+    let ordered: Vec<PostRow> = post_ids
+        .iter()
+        .filter_map(|post_id| by_id.remove(post_id))
+        .collect();
+    to_posts(db, &ordered).await
 }
 
 /// The author's profile row, when they have one.
@@ -1324,7 +1330,7 @@ pub async fn get_topic_posts(
             post_id: row.post_id,
         });
     Ok(TopicPostPage {
-        posts: rows.iter().map(PostRow::to_post).collect(),
+        posts: to_posts(db, &rows).await?,
         next,
     })
 }
@@ -1337,6 +1343,7 @@ const TOPIC_POSTS_SELECT: &str = "SELECT
              p.created_at,
              p.edited_at,
              p.topic_mk_id,
+             p.shared_playlist_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
@@ -1414,6 +1421,7 @@ pub async fn get_friends_feed(
              p.created_at,
              p.edited_at,
              p.topic_mk_id,
+             p.shared_playlist_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
@@ -1445,7 +1453,7 @@ pub async fn get_friends_feed(
     ))
     .all(db)
     .await?;
-    Ok(rows.iter().map(PostRow::to_post).collect())
+    to_posts(db, &rows).await
 }
 
 /// One author's posts, newest first.
@@ -1465,6 +1473,7 @@ pub async fn get_author_posts(
              p.created_at,
              p.edited_at,
              p.topic_mk_id,
+             p.shared_playlist_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
@@ -1482,7 +1491,7 @@ pub async fn get_author_posts(
     ))
     .all(db)
     .await?;
-    Ok(rows.iter().map(PostRow::to_post).collect())
+    to_posts(db, &rows).await
 }
 
 /// Normalized weighted sum of the top 10 genres and top 10 artists.
@@ -1989,7 +1998,30 @@ struct PostRow {
     username: String,
     liked: bool,
     topic_mk_id: Option<String>,
+    shared_playlist_id: Option<i64>,
     comment_count: i64,
+}
+
+/// Posts from rows, in order, each with its attached playlist's card. One
+/// query for all the cards.
+async fn to_posts(
+    db: &impl ConnectionTrait,
+    rows: &[PostRow],
+) -> Result<Vec<SocialPost>, CadenzaError> {
+    let ids: Vec<i64> = rows
+        .iter()
+        .filter_map(|row| row.shared_playlist_id)
+        .collect();
+    let cards = playlist_cards(db, &ids).await?;
+    Ok(rows
+        .iter()
+        .map(|row| SocialPost {
+            shared_playlist: row
+                .shared_playlist_id
+                .and_then(|id| cards.get(&id).cloned()),
+            ..row.to_post()
+        })
+        .collect())
 }
 
 impl PostRow {
@@ -2006,6 +2038,7 @@ impl PostRow {
             author_id: self.author_id,
             author_username: self.username.clone(),
             topic_mk_id: self.topic_mk_id.clone(),
+            shared_playlist: None,
             comment_count: self.comment_count,
         }
     }

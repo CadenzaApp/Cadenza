@@ -108,7 +108,19 @@ export type SocialPost = {
     };
     /** Apple Music catalog id of the attached song or artist, or null. */
     topic_mk_id: string | null;
+    /** The attached shared playlist, or null. Never set with `topic_mk_id`. */
+    shared_playlist: PostSharedPlaylist | null;
     comment_count: number;
+};
+
+/** A shared playlist on a post, as anyone who sees the post sees it. */
+export type PostSharedPlaylist = {
+    playlist_id: number;
+    name: string;
+    song_count: number;
+    member_count: number;
+    /** The first four songs' catalog ids, for a cover mosaic. */
+    cover_song_ids: string[];
 };
 
 /**
