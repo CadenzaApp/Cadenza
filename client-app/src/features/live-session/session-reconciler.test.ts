@@ -43,6 +43,44 @@ test("songs added, moved, and removed upstream are mirrored", () => {
     check({ songIds: ["a", "b", "c"], index: 0 }, ["a", "x", "c", "y"]);
 });
 
+test("a big change is one batch, not a call per song", () => {
+    const many = Array.from({ length: 100 }, (_, i) => `s${i}`);
+    // a playlist added at the end
+    assert.deepEqual(
+        check({ songIds: ["a", "b"], index: 0 }, ["a", "b", ...many]),
+        [{ kind: "insert", where: "end", songIds: many }],
+    );
+    // a playlist played next
+    assert.deepEqual(
+        check({ songIds: ["a", "b"], index: 0 }, ["a", ...many, "b"]),
+        [{ kind: "insert", where: "next", songIds: many }],
+    );
+    // into the middle: the two songs after it come out and go back in
+    const ops = check({ songIds: ["a", "b", "c", "d"], index: 0 }, [
+        "a",
+        "b",
+        ...many,
+        "c",
+        "d",
+    ]);
+    assert.equal(ops.length, 3);
+});
+
+test("one song into the middle moves down instead", () => {
+    const ops = check({ songIds: ["a", "b", "c", "d", "e"], index: 0 }, [
+        "a",
+        "b",
+        "x",
+        "c",
+        "d",
+        "e",
+    ]);
+    assert.deepEqual(ops, [
+        { kind: "insert", where: "next", songIds: ["x"] },
+        { kind: "move", from: 1, to: 2 },
+    ]);
+});
+
 test("songs already played before the current one are left alone", () => {
     const ops = check({ songIds: ["old", "a", "b"], index: 1 }, [
         "a",

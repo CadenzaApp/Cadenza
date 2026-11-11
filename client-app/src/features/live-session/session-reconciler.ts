@@ -4,9 +4,17 @@
  * Works on song ids only. The local queue is `PlaybackProvider`'s mirror of
  * the native one; the target is the session's current song then its upcoming
  * songs. The whole native queue is replaced only when the current song
- * differs, since that restarts playback; otherwise a few moves, inserts, and
- * removes bring the upcoming songs in line without a hiccup in what is
- * playing.
+ * differs, since that restarts playback. Otherwise the songs after it are
+ * brought in line in as few native calls as it takes, so a big change does
+ * not redraw the queue song by song:
+ *
+ * - what both lists start and end with stays put
+ * - the songs in between that the session dropped are removed
+ * - the songs in between it added go in as one batch, next or at the end,
+ *   the only two places the native queue takes a batch. When they belong in
+ *   the middle, either the batch goes in next and each song is moved down,
+ *   or the songs after it come out and go back in at the end with it,
+ *   whichever is fewer calls.
  *
  * Indices address the whole local queue, like `PlaybackProvider`'s commands.
  * Ops are in order: each index assumes the ones before it ran.
@@ -23,8 +31,8 @@ export type LocalQueue = {
 export type QueueOp =
     | { kind: "replace" }
     | { kind: "move"; from: number; to: number }
-    /** Insert `songId` so it lands at `at`. */
-    | { kind: "insert"; at: number; songId: string }
+    /** Insert `songIds`, in order, right after the current song or at the end. */
+    | { kind: "insert"; where: "next" | "end"; songIds: string[] }
     | { kind: "remove"; index: number };
 
 export function reconcile(
@@ -35,31 +43,60 @@ export function reconcile(
     const current = local.index >= 0 ? local.songIds[local.index] : undefined;
     if (current !== target[0]) return [{ kind: "replace" }];
 
-    const ops: QueueOp[] = [];
-    const items = [...local.songIds];
     const base = local.index + 1;
+    const have = local.songIds.slice(base);
     const want = target.slice(1);
 
-    for (let i = 0; i < want.length; i += 1) {
-        const at = base + i;
-        if (items[at] === want[i]) continue;
-        const found = items.indexOf(want[i], at + 1);
-        if (found >= 0) {
-            ops.push({ kind: "move", from: found, to: at });
-            const [moved] = items.splice(found, 1);
-            items.splice(at, 0, moved);
-        } else {
-            ops.push({ kind: "insert", at, songId: want[i] });
-            items.splice(at, 0, want[i]);
-        }
-    }
-    // anything past the session's last song goes, from the end so indices hold
-    for (
-        let index = items.length - 1;
-        index >= base + want.length;
-        index -= 1
+    let prefix = 0;
+    while (
+        prefix < have.length &&
+        prefix < want.length &&
+        have[prefix] === want[prefix]
     ) {
-        ops.push({ kind: "remove", index });
+        prefix += 1;
+    }
+    let suffix = 0;
+    while (
+        suffix < have.length - prefix &&
+        suffix < want.length - prefix &&
+        have[have.length - 1 - suffix] === want[want.length - 1 - suffix]
+    ) {
+        suffix += 1;
+    }
+
+    let removeEnd = have.length - suffix;
+    let adding = want.slice(prefix, want.length - suffix);
+    // the batch has to land next or at the end. in the middle, pick the
+    // cheaper way there: move each added song down, or take the songs after
+    // it out and add them back behind it
+    const middle = adding.length > 0 && prefix > 0 && suffix > 0;
+    const moveDown = middle && adding.length <= suffix;
+    if (middle && !moveDown) {
+        removeEnd = have.length;
+        adding = want.slice(prefix);
+    }
+
+    const ops: QueueOp[] = [];
+    // from the end, so earlier indices hold
+    for (let i = removeEnd - 1; i >= prefix; i -= 1) {
+        ops.push({ kind: "remove", index: base + i });
+    }
+    if (adding.length === 0) return ops;
+    if (prefix === 0 || moveDown) {
+        ops.push({ kind: "insert", where: "next", songIds: adding });
+        // each move takes the first added song still at the front to just
+        // behind the songs that were already there
+        if (moveDown) {
+            for (let i = 0; i < adding.length; i += 1) {
+                ops.push({
+                    kind: "move",
+                    from: base,
+                    to: base + prefix + adding.length - 1,
+                });
+            }
+        }
+    } else {
+        ops.push({ kind: "insert", where: "end", songIds: adding });
     }
     return ops;
 }
@@ -93,7 +130,8 @@ export function applyOps(local: LocalQueue, ops: readonly QueueOp[]): string[] {
                 break;
             }
             case "insert":
-                items.splice(op.at, 0, op.songId);
+                if (op.where === "end") items.push(...op.songIds);
+                else items.splice(local.index + 1, 0, ...op.songIds);
                 break;
             case "remove":
                 items.splice(op.index, 1);

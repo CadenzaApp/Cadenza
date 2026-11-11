@@ -19,7 +19,8 @@ import { useListeningEvents } from "@/lib/listening-events";
 import { usePlayAll } from "@/lib/play-all";
 import type { PlaySource } from "@/lib/play-source";
 import { saveQueryErrorMessage } from "@/lib/routes/saved-queries";
-import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
+import { usePlayFromList } from "@/lib/play-from-list";
+import { usePlaybackTrackState } from "@/lib/playback";
 
 import { matchCountLabel } from "./QueryUtils";
 
@@ -105,7 +106,7 @@ export default function QueryResults({
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
     const { recordEvent } = useListeningEvents();
-    const { togglePlayback } = usePlaybackCommands();
+    const playFromList = usePlayFromList();
     const { activeTrackId, isPlaying } = usePlaybackTrackState();
     const saveDialogWidth = Math.round(screenWidth * 0.75);
     const allLoaded =
@@ -144,13 +145,20 @@ export default function QueryResults({
 
     const playOneSong = useCallback(
         async (track: MusicItem) => {
-            // togglePlayback pauses when the row is already the active track, so
-            // recording unconditionally would count a pause as a play
+            // the playing row pauses instead, so recording unconditionally
+            // would count a pause as a play
             const isPausing = activeTrackId === track.id && isPlaying;
             if (!isPausing) recordQueryPlay(track);
-            await togglePlayback(track, playSource);
+            await playFromList(songs, track, playSource);
         },
-        [activeTrackId, isPlaying, playSource, recordQueryPlay, togglePlayback],
+        [
+            activeTrackId,
+            isPlaying,
+            playFromList,
+            playSource,
+            recordQueryPlay,
+            songs,
+        ],
     );
     function openSaveDialog(favorite: boolean) {
         setSaveAsFavorite(favorite);

@@ -282,14 +282,15 @@ export function useSessionPlayer(
                     await commands.moveQueueItem(op.from, op.to);
                     break;
                 case "insert": {
-                    const entry = queueTarget.find(
-                        (e) => e.song_id === op.songId,
+                    const byId = new Map(
+                        queueTarget.map((entry) => [entry.song_id, entry]),
                     );
-                    if (!entry) break;
-                    const next = playback.queueIndex + 1;
-                    await commands.playNext([entryToTrack(entry)]);
-                    if (op.at !== next)
-                        await commands.moveQueueItem(next, op.at);
+                    const tracks = op.songIds
+                        .map((id) => byId.get(id))
+                        .filter((entry) => entry !== undefined)
+                        .map(entryToTrack);
+                    if (op.where === "end") await commands.addToQueue(tracks);
+                    else await commands.playNext(tracks);
                     break;
                 }
                 case "remove":

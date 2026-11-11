@@ -16,6 +16,7 @@ import {
 } from "@/lib/musickit-hooks";
 import { isTrackInCollection } from "@/lib/playable-item";
 import type { PlaySource } from "@/lib/play-source";
+import { usePlayFromList } from "@/lib/play-from-list";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import type { ArrangeSource } from "@/lib/routes/arrange";
 import {
@@ -175,10 +176,11 @@ export default function CollectionDetailScreen() {
         }
     }
 
-    /** A row plays just that song, the same as anywhere else, but credited. */
+    /** A row plays the collection from that song, credited to it. */
+    const playFromList = usePlayFromList();
     const playRow = useCallback(
-        (track: MusicItem) => togglePlayback(track, playSource),
-        [playSource, togglePlayback],
+        (track: MusicItem) => playFromList(orderedTracks, track, playSource),
+        [orderedTracks, playFromList, playSource],
     );
 
     return (

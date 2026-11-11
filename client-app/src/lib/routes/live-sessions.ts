@@ -93,6 +93,8 @@ export type LiveSession = {
 
 /** Songs one add can carry. Mirrors `MAX_SONGS_PER_ADD` on the backend. */
 export const MAX_SESSION_ADD = 100;
+/** Songs a session's queue holds, the current one included. Mirrors `MAX_QUEUE`. */
+export const MAX_SESSION_QUEUE = 500;
 
 export type SessionVersion = {
     version: number | null;

@@ -22,6 +22,7 @@ import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { usePlaylistMutations } from "@/lib/musickit-hooks";
 import type { PlaySource } from "@/lib/play-source";
+import { usePlayFromList } from "@/lib/play-from-list";
 import { usePlaybackCommands } from "@/lib/playback";
 import {
     canEditSongs,
@@ -59,7 +60,8 @@ function isVersionConflict(error: unknown) {
 export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
     const router = useRouter();
     const { account } = useAccount();
-    const { playQueue, setShuffleMode, togglePlayback } = usePlaybackCommands();
+    const { playQueue, setShuffleMode } = usePlaybackCommands();
+    const playFromList = usePlayFromList();
     const { createPlaylist } = usePlaylistMutations();
     const {
         sharedPlaylist: playlist,
@@ -263,7 +265,9 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
                 respectTopSafeArea
                 onPlay={play}
                 onShuffle={shuffle}
-                onTrackPressOverride={(track) => togglePlayback(track, source)}
+                onTrackPressOverride={(track) =>
+                    playFromList(tracks, track, source)
+                }
                 trackMenuActions={trackMenuActions}
                 options={options}
                 backControl={<FloatingBackButton size={HERO_BUTTON_SIZE} />}

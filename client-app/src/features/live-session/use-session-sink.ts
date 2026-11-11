@@ -84,10 +84,9 @@ export function useSessionSink(session: LiveSession | null) {
             tracks: readonly MusicItem[],
             at: "now" | "next" | "end",
         ) {
-            const songs: QueueSongBody[] = sessionSongs(tracks).slice(
-                0,
-                MAX_SESSION_ADD,
-            );
+            const shareable = sessionSongs(tracks);
+            const songs: QueueSongBody[] = shareable.slice(0, MAX_SESSION_ADD);
+            const trimmed = shareable.length > songs.length;
             if (songs.length === 0) {
                 tell(
                     "Live session",
@@ -117,6 +116,12 @@ export function useSessionSink(session: LiveSession | null) {
                           : { position: 0 }),
                 }),
             );
+            if (trimmed) {
+                tell(
+                    "Live session",
+                    `Added the first ${MAX_SESSION_ADD} songs. One add takes at most ${MAX_SESSION_ADD}.`,
+                );
+            }
         }
 
         function entryAt(index: number) {

@@ -3,6 +3,7 @@ import {
     useCallback,
     useContext,
     useEffect,
+    useLayoutEffect,
     useMemo,
     useRef,
     useState,
@@ -292,6 +293,13 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         : -1;
     const resolvedQueueIndex =
         nativeQueueIndex >= 0 ? nativeQueueIndex : queueIndex;
+    // the queue as the last change left it. Commands run back to back, like a
+    // live session lining the queue up, read this rather than the render's
+    // copy, which is stale until the next commit
+    const latestQueue = useRef<QueueState<MusicItem>>({ items: [], index: -1 });
+    useLayoutEffect(() => {
+        latestQueue.current = { items: queue, index: resolvedQueueIndex };
+    }, [queue, resolvedQueueIndex]);
     const queuedTrack = queue[resolvedQueueIndex];
     const activeTrack =
         queuedTrack &&
@@ -440,6 +448,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         const previousQueue = queue;
         const previousQueueIndex = queueIndex;
         const previousQueueSource = queueSource;
+        latestQueue.current = { items: playableTracks, index: boundedIndex };
         setQueue(playableTracks);
         setQueueIndex(boundedIndex);
         // a new queue replaces the old source, even with none of its own
@@ -447,6 +456,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         try {
             await Playback.playSongQueue(playableTracks, boundedIndex);
         } catch (error) {
+            latestQueue.current = {
+                items: previousQueue,
+                index: previousQueueIndex,
+            };
             setQueue(previousQueue);
             setQueueIndex(previousQueueIndex);
             setQueueSource(previousQueueSource);
@@ -509,19 +522,23 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             }
 
             await Playback.appendSongQueue(playableTracks);
-            setQueue((currentQueue) => {
-                // Keep whatever we already mirror. Falling back to just the
-                // active track would strand the tracks still queued natively,
-                // and skipToNext is bounded by this list.
-                const base =
-                    currentQueue.length > 0
-                        ? currentQueue
-                        : activeTrack
-                          ? [activeTrack]
-                          : [];
-                return [...base, ...playableTracks];
-            });
-            if (queueIndex < 0 && activeTrack) setQueueIndex(0);
+            // Keep whatever we already mirror. Falling back to just the
+            // active track would strand the tracks still queued natively,
+            // and skipToNext is bounded by this list.
+            const latest = latestQueue.current;
+            const base =
+                latest.items.length > 0
+                    ? latest.items
+                    : activeTrack
+                      ? [activeTrack]
+                      : [];
+            const index = latest.index < 0 && activeTrack ? 0 : latest.index;
+            latestQueue.current = {
+                items: [...base, ...playableTracks],
+                index,
+            };
+            setQueue(latestQueue.current.items);
+            if (index !== latest.index) setQueueIndex(index);
         } catch (e) {
             logHandledError("Failed to add tracks to playback queue", e);
             Alert.alert("Playback Error", "Failed to add songs to the queue.");
@@ -540,19 +557,18 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         project: (state: QueueState<MusicItem>) => QueueState<MusicItem>,
         apply: () => Promise<void>,
     ) {
-        const current: QueueState<MusicItem> = {
-            items: queue,
-            index: resolvedQueueIndex,
-        };
+        const current = latestQueue.current;
         const next = project(current);
         if (next === current) return;
 
+        latestQueue.current = next;
         setQueue(next.items);
         setQueueIndex(next.index);
         try {
             await apply();
         } catch (e) {
             logHandledError(`Failed to ${describe}`, e);
+            latestQueue.current = current;
             setQueue(current.items);
             setQueueIndex(current.index);
             Alert.alert("Playback Error", `Failed to ${describe}.`);

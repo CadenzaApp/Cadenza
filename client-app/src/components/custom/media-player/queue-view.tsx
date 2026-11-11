@@ -48,6 +48,8 @@ type MediaPlayerQueueProps = {
      * role below queue editor: no dragging, no remove, no handles.
      */
     editable?: boolean;
+    /** Shown at the end of the Continue Playing heading, like `37/500`. */
+    queueCount?: string;
     /** Positions address the upcoming list, not the whole queue. */
     onPlayUpcoming: (upcomingIndex: number) => void;
     onRemoveUpcoming: (upcomingIndex: number) => void;
@@ -83,6 +85,7 @@ export function MediaPlayerQueue({
     onToggleShuffle,
     onCycleRepeat,
     editable = true,
+    queueCount,
     onPlayUpcoming,
     onRemoveUpcoming,
     onMoveUpcoming,
@@ -127,9 +130,16 @@ export function MediaPlayerQueue({
                 />
             </View>
 
-            <Text className="mb-1 mt-4 text-xl font-bold text-foreground">
-                Continue Playing
-            </Text>
+            <View className="mb-1 mt-4 flex-row items-baseline justify-between">
+                <Text className="text-xl font-bold text-foreground">
+                    Continue Playing
+                </Text>
+                {queueCount ? (
+                    <Text className="text-sm text-muted-foreground">
+                        {queueCount}
+                    </Text>
+                ) : null}
+            </View>
 
             <ReorderableList
                 style={{ flex: 1 }}

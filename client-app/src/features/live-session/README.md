@@ -40,6 +40,10 @@ How playback stays in step:
   command, so a heartbeat in flight cannot undo a member's seek or back.
 - The host's phone changes song, play state, or position only when `playback.command_seq` moved
   (someone steered it). A join or queue edit only lines up the songs after the one it plays.
+- `reconcile` lines the phone's queue up in as few native calls as it can: songs added go in as
+  one batch, next or at the end, so a whole playlist is one call rather than a redraw per song.
+  The provider's queue commands read the queue as the last one left it, so back to back ops do
+  not work from a stale copy.
 - A synced member follows: queue ops from `reconcile`, play or pause matched, and a seek when
   more than 2 s off, at most every 5 s (a new command seeks at once). Members never report.
 - Shuffle and repeat are the session's (`playback.shuffle`, `playback.repeat_mode`), the same
