@@ -10,6 +10,7 @@ pub mod live_sessions;
 pub mod metadata_tags;
 pub mod notification;
 pub mod now_playing;
+pub mod pool;
 pub mod privacy;
 pub mod profile;
 pub mod queries;

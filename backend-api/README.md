@@ -97,6 +97,9 @@ that shape.
 | `APPLE_MUSIC_DEVELOPER_TOKEN` | yes | A signed MusicKit developer token, used by `SongMetadataService` to read the song titles default tag generation runs on, and the metadata queries filter on. Read by `SongMetadataService::new()`, which panics at startup if missing. Apple caps the token at 6 months and nothing here refreshes it. |
 | `APPLE_MUSIC_STOREFRONT` | no | Two letter storefront for catalog lookups, e.g. `gb`. Defaults to `us`. A song not released in that storefront reads as missing. |
 | `BIND_ADDR` | no | Defaults to `127.0.0.1:3000`, which is loopback only. Set `0.0.0.0:3000` to accept connections from a phone or another machine on the LAN. Panics if it does not parse as `host:port`. |
+| `DB_MAX_CONNECTIONS` | no | Connections this process may open. Defaults to 5, so three backends fit in the pooler's 15. Zero and unparseable values fall back to the default. |
+| `DB_QUEUE_TIMEOUT_SECS` | no | Longest a request waits for a free connection before a 503 `DatabaseBusy`. Defaults to 10. Zero and unparseable values fall back to the default. |
+| `DB_STATEMENT_TIMEOUT_SECS` | no | Longest one statement runs, and longest a transaction sits idle, before postgres cancels it. Defaults to 30. |
 | `DEFAULT_TAG_BACKFILL_ENABLED` | no | `true` turns on the background job that generates default tags for songs nothing has read yet. Off for any other value, and off when unset, because every pass can spend Apple Music and OpenAI calls. |
 | `DEFAULT_TAG_BACKFILL_BATCH_SIZE` | no | Songs one pass covers. Defaults to 50, clamped to 1..=200 so a pass can never reach the 300 id cap `SongMetadataService` panics past. An unparseable value falls back to the default. |
 | `DEFAULT_TAG_BACKFILL_INTERVAL_SECS` | no | Seconds between passes. Defaults to 300. Zero and unparseable values fall back to the default, since a zero interval would spin the loop. A pass OpenAI rate limited waits a fixed 300 seconds instead, however short this is. |
@@ -107,9 +110,17 @@ that shape.
 
 ### Database connections
 
-`main.rs::db_connect_options` caps the pool at `MAX_DB_CONNECTIONS`. That cap is the point of the
-function: Sea-ORM defaults to 100 connections, and the pooler serves far fewer, so the default
-exhausts it and every later connect fails with `(EMAXCONNSESSION) max clients reached`.
+`db::pool` opens one pool per backend process, capped at `DB_MAX_CONNECTIONS` (5). Sea-ORM
+defaults to 100, and the pooler serves 15, so an uncapped backend fails every later connect with
+`(EMAXCONNSESSION) max clients reached`.
+
+A request that finds every connection busy waits in the pool's queue, first come first served,
+for at most `DB_QUEUE_TIMEOUT_SECS`, then fails fast with 503 `DatabaseBusy` for the client to
+retry. Once a query runs, each connection's `SET statement_timeout` and `SET
+idle_in_transaction_session_timeout` let postgres cancel a slow statement or a stalled
+transaction, which frees the connection for the next request. The `SET` is per connection
+because the pooler drops startup options, and it only sticks because session mode keeps the
+session.
 
 Use the **session-mode** port (5432). Transaction mode (6543) multiplexes clients across fewer
 server connections and would survive a crash better, but it breaks sqlx's named prepared

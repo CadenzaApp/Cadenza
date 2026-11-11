@@ -1,7 +1,7 @@
 use std::{error::Error, fmt, time::Duration};
 
 use axum::{body::Body, http::Response, response::IntoResponse};
-use sea_orm::{DbErr, RuntimeErr};
+use sea_orm::{ConnAcquireErr, DbErr, RuntimeErr};
 use serde_json::{Value, json};
 
 use crate::request_log::LoggedError;
@@ -30,6 +30,8 @@ pub enum CadenzaError {
     /// One of the pair blocked the other.
     UserBlocked,
     DatabaseError(String), // generic database error
+    /// Every pooled connection stayed busy past the queue timeout. Retry.
+    DatabaseBusy,
     QueryFormatError(String),
     TagGenerationErr(String),
     /// The tag generation provider turned the request away for rate limiting.
@@ -90,6 +92,7 @@ impl CadenzaError {
             Self::FriendshipAlreadyExists => 409,
             Self::UserBlocked => 403,
             Self::DatabaseError(_) => 500,
+            Self::DatabaseBusy => 503,
             Self::QueryFormatError(_) => 422,
             Self::TagGenerationErr(_) => 500,
             Self::TagGenerationRateLimited { .. } => 429,
@@ -146,6 +149,10 @@ impl CadenzaError {
             Self::UserBlocked => json!({
                 "error_type": "UserBlocked",
                 "message": "you cannot do that with this account"
+            }),
+            Self::DatabaseBusy => json!({
+                "error_type": "DatabaseBusy",
+                "message": "the server is busy, try again"
             }),
             Self::DatabaseError(msg) => json!({
                 "error_type": "DatabaseError",
@@ -276,6 +283,9 @@ impl IntoResponse for CadenzaError {
 
 impl From<DbErr> for CadenzaError {
     fn from(db_err: DbErr) -> Self {
+        if matches!(db_err, DbErr::ConnectionAcquire(ConnAcquireErr::Timeout)) {
+            return Self::DatabaseBusy;
+        }
         if let DbErr::Query(RuntimeErr::SqlxError(sqlx_err)) = &db_err
             && let Some(db_err) = sqlx_err.as_database_error()
             && let Some(code) = db_err.code()
@@ -305,5 +315,17 @@ impl From<DbErr> for CadenzaError {
             }
         }
         Self::DatabaseError(db_err.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pool_timeout_is_a_503_to_retry() {
+        let err = CadenzaError::from(DbErr::ConnectionAcquire(ConnAcquireErr::Timeout));
+        assert!(matches!(err, CadenzaError::DatabaseBusy));
+        assert_eq!(err.into_response().status(), 503);
     }
 }
