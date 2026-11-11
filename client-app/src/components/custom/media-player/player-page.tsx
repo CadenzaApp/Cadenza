@@ -34,7 +34,8 @@ import { MusicListActionButton } from "@/components/custom/music-list/music-list
 import { useAlbumRouteForTrack } from "@/lib/album-route";
 import { Text } from "@/components/ui/text";
 import { LiveButton } from "@/features/live-session/LiveButton";
-import { useCurrentLiveSession } from "@/features/live-session/use-current-session";
+import { useShownLiveSession } from "@/features/live-session/use-current-session";
+import { LiveChip } from "@/features/social/LiveChip";
 import { usePlayback } from "@/lib/playback";
 import { sessionCan } from "@/lib/routes/live-sessions";
 import {
@@ -101,7 +102,7 @@ export function PlayerPage() {
         duration,
         isPreview,
     } = usePlayback();
-    const live = useCurrentLiveSession();
+    const live = useShownLiveSession();
     const { colors } = useTheme();
     const { brand } = useAppTheme().colors;
     const openScreen = useOpenScreen();
@@ -476,7 +477,7 @@ export function PlayerPage() {
                                 className="h-1.5 overflow-hidden rounded-full bg-muted"
                             >
                                 <Animated.View
-                                    className="h-full rounded-full bg-foreground"
+                                    className={`h-full rounded-full ${live ? "bg-brand" : "bg-foreground"}`}
                                     style={progressFillStyle}
                                 />
                             </View>
@@ -484,6 +485,18 @@ export function PlayerPage() {
                     </GestureDetector>
                 }
             />
+
+            {live ? (
+                <View className="flex-row items-center gap-2 self-center">
+                    <LiveChip />
+                    <Text
+                        className="max-w-60 text-sm font-semibold text-foreground"
+                        numberOfLines={1}
+                    >
+                        {live.name}
+                    </Text>
+                </View>
+            ) : null}
 
             <MediaPlayerTransport
                 isPlaying={isPlaying}

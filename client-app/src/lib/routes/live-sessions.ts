@@ -52,6 +52,8 @@ export type LiveSession = {
     host: LiveSessionMember;
     default_role: SessionRole;
     allow_join_without_code: boolean;
+    /** Opened by listen along, and not made a regular session since. */
+    listen_along: boolean;
     version: number;
     /** `host`, or the caller's role. */
     my_role: "host" | SessionRole;
@@ -109,6 +111,17 @@ export const sessionCan = {
     control: (role: Role) => RANK[role] >= RANK.controller,
     manage: (role: Role) => role === "host",
 };
+
+/**
+ * Whether a session shows as live: any regular one, and a listen along one
+ * once someone joins. A listen along session nobody joined runs quietly, so
+ * just playing a song does not put the player in live mode.
+ */
+export function showsAsLive(
+    session: Pick<LiveSession, "listen_along" | "members">,
+) {
+    return !session.listen_along || session.members.length > 1;
+}
 
 export const SESSION_ROLE_LABELS: Record<SessionRole, string> = {
     listener: "Listener",
@@ -250,6 +263,8 @@ export function useLiveSessionWrites(id: string) {
             name?: string;
             default_role?: SessionRole;
             allow_join_without_code?: boolean;
+            /** False makes a listen along session a regular one. */
+            listen_along?: boolean;
         },
         SessionVersion
     >("PATCH", base, touched);

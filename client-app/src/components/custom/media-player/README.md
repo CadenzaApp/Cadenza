@@ -114,9 +114,10 @@ over them like any tab screen. No separate player host is needed.
 Playback state lives in `PlaybackProvider`, not here.
 
 The now playing sheet is also the live session's screen. The transport's left slot is
-`LiveButton` (`@/features/live-session`): outside a session a tap starts one, seeded with the
-queue; in one it lights up and opens the session menu (settings, listen mode, hand over, leave,
-end). In a session the pager's tab bar is swapped for `LiveSessionBar` (Requests, People, Add,
+`LiveButton` (`@/features/live-session`), a radio icon: outside a session it opens a popup asking
+to go live, with the session settings; in one it turns red and opens the session menu (settings,
+listen mode, hand over, leave, end). In a session a LIVE tag and the session name sit above the
+transport, and the progress bar is red. In a session the pager's tab bar is swapped for `LiveSessionBar` (Requests, People, Add,
 Share as the role allows), and the pages still swipe. Both bars share `player-bar.tsx`. The queue
 is the player's own, without shuffle or repeat, and read only (no drag, remove, or handles) below
 queue editor. A member whose phone does not play the session

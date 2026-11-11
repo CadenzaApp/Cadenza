@@ -14,7 +14,7 @@ import Animated, {
 
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { LiveSessionBar } from "@/features/live-session/LiveSessionBar";
-import { useCurrentLiveSession } from "@/features/live-session/use-current-session";
+import { useShownLiveSession } from "@/features/live-session/use-current-session";
 
 import { DiscussPage } from "./discuss-page";
 import {
@@ -54,7 +54,7 @@ const TAB_PRESENTATION = {
  */
 export function PlayerPager() {
     const { focusedSong } = usePlayerScope();
-    const liveSession = useCurrentLiveSession();
+    const liveSession = useShownLiveSession();
     const { selectedTab, selectTab } = usePlayerTabs();
     const { width } = useWindowDimensions();
     const scrollRef = useRef<ScrollView>(null);

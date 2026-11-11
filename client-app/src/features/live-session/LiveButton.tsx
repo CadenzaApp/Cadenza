@@ -1,11 +1,10 @@
-import type { Href } from "expo-router";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
-import { ActivityIndicator, Alert, Pressable, View } from "react-native";
+import { Alert, Pressable } from "react-native";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { Text } from "@/components/ui/text";
-import { useOpenScreen } from "@/lib/open-screen";
 import {
     useLiveSessionWrites,
     type LiveSession,
@@ -13,26 +12,27 @@ import {
 import { useAppTheme } from "@/lib/theme";
 import { useMusicAccess } from "@/lib/use-music-access";
 
-import { LiveChip } from "../social/LiveChip";
 import { OptionRow, errorType } from "./session-parts";
-import { useCurrentLiveSession } from "./use-current-session";
-import { useStartSessionNow } from "./use-start-session-now";
+import { StartSessionModal } from "./StartSessionModal";
+import { useShownLiveSession } from "./use-current-session";
 
 /**
- * The player's LIVE button, where shuffle used to be. Outside a session it
- * starts one in a tap. In a session it lights up and opens the session's
- * menu: settings, listen mode, leave, and end.
+ * The player's live button, where shuffle used to be. Outside a live session
+ * it asks to turn what is playing into one, with the session's settings in
+ * the same popup. In one it lights up and opens the session's menu:
+ * settings, listen mode, leave, and end.
  */
 export function LiveButton() {
-    const session = useCurrentLiveSession();
+    const session = useShownLiveSession();
     const fullPlayback = useMusicAccess().can("fullPlayback");
-    const { mutedForeground } = useAppTheme().colors;
-    const { startSessionNow, startingSession } = useStartSessionNow();
-    const [menuOpen, setMenuOpen] = useState(false);
+    const { brand, foreground } = useAppTheme().colors;
+    const [open, setOpen] = useState<"menu" | "start" | "settings" | null>(
+        null,
+    );
 
-    async function press() {
+    function press() {
         if (session) {
-            setMenuOpen(true);
+            setOpen("menu");
             return;
         }
         if (!fullPlayback) {
@@ -42,11 +42,7 @@ export function LiveButton() {
             );
             return;
         }
-        try {
-            await startSessionNow();
-        } catch {
-            Alert.alert("Live session", "Couldn't start a session.");
-        }
+        setOpen("start");
     }
 
     return (
@@ -58,29 +54,31 @@ export function LiveButton() {
                         ? `Live session ${session.name}, options`
                         : "Start a live session"
                 }
-                accessibilityState={{ busy: startingSession }}
-                disabled={startingSession}
-                onPress={() => void press()}
-                className="h-12 w-14 items-center justify-center active:opacity-60"
+                onPress={press}
+                className="h-12 w-12 items-center justify-center active:opacity-60"
             >
-                {startingSession ? (
-                    <ActivityIndicator color={mutedForeground} />
-                ) : session ? (
-                    <LiveChip />
-                ) : (
-                    <View className="rounded-full border border-muted-foreground px-2 py-0.5">
-                        <Text className="text-[11px] font-bold tracking-wider text-muted-foreground">
-                            LIVE
-                        </Text>
-                    </View>
-                )}
+                <Ionicons
+                    name={session ? "radio" : "radio-outline"}
+                    size={26}
+                    color={session ? brand : foreground}
+                />
             </Pressable>
             {session ? (
                 <SessionMenu
                     session={session}
-                    open={menuOpen}
-                    onClose={() => setMenuOpen(false)}
+                    open={open === "menu"}
+                    onClose={() => setOpen(null)}
+                    onSettings={() => setOpen("settings")}
                 />
+            ) : null}
+            {open === "start" ? (
+                <StartSessionModal
+                    title="Turn this into a live session?"
+                    onClose={() => setOpen(null)}
+                />
+            ) : null}
+            {open === "settings" ? (
+                <StartSessionModal editing onClose={() => setOpen(null)} />
             ) : null}
         </>
     );
@@ -91,12 +89,13 @@ function SessionMenu({
     session,
     open,
     onClose,
+    onSettings,
 }: {
     session: LiveSession;
     open: boolean;
     onClose: () => void;
+    onSettings: () => void;
 }) {
-    const openScreen = useOpenScreen();
     const fullPlayback = useMusicAccess().can("fullPlayback");
     const writes = useLiveSessionWrites(session.session_id);
     const isHost = session.my_role === "host";
@@ -146,11 +145,7 @@ function SessionMenu({
                     <>
                         <OptionRow
                             label="Session settings"
-                            onPress={then(() =>
-                                openScreen(
-                                    `/live-session/new?edit=${session.session_id}` as Href,
-                                ),
-                            )}
+                            onPress={then(onSettings)}
                         />
                         {session.members.length > 1 ? (
                             <OptionRow

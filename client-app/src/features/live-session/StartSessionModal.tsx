@@ -1,8 +1,8 @@
 import { useRouter, type Href } from "expo-router";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
-import { DetailScreen } from "@/components/ui/detail-screen";
+import { ModalPopup } from "@/components/custom/modal-popup";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassInput } from "@/components/ui/glass-input";
 import {
@@ -12,13 +12,13 @@ import {
 import { Text } from "@/components/ui/text";
 import { useProfile } from "@/lib/routes/profile";
 import {
-    useLiveSession,
+    showsAsLive,
     useLiveSessionWrites,
-    useMyLiveSession,
     useStartLiveSession,
     type SessionRole,
 } from "@/lib/routes/live-sessions";
 
+import { useCurrentLiveSession } from "./use-current-session";
 import { useSeedSession } from "./use-seed-session";
 
 type Joining = "friends" | "code";
@@ -42,100 +42,116 @@ const ROLE_HELP: Record<SessionRole, string> = {
     controller: "They can also play, pause, and skip.",
 };
 
+/** Keeps a long form inside the popup on a small phone. */
+const FORM_MAX_HEIGHT = 520;
+
 /**
- * Starts a live session, or with `editId` changes one's settings. Music plays
- * on the host's phone, and their current queue becomes the session's.
+ * Starts a live session, or with `editing` changes the caller's session
+ * settings. Music plays on the host's phone, and their current queue becomes
+ * the session's. A quiet listen along session the caller hosts is turned into
+ * a regular one instead of starting another, so its listeners stay.
  */
-export function StartSessionScreen({ editId }: { editId?: string }) {
+export function StartSessionModal({
+    editing = false,
+    title,
+    onClose,
+    onStarted,
+}: {
+    /** Edit the caller's session rather than start one. */
+    editing?: boolean;
+    title?: string;
+    onClose: () => void;
+    onStarted?: () => void;
+}) {
     const router = useRouter();
     const { profile } = useProfile();
-    const { mySessionId } = useMyLiveSession();
-    const { liveSession: mine } = useLiveSession(mySessionId);
-    const { liveSession: editing } = useLiveSession(editId ?? null);
-    const { startLiveSession, startLiveSessionLoading } = useStartLiveSession();
+    const mine = useCurrentLiveSession();
+    const hosting = mine?.my_role === "host" ? mine : null;
+    const current = editing ? hosting : null;
+    // a listen along session nobody joined becomes the new one
+    const quiet = hosting && !showsAsLive(hosting) ? hosting : null;
+    const target = current ?? quiet;
+    const { startLiveSession } = useStartLiveSession();
     const seedSession = useSeedSession();
-    const writes = useLiveSessionWrites(editId ?? "none");
+    const writes = useLiveSessionWrites(target?.session_id ?? "none");
 
-    const alreadyHosting = !editId && mine?.my_role === "host";
     const [name, setName] = useState<string | null>(null);
     const [joining, setJoining] = useState<Joining | null>(null);
     const [role, setRole] = useState<SessionRole | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [saving, setSaving] = useState(false);
+    const [busy, setBusy] = useState(false);
 
     // the form starts from the session being edited, or sensible defaults
     const nameValue =
         name ??
-        editing?.name ??
+        current?.name ??
         (profile?.username ? `${profile.username}'s session` : "My session");
     const joiningValue =
         joining ??
-        (editing
-            ? editing.allow_join_without_code
+        (current
+            ? current.allow_join_without_code
                 ? "friends"
                 : "code"
             : "friends");
-    const roleValue = role ?? editing?.default_role ?? "suggester";
+    const roleValue = role ?? current?.default_role ?? "suggester";
 
     async function submit() {
         setError(null);
-        if (alreadyHosting && mySessionId) {
-            router.replace("/player");
-            return;
-        }
         const trimmed = nameValue.trim();
         if (!trimmed) {
             setError("Give it a name.");
             return;
         }
-        setSaving(true);
+        const settings = {
+            name: trimmed,
+            default_role: roleValue,
+            allow_join_without_code: joiningValue === "friends",
+        };
+        setBusy(true);
         try {
-            if (editId) {
-                await writes.updateSession({
-                    name: trimmed,
-                    default_role: roleValue,
-                    allow_join_without_code: joiningValue === "friends",
-                });
-                router.back();
-                return;
+            if (target) {
+                await writes.updateSession(
+                    quiet && !current
+                        ? { ...settings, listen_along: false }
+                        : settings,
+                );
+            } else {
+                const { session_id } = await startLiveSession(settings);
+                await seedSession(session_id);
             }
-            const { session_id } = await startLiveSession({
-                name: trimmed,
-                default_role: roleValue,
-                allow_join_without_code: joiningValue === "friends",
-            });
-            await seedSession(session_id);
-            router.replace("/player");
+            onClose();
+            if (!current) onStarted?.();
         } catch {
             setError(
-                editId
+                current
                     ? "Couldn't save the settings."
                     : "Couldn't start the session.",
             );
         } finally {
-            setSaving(false);
+            setBusy(false);
         }
     }
 
-    const busy = saving || startLiveSessionLoading;
-    const buttonLabel = alreadyHosting
-        ? "Open your session"
-        : editId
-          ? busy
-              ? "Saving..."
-              : "Save"
-          : busy
-            ? "Starting..."
-            : "Start session";
+    const buttonLabel = current
+        ? busy
+            ? "Saving..."
+            : "Save"
+        : busy
+          ? "Starting..."
+          : "Go live";
 
     return (
-        <DetailScreen
-            presentation="sheet"
-            title={editId ? "Session settings" : "Start a session"}
+        <ModalPopup
+            visible
+            keyboardAware
+            onClose={onClose}
+            title={
+                title ?? (current ? "Session settings" : "Start a live session")
+            }
         >
             <ScrollView
-                className="flex-1"
-                contentContainerClassName="gap-6 px-5 pb-10 pt-2"
+                style={{ maxHeight: FORM_MAX_HEIGHT }}
+                contentContainerClassName="gap-5 px-1 pb-1"
                 keyboardShouldPersistTaps="handled"
             >
                 <Section title="Name">
@@ -143,7 +159,6 @@ export function StartSessionScreen({ editId }: { editId?: string }) {
                         value={nameValue}
                         onChangeText={setName}
                         maxLength={60}
-                        editable={!alreadyHosting}
                     />
                 </Section>
 
@@ -162,7 +177,10 @@ export function StartSessionScreen({ editId }: { editId?: string }) {
                     {joiningValue === "friends" ? (
                         <Pressable
                             accessibilityRole="link"
-                            onPress={() => router.push("/privacy" as Href)}
+                            onPress={() => {
+                                onClose();
+                                router.push("/privacy" as Href);
+                            }}
                             className="self-start active:opacity-60"
                         >
                             <Text className="text-sm font-semibold text-brand">
@@ -184,7 +202,7 @@ export function StartSessionScreen({ editId }: { editId?: string }) {
                     </Text>
                 </Section>
 
-                {!editId ? (
+                {!current ? (
                     <Text className="text-sm leading-5 text-muted-foreground">
                         Music plays on this phone. Your current queue becomes
                         the session queue.
@@ -204,17 +222,11 @@ export function StartSessionScreen({ editId }: { editId?: string }) {
                     ) : null}
                 </View>
             </ScrollView>
-        </DetailScreen>
+        </ModalPopup>
     );
 }
 
-function Section({
-    title,
-    children,
-}: {
-    title: string;
-    children: React.ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
     return (
         <View className="gap-2">
             <Text className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">

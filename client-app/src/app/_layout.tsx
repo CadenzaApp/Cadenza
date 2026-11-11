@@ -134,10 +134,6 @@ function RootStack() {
                 options={sheetScreenOptions(theme)}
             />
             <Stack.Screen
-                name="live-session/new"
-                options={sheetScreenOptions(theme)}
-            />
-            <Stack.Screen
                 name="live-session/[id]"
                 options={sheetScreenOptions(theme)}
             />

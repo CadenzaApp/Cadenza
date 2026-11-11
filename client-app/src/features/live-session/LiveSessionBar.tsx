@@ -85,9 +85,8 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                 ) : null}
                 <PlayerBarButton
                     icon="people-outline"
-                    label="People"
+                    label={`People (${session.members.length})`}
                     accessibilityLabel={`People, ${session.members.length}`}
-                    badge={session.members.length}
                     onPress={() => setOpen("people")}
                 />
                 {sessionCan.suggest(role) ? (

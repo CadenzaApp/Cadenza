@@ -19,14 +19,12 @@ import {
     type RecentPlay,
     type UpNextSong,
 } from "@/lib/routes/listening";
-import {
-    useJoinLiveSession,
-    useLiveSession,
-    useMyLiveSession,
-} from "@/lib/routes/live-sessions";
+import { useJoinLiveSession } from "@/lib/routes/live-sessions";
 import { useAppTheme } from "@/lib/theme";
 import { isUsableArtworkUrl } from "@/lib/utils";
 
+import { StartSessionModal } from "../live-session/StartSessionModal";
+import { useShownLiveSession } from "../live-session/use-current-session";
 import { formatRelativeTime } from "./format";
 import { formatTrackTime, livePositionMs } from "./listening-progress";
 import { LiveChip } from "./LiveChip";
@@ -155,11 +153,11 @@ export function AllListening() {
 /** Start a session or enter a code; or, when in one, open it. */
 function SessionTile() {
     const router = useRouter();
-    const { mySessionId } = useMyLiveSession();
-    const { liveSession } = useLiveSession(mySessionId);
+    const liveSession = useShownLiveSession();
     const { brand, foreground } = useAppTheme().colors;
+    const [starting, setStarting] = useState(false);
 
-    if (mySessionId && liveSession) {
+    if (liveSession) {
         const art = liveSession.current?.artwork_url;
         return (
             <GlassPanel tintColor={`${brand}33`}>
@@ -197,7 +195,7 @@ function SessionTile() {
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Start a live session"
-                    onPress={() => router.push("/live-session/new" as Href)}
+                    onPress={() => setStarting(true)}
                     className="items-center gap-2 active:opacity-60"
                 >
                     <View className="h-11 w-11 items-center justify-center rounded-full bg-muted/60">
@@ -221,6 +219,12 @@ function SessionTile() {
                     />
                 </View>
             </View>
+            {starting ? (
+                <StartSessionModal
+                    onClose={() => setStarting(false)}
+                    onStarted={() => router.push("/player")}
+                />
+            ) : null}
         </GlassPanel>
     );
 }

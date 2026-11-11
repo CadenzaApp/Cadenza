@@ -197,6 +197,7 @@ async fn patch_handler(
         name: body.name,
         default_role: body.default_role.as_deref().map(parse_role).transpose()?,
         allow_join_without_code: body.allow_join_without_code,
+        listen_along: body.listen_along,
     };
     let version = sessions::update_session(&db, claims.user_id, session_id, patch).await?;
     Ok(changed(&bus, session_id, version))

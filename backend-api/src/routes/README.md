@@ -112,8 +112,8 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | POST | `/shared-playlists/{id}/invites` | `{role?, expires_in_hours?, max_uses?}` | `{code, link, grants_role, expires_at, max_uses}`. Owner. `role` is `viewer` (default) or `editor` |
 | POST | `/live-sessions` | `{name, default_role?, allow_join_without_code?, listen_along?}` | `{session_id}`. Returns the caller's open session if they have one |
 | GET | `/live-sessions/current` | none | `{session_id}` the caller hosts or is in, or null |
-| GET | `/live-sessions/{id}` | none | The snapshot: settings, `my_role`, `my_listen_mode`, members, `current`, `up_next`, `suggestions`, `playback {entry_id, position_ms, is_playing, as_of, command_seq}`. 404 non member, 410 `SessionEnded` |
-| PATCH / DELETE | `/live-sessions/{id}` | settings / none | Change settings, or end. Host. Every session write returns `{version, ended}` |
+| GET | `/live-sessions/{id}` | none | The snapshot: settings (`listen_along` included), `my_role`, `my_listen_mode`, members, `current`, `up_next`, `suggestions`, `playback {entry_id, position_ms, is_playing, as_of, command_seq}`. 404 non member, 410 `SessionEnded` |
+| PATCH / DELETE | `/live-sessions/{id}` | `{name?, default_role?, allow_join_without_code?, listen_along?}` / none | Change settings (`listen_along: false` makes a listen along session a regular one), or end. Host. Every session write returns `{version, ended}` |
 | POST | `/live-sessions/{id}/join`, `/leave` | none | Join without a code (needs `allow_join_without_code` and the host's `session_join` audience, or `listen_along` for a listen along session), or leave. The host leaving hands it to another member (someone playing along first, then the highest role, then the first to join), or ends it when nobody else is in it |
 | PATCH / DELETE | `/live-sessions/{id}/members/{user_id}` | `{role}` / none | Set role, or kick. Host. A kicked member is banned, code or not |
 | PATCH | `/live-sessions/{id}/me` | `{listen_mode}` | `remote` or `synced` |

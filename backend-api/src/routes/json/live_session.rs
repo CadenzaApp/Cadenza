@@ -86,6 +86,8 @@ pub struct LiveSessionSnapshot {
     pub host: LiveSessionMember,
     pub default_role: String,
     pub allow_join_without_code: bool,
+    /// Opened by listen along, and not turned into a regular session since.
+    pub listen_along: bool,
     pub version: i64,
     /// `host`, or the caller's role.
     pub my_role: String,
@@ -145,6 +147,7 @@ impl From<SessionSnapshot> for LiveSessionSnapshot {
             host,
             default_role: session.default_role,
             allow_join_without_code: session.allow_join_without_code,
+            listen_along: session.listen_along,
             version: session.version,
             my_role: match snapshot.me {
                 Actor::Host => "host".to_owned(),
@@ -172,6 +175,8 @@ pub struct PatchLiveSession {
     pub name: Option<String>,
     pub default_role: Option<String>,
     pub allow_join_without_code: Option<bool>,
+    /// False turns a listen along session into a regular one.
+    pub listen_along: Option<bool>,
 }
 
 #[derive(Deserialize)]

@@ -157,6 +157,8 @@ pub struct SessionPatch {
     pub name: Option<String>,
     pub default_role: Option<SessionRole>,
     pub allow_join_without_code: Option<bool>,
+    /// False turns a listen along session into a regular one.
+    pub listen_along: Option<bool>,
 }
 
 /// Where added songs land.
@@ -816,6 +818,7 @@ pub async fn update_session(
     if patch.name.is_none()
         && patch.default_role.is_none()
         && patch.allow_join_without_code.is_none()
+        && patch.listen_along.is_none()
     {
         return Err(CadenzaError::InvalidRequestBody(
             "set at least one setting".into(),
@@ -828,13 +831,15 @@ pub async fn update_session(
         "UPDATE live_sessions SET
              name = COALESCE($2, name),
              default_role = COALESCE($3::session_role, default_role),
-             allow_join_without_code = COALESCE($4, allow_join_without_code)
+             allow_join_without_code = COALESCE($4, allow_join_without_code),
+             listen_along = COALESCE($5, listen_along)
          WHERE session_id = $1",
         vec![
             session_id.into(),
             name.into(),
             patch.default_role.map(|role| role.as_str()).into(),
             patch.allow_join_without_code.into(),
+            patch.listen_along.into(),
         ],
     ))
     .await?;
