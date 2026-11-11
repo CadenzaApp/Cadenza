@@ -1,10 +1,12 @@
 //! Database tests for invites, shared playlists, live sessions, and now
 //! playing. Each runs inside one transaction that is rolled back, against two
 //! real accounts from `profile`, so the raw SQL is exercised without leaving
-//! anything behind. Ignored by default like the other database tests:
+//! anything behind. Ignored by default like the other database tests. One at a
+//! time, since they share the two accounts' rows and the session sweep test
+//! touches every session:
 //!
 //! ```sh
-//! cargo test social_listening -- --ignored
+//! cargo test social_listening -- --ignored --test-threads=1
 //! ```
 
 use sea_orm::{
@@ -525,6 +527,126 @@ async fn social_listening_joining_someone_listening_makes_a_session() {
 
 #[tokio::test]
 #[ignore]
+async fn social_listening_sweep_ends_paused_and_closed_sessions() {
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    let open = |name: &'static str, user| {
+        let txn = &txn;
+        async move {
+            txn.execute_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "UPDATE live_sessions SET ended_at = now() WHERE host_id = $1 AND ended_at IS NULL",
+                [Uuid::into(user)],
+            ))
+            .await
+            .unwrap();
+            sessions::start_session(
+                txn,
+                user,
+                sessions::NewSession {
+                    name,
+                    default_role: SessionRole::Listener,
+                    allow_join_without_code: true,
+                    listen_along: false,
+                    approve_joins: false,
+                },
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let set = |sql: &'static str, id: Uuid| {
+        let txn = &txn;
+        async move {
+            txn.execute_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                sql,
+                [id.into()],
+            ))
+            .await
+            .unwrap();
+        }
+    };
+
+    // paused eleven minutes, and playing with the app gone two
+    let paused = open("Paused", host).await;
+    set(
+        "UPDATE live_sessions SET is_playing = false,
+             position_at = now() - interval '11 minutes' WHERE session_id = $1",
+        paused,
+    )
+    .await;
+    let closed = open("Closed", guest).await;
+    set(
+        "UPDATE live_sessions SET is_playing = true,
+             host_away_since = now() - interval '2 minutes' WHERE session_id = $1",
+        closed,
+    )
+    .await;
+
+    let ended: Vec<Uuid> = sessions::end_timed_out(&txn)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|session| session.session_id)
+        .collect();
+    assert!(ended.contains(&paused));
+    assert!(ended.contains(&closed));
+
+    // swiping the app away pauses it first; the closed connection still ends
+    // it, and the host's stale now playing goes with it
+    now_playing::upsert_now_playing(
+        &txn,
+        host,
+        NowPlayingUpdate {
+            song_id: "1440857781".into(),
+            title: "song".into(),
+            artist: None,
+            album: None,
+            artwork_url: None,
+            duration_ms: Some(200_000),
+            is_playing: true,
+            position_ms: 0,
+            up_next: vec![],
+        },
+    )
+    .await
+    .unwrap();
+    let swiped = open("Swiped", host).await;
+    set(
+        "UPDATE live_sessions SET is_playing = false, host_closed_app = true,
+             host_away_since = now() - interval '2 minutes' WHERE session_id = $1",
+        swiped,
+    )
+    .await;
+    let ended = sessions::end_timed_out(&txn).await.unwrap();
+    assert!(ended.iter().any(|session| session.session_id == swiped));
+    let row = txn
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT 1 AS one FROM now_playing WHERE user_id = $1",
+            [host.into()],
+        ))
+        .await
+        .unwrap();
+    assert!(row.is_none());
+
+    // back within the minute, it keeps going
+    let back = open("Back", host).await;
+    set(
+        "UPDATE live_sessions SET is_playing = true,
+             host_away_since = now() - interval '20 seconds' WHERE session_id = $1",
+        back,
+    )
+    .await;
+    let ended = sessions::end_timed_out(&txn).await.unwrap();
+    assert!(ended.iter().all(|session| session.session_id != back));
+
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
 async fn social_listening_now_playing_reads_run() {
     let txn = scratch().await;
     let (a, b) = two_users(&txn).await;
@@ -752,6 +874,34 @@ async fn social_listening_back_repeat_and_stale_reports() {
     command(PlaybackCommand::Next).await.unwrap();
     assert_eq!(songs().await, ["32", "30", "31"]);
 
+    // a repeat all that puts songs back moved the queue, so it does not
+    let off = command(PlaybackCommand::Repeat {
+        mode: RepeatMode::Off,
+    })
+    .await
+    .unwrap();
+    assert!(off.playback.is_some());
+    command(PlaybackCommand::Next).await.unwrap();
+    command(PlaybackCommand::Next).await.unwrap();
+    assert_eq!(songs().await, ["31"]);
+    let refill = command(PlaybackCommand::Repeat {
+        mode: RepeatMode::All,
+    })
+    .await
+    .unwrap();
+    assert!(refill.playback.is_none());
+    assert_eq!(songs().await.len(), 3);
+
+    // shuffle on reorders the queue; off only flips the flag
+    let on = command(PlaybackCommand::Shuffle { on: true })
+        .await
+        .unwrap();
+    assert!(on.playback.is_none());
+    let off = command(PlaybackCommand::Shuffle { on: false })
+        .await
+        .unwrap();
+    assert!(!off.playback.unwrap().session.shuffle);
+
     txn.rollback().await.unwrap();
 }
 
@@ -823,34 +973,6 @@ async fn social_listening_joining_without_a_code_asks_the_host() {
         sessions::answer_join_request(&txn, host, id, guest, true).await,
         Err(CadenzaError::NotFound)
     ));
-
-    // a repeat all that puts songs back moved the queue, so it does not
-    let off = command(PlaybackCommand::Repeat {
-        mode: RepeatMode::Off,
-    })
-    .await
-    .unwrap();
-    assert!(off.playback.is_some());
-    command(PlaybackCommand::Next).await.unwrap();
-    command(PlaybackCommand::Next).await.unwrap();
-    assert_eq!(songs().await, ["31"]);
-    let refill = command(PlaybackCommand::Repeat {
-        mode: RepeatMode::All,
-    })
-    .await
-    .unwrap();
-    assert!(refill.playback.is_none());
-    assert_eq!(songs().await.len(), 3);
-
-    // shuffle on reorders the queue; off only flips the flag
-    let on = command(PlaybackCommand::Shuffle { on: true })
-        .await
-        .unwrap();
-    assert!(on.playback.is_none());
-    let off = command(PlaybackCommand::Shuffle { on: false })
-        .await
-        .unwrap();
-    assert!(!off.playback.unwrap().session.shuffle);
 
     txn.rollback().await.unwrap();
 }

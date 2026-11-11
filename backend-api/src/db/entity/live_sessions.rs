@@ -28,6 +28,8 @@ pub struct Model {
     pub shuffle: bool,
     #[sea_orm(column_type = "Text")]
     pub repeat_mode: String,
+    pub host_away_since: Option<DateTimeWithTimeZone>,
+    pub host_closed_app: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

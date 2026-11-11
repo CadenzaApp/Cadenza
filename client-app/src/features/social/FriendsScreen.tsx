@@ -11,10 +11,10 @@ import {
 import Animated from "react-native-reanimated";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
+import { SearchField } from "@/components/custom/search-field";
 import { Toast, useToast } from "@/components/custom/toast";
 import { Button } from "@/components/ui/button";
 import { GlassPanel } from "@/components/ui/glass-panel";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useFriendsListening } from "@/lib/routes/listening";
@@ -376,15 +376,15 @@ function SearchSection({ onPress }: { onPress: (userId: string) => void }) {
                 <Text className="text-sm font-semibold text-muted-foreground">
                     search
                 </Text>
-                <Input
-                    value={query}
-                    onChangeText={setQuery}
-                    placeholder="Find people"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="search"
-                    accessibilityLabel="Search people"
-                />
+                <View className="flex-row">
+                    <SearchField
+                        value={query}
+                        onChangeText={setQuery}
+                        onSubmit={() => {}}
+                        onClear={() => setQuery("")}
+                        placeholder="Find people"
+                    />
+                </View>
             </View>
             <ScrollView
                 style={{ maxHeight: listMaxHeight }}

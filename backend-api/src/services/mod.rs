@@ -9,6 +9,7 @@ pub mod openai;
 pub mod rate_limit;
 pub mod realtime;
 pub mod saved_queries;
+pub mod session_sweep;
 pub mod social_feed;
 pub mod song_metadata;
 pub mod tag_generation;

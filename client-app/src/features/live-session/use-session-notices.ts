@@ -60,9 +60,16 @@ export function useSessionNotices(session: LiveSession | null) {
         session ? { kind: "live_session", id: session.session_id } : null,
         (event) => {
             if (event.kind !== "ended" || session?.my_role === "host") return;
+            const host = session?.host.username ?? "The host";
+            // the server ending it says why; the host ending it says nothing
+            const reason = (event.data as { reason?: string } | null)?.reason;
             Alert.alert(
                 "Session ended",
-                `${session?.host.username ?? "The host"} ended the live session.`,
+                reason === "host_gone"
+                    ? `${host} closed the app, so the live session ended.`
+                    : reason === "paused"
+                      ? "The live session was paused for 10 minutes, so it ended."
+                      : `${host} ended the live session.`,
             );
         },
     );

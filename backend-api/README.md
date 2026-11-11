@@ -78,6 +78,9 @@ listener binds:
   starts.
 - **notification cleanup**, always on. Deletes notifications older than 30 days, once a day,
   starting at startup. The delete walks `notifications_created_at_idx`.
+- **session sweep**, always on. Every 30 s ends live sessions that timed out (paused 10
+  minutes, the host's app closed while playing, a host alone and quiet) and tells their
+  members. At startup it marks every host away, since no socket survives a restart.
 
 They are in `src/services/`. See [src/services/README.md](src/services/README.md).
 

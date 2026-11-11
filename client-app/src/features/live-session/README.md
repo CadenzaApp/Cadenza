@@ -85,6 +85,7 @@ Gotchas:
   out of live mode (no live bar, tag, or red progress). It ends on its own when the host says Not
   now to the last request or the last guest leaves. Going live from the player turns it into a
   regular session (`listen_along: false`).
-- Once anyone has joined, a session stays open until the host ends it, paused or not, and stays
-  on friends' Listening now row the whole time. Only a host alone in one times out (30 minutes
-  without a report).
+- Once anyone has joined, a session stays open, and on friends' Listening now row, until the host
+  ends it or it runs its course on the server: paused 10 minutes, a minute after the host's app
+  was closed (its realtime socket closed, or went quiet while playing), or a host alone in one quiet for 30. Members
+  get the `ended` event and the Session ended notice.

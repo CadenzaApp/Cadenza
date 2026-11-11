@@ -39,6 +39,7 @@ use tokio::{
 use crate::{
     AppState,
     auth::SupabaseClaims,
+    db::live_sessions::{self, HostLink},
     services::realtime::{
         Event, SharedEventBus, SharedPresence, Topic, access::can_subscribe, publish_version,
     },
@@ -46,6 +47,10 @@ use crate::{
 
 /// How long a new socket has to send `auth`.
 const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// A socket that sends nothing for this long is dropped. The client pings
+/// every 25 s, so only a phone that is gone, frozen, or offline goes quiet.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The most topics one socket can hold at once.
 const MAX_SUBSCRIPTIONS: usize = 200;
@@ -101,12 +106,17 @@ async fn ws_handler(
     State(presence): State<SharedPresence>,
 ) -> Response {
     ws.on_upgrade(move |socket| async move {
-        let Some(user_id) = run_socket(socket, db, decoder, bus.clone(), presence.clone()).await
+        let Some((user_id, link)) =
+            run_socket(socket, db.clone(), decoder, bus.clone(), presence.clone()).await
         else {
             return;
         };
         if presence.disconnect(user_id) {
             publish_presence(&bus, user_id);
+            // a host who closed the app: their session ends in a minute
+            if let Err(err) = live_sessions::set_host_link(&db, user_id, link).await {
+                eprintln!("realtime: could not mark {user_id} away: {err}");
+            }
         }
     })
 }
@@ -157,23 +167,27 @@ async fn authenticate(
 }
 
 /// Runs one socket to its end. Returns the user once they authenticated, who
-/// was counted online for its whole life and is the caller's to count off.
+/// was counted online for its whole life and is the caller's to count off,
+/// and how it ended: closed by the phone, or gone quiet past [`IDLE_TIMEOUT`].
 async fn run_socket(
     mut socket: WebSocket,
     db: DatabaseConnection,
     decoder: Decoder<SupabaseClaims>,
     bus: SharedEventBus,
     presence: SharedPresence,
-) -> Option<Uuid> {
+) -> Option<(Uuid, HostLink)> {
     let Some((user_id, expires_at)) = authenticate(&mut socket, &decoder).await else {
         close(socket, "auth failed").await;
         return None;
     };
     if presence.connect(user_id) {
         publish_presence(&bus, user_id);
+        if let Err(err) = live_sessions::set_host_link(&db, user_id, HostLink::Back).await {
+            eprintln!("realtime: could not mark {user_id} back: {err}");
+        }
     }
     if !send(&mut socket, &ServerMessage::Ready { user_id }).await {
-        return Some(user_id);
+        return Some((user_id, HostLink::Closed));
     }
 
     let until_expiry = (expires_at - Utc::now().timestamp()).max(0) as u64;
@@ -183,10 +197,16 @@ async fn run_socket(
     let (tx, mut rx) = mpsc::unbounded_channel::<ServerMessage>();
     let mut subscriptions: HashMap<Topic, JoinHandle<()>> = HashMap::new();
 
+    let idle = tokio::time::sleep(IDLE_TIMEOUT);
+    tokio::pin!(idle);
+    // how it ended: the phone closing it, unless it went quiet
+    let mut link = HostLink::Closed;
+
     loop {
         tokio::select! {
             incoming = socket.recv() => {
                 let Some(Ok(message)) = incoming else { break };
+                idle.as_mut().reset(tokio::time::Instant::now() + IDLE_TIMEOUT);
                 let text = match message {
                     Message::Text(text) => text,
                     Message::Close(_) => break,
@@ -224,12 +244,17 @@ async fn run_socket(
                     break;
                 }
             }
+            _ = &mut idle => {
+                link = HostLink::Quiet;
+                break;
+            }
             _ = &mut expiry => {
                 close(socket, "token expired").await;
                 for task in subscriptions.into_values() {
                     task.abort();
                 }
-                return Some(user_id);
+                // the client reconnects with a fresh token
+                return Some((user_id, HostLink::Quiet));
             }
         }
     }
@@ -237,7 +262,7 @@ async fn run_socket(
     for task in subscriptions.into_values() {
         task.abort();
     }
-    Some(user_id)
+    Some((user_id, link))
 }
 
 /// Checks access and starts forwarding the topic's events into `tx`.

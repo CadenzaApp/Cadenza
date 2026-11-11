@@ -89,11 +89,42 @@ pub fn add_lands_as(actor: Actor) -> Option<&'static str> {
     }
 }
 
-/// No report from the host for this long ends the session.
+/// A host alone in a session, with no report for this long, ends it.
 pub const HOST_TIMEOUT: Duration = Duration::minutes(30);
+/// Paused this long, a session ends.
+pub const PAUSED_TIMEOUT: Duration = Duration::minutes(10);
+/// Playing with the host's app gone this long, a session ends: the app was
+/// closed. Long enough to ride out a reconnect.
+pub const AWAY_TIMEOUT: Duration = Duration::minutes(1);
 
-pub fn host_timed_out(host_seen_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
-    now - host_seen_at > HOST_TIMEOUT
+/// What decides whether a session has run its course.
+#[derive(Clone, Copy, Debug)]
+pub struct Liveness {
+    pub is_playing: bool,
+    /// The anchor's time: while paused, when it was paused.
+    pub position_at: DateTime<Utc>,
+    pub host_seen_at: DateTime<Utc>,
+    /// When the host's app lost its realtime connection, if it has.
+    pub host_away_since: Option<DateTime<Utc>>,
+    /// The phone closed that connection, as when the app is swiped away,
+    /// rather than it going quiet, as when a paused app is frozen.
+    pub host_closed_app: bool,
+    pub has_guests: bool,
+}
+
+/// Whether a session ends by itself at `now`: paused for 10 minutes, a minute
+/// after the host closed the app, or a host alone in it gone quiet for 30.
+/// A connection that only went quiet counts as closed while playing, since a
+/// playing app is never frozen. `db::live_sessions::OPEN_SESSION_SQL` is the
+/// same rule in SQL.
+pub fn timed_out(session: Liveness, now: DateTime<Utc>) -> bool {
+    let paused_too_long = !session.is_playing && now - session.position_at > PAUSED_TIMEOUT;
+    let closed = (session.is_playing || session.host_closed_app)
+        && session
+            .host_away_since
+            .is_some_and(|away| now - away > AWAY_TIMEOUT);
+    let alone_and_quiet = !session.has_guests && now - session.host_seen_at > HOST_TIMEOUT;
+    paused_too_long || closed || alone_and_quiet
 }
 
 /// A session's repeat mode. Off stops after the last song; all puts the
@@ -309,9 +340,57 @@ mod tests {
     }
 
     #[test]
-    fn host_times_out_after_half_an_hour() {
+    fn sessions_end_when_paused_closed_or_left_alone() {
         let now = Utc::now();
-        assert!(!host_timed_out(now - Duration::minutes(29), now));
-        assert!(host_timed_out(now - Duration::minutes(31), now));
+        let live = Liveness {
+            is_playing: true,
+            position_at: now,
+            host_seen_at: now,
+            host_away_since: None,
+            host_closed_app: false,
+            has_guests: true,
+        };
+        assert!(!timed_out(live, now));
+        // paused ten minutes
+        let paused = Liveness {
+            is_playing: false,
+            position_at: now - Duration::minutes(11),
+            ..live
+        };
+        assert!(timed_out(paused, now));
+        // playing with the app closed a minute; a short drop is fine
+        let away = |minutes| Liveness {
+            host_away_since: Some(now - Duration::seconds(minutes)),
+            ..live
+        };
+        assert!(!timed_out(away(30), now));
+        assert!(timed_out(away(61), now));
+        // closing the app pauses it first; closed still ends it in a minute,
+        // while a paused app that only went quiet waits out the ten
+        let paused_away = Liveness {
+            is_playing: false,
+            ..away(61)
+        };
+        assert!(!timed_out(paused_away, now));
+        assert!(timed_out(
+            Liveness {
+                host_closed_app: true,
+                ..paused_away
+            },
+            now
+        ));
+        // alone and quiet half an hour; with guests it stays
+        let quiet = Liveness {
+            host_seen_at: now - Duration::minutes(31),
+            ..live
+        };
+        assert!(!timed_out(quiet, now));
+        assert!(timed_out(
+            Liveness {
+                has_guests: false,
+                ..quiet
+            },
+            now
+        ));
     }
 }

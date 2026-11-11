@@ -133,6 +133,11 @@ async fn main() {
     // then once a day. notifications_created_at_idx is the index it walks
     spawn_notification_cleanup(db.clone());
 
+    // ends live sessions left paused, or whose host closed the app, and tells
+    // their members
+    let event_bus: services::realtime::SharedEventBus = std::sync::Arc::new(InMemoryBus::new());
+    services::session_sweep::spawn_session_sweep(db.clone(), event_bus.clone());
+
     let app_state = AppState {
         db,
         jwt_decoder,
@@ -141,7 +146,7 @@ async fn main() {
         metadata_crawler,
         social_feed_service,
         assistant_service,
-        event_bus: std::sync::Arc::new(InMemoryBus::new()),
+        event_bus,
         presence: std::sync::Arc::new(InMemoryPresence::new()),
         redeem_limiter: RedeemLimiter::new(),
     };

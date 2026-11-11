@@ -12,9 +12,10 @@
 //! A non member reads `NotFound`, so a session id does not leak. The host
 //! leaving hands the session to someone else, or ends it.
 //!
-//! A session stays open until the host ends it. The one exception is a host
-//! alone in it: 30 minutes without a report from their phone ends it, so a
-//! session nobody joined does not outlive the music.
+//! A session stays open until the host ends it, or it runs its course
+//! (`services::live_sessions::timed_out`): paused 10 minutes, playing with the
+//! host's app closed for a minute, or a host alone in it quiet for 30.
+//! [`end_timed_out`] writes those ends; the server runs it every 30 s.
 
 use chrono::{DateTime, FixedOffset, Utc};
 use sea_orm::{
@@ -32,8 +33,8 @@ use crate::db::{
 };
 use crate::err::CadenzaError;
 use crate::services::live_sessions::{
-    Actor, Anchor, Projected, REPORT_JUMP_MS, RESTART_THRESHOLD_MS, RepeatMode, SessionAction,
-    SessionRole, add_lands_as, allowed, host_timed_out, project,
+    Actor, Anchor, Liveness, Projected, REPORT_JUMP_MS, RESTART_THRESHOLD_MS, RepeatMode,
+    SessionAction, SessionRole, add_lands_as, allowed, project, timed_out,
 };
 use crate::services::notification::{NewNotification, push_notification};
 
@@ -74,6 +75,10 @@ pub struct SessionRow {
     pub repeat_mode: String,
     /// Someone besides the host is in it, so a quiet host does not end it.
     pub has_guests: bool,
+    /// When the host's app lost its realtime connection, if it has.
+    pub host_away_since: Option<DateTime<FixedOffset>>,
+    /// The phone closed that connection rather than letting it go quiet.
+    pub host_closed_app: bool,
 }
 
 impl SessionRow {
@@ -90,8 +95,18 @@ impl SessionRow {
     }
 
     fn is_open(&self, now: DateTime<Utc>) -> bool {
-        self.ended_at.is_none()
-            && (self.has_guests || !host_timed_out(self.host_seen_at.with_timezone(&Utc), now))
+        self.ended_at.is_none() && !timed_out(self.liveness(), now)
+    }
+
+    fn liveness(&self) -> Liveness {
+        Liveness {
+            is_playing: self.is_playing,
+            position_at: self.position_at.with_timezone(&Utc),
+            host_seen_at: self.host_seen_at.with_timezone(&Utc),
+            host_away_since: self.host_away_since.map(|at| at.with_timezone(&Utc)),
+            host_closed_app: self.host_closed_app,
+            has_guests: self.has_guests,
+        }
     }
 }
 
@@ -105,18 +120,131 @@ const SESSION_COLUMNS: &str =
          SELECT 1 FROM live_session_members g
          WHERE g.session_id = s.session_id AND g.user_id <> s.host_id
            AND g.left_at IS NULL AND NOT g.banned
-     ) AS has_guests";
+     ) AS has_guests,
+     s.host_away_since, s.host_closed_app";
 
 /// SQL for whether session `s` is still open, the same rule as
-/// [`SessionRow::is_open`]: not ended, and either someone besides the host is
-/// in it or the host reported in the last 30 minutes.
+/// [`SessionRow::is_open`] and `timed_out`: not ended, not paused 10 minutes,
+/// not a minute past the host closing the app (or going quiet while
+/// playing), and not a host alone and quiet for 30.
 pub const OPEN_SESSION_SQL: &str = "s.ended_at IS NULL
+     AND (s.is_playing OR s.position_at > now() - interval '10 minutes')
+     AND NOT ((s.is_playing OR s.host_closed_app)
+              AND COALESCE(s.host_away_since < now() - interval '1 minute', false))
      AND (s.host_seen_at > now() - interval '30 minutes'
           OR EXISTS (
               SELECT 1 FROM live_session_members g
               WHERE g.session_id = s.session_id AND g.user_id <> s.host_id
                 AND g.left_at IS NULL AND NOT g.banned
           ))";
+
+/// What happened to a host's realtime connection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostLink {
+    /// Connected again.
+    Back,
+    /// The phone closed it, as when the app is swiped away.
+    Closed,
+    /// It went quiet, as when a paused app is frozen in the background or the
+    /// phone is offline.
+    Quiet,
+}
+
+/// Notes what happened to `user_id`'s realtime connection on every open
+/// session they host.
+pub async fn set_host_link(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    link: HostLink,
+) -> Result<(), CadenzaError> {
+    let away = link != HostLink::Back;
+    let closed = link == HostLink::Closed;
+    db.execute_raw(stmt(
+        "UPDATE live_sessions
+         SET host_away_since = CASE WHEN $2 THEN now() END, host_closed_app = $3
+         WHERE host_id = $1 AND ended_at IS NULL",
+        vec![user_id.into(), away.into(), closed.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// Marks every open session's host away, for startup: no socket outlives a
+/// restart, and a host who comes back clears it on connect.
+pub async fn mark_all_hosts_away(db: &impl ConnectionTrait) -> Result<(), CadenzaError> {
+    db.execute_raw(stmt(
+        "UPDATE live_sessions SET host_away_since = now()
+         WHERE ended_at IS NULL AND host_away_since IS NULL",
+        vec![],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// A session [`end_timed_out`] ended, and who was in it.
+#[derive(Clone, Debug)]
+pub struct TimedOut {
+    pub session_id: Uuid,
+    pub version: i64,
+    pub member_ids: Vec<Uuid>,
+    /// `host_gone` (the app closed or went quiet) or `paused`.
+    pub reason: String,
+}
+
+/// Ends every open session that ran its course, and revokes its codes. A
+/// host whose app is gone also loses their now playing row: a closed app
+/// never says it stopped, and the row would keep them on friends' Listening
+/// now, joinable, until the song would have ended.
+/// Returns them so the caller can tell their members.
+pub async fn end_timed_out(db: &impl Db) -> Result<Vec<TimedOut>, CadenzaError> {
+    let txn = db.begin().await?;
+    let rows = txn
+        .query_all_raw(stmt(
+            &format!(
+                "UPDATE live_sessions s
+                 SET ended_at = now(), is_playing = false, version = version + 1
+                 WHERE s.ended_at IS NULL AND NOT ({OPEN_SESSION_SQL})
+                 RETURNING s.session_id, s.host_id, s.version,
+                     CASE WHEN s.host_away_since IS NOT NULL
+                               OR s.host_seen_at < now() - interval '30 minutes'
+                          THEN 'host_gone' ELSE 'paused' END AS reason"
+            ),
+            vec![],
+        ))
+        .await?;
+    let mut ended = Vec::with_capacity(rows.len());
+    for row in rows {
+        let session_id: Uuid = row.try_get("", "session_id")?;
+        let reason: String = row.try_get("", "reason")?;
+        revoke_invites_for(&txn, &InviteTargetRef::LiveSession(session_id)).await?;
+        if reason == "host_gone" {
+            let host_id: Uuid = row.try_get("", "host_id")?;
+            txn.execute_raw(stmt(
+                "DELETE FROM now_playing WHERE user_id = $1",
+                vec![host_id.into()],
+            ))
+            .await?;
+        }
+        let member_ids = txn
+            .query_all_raw(stmt(
+                "SELECT user_id FROM live_session_members
+                 WHERE session_id = $1 AND left_at IS NULL AND NOT banned",
+                vec![session_id.into()],
+            ))
+            .await?
+            .iter()
+            .map(|row| row.try_get("", "user_id"))
+            .collect::<Result<Vec<Uuid>, _>>()?;
+        ended.push(TimedOut {
+            session_id,
+            version: row.try_get("", "version")?,
+            member_ids,
+            reason,
+        });
+    }
+    txn.commit().await?;
+    Ok(ended)
+}
 
 #[derive(Clone, Debug, FromQueryResult)]
 pub struct SessionMember {
@@ -1765,7 +1893,7 @@ pub async fn playback_command(
                 AnchorBy::Command,
             )
             .await?;
-            false
+            true
         }
         PlaybackCommand::Seek { position_ms } => {
             set_anchor(
@@ -1787,7 +1915,7 @@ pub async fn playback_command(
                 AnchorBy::Command,
             )
             .await?;
-            true
+            false
         }
         PlaybackCommand::Previous => {
             let last_played = txn
@@ -1837,7 +1965,7 @@ pub async fn playback_command(
                     .await?;
                 }
             }
-            !on
+            false
         }
         PlaybackCommand::Shuffle { on } => {
             txn.execute_raw(stmt(
@@ -1849,7 +1977,7 @@ pub async fn playback_command(
             if on {
                 shuffle_upcoming(&txn, session_id, session.current_entry_id).await?;
             }
-            false
+            !on
         }
         PlaybackCommand::Repeat { mode } => {
             txn.execute_raw(stmt(
@@ -2078,6 +2206,8 @@ mod tests {
             shuffle: false,
             repeat_mode: "off".into(),
             has_guests: false,
+            host_away_since: None,
+            host_closed_app: false,
         }
     }
 
@@ -2113,7 +2243,7 @@ mod tests {
 
     #[test]
     fn a_quiet_host_closes_the_session() {
-        let mut s = session(None, false, 0);
+        let mut s = session(None, true, 0);
         assert!(s.is_open(Utc::now()));
         s.host_seen_at = (Utc::now() - Duration::minutes(31)).fixed_offset();
         assert!(!s.is_open(Utc::now()));

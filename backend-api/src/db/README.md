@@ -361,9 +361,13 @@ transaction, so the database tests can run them inside one that rolls back.
 - A live session's playback is an anchor (`current_entry_id`, `is_playing`, `position_ms` at
   `position_at`). Reads project it forward through the queued entries' `duration_ms` with
   `services::live_sessions::project`, so members stay right while the host's phone is in the
-  background. The host's reports re-anchor it. A session stays open until the host ends it; only a
-  host alone in it times out, after 30 minutes without a report (`OPEN_SESSION_SQL` and
-  `SessionRow::is_open` hold the rule). A listen along session ends once nobody but the host is
+  background. The host's reports re-anchor it. A session stays open until the host ends it or it
+  times out (`services::live_sessions::timed_out`, the same rule as `OPEN_SESSION_SQL` and
+  `SessionRow::is_open`): paused 10 minutes (`position_at` is when it paused), a minute after
+  the host's realtime socket dropped (`host_away_since`, `sql/live_session_host_away.sql`) if the
+  phone closed it (`host_closed_app`, the app swiped away; `sql/live_session_host_closed_app.sql`)
+  or it went quiet while playing, or a host alone quiet for 30 minutes. The session
+  sweep (`services/session_sweep.rs`) writes those ends every 30 s with `end_timed_out`. When the host's app is gone it also deletes their `now_playing` row, which a closed app never clears, so they leave friends' Listening now. A listen along session ends once nobody but the host is
   in it or waiting (`end_if_unused`).
   Adding to an empty session anchors on the first song, at the host's `StartAt` when given.
   `command_seq` counts anchor moves the host's phone did not make (`AnchorBy::Command`), so the

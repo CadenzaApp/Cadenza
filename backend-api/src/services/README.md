@@ -416,11 +416,16 @@ so the audience checks stay in the HTTP reads, and access is checked once per su
 - Topics: `user` (now playing, needs the `now_playing` audience), `live_session` (members),
   `shared_playlist` (members). A `user` event's kind is `now_playing`, `presence` (came
   online or went offline), or `live_session` (started, joined, left, or ended a session).
-  A `live_session` event's kind is `session` (refetch), `ended`, or `playback`, which carries
-  `data`: the new playback, sent only for a write that moved nothing else (play, pause, seek, a
-  host report that kept the song). Members apply it without a refetch.
+  A `live_session` event's kind is `session` (refetch), `ended` (from the session sweep with `data: {reason: host_gone | paused}`), or `playback`, which carries
+  `data`: the new playback, sent only for a write that moved nothing else (play, pause, seek,
+  shuffle off, a repeat change that put no songs back, a host report that kept the song).
+  Members apply it without a refetch.
 - Presence: a user is online while one of their sockets is open. The client closes its
   socket in the background, so this is "has the app open". `GET /social/friends` reads it.
+  A socket that sends nothing for 60 s is dropped (the client pings every 25 s). A user's last
+  socket ending sets `host_away_since` on sessions they host, and `host_closed_app` when the phone
+  closed it rather than it going quiet; connecting clears both. That is how a swiped away app
+  ends its session a minute later, even though closing it paused the music first.
 - `InMemoryBus` and `InMemoryPresence` work for one backend instance. A second instance
   needs a `PgNotifyBus` and a shared presence store behind the same `EventBus` and
   `Presence` traits; nothing else changes.
