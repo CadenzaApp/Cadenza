@@ -80,7 +80,7 @@ export function StartSessionScreen({ editId }: { editId?: string }) {
     async function submit() {
         setError(null);
         if (alreadyHosting && mySessionId) {
-            router.replace(`/live-session/${mySessionId}` as Href);
+            router.replace("/player");
             return;
         }
         const trimmed = nameValue.trim();
@@ -105,7 +105,7 @@ export function StartSessionScreen({ editId }: { editId?: string }) {
                 allow_join_without_code: joiningValue === "friends",
             });
             await seedSession(session_id);
-            router.replace(`/live-session/${session_id}` as Href);
+            router.replace("/player");
         } catch {
             setError(
                 editId

@@ -33,9 +33,10 @@ import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-m
 import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
 import { useAlbumRouteForTrack } from "@/lib/album-route";
 import { Text } from "@/components/ui/text";
-import { LiveChip } from "@/features/social/LiveChip";
-import { useLiveSessionBadge } from "@/features/live-session/use-live-badge";
+import { LiveButton } from "@/features/live-session/LiveButton";
+import { useCurrentLiveSession } from "@/features/live-session/use-current-session";
 import { usePlayback } from "@/lib/playback";
+import { sessionCan } from "@/lib/routes/live-sessions";
 import {
     useArtistPreview,
     useSongArtists,
@@ -100,7 +101,7 @@ export function PlayerPage() {
         duration,
         isPreview,
     } = usePlayback();
-    const live = useLiveSessionBadge();
+    const live = useCurrentLiveSession();
     const { colors } = useTheme();
     const { brand } = useAppTheme().colors;
     const openScreen = useOpenScreen();
@@ -386,6 +387,8 @@ export function PlayerPage() {
                     onOpenMenu={() => setMenuOpen(true)}
                     onToggleShuffle={toggleShuffle}
                     onCycleRepeat={cycleRepeat}
+                    showModes={!live}
+                    editable={!live || sessionCan.editQueue(live.my_role)}
                     onPlayUpcoming={(index) =>
                         void playQueueItem(queuePositionOf(index))
                     }
@@ -482,41 +485,19 @@ export function PlayerPage() {
                 }
             />
 
-            {live ? (
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open live session ${live.name}`}
-                    onPress={() =>
-                        openScreen(`/live-session/${live.sessionId}` as Href, {
-                            closing: "player",
-                        })
-                    }
-                    className="flex-row items-center gap-2 self-center active:opacity-60"
-                >
-                    <LiveChip />
-                    <Text
-                        className="max-w-60 text-sm font-semibold text-foreground"
-                        numberOfLines={1}
-                    >
-                        {live.name}
-                    </Text>
-                </Pressable>
-            ) : null}
-
             <MediaPlayerTransport
                 isPlaying={isPlaying}
                 isLoading={isLoading}
                 canTogglePlayback={!controlsLocked}
                 canSkipToNext={canSkipToNext}
                 canSkipToPrevious={canSkipToPrevious}
-                shuffleMode={shuffleMode}
+                leading={<LiveButton />}
                 queueOpen={view === "queue"}
                 textColor={colors.text}
                 accentColor={brand}
                 onTogglePlayback={() => void togglePlayback(track)}
                 onSkipToNext={() => void skipToNext()}
                 onSkipToPrevious={() => void skipToPrevious()}
-                onToggleShuffle={toggleShuffle}
                 onToggleQueue={() =>
                     setView((current) =>
                         current === "queue" ? "artwork" : "queue",

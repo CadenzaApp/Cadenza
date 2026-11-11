@@ -166,9 +166,7 @@ function SessionTile() {
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`Open your live session, ${liveSession.name}`}
-                    onPress={() =>
-                        router.push(`/live-session/${mySessionId}` as Href)
-                    }
+                    onPress={() => router.push("/player")}
                     className="grow gap-2 p-3 active:opacity-60"
                     style={{ width: TILE_WIDTH, minHeight: TILE_MIN_HEIGHT }}
                 >
@@ -426,7 +424,7 @@ function JoinButton({
     async function join() {
         try {
             await joinLiveSession({ session_id: sessionId });
-            router.push(`/live-session/${sessionId}` as Href);
+            router.push("/player");
         } catch {
             setRefused(true);
         }

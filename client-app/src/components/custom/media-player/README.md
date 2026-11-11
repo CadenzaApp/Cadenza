@@ -113,8 +113,16 @@ over them like any tab screen. No separate player host is needed.
 
 Playback state lives in `PlaybackProvider`, not here.
 
-In a live session the compact player shows "LIVE . {session name}" in place of the artist, and
-the Player page shows a LIVE pill that closes the sheet and opens `/live-session/:id`. Both read
+The now playing sheet is also the live session's screen. The transport's left slot is
+`LiveButton` (`@/features/live-session`): outside a session a tap starts one, seeded with the
+queue; in one it lights up and opens the session menu (settings, listen mode, hand over, leave,
+end). In a session the pager's tab bar is swapped for `LiveSessionBar` (Requests, People, Add,
+Share as the role allows), and the pages still swipe. Both bars share `player-bar.tsx`. The queue
+is the player's own, without shuffle or repeat, and read only (no drag, remove, or handles) below
+queue editor. A member whose phone does not play the session
+sees it here anyway, through `usePlaybackView`.
+
+The compact player shows "LIVE . {session name}" in place of the artist, from
 `useLiveSessionBadge`. When `controlsLocked` is set (a member whose role cannot control), play,
 skip, and the scrubber are disabled; the commands themselves already go to the session.
 
@@ -152,7 +160,7 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 ## Connects to
 
 - `@/lib/playback::usePlayback` for all transport.
-- `@/features/live-session/use-live-badge` for the LIVE line and pill.
+- `@/features/live-session` for the LIVE line, `LiveButton`, and `LiveSessionBar`.
 - `@/features/social` (`PostCard`, `CreatePostDialog`) and `@/lib/routes/social`
   (`useTopicPosts`, `useCreatePost`) for Discuss. A post there has `topic_mk_id` set to the
   focused song.
@@ -187,8 +195,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 - `PlayerPager` keeps `removeClippedSubviews` off intentionally. All three pages must remain
   mounted, including the page just outside the viewport, or an interactive swipe exposes a blank
   destination and loses page-local state.
-- Repeat is deliberately not on the transport row. It lives on the queue view next to shuffle,
-  which is where Apple keeps it and what frees the bottom-right slot for the queue button.
+- Shuffle and repeat are deliberately not on the transport row. They live on the queue view,
+  which is where Apple keeps them, and frees the left slot for LIVE and the right for the queue.
 - Both mode pills are glass while they are off and invert to a solid white pill with a dark glyph
   while they are on. Off and on differing only by icon color did not read, since `secondary` and
   `muted` are the same value in the dark palette.

@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { ShuffleMode } from "@apple-musickit";
+import type { ReactNode } from "react";
 import {
     ActivityIndicator,
     Pressable,
@@ -8,11 +8,10 @@ import {
 } from "react-native";
 
 /**
- * The bottom row: shuffle, skip, play, skip, queue.
+ * The bottom row: `leading` (the LIVE button), skip, play, skip, queue.
  *
- * Repeat is not here. It lives on the queue view, next to shuffle, which is
- * where Apple Music keeps it and what leaves the bottom-right slot for the
- * queue button.
+ * Shuffle and repeat are not here. They live on the queue view, which is
+ * where Apple Music keeps them.
  */
 export function MediaPlayerTransport({
     isPlaying,
@@ -20,14 +19,13 @@ export function MediaPlayerTransport({
     canTogglePlayback = true,
     canSkipToNext,
     canSkipToPrevious,
-    shuffleMode,
+    leading,
     queueOpen,
     textColor,
     accentColor,
     onTogglePlayback,
     onSkipToNext,
     onSkipToPrevious,
-    onToggleShuffle,
     onToggleQueue,
 }: {
     isPlaying: boolean;
@@ -36,33 +34,19 @@ export function MediaPlayerTransport({
     canTogglePlayback?: boolean;
     canSkipToNext: boolean;
     canSkipToPrevious: boolean;
-    shuffleMode: ShuffleMode;
+    /** The left slot, 48pt tall. */
+    leading: ReactNode;
     queueOpen: boolean;
     textColor: ColorValue;
     accentColor: ColorValue;
     onTogglePlayback: () => void;
     onSkipToNext: () => void;
     onSkipToPrevious: () => void;
-    onToggleShuffle: () => void;
     onToggleQueue: () => void;
 }) {
-    const shuffleOn = shuffleMode !== ShuffleMode.Off;
-
     return (
         <View className="flex-row items-center justify-between px-2">
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Shuffle"
-                accessibilityState={{ selected: shuffleOn }}
-                onPress={onToggleShuffle}
-                className="h-12 w-12 items-center justify-center active:opacity-60"
-            >
-                <Ionicons
-                    name="shuffle"
-                    size={24}
-                    color={shuffleOn ? accentColor : textColor}
-                />
-            </Pressable>
+            {leading}
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Previous track"

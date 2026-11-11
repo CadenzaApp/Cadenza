@@ -46,7 +46,7 @@ export function JoinScreen({ initialCode }: { initialCode?: string }) {
     /** Where a redeemed code goes: a session's sheet, or the playlist. */
     function open(target: { kind: string; id: string }) {
         if (target.kind === "live_session") {
-            router.replace(`/live-session/${target.id}` as Href);
+            router.replace("/player");
         } else {
             router.back();
             router.push(`/social/playlist/${target.id}` as Href);

@@ -43,6 +43,13 @@ type MediaPlayerQueueProps = {
     onOpenArtist?: () => void;
     onToggleShuffle: () => void;
     onCycleRepeat: () => void;
+    /** False in a live session, whose queue has no shuffle or repeat. */
+    showModes?: boolean;
+    /**
+     * False when the queue is not the user's to change, like a live session
+     * role below queue editor: no dragging, no remove, no handles.
+     */
+    editable?: boolean;
     /** Positions address the upcoming list, not the whole queue. */
     onPlayUpcoming: (upcomingIndex: number) => void;
     onRemoveUpcoming: (upcomingIndex: number) => void;
@@ -77,6 +84,8 @@ export function MediaPlayerQueue({
     onOpenArtist,
     onToggleShuffle,
     onCycleRepeat,
+    showModes = true,
+    editable = true,
     onPlayUpcoming,
     onRemoveUpcoming,
     onMoveUpcoming,
@@ -99,27 +108,29 @@ export function MediaPlayerQueue({
                 onOpenArtist={onOpenArtist}
             />
 
-            <View className="mt-3 flex-row gap-2">
-                <ModePill
-                    label="Shuffle"
-                    icon="shuffle"
-                    active={shuffleOn}
-                    textColor={textColor}
-                    onPress={onToggleShuffle}
-                />
-                <ModePill
-                    label={repeatLabel(repeatMode)}
-                    icon={
-                        repeatMode === RepeatMode.One
-                            ? "repeat-outline"
-                            : "repeat"
-                    }
-                    badge={repeatMode === RepeatMode.One ? "1" : undefined}
-                    active={repeatOn}
-                    textColor={textColor}
-                    onPress={onCycleRepeat}
-                />
-            </View>
+            {showModes ? (
+                <View className="mt-3 flex-row gap-2">
+                    <ModePill
+                        label="Shuffle"
+                        icon="shuffle"
+                        active={shuffleOn}
+                        textColor={textColor}
+                        onPress={onToggleShuffle}
+                    />
+                    <ModePill
+                        label={repeatLabel(repeatMode)}
+                        icon={
+                            repeatMode === RepeatMode.One
+                                ? "repeat-outline"
+                                : "repeat"
+                        }
+                        badge={repeatMode === RepeatMode.One ? "1" : undefined}
+                        active={repeatOn}
+                        textColor={textColor}
+                        onPress={onCycleRepeat}
+                    />
+                </View>
+            ) : null}
 
             <Text className="mb-1 mt-4 text-xl font-bold text-foreground">
                 Continue Playing
@@ -132,6 +143,7 @@ export function MediaPlayerQueue({
                 keyExtractor={(item, index) => `${item.id}-${index}`}
                 onReorder={onMoveUpcoming}
                 onHandleTouchChange={onHandleTouchChange}
+                reorderable={editable}
                 empty={
                     <Text className="py-8 text-center text-muted-foreground">
                         Nothing else is queued.
@@ -143,7 +155,9 @@ export function MediaPlayerQueue({
                         textColor={textColor}
                         dragHandle={dragHandle}
                         onPress={() => onPlayUpcoming(index)}
-                        onRemove={() => onRemoveUpcoming(index)}
+                        onRemove={
+                            editable ? () => onRemoveUpcoming(index) : undefined
+                        }
                     />
                 )}
             />
@@ -252,7 +266,8 @@ function QueueRow({
     textColor: ColorValue;
     dragHandle: (handle: ReactNode) => ReactNode;
     onPress: () => void;
-    onRemove: () => void;
+    /** Leave out for a row that cannot be removed or dragged. */
+    onRemove?: () => void;
 }) {
     const artworkUrl = track.artworkUrl?.trim();
     const canRenderArtwork =
@@ -296,31 +311,36 @@ function QueueRow({
                 </View>
             </Pressable>
 
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Remove ${track.title} from the queue`}
-                onPress={onRemove}
-                hitSlop={8}
-                className="h-11 w-9 items-center justify-center active:opacity-60"
-            >
-                <Ionicons name="close" size={20} color={textColor} />
-            </Pressable>
-            {/* The handle drags straight away and wins over the sheet's drag to
-                dismiss. A long press anywhere else on the row drags too. The
-                target is the row's full height, wider than the glyph. */}
-            {dragHandle(
-                <View
-                    accessibilityLabel={`Reorder ${track.title}`}
-                    className="w-11 items-center justify-center"
-                    style={{ height: QUEUE_ROW_HEIGHT }}
-                >
-                    <Ionicons
-                        name="reorder-three"
-                        size={24}
-                        color={textColor}
-                    />
-                </View>,
-            )}
+            {onRemove ? (
+                <>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${track.title} from the queue`}
+                        onPress={onRemove}
+                        hitSlop={8}
+                        className="h-11 w-9 items-center justify-center active:opacity-60"
+                    >
+                        <Ionicons name="close" size={20} color={textColor} />
+                    </Pressable>
+                    {/* The handle drags straight away and wins over the sheet's
+                        drag to dismiss. A long press anywhere else on the row
+                        drags too. The target is the row's full height, wider
+                        than the glyph. */}
+                    {dragHandle(
+                        <View
+                            accessibilityLabel={`Reorder ${track.title}`}
+                            className="w-11 items-center justify-center"
+                            style={{ height: QUEUE_ROW_HEIGHT }}
+                        >
+                            <Ionicons
+                                name="reorder-three"
+                                size={24}
+                                color={textColor}
+                            />
+                        </View>,
+                    )}
+                </>
+            ) : null}
         </View>
     );
 }

@@ -28,7 +28,9 @@ const PING_INTERVAL_MS = 25_000;
  * through their normal SWR reads. Mutations stay on HTTP.
  *
  * It opens while anything is subscribed and the app is in the foreground,
- * closes in the background, and reconnects with backoff. After any reconnect
+ * closes in the background unless something holds it open there (a live
+ * session playing on this phone, which iOS keeps running for its audio), and
+ * reconnects with backoff. After any reconnect
  * every subscriber gets a `resync` event, since changes made while it was
  * down were never pushed.
  *
@@ -49,6 +51,8 @@ class RealtimeClient {
     private nextPingId = 1;
     private offsets: number[] = [];
     private foreground = AppState.currentState === "active";
+    /** Holders that keep the socket open in the background. */
+    private backgroundHolds = 0;
     /** Bumped on reset, so a socket from a signed out account cannot linger. */
     private generation = 0;
 
@@ -57,9 +61,27 @@ class RealtimeClient {
             const foreground = state === "active";
             if (foreground === this.foreground) return;
             this.foreground = foreground;
-            if (foreground) this.connectIfNeeded();
+            if (this.awake) this.connectIfNeeded();
             else this.close();
         });
+    }
+
+    /** Foreground, or held open in the background. */
+    private get awake() {
+        return this.foreground || this.backgroundHolds > 0;
+    }
+
+    /** Keeps the socket open in the background until the returned release. */
+    holdInBackground(): () => void {
+        this.backgroundHolds += 1;
+        this.connectIfNeeded();
+        let released = false;
+        return () => {
+            if (released) return;
+            released = true;
+            this.backgroundHolds -= 1;
+            if (!this.awake) this.close();
+        };
     }
 
     /** The server's clock, in ms, from the median of recent pings. */
@@ -102,7 +124,7 @@ class RealtimeClient {
 
     private connectIfNeeded() {
         if (this.socket || this.reconnectTimer) return;
-        if (!this.foreground || this.listeners.size === 0) return;
+        if (!this.awake || this.listeners.size === 0) return;
         void this.connect();
     }
 
@@ -110,8 +132,7 @@ class RealtimeClient {
         const generation = this.generation;
         const token = await getAccessToken();
         if (!token || generation !== this.generation) return;
-        if (this.socket || !this.foreground || this.listeners.size === 0)
-            return;
+        if (this.socket || !this.awake || this.listeners.size === 0) return;
 
         const socket = new WebSocket(socketUrl(BACKEND_URL));
         this.socket = socket;
@@ -217,7 +238,7 @@ class RealtimeClient {
     }
 
     private scheduleReconnect() {
-        if (!this.foreground || this.listeners.size === 0) return;
+        if (!this.awake || this.listeners.size === 0) return;
         const delay = reconnectDelayMs(this.attempt);
         this.attempt += 1;
         this.reconnectTimer = setTimeout(() => {
@@ -245,6 +266,19 @@ const client = new RealtimeClient();
 /** The server's clock in ms. Falls back to the local one before any ping. */
 export function serverNow(): number {
     return client.serverNow();
+}
+
+/**
+ * Keeps the socket open while the app is in the background, as long as
+ * `enabled`. For something that must still hear changes there, like a live
+ * session playing on this phone. iOS only keeps the app running while audio
+ * plays, so a paused phone still goes quiet.
+ */
+export function useRealtimeInBackground(enabled: boolean) {
+    useEffect(() => {
+        if (!enabled) return;
+        return client.holdInBackground();
+    }, [enabled]);
 }
 
 /** Drops the socket, for an account change. */
