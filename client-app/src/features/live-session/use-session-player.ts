@@ -13,6 +13,7 @@ import {
 } from "@/lib/playback";
 import type { PlaySource } from "@/lib/play-source";
 import { serverNow } from "@/lib/realtime";
+import { isPendingEntry } from "@/lib/session-optimistic";
 import { playbackPositionMs } from "@/lib/session-playback";
 import {
     useLiveSessionWrites,
@@ -83,7 +84,8 @@ export function sessionTarget(session: LiveSession): LiveSessionEntry[] {
  * really playing, so it also reports back. On a member it runs only in
  * `synced` mode, follows the session, and never reports.
  *
- * Each new snapshot version is applied: the queue is brought in line with
+ * Each new snapshot is applied, a guess the app made before the server
+ * answered included (`session-optimistic.ts`): the queue is brought in line with
  * `reconcile` (replaced only when the current song differs), play or pause is
  * matched, and drift past 2 s is corrected at most every 5 s, or right away
  * for a new command like a seek. A version the host's own report produced is
@@ -143,6 +145,8 @@ export function useSessionPlayer(
     const applying = useRef(false);
     /** The last version applied or skipped. */
     const appliedVersion = useRef<number | null>(null);
+    /** The last snapshot applied or skipped, so a guess at the same version runs too. */
+    const appliedSession = useRef<LiveSession | null>(null);
     // bumped when an apply finishes, so a version that landed meanwhile runs
     const [settled, setSettled] = useState(0);
     const savedQueue = useRef<{ tracks: MusicItem[]; index: number } | null>(
@@ -179,6 +183,7 @@ export function useSessionPlayer(
         if (!active) {
             followed.current = null;
             appliedVersion.current = null;
+            appliedSession.current = null;
         }
         wasActive.current = active;
         // only the edge matters, not every queue change
@@ -189,7 +194,8 @@ export function useSessionPlayer(
     const version = session?.version;
     useEffect(() => {
         if (!active || !session || version === undefined) return;
-        if (applying.current || appliedVersion.current === version) return;
+        if (applying.current || appliedSession.current === session) return;
+        const newVersion = appliedVersion.current !== version;
         const seq = session.playback.command_seq;
         const last = followed.current;
         const sameSession = last?.sessionId === session.session_id;
@@ -197,15 +203,18 @@ export function useSessionPlayer(
         const commanded = sameSession && seq !== last.seq;
         // our own report, unless a command came in with it
         if (
+            newVersion &&
             ownVersions.current.includes(version) &&
             sameSession &&
             !commanded
         ) {
             appliedVersion.current = version;
+            appliedSession.current = session;
             return;
         }
         applying.current = true;
         appliedVersion.current = version;
+        appliedSession.current = session;
 
         const phoneSong = playback.activeTrack
             ? songIdOf(playback.activeTrack)
@@ -327,9 +336,9 @@ export function useSessionPlayer(
                 await commands.seekTo(expected / 1000);
             }
         }
-        // a new version is the trigger; the rest is read at that moment
+        // a new snapshot is the trigger; the rest is read at that moment
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [active, version, settled]);
+    }, [active, session, settled]);
 
     // the host reports what its phone is really doing
     const activeSong = playback.activeTrack
@@ -345,6 +354,9 @@ export function useSessionPlayer(
 
     useEffect(() => {
         if (!active || !isHost || !session) return;
+        // a song added a moment ago has no real id yet; the snapshot that
+        // gives it one runs this again
+        if (reportedEntry && isPendingEntry(reportedEntry)) return;
         const now = Date.now();
         const positionMs = Math.round(playback.progress * 1000);
         const entryId = reportedEntry?.entry_id ?? null;

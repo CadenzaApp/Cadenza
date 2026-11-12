@@ -31,10 +31,15 @@ How playback stays in step:
   move the anchor; every member refetches on the realtime event. A play, pause, seek, shuffle
   off, or a repeat change that put no songs back (or a host report that kept the song) sends a
   `playback` event carrying the new playback instead, applied straight to the cached snapshot.
-  The caller's own screen moves before the server answers: shuffle and repeat are held in
+  Every write shows before the server answers, as fast as outside a session:
+  `lib/session-optimistic.ts` applies the server's own rules to the cached snapshot (songs added
+  get negative ids until the real ones land), the phone applies that guess like any snapshot,
+  and a failed write refetches, which puts things back. Anything only the server knows, like
+  the song before on Back or a shuffle's new order, waits for it. Shuffle and repeat are held in
   `lib/session-modes.ts` until the answer lands, and dropped at once if it fails.
 - The host's phone is the speaker and the source of truth. It reports on song change, play or
-  pause, a seek, and every 10 s, and skips re-applying versions its own reports made. So the
+  pause, a seek, and every 10 s, and skips re-applying versions its own reports made. It
+  never reports a guessed entry; the snapshot with the real id reports it. So the
   host's normal player controls work: they show up in the next report. Each report carries the
   last `command_seq` the phone followed, and the server ignores one older than the latest
   command, so a heartbeat in flight cannot undo a member's seek or back.

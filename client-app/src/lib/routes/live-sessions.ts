@@ -12,7 +12,7 @@ import {
     withPendingModes,
     type SessionModes,
 } from "../session-modes";
-import { playbackPositionMs } from "../session-playback";
+import * as guess from "../session-optimistic";
 import type { CreateInviteBody, Invite } from "./invites";
 
 export type SessionRole =
@@ -218,34 +218,6 @@ function applyPlaybackChange(
     });
 }
 
-/**
- * What a play, pause, or seek will do, applied to the cached snapshot before
- * the server answers, so the caller's own screen moves at once. The version
- * stays, so the server's change still applies over it.
- */
-function optimisticPlayback(
-    playback: LiveSessionPlayback,
-    body: PlaybackBody,
-): LiveSessionPlayback | null {
-    const now = serverNow();
-    const position = playbackPositionMs(playback, now);
-    const at = new Date(now).toISOString();
-    switch (body.kind) {
-        case "play":
-        case "pause":
-            return {
-                ...playback,
-                is_playing: body.kind === "play" && playback.entry_id !== null,
-                position_ms: position,
-                as_of: at,
-            };
-        case "seek":
-            return { ...playback, position_ms: body.position_ms, as_of: at };
-        default:
-            return null;
-    }
-}
-
 /** The shuffle or repeat a command sets, or null for any other command. */
 function modesOf(body: PlaybackBody): Partial<SessionModes> | null {
     switch (body.kind) {
@@ -406,15 +378,32 @@ export function useJoinListening() {
 }
 
 /**
- * Every write to one session. Each refetches the snapshot after; the socket
- * tells everyone else. Playback is quicker: play, pause, seek, shuffle, and
- * repeat show at once, and a change that moved only playback is applied from
- * the response. A failed one goes back.
+ * Every write to one session. Each shows at once: the cached snapshot takes
+ * the change before the server answers (`session-optimistic.ts`), so the
+ * screen and the phone's queue move as they do outside a session. The
+ * snapshot is refetched after, and the socket tells everyone else. A change
+ * that moved only playback is applied from the response instead. A failed
+ * write refetches, which puts things back.
  */
 export function useLiveSessionWrites(id: string) {
     const base = `/live-sessions/${id}`;
     const touched = [{ path: base }];
     const touchedAndCurrent = [...touched, { path: "/live-sessions/current" }];
+
+    /** Applies `update` to the cached snapshot, then sends `write`. */
+    async function optimistic<T>(
+        update: (session: LiveSession) => LiveSession | null,
+        write: () => Promise<T>,
+    ) {
+        // a guess with nothing to go on leaves the snapshot for the server
+        await patchSession(id, (session) => update(session) ?? session);
+        try {
+            return await write();
+        } catch (error) {
+            void invalidateAPIData(touched);
+            throw error;
+        }
+    }
 
     const playback = useAPIMutation<PlaybackBody, SessionVersion>(
         "POST",
@@ -427,10 +416,11 @@ export function useLiveSessionWrites(id: string) {
         const modes = modesOf(body);
         // held until the cache has the server's word, so they never flick back
         const release = modes ? holdSessionModes(id, modes) : () => {};
-        await patchSession(id, (session) => {
-            const next = optimisticPlayback(session.playback, body);
-            return next ? { ...session, playback: next } : session;
-        });
+        await patchSession(
+            id,
+            (session) =>
+                guess.playbackCommand(session, body, serverNow()) ?? session,
+        );
         try {
             const result = await playback.trigger(body);
             if (result?.playback && result.version !== null) {
@@ -463,6 +453,7 @@ export function useLiveSessionWrites(id: string) {
         ({ entry_id }) => `${base}/queue/${entry_id}`,
         touched,
     );
+
     const update = useAPIMutation<
         {
             name?: string;
@@ -508,24 +499,91 @@ export function useLiveSessionWrites(id: string) {
         { invalidation: "none" },
     );
 
+    type AddSongsBody = Parameters<typeof addSongs.trigger>[0];
+    type UpdateBody = Parameters<typeof update.trigger>[0];
+    const patchMember = (
+        session: LiveSession,
+        user_id: string,
+        change: Partial<LiveSessionMember>,
+    ): LiveSession => ({
+        ...session,
+        members: session.members.map((member) =>
+            member.user_id === user_id ? { ...member, ...change } : member,
+        ),
+    });
+
     return {
         sendPlayback,
-        addSongs: addSongs.trigger,
+        addSongs: (body: AddSongsBody) =>
+            optimistic(
+                (session) =>
+                    guess.addSongs(
+                        session,
+                        body.songs,
+                        {
+                            position: body.position,
+                            playNow: body.play_now,
+                        },
+                        serverNow(),
+                    ),
+                () => addSongs.trigger(body),
+            ),
         moveEntry: (entry_id: number, position: number) =>
-            entryAction.trigger({ entry_id, action: "move", position }),
+            optimistic(
+                (session) => guess.moveEntry(session, entry_id, position),
+                () =>
+                    entryAction.trigger({ entry_id, action: "move", position }),
+            ),
         reviewSuggestion: (entry_id: number, approve: boolean) =>
-            entryAction.trigger({
-                entry_id,
-                action: approve ? "approve" : "reject",
-            }),
-        removeEntry: (entry_id: number) => removeEntry.trigger({ entry_id }),
-        updateSession: update.trigger,
-        setMemberRole: setRole.trigger,
-        kickMember: (user_id: string) => kick.trigger({ user_id }),
+            optimistic(
+                (session) => guess.reviewSuggestion(session, entry_id, approve),
+                () =>
+                    entryAction.trigger({
+                        entry_id,
+                        action: approve ? "approve" : "reject",
+                    }),
+            ),
+        removeEntry: (entry_id: number) =>
+            optimistic(
+                (session) => guess.removeEntry(session, entry_id),
+                () => removeEntry.trigger({ entry_id }),
+            ),
+        updateSession: (body: UpdateBody) =>
+            optimistic(
+                (session) => ({ ...session, ...body }),
+                () => update.trigger(body),
+            ),
+        setMemberRole: (body: { user_id: string; role: SessionRole }) =>
+            optimistic(
+                (session) =>
+                    patchMember(session, body.user_id, { role: body.role }),
+                () => setRole.trigger(body),
+            ),
+        kickMember: (user_id: string) =>
+            optimistic(
+                (session) => ({
+                    ...session,
+                    members: session.members.filter(
+                        (member) => member.user_id !== user_id,
+                    ),
+                }),
+                () => kick.trigger({ user_id }),
+            ),
         answerJoinRequest: (user_id: string, accept: boolean) =>
-            answerJoin.trigger({ user_id, accept }),
+            optimistic(
+                (session) => ({
+                    ...session,
+                    join_requests: session.join_requests.filter(
+                        (request) => request.user_id !== user_id,
+                    ),
+                }),
+                () => answerJoin.trigger({ user_id, accept }),
+            ),
         setListenMode: (listen_mode: ListenMode) =>
-            listenMode.trigger({ listen_mode }),
+            optimistic(
+                (session) => ({ ...session, my_listen_mode: listen_mode }),
+                () => listenMode.trigger({ listen_mode }),
+            ),
         leaveSession: () => leave.trigger(),
         endSession: () => end.trigger(),
         createInvite: invite.trigger,
