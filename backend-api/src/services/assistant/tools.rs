@@ -541,7 +541,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "top_items",
-            "description": "The user's most played songs, artists, albums, playlists, queries, or tags over a window, most played first.",
+            "description": "The user's own most played songs, artists, albums, playlists, queries, or tags over a window, most played first, from their listening history. Use for rankings over a time window (\"top artists this month\"); for filtering or sorting songs by the user's play count with no window, run_query with the My Plays activity tag works too.",
             "parameters": {
                 "type": "object",
                 "properties": top_properties,

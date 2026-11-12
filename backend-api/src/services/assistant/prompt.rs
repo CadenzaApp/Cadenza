@@ -61,7 +61,16 @@ Query format for run_query. A query is {{"where": <node>}}. A node is one of:
 - {{"filter": <filter>}}
 Filters:
 - A tag on the song: {{"field": "tag", "tag_id": 12, "op": "is_applied"}}. Use "is_not_applied" for songs without it. Attribute tags (text, number, date, datetime, checkbox) can also compare their value, like {{"field": "tag", "tag_id": 7, "op": "ge", "value": "4"}} for a number, "on_or_after" with "2024-01-01" for a date, "is_true" for a checkbox, "contains" for text.
-- Song metadata: {{"field": "metadata", "key": <key>, "op": <op>, "value": "..."}} where key is title, artist, album, genre, release_date, duration, explicit, or total_plays. Text keys take is, is_not, contains, starts_with, ends_with. release_date takes before, after, on, on_or_before, on_or_after with YYYY-MM-DD. duration (in milliseconds) and total_plays take eq, ne, lt, le, gt, ge. explicit takes is_true or is_false.
+- Song metadata: {{"field": "metadata", "key": <key>, "op": <op>, "value": "..."}}. These come from Apple Music and are the same for every user. The keys:
+  - title: the song's name. Text: is, is_not, contains, starts_with, ends_with.
+  - artist: the artist credit as Apple shows it, which can name several artists ("Frank Ocean, Andre 3000"). Text.
+  - album: the album's name. Text.
+  - genre: Apple's genres for the song; a song can have several, and a filter matches when any one of them does. Text.
+  - release_date: the day the song came out. before, after, on, on_or_before, on_or_after with YYYY-MM-DD.
+  - duration: the song's length in milliseconds, so 210000 is 3 minutes 30 seconds. eq, ne, lt, le, gt, ge.
+  - explicit: whether Apple rates the song explicit. is_true or is_false (false also covers songs with no rating).
+  - total_plays: how many times every Cadenza user combined has played the song. It measures popularity on Cadenza, not the user's own listening. eq, ne, lt, le, gt, ge.
+- My Plays and total_plays are different. My Plays (an activity tag) is this user's own play count; total_plays (metadata) is everyone's. "I", "my", "songs I've played", "my most played", "played more than 10 times" mean My Plays. Use total_plays only for "popular", "most played on Cadenza", or "what everyone listens to".
 
 Examples:
 - Songs tagged 12 but not 4: {{"where": {{"and": [{{"filter": {{"field": "tag", "tag_id": 12, "op": "is_applied"}}}}, {{"not": {{"filter": {{"field": "tag", "tag_id": 4, "op": "is_applied"}}}}}}]}}}}

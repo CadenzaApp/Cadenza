@@ -27,9 +27,8 @@ const SHOWN_SONGS = 5;
  */
 export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     const { colors } = useAppTheme();
-    const { tracks, tracksLoading, resolveTracks } = usePagedTracksForSongIds(
-        songs.song_ids,
-    );
+    const { tracks, tracksLoading, isLoadingNextPage, resolveTracks } =
+        usePagedTracksForSongIds(songs.song_ids);
     const router = useRouter();
     const { playQueue, playNext, skipToNext, setShuffleMode } =
         usePlaybackCommands();
@@ -82,7 +81,15 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     );
 
     const shown = tracks.slice(0, SHOWN_SONGS);
-    const more = songs.total - shown.length;
+    // Songs resolve a few at a time (the library first, then Apple Music), and
+    // the list only grows while lookups run. Until the first rows have all
+    // resolved, the rest hold placeholders, so the card appears at its full
+    // size and fills in rather than growing from one row to five.
+    const expectedRows = Math.min(SHOWN_SONGS, songs.song_ids.length);
+    const stillLoading =
+        tracksLoading || (isLoadingNextPage && shown.length < expectedRows);
+    const placeholderRows = stillLoading ? expectedRows - shown.length : 0;
+    const more = songs.total - (stillLoading ? expectedRows : shown.length);
 
     /**
      * Plays just the tapped song, queueing none of the card's others. With
@@ -108,54 +115,56 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
         [activeTrack, openNowPlaying, playNext, playQueue, skipToNext],
     );
 
-    if (!tracksLoading && shown.length === 0) return null;
+    if (!stillLoading && shown.length === 0) return null;
 
     return (
         <View className="mt-2 overflow-hidden rounded-2xl border border-border bg-card">
-            {tracksLoading
-                ? Array.from({
-                      length: Math.min(3, songs.song_ids.length),
-                  }).map((_, index) => <SongRowSkeleton key={index} />)
-                : shown.map((track, index) => (
-                      <Pressable
-                          key={track.id}
-                          onPress={() => void playOne(track)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Play ${track.title}`}
-                          className={
-                              index > 0
-                                  ? "flex-row items-center gap-3 border-t border-border px-3 py-2 active:opacity-60"
-                                  : "flex-row items-center gap-3 px-3 py-2 active:opacity-60"
-                          }
-                      >
-                          <Image
-                              source={
-                                  track.artworkUrl
-                                      ? { uri: track.artworkUrl }
-                                      : undefined
-                              }
-                              style={{
-                                  width: 40,
-                                  height: 40,
-                                  borderRadius: 6,
-                                  backgroundColor: colors.muted,
-                              }}
-                          />
-                          <View className="flex-1">
-                              <Text className="text-[15px]" numberOfLines={1}>
-                                  {track.title}
-                              </Text>
-                              {track.artistName ? (
-                                  <Text
-                                      className="text-[13px] text-muted-foreground"
-                                      numberOfLines={1}
-                                  >
-                                      {track.artistName}
-                                  </Text>
-                              ) : null}
-                          </View>
-                      </Pressable>
-                  ))}
+            {shown.map((track, index) => (
+                <Pressable
+                    key={track.id}
+                    onPress={() => void playOne(track)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Play ${track.title}`}
+                    className={
+                        index > 0
+                            ? "flex-row items-center gap-3 border-t border-border px-3 py-2 active:opacity-60"
+                            : "flex-row items-center gap-3 px-3 py-2 active:opacity-60"
+                    }
+                >
+                    <Image
+                        source={
+                            track.artworkUrl
+                                ? { uri: track.artworkUrl }
+                                : undefined
+                        }
+                        style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 6,
+                            backgroundColor: colors.muted,
+                        }}
+                    />
+                    <View className="flex-1">
+                        <Text className="text-[15px]" numberOfLines={1}>
+                            {track.title}
+                        </Text>
+                        {track.artistName ? (
+                            <Text
+                                className="text-[13px] text-muted-foreground"
+                                numberOfLines={1}
+                            >
+                                {track.artistName}
+                            </Text>
+                        ) : null}
+                    </View>
+                </Pressable>
+            ))}
+            {Array.from({ length: placeholderRows }).map((_, index) => (
+                <SongRowSkeleton
+                    key={`placeholder-${index}`}
+                    divided={shown.length + index > 0}
+                />
+            ))}
 
             <View className="flex-row items-center gap-2 border-t border-border px-3 py-2">
                 <Text className="flex-1 text-[13px] text-muted-foreground">
@@ -207,9 +216,15 @@ function CardButton({
     );
 }
 
-function SongRowSkeleton() {
+function SongRowSkeleton({ divided }: { divided: boolean }) {
     return (
-        <View className="flex-row items-center gap-3 px-3 py-2">
+        <View
+            className={
+                divided
+                    ? "flex-row items-center gap-3 border-t border-border px-3 py-2"
+                    : "flex-row items-center gap-3 px-3 py-2"
+            }
+        >
             <View className="h-10 w-10 rounded-md bg-muted" />
             <View className="flex-1 gap-1.5">
                 <View className="h-3 w-2/3 rounded bg-muted" />
