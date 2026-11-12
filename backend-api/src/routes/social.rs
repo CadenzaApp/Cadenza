@@ -536,7 +536,7 @@ async fn notifications(
 }
 
 #[derive(Deserialize)]
-struct MarkNotificationsReadBody {
+struct NotificationIdsBody {
     notif_ids: Vec<i64>,
 }
 
@@ -545,9 +545,29 @@ struct MarkNotificationsReadBody {
 async fn mark_notifications_read(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
-    Json(body): Json<MarkNotificationsReadBody>,
+    Json(body): Json<NotificationIdsBody>,
 ) -> Result<Json<Value>, CadenzaError> {
     notification::mark_notifications_read(&db, claims.user_id, &body.notif_ids).await?;
+    Ok(Json(Value::Null))
+}
+
+/// Deletes the signed-in user's notifications in `notif_ids`. Ids that are
+/// not theirs are ignored. Responds with `null`.
+async fn dismiss_notifications(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(body): Json<NotificationIdsBody>,
+) -> Result<Json<Value>, CadenzaError> {
+    notification::dismiss_notifications(&db, claims.user_id, Some(&body.notif_ids)).await?;
+    Ok(Json(Value::Null))
+}
+
+/// Deletes every notification the signed-in user has. Responds with `null`.
+async fn clear_notifications(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+) -> Result<Json<Value>, CadenzaError> {
+    notification::dismiss_notifications(&db, claims.user_id, None).await?;
     Ok(Json(Value::Null))
 }
 
@@ -873,8 +893,12 @@ pub fn get_social_router() -> Router<AppState> {
         .route("/posts/user/{author_id}", get(user_posts))
         .route("/users", get(search_users))
         .route("/friends", get(friendships))
-        .route("/notifications", get(notifications))
+        .route(
+            "/notifications",
+            get(notifications).delete(clear_notifications),
+        )
         .route("/notifications/read", post(mark_notifications_read))
+        .route("/notifications/dismiss", post(dismiss_notifications))
         .route("/friends/{user_id}/accept", post(accept_friendship))
         .route(
             "/friends/{user_id}/favorite",

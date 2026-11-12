@@ -913,6 +913,51 @@ export function useNotifications() {
         [mutate],
     );
 
+    const dismissMutation = useAPIMutation<NotificationIdsPayload, void>(
+        "POST",
+        "/social/notifications/dismiss",
+        [],
+        { invalidation: "none" },
+    );
+    const clearMutation = useAPIMutation<void, void>(
+        "DELETE",
+        "/social/notifications",
+        [],
+        { invalidation: "none" },
+    );
+    const dismissTrigger = dismissMutation.trigger;
+    const clearTrigger = clearMutation.trigger;
+    /**
+     * Deletes the given notifications, or every one when `ids` is missing.
+     * Drops them from the list first and refetches if the request fails.
+     */
+    const dismissNotifications = useCallback(
+        async (ids?: number[]) => {
+            const gone = ids ? new Set(ids) : null;
+            await mutate(
+                (current) =>
+                    current?.map((page) => ({
+                        ...page,
+                        notifications: gone
+                            ? page.notifications.filter(
+                                  (item) => !gone.has(item.notif_id),
+                              )
+                            : [],
+                        next: gone ? page.next : null,
+                    })),
+                { revalidate: false },
+            );
+            try {
+                if (ids) await dismissTrigger({ notif_ids: ids });
+                else await clearTrigger();
+            } catch (err) {
+                void mutate();
+                throw err;
+            }
+        },
+        [clearTrigger, dismissTrigger, mutate],
+    );
+
     return {
         notifications,
         notificationsLoading: !data && isLoading,
@@ -922,10 +967,11 @@ export function useNotifications() {
         loadNextPage,
         invalidateNotifications,
         setNotificationResolution,
+        dismissNotifications,
     };
 }
 
-type MarkNotificationsReadPayload = {
+type NotificationIdsPayload = {
     notif_ids: number[];
 };
 
@@ -935,7 +981,7 @@ type MarkNotificationsReadPayload = {
  * that cache when it is opened.
  */
 export function useMarkNotificationsRead() {
-    const x = useAPIMutation<MarkNotificationsReadPayload, void>(
+    const x = useAPIMutation<NotificationIdsPayload, void>(
         "POST",
         "/social/notifications/read",
         [],

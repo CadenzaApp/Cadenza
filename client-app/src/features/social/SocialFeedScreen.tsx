@@ -20,6 +20,7 @@ import {
 import Animated from "react-native-reanimated";
 
 import { BottomRowActionBubble } from "@/components/custom/bottom-row-action-bubble";
+import { ListDivider } from "@/components/custom/list-divider";
 import { Toast, useToast } from "@/components/custom/toast";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import {
@@ -337,7 +338,7 @@ export function SocialFeedScreen() {
     const renderItem = useCallback<ListRenderItem<FeedRow>>(
         ({ item }) => {
             if (item.kind === "caught-up") {
-                return <CaughtUpSeparator />;
+                return <ListDivider label="You're all caught up" />;
             }
             return (
                 <PostCard
@@ -479,14 +480,6 @@ type FeedRow = { kind: "post"; post: SocialPost } | { kind: "caught-up" };
 
 function PostSeparator() {
     return <View className="h-3" />;
-}
-
-function CaughtUpSeparator() {
-    return (
-        <Text className="py-2 text-center text-sm text-muted-foreground">
-            ----- No new posts, you&apos;re caught up! -----
-        </Text>
-    );
 }
 
 type FeedFilter = "for-you" | "friends";

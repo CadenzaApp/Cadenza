@@ -17,9 +17,13 @@ import {
     type ListRenderItem,
     type ViewToken,
 } from "react-native";
+import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import Animated from "react-native-reanimated";
 
+import { ListDivider } from "@/components/custom/list-divider";
 import { Button } from "@/components/ui/button";
+import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
+import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
 import { useAnswerJoinRequest } from "@/lib/routes/live-sessions";
 import {
@@ -36,6 +40,11 @@ import { useAppTheme } from "@/lib/theme";
 import type { NotificationType, SocialNotification } from "@/lib/types";
 
 import { formatRelativeTime } from "./format";
+import {
+    describeGroup,
+    groupNotifications,
+    type NotificationGroup,
+} from "./notification-groups";
 import { PostCommentsDialog } from "./PostCommentsDialog";
 
 type FriendRequestState = "open" | "accepted" | "ignored";
@@ -69,7 +78,11 @@ function friendRequestState(
     return item.metadata.sender_id ? "open" : null;
 }
 
-/** The signed-in user's notifications, unread above the line. */
+/**
+ * The signed-in user's notifications, unread above the line. A run of the
+ * same type folds into one row that opens to show each. Swipe a row or a
+ * group left to dismiss it; the header clears them all.
+ */
 export function NotificationsScreen() {
     const navigation = useNavigation();
     const { listBottomInset } = useScreenOverlayInsets();
@@ -83,7 +96,12 @@ export function NotificationsScreen() {
         isLoadingNextPage,
         loadNextPage,
         setNotificationResolution,
+        dismissNotifications,
     } = useNotifications();
+    const [expandedGroups, setExpandedGroups] = useState<Set<number>>(
+        () => new Set(),
+    );
+    const [confirmClear, setConfirmClear] = useState(false);
     const { markNotificationsRead } = useMarkNotificationsRead();
     const markReadRef = useRef(markNotificationsRead);
     markReadRef.current = markNotificationsRead;
@@ -173,9 +191,45 @@ export function NotificationsScreen() {
         ],
     );
 
+    const dismiss = useCallback(
+        async (ids?: number[]) => {
+            try {
+                await dismissNotifications(ids);
+            } catch {
+                showToast("Couldn't dismiss. Try again.");
+            }
+        },
+        [dismissNotifications, showToast],
+    );
+
+    const toggleGroup = useCallback((key: number) => {
+        setExpandedGroups((current) => {
+            const next = new Set(current);
+            if (!next.delete(key)) next.add(key);
+            return next;
+        });
+    }, []);
+
+    const hasNotifications = notifications.length > 0;
     useLayoutEffect(() => {
-        navigation.setOptions({ title: "Notifications" });
-    }, [navigation]);
+        navigation.setOptions({
+            title: "Notifications",
+            headerRight: hasNotifications
+                ? () => (
+                      <GlassIconButton
+                          accessibilityLabel="Clear all notifications"
+                          onPress={() => setConfirmClear(true)}
+                      >
+                          <Ionicons
+                              name="trash-outline"
+                              size={20}
+                              color={colors.text}
+                          />
+                      </GlassIconButton>
+                  )
+                : undefined,
+        });
+    }, [colors.text, hasNotifications, navigation]);
 
     const rows = useMemo((): NoticeRow[] => {
         if (notifications.length === 0 && notificationsLoading) {
@@ -184,19 +238,40 @@ export function NotificationsScreen() {
         if (notifications.length === 0 && notificationsErr) {
             return [{ kind: "status", label: "Couldn't load notifications." }];
         }
+        if (notifications.length === 0) {
+            return [{ kind: "status", label: "No notifications yet." }];
+        }
         const unread = notifications.filter((item) => item.unread);
         const read = notifications.filter((item) => !item.unread);
         const next: NoticeRow[] = [];
-        if (unread.length > 0) {
-            for (const item of unread)
-                next.push({ kind: "notification", item });
-            next.push({ kind: "separator", label: "--- unread above ---" });
-        } else {
-            next.push({ kind: "separator", label: "--- no new notifs ---" });
+        const pushGroups = (items: SocialNotification[]) => {
+            for (const group of groupNotifications(items)) {
+                const [first] = group.items;
+                if (group.items.length === 1) {
+                    next.push({
+                        kind: "notification",
+                        item: first!,
+                        nested: false,
+                    });
+                    continue;
+                }
+                const expanded = expandedGroups.has(first!.notif_id);
+                next.push({ kind: "group", group, expanded });
+                if (!expanded) continue;
+                for (const item of group.items)
+                    next.push({ kind: "notification", item, nested: true });
+            }
+        };
+        pushGroups(unread);
+        if (read.length > 0) {
+            next.push({
+                kind: "divider",
+                label: unread.length > 0 ? "Earlier" : "No new notifications",
+            });
         }
-        for (const item of read) next.push({ kind: "notification", item });
+        pushGroups(read);
         return next;
-    }, [notifications, notificationsErr, notificationsLoading]);
+    }, [expandedGroups, notifications, notificationsErr, notificationsLoading]);
 
     const onEndReached = useCallback(() => {
         if (hasNextPage && !isLoadingNextPage) void loadNextPage();
@@ -207,12 +282,20 @@ export function NotificationsScreen() {
             const ids: number[] = [];
             for (const token of viewableItems) {
                 const row = token.item as NoticeRow | undefined;
-                if (!token.isViewable || row?.kind !== "notification") continue;
-                if (!row.item.unread) continue;
-                const id = row.item.notif_id;
-                if (markedReadIds.current.has(id)) continue;
-                markedReadIds.current.add(id);
-                ids.push(id);
+                if (!token.isViewable || !row) continue;
+                // a folded group counts as seen with its row
+                const items =
+                    row.kind === "notification"
+                        ? [row.item]
+                        : row.kind === "group"
+                          ? row.group.items
+                          : [];
+                for (const item of items) {
+                    const id = item.notif_id;
+                    if (!item.unread || markedReadIds.current.has(id)) continue;
+                    markedReadIds.current.add(id);
+                    ids.push(id);
+                }
             }
             if (ids.length === 0) return;
             void markReadRef.current(ids).catch(() => {
@@ -224,13 +307,36 @@ export function NotificationsScreen() {
     const renderItem = useCallback<ListRenderItem<NoticeRow>>(
         ({ item }) => {
             if (item.kind === "notification") {
+                const notice = item.item;
                 return (
-                    <NotificationRow
-                        item={item.item}
-                        requestBusy={requestBusy}
-                        onAnswer={answerRequest}
-                        onOpenPost={setOpenPostId}
-                    />
+                    <SwipeToDismiss
+                        onDismiss={() => void dismiss([notice.notif_id])}
+                    >
+                        <View className={item.nested ? "pl-6" : undefined}>
+                            <NotificationRow
+                                item={notice}
+                                requestBusy={requestBusy}
+                                onAnswer={answerRequest}
+                                onOpenPost={setOpenPostId}
+                            />
+                        </View>
+                    </SwipeToDismiss>
+                );
+            }
+            if (item.kind === "group") {
+                const { group } = item;
+                return (
+                    <SwipeToDismiss
+                        onDismiss={() =>
+                            void dismiss(group.items.map((n) => n.notif_id))
+                        }
+                    >
+                        <GroupRow
+                            group={group}
+                            expanded={item.expanded}
+                            onToggle={toggleGroup}
+                        />
+                    </SwipeToDismiss>
                 );
             }
             if (item.kind === "status") {
@@ -240,9 +346,9 @@ export function NotificationsScreen() {
                     </Text>
                 );
             }
-            return <NoticeSeparator label={item.label} />;
+            return <ListDivider label={item.label} />;
         },
-        [answerRequest, requestBusy],
+        [answerRequest, dismiss, requestBusy, toggleGroup],
     );
 
     const openPost =
@@ -288,6 +394,18 @@ export function NotificationsScreen() {
                     </Text>
                 </View>
             ) : null}
+            <GlassConfirmDialog
+                open={confirmClear}
+                title="Clear all notifications?"
+                description="This deletes every notification. Requests you have not answered can still be answered from the friends page or the session."
+                confirmLabel="Clear all"
+                pendingLabel="Clearing..."
+                onOpenChange={setConfirmClear}
+                onConfirm={() => {
+                    setConfirmClear(false);
+                    void dismiss();
+                }}
+            />
             {openPost ? (
                 <PostCommentsDialog
                     open
@@ -306,12 +424,99 @@ export function NotificationsScreen() {
 
 type NoticeRow =
     | { kind: "status"; label: string }
-    | { kind: "separator"; label: string }
-    | { kind: "notification"; item: SocialNotification };
+    | { kind: "divider"; label: string }
+    | { kind: "group"; group: NotificationGroup; expanded: boolean }
+    | { kind: "notification"; item: SocialNotification; nested: boolean };
 
 function keyExtractor(row: NoticeRow) {
     if (row.kind === "notification") return String(row.item.notif_id);
-    return `${row.kind}:${row.label}`;
+    if (row.kind === "group") return `group:${row.group.items[0]!.notif_id}`;
+    return row.kind;
+}
+
+/** Swiping left shows a delete button that dismisses the row. */
+function SwipeToDismiss({
+    onDismiss,
+    children,
+}: {
+    onDismiss: () => void;
+    children: React.ReactNode;
+}) {
+    const { destructive } = useAppTheme().colors;
+    return (
+        <ReanimatedSwipeable
+            friction={2}
+            rightThreshold={40}
+            overshootRight={false}
+            renderRightActions={(_progress, _translation, swipeable) => (
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Dismiss"
+                    onPress={() => {
+                        swipeable.close();
+                        onDismiss();
+                    }}
+                    className="w-20 items-center justify-center active:opacity-60"
+                >
+                    <Ionicons name="trash" size={22} color={destructive} />
+                </Pressable>
+            )}
+        >
+            <View className="bg-background">{children}</View>
+        </ReanimatedSwipeable>
+    );
+}
+
+/** A folded run of one type: who, what, how many. Tap to open or close. */
+function GroupRow({
+    group,
+    expanded,
+    onToggle,
+}: {
+    group: NotificationGroup;
+    expanded: boolean;
+    onToggle: (key: number) => void;
+}) {
+    const { foreground, brand, mutedForeground } = useAppTheme().colors;
+    const icon = NOTIFICATION_ICON[group.type];
+    const { names, action } = describeGroup(group);
+    const first = group.items[0]!;
+    return (
+        <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded }}
+            accessibilityLabel={`${names} ${action}, ${group.items.length} notifications`}
+            onPress={() => onToggle(first.notif_id)}
+            className="flex-row items-center gap-3 py-3 active:opacity-60"
+        >
+            <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
+                <Ionicons
+                    name={icon}
+                    size={18}
+                    color={icon === "person-add" ? foreground : brand}
+                />
+                <View className="absolute -right-1 -top-1 min-w-5 items-center rounded-full bg-brand px-1">
+                    <Text className="text-xs font-semibold text-primary-foreground">
+                        {group.items.length}
+                    </Text>
+                </View>
+            </View>
+            <View className="min-w-0 flex-1 gap-0.5">
+                <Text className="text-base text-foreground" numberOfLines={2}>
+                    {names}
+                </Text>
+                <Text className="text-sm text-muted-foreground">{action}</Text>
+            </View>
+            <Text className="text-xs text-muted-foreground">
+                {formatRelativeTime(first.created_at)}
+            </Text>
+            <Ionicons
+                name={expanded ? "chevron-up" : "chevron-down"}
+                size={16}
+                color={mutedForeground}
+            />
+        </Pressable>
+    );
 }
 
 function NotificationRow({
@@ -416,13 +621,5 @@ function NotificationRow({
         >
             {row}
         </Pressable>
-    );
-}
-
-function NoticeSeparator({ label }: { label: string }) {
-    return (
-        <Text className="py-2 text-center text-sm text-muted-foreground">
-            {label}
-        </Text>
     );
 }
