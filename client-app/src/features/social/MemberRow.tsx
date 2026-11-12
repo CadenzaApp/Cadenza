@@ -11,7 +11,10 @@ import { useAppTheme } from "@/lib/theme";
 
 import { initialsFromUsername } from "./format";
 
-/** An initials circle. There are no profile photos. */
+/**
+ * An initials circle. There are no profile photos. The rim is a faint tint
+ * of the text color, so it shows on glass and on the page alike.
+ */
 export function Initials({
     username,
     size = 40,
@@ -22,12 +25,12 @@ export function Initials({
     /** A green dot in the bottom right: the app open, or playing now. */
     online?: boolean;
 }) {
-    // a quarter of the avatar, never smaller than the border can ring
+    // a quarter of the avatar, never smaller than its rim can ring
     const dot = Math.max(10, Math.round(size / 4));
     return (
         <View style={{ width: size, height: size }}>
             <View
-                className="flex-1 items-center justify-center rounded-full border-2 border-background bg-muted"
+                className="flex-1 items-center justify-center rounded-full border border-foreground/20 bg-muted"
                 importantForAccessibility="no-hide-descendants"
             >
                 <Text
@@ -40,7 +43,7 @@ export function Initials({
             {online ? (
                 <View
                     accessibilityLabel="Online"
-                    className="absolute bottom-0 right-0 rounded-full border-2 border-background bg-success"
+                    className="absolute bottom-0 right-0 rounded-full border-2 border-muted bg-success"
                     style={{ width: dot, height: dot }}
                 />
             ) : null}

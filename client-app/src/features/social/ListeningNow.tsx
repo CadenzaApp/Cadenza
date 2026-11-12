@@ -42,19 +42,13 @@ const CARD_ARTWORK_SIZE = 104;
 /** Small tiles in the row, and the session tile, are this wide. */
 const TILE_WIDTH = 112;
 
-/**
- * The session tile never gets shorter than this, even beside the one line
- * shown when no friend is playing.
- */
-const TILE_MIN_HEIGHT = 156;
-
 /** Past this many friends listening, the header offers See all. */
 const STRIP_SEE_ALL_AFTER = 4;
 
 /**
- * The Listening now row at the top of the feed: your session tile first
- * (start one, enter a code, or open yours), then the most recent friend as a
- * full card, then the rest as small tiles. Tapping a friend opens their
+ * The Listening now row at the top of the feed. Under the title sit the
+ * session buttons (start one and enter a code, or open yours), then the most
+ * recent friend as a full card, then the rest as small tiles. Tapping a friend opens their
  * profile. Join appears on a card whose friend the viewer may join: their
  * session, or with none, one made for them on the spot. A friend in a live
  * session stays on the row while it is open, paused or not.
@@ -63,43 +57,29 @@ export function ListeningNowStrip() {
     const router = useRouter();
     const { friendsListening, friendsListeningLoading, friendsListeningErr } =
         useFriendsListening();
-    const { mutedForeground } = useAppTheme().colors;
+    const { mutedForeground, foreground } = useAppTheme().colors;
     const [featured, ...rest] = friendsListening ?? [];
+    const seeAll = (friendsListening?.length ?? 0) > STRIP_SEE_ALL_AFTER;
 
     return (
         <View className="mb-2 gap-2">
-            <View className="flex-row items-center justify-between">
-                <View className="flex-row items-center gap-1.5">
-                    <Ionicons
-                        name="headset-outline"
-                        size={14}
-                        color={mutedForeground}
-                    />
-                    <Text className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                        Listening now
-                    </Text>
-                </View>
-                {(friendsListening?.length ?? 0) > STRIP_SEE_ALL_AFTER ? (
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="See all friends listening"
-                        onPress={() => router.push("/social/listening" as Href)}
-                        className="flex-row items-center gap-0.5 active:opacity-60"
-                    >
-                        <Text className="text-sm font-semibold text-brand">
-                            See all
-                        </Text>
-                        <Ionicons name="chevron-forward" size={14} />
-                    </Pressable>
-                ) : null}
+            <View className="flex-row items-center gap-1.5">
+                <Ionicons
+                    name="headset-outline"
+                    size={14}
+                    color={mutedForeground}
+                />
+                <Text className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                    Listening now
+                </Text>
             </View>
+            <SessionButtons />
             <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 className="-mx-5"
                 contentContainerClassName="gap-3 px-5"
             >
-                <SessionTile />
                 {featured ? (
                     <FriendCard friend={featured} />
                 ) : friendsListeningLoading ? (
@@ -122,6 +102,29 @@ export function ListeningNowStrip() {
                         friend={friend}
                     />
                 ))}
+                {seeAll ? (
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="See all friends listening"
+                        onPress={() => router.push("/social/listening" as Href)}
+                        className="items-center gap-2 active:opacity-60"
+                        style={{ width: TILE_WIDTH }}
+                    >
+                        <View
+                            className="items-center justify-center rounded-2xl bg-muted/60"
+                            style={{ width: TILE_WIDTH, height: TILE_WIDTH }}
+                        >
+                            <Ionicons
+                                name="chevron-forward"
+                                size={28}
+                                color={foreground}
+                            />
+                        </View>
+                        <Text className="text-sm font-semibold text-foreground">
+                            See all
+                        </Text>
+                    </Pressable>
+                ) : null}
             </ScrollView>
         </View>
     );
@@ -151,77 +154,41 @@ export function AllListening() {
     );
 }
 
-/** Start a session or enter a code; or, when in one, open it. */
-function SessionTile() {
+/** Start a session and enter a code; or, when in one, open it. */
+function SessionButtons() {
     const router = useRouter();
     const liveSession = useShownLiveSession();
-    const { brand, foreground } = useAppTheme().colors;
 
     if (liveSession) {
-        const art = liveSession.current?.artwork_url;
         return (
-            <GlassPanel tintColor={`${brand}33`}>
-                <Pressable
-                    accessibilityRole="button"
+            <View className="flex-row">
+                <GlassPill
+                    icon="radio"
+                    label="Open your live session"
+                    chevron
                     accessibilityLabel={`Open your live session, ${liveSession.name}`}
                     onPress={() => router.push("/player")}
-                    className="grow gap-2 p-3 active:opacity-60"
-                    style={{ width: TILE_WIDTH, minHeight: TILE_MIN_HEIGHT }}
-                >
-                    <LiveChip />
-                    <Text
-                        className="text-sm font-semibold text-foreground"
-                        numberOfLines={2}
-                    >
-                        {liveSession.name}
-                    </Text>
-                    <Text className="text-xs text-muted-foreground">
-                        {liveSession.members.length} listening
-                    </Text>
-                    <View className="mt-auto">
-                        <Artwork url={art} size={40} />
-                    </View>
-                </Pressable>
-            </GlassPanel>
+                />
+            </View>
         );
     }
-
     return (
-        <GlassPanel>
-            <View
-                className="grow gap-2 p-3"
-                style={{ width: TILE_WIDTH, minHeight: TILE_MIN_HEIGHT }}
-            >
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Start a live session"
-                    onPress={() =>
-                        router.push("/live-session/new?openPlayer=1" as Href)
-                    }
-                    className="items-center gap-2 active:opacity-60"
-                >
-                    <View className="h-11 w-11 items-center justify-center rounded-full bg-muted/60">
-                        <Ionicons
-                            name="radio-outline"
-                            size={22}
-                            color={foreground}
-                        />
-                    </View>
-                    <Text className="text-center text-sm font-semibold text-foreground">
-                        Start session
-                    </Text>
-                </Pressable>
-                <View className="mt-auto items-center">
-                    <GlassPill
-                        size="sm"
-                        icon="keypad-outline"
-                        label="Code"
-                        accessibilityLabel="Join with a code"
-                        onPress={() => router.push("/join" as Href)}
-                    />
-                </View>
-            </View>
-        </GlassPanel>
+        <View className="flex-row flex-wrap items-center gap-2">
+            <GlassPill
+                icon="radio-outline"
+                label="Listen together"
+                accessibilityLabel="Start a live session"
+                onPress={() =>
+                    router.push("/live-session/new?openPlayer=1" as Href)
+                }
+            />
+            <GlassPill
+                icon="keypad-outline"
+                label="Join with code"
+                accessibilityLabel="Join with a code"
+                onPress={() => router.push("/join" as Href)}
+            />
+        </View>
     );
 }
 

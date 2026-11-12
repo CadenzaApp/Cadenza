@@ -108,21 +108,23 @@ function Shortcut({
     accessibilityLabel: string;
     onPress: () => void;
 }) {
-    const { foreground } = useAppTheme().colors;
+    const { brand } = useAppTheme().colors;
     return (
         <Pressable
             accessibilityRole="button"
             accessibilityLabel={accessibilityLabel}
+            hitSlop={4}
             onPress={(event: GestureResponderEvent) => {
                 event.stopPropagation();
                 onPress();
             }}
-            className="w-12 items-center gap-1 active:opacity-60"
+            className="min-w-12 items-center gap-1 active:opacity-60"
         >
-            <View className="h-10 w-10 items-center justify-center rounded-full bg-muted/60">
-                <Ionicons name={icon} size={20} color={foreground} />
+            {/* tinted and ringed like a button, so it reads as one */}
+            <View className="h-10 w-10 items-center justify-center rounded-full border border-foreground/20 bg-muted/60">
+                <Ionicons name={icon} size={20} color={brand} />
             </View>
-            <Text className="text-[11px] text-muted-foreground">{label}</Text>
+            <Text className="text-xs font-medium text-foreground">{label}</Text>
         </Pressable>
     );
 }
@@ -218,7 +220,7 @@ function FriendsCard() {
                             </View>
                         ))}
                         {more > 0 ? (
-                            <View className="-ml-2 h-8 w-8 items-center justify-center rounded-full border-2 border-background bg-muted">
+                            <View className="-ml-2 h-8 w-8 items-center justify-center rounded-full border border-foreground/20 bg-muted">
                                 <Text className="text-xs font-semibold text-foreground">
                                     +{more}
                                 </Text>
