@@ -32,7 +32,6 @@ import {
     useBottomBarsHidden,
     usePlayerHostActive,
     useBottomRowAction,
-    useBottomRowAssistantVisible,
 } from "@/lib/screen-overlay";
 import { AssistantRowButton } from "@/features/assistant/assistant-button";
 
@@ -129,10 +128,12 @@ function MediaPlayerRow({
     if (sortAction && sortAction !== lastAction) setLastAction(sortAction);
     const displayedAction = sortAction ?? lastAction;
     const sortVisible = sortAction !== null;
-    const assistantVisible = useBottomRowAssistantVisible();
     const nativeTargetY = useSharedValue(-(expandedHeight + PLAYER_ROW_GAP));
     const selectionContent = useBottomSelectionOverlay();
     const selectionVisible = selectionContent != null;
+    // Always the row's rightmost control, except while the multiselect
+    // toolbar takes the row.
+    const assistantVisible = !barsHidden && !selectionVisible;
     const { width: windowWidth } = useWindowDimensions();
     const [selectionPanel, setSelectionPanel] = useState({
         source: selectionContent,

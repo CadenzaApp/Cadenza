@@ -29,10 +29,7 @@ import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useOpenScreen } from "@/lib/open-screen";
 import { useDefaultTags } from "@/lib/routes/tags";
-import {
-    useBottomRowAssistantVisible,
-    useScreenOverlayInsets,
-} from "@/lib/screen-overlay";
+import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import {
     OVERLAY_GAP,
     PLAYER_CONTROL_SIZE,
@@ -92,7 +89,8 @@ export function TagPalette({
     });
     const { dragState } = useDrag();
     const deleteHovered = useDropHover("delete");
-    const { playerBottomInset } = useScreenOverlayInsets();
+    const { playerBottomInset, bottomControlRowVisible } =
+        useScreenOverlayInsets();
     // The native tab bar floats over this screen on both platforms. Its
     // platform-specific inset (and the player, when present) sets the floor;
     // the remaining 64 points hold the handle and heading with a small gap.
@@ -109,9 +107,8 @@ export function TagPalette({
     const collapsed = height <= minimumHeight;
     // Low enough that the heading row is level with the bottom row's controls,
     // so the search field stops short of the assistant button.
-    const assistantInRow = useBottomRowAssistantVisible();
     const clearAssistant =
-        assistantInRow &&
+        bottomControlRowVisible &&
         height <= minimumHeight + PLAYER_CONTROL_SIZE + OVERLAY_GAP;
     const deletingGroup = dragState?.payload.source === "condition";
     const filtered = useMemo(() => {

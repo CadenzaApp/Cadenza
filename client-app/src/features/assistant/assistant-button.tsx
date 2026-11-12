@@ -7,9 +7,9 @@ import { useAppTheme } from "@/lib/theme";
 
 /**
  * The round button that opens the assistant sheet. The media player host
- * draws it at the right end of the shared bottom row, with the sort button to
- * its left, whenever a focused screen asks for it with `useBottomRowAssistant`:
- * every tab's own screen and every song list with a sort button.
+ * draws it as the rightmost control of the shared bottom row, on every screen
+ * inside the tabs while the bottom bars show. A row action (sort, the Tags
+ * plus) sits one slot to its left. Hidden under the multiselect toolbar.
  */
 export function AssistantRowButton({ disabled }: { disabled: boolean }) {
     const router = useRouter();

@@ -3,6 +3,10 @@ import { ScrollView, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import {
+    OVERLAY_GAP,
+    PLAYER_CONTROL_SIZE,
+} from "@/lib/screen-overlay-geometry";
 import { Tag } from "@/lib/types";
 
 import {
@@ -49,7 +53,13 @@ export function AdvancedQueryBuilder({
     // the native tab bar floats over this screen, so the floating actions
     // and the editor's bottom edge clear all of it, the same as the palette
     // in the simple builder
-    const { floatingOverTabBarBottom } = useScreenOverlayInsets();
+    const { floatingOverTabBarBottom, bottomControlRowVisible } =
+        useScreenOverlayInsets();
+    // The bottom row's rightmost slot is the assistant button, so the
+    // results and history row sits one control higher whenever the row shows.
+    const actionsBottom =
+        floatingOverTabBarBottom +
+        (bottomControlRowVisible ? PLAYER_CONTROL_SIZE + OVERLAY_GAP : 0);
     const builderTags = useMemo<BuilderTags>(() => {
         const every = [...tags, ...activityTags];
         return {
@@ -93,7 +103,7 @@ export function AdvancedQueryBuilder({
     return (
         <View
             className="flex-1 gap-3 px-4 pt-4"
-            style={{ paddingBottom: floatingOverTabBarBottom }}
+            style={{ paddingBottom: actionsBottom }}
         >
             <ScrollView
                 className="flex-1"
@@ -111,7 +121,7 @@ export function AdvancedQueryBuilder({
             <View
                 pointerEvents="box-none"
                 className="absolute right-5 left-5 flex-row items-start justify-between"
-                style={{ bottom: floatingOverTabBarBottom }}
+                style={{ bottom: actionsBottom }}
             >
                 <View>{historyAction}</View>
                 {resultsAction}

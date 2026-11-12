@@ -1,8 +1,7 @@
-import { Stack, usePathname } from "expo-router";
+import { Stack } from "expo-router";
 
 import { TopRail } from "@/components/custom/top-rail";
 import { DETAIL_ROUTE_NAMES } from "@/lib/detail-stack";
-import { useBottomRowAssistant } from "@/lib/screen-overlay";
 import { TopRailProvider } from "@/lib/top-rail";
 
 type Props = {
@@ -24,9 +23,6 @@ type Props = {
  *
  * Every tab also holds the shared detail routes (album, tag, artist, ...), so
  * they push inside the tab and keep the tab bar. They draw their own header.
- *
- * The tab's own screen gets the assistant button in the bottom row. Song lists
- * with a sort button ask for it themselves, wherever they are pushed.
  */
 export function TabStack({ tab, title, pinnedRail }: Props) {
     return (
@@ -34,7 +30,6 @@ export function TabStack({ tab, title, pinnedRail }: Props) {
             pinned={pinnedRail?.map((name) => `${tab}/${name}`)}
             railless={DETAIL_ROUTE_NAMES}
         >
-            <TabRootAssistant tab={tab} />
             <Stack
                 screenOptions={{
                     header: ({ options, navigation, back, route }) => (
@@ -66,10 +61,4 @@ export function TabStack({ tab, title, pinnedRail }: Props) {
             </Stack>
         </TopRailProvider>
     );
-}
-
-/** Asks for the assistant button while this tab's own screen is the one showing. */
-function TabRootAssistant({ tab }: { tab: string }) {
-    useBottomRowAssistant(usePathname() === `/${tab}`);
-    return null;
 }
