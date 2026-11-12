@@ -23,12 +23,15 @@ use crate::{
         },
     },
     err::CadenzaError,
-    routes::json::social::{
-        CommentsCursor, CreateCommentResponse, CreatePostResponse, FeedResponse,
-        FriendshipsResponse, NotificationCursor, NotificationsResponse, PostCommentsResponse,
-        SocialAuthor, SocialComment, SocialFriend, SocialNotification, SocialPost,
-        TopicPostsCursor, TopicPostsResponse, UserPostsResponse, UserSearchPerson,
-        UserSearchResponse,
+    routes::json::{
+        social::{
+            CommentsCursor, CreateCommentResponse, CreatePostResponse, FeedResponse,
+            FriendshipsResponse, NotificationCursor, NotificationsResponse, PostCommentsResponse,
+            SocialAuthor, SocialComment, SocialFriend, SocialNotification, SocialPost,
+            TopicPostsCursor, TopicPostsResponse, UserPostsResponse, UserRepliesResponse,
+            UserSearchPerson, UserSearchResponse,
+        },
+        vec_into,
     },
     services::{
         realtime::SharedPresence,
@@ -691,6 +694,23 @@ async fn user_posts(
     }))
 }
 
+/// One user's comments, newest first, at most 100, each with the post it
+/// is on. `user` in the path is the commenter.
+///
+/// ```json
+/// { "replies": [ { "comment_id": 1, "post_id": 4, "content": "this", "likes": 2, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "post": { "post_id": 4, "content": "new album is out", "author": { "user_id": "...", "username": "bo" } } } ] }
+/// ```
+async fn user_replies(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(author_id): Path<Uuid>,
+) -> Result<Json<UserRepliesResponse>, CadenzaError> {
+    let replies = social::get_author_comments(&db, claims.user_id, author_id).await?;
+    Ok(Json(UserRepliesResponse {
+        replies: vec_into(replies),
+    }))
+}
+
 #[derive(Deserialize)]
 struct LikeBody {
     timestamp: i64,
@@ -891,6 +911,7 @@ pub fn get_social_router() -> Router<AppState> {
         .route("/posts/views", post(mark_viewed))
         .route("/posts/topic", get(topic_posts))
         .route("/posts/user/{author_id}", get(user_posts))
+        .route("/comments/user/{author_id}", get(user_replies))
         .route("/users", get(search_users))
         .route("/friends", get(friendships))
         .route(

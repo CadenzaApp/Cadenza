@@ -1501,6 +1501,81 @@ pub async fn get_author_posts(
     to_posts(db, &rows).await
 }
 
+/// How many replies a profile shows.
+const AUTHOR_COMMENT_LIMIT: u64 = 100;
+
+/// A comment, with the post it is on.
+#[derive(Clone, Debug)]
+pub struct AuthorComment {
+    pub comment: SocialComment,
+    pub post_content: String,
+    pub post_author_id: Uuid,
+    pub post_author_username: String,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct AuthorCommentRow {
+    #[sea_orm(nested)]
+    comment: CommentRow,
+    post_content: String,
+    post_author_id: Uuid,
+    post_author_username: String,
+}
+
+/// One author's comments, newest first, at most [`AUTHOR_COMMENT_LIMIT`].
+/// Left out when the viewer and either the commenter or the post's author
+/// block each other.
+pub async fn get_author_comments(
+    db: &DatabaseConnection,
+    viewer_id: Uuid,
+    author_id: Uuid,
+) -> Result<Vec<AuthorComment>, CadenzaError> {
+    let rows = AuthorCommentRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        format!(
+            "SELECT
+             c.comment_id,
+             c.post_id,
+             c.user_id AS author_id,
+             c.content,
+             c.likes,
+             c.created_at,
+             c.edited_at,
+             COALESCE(cr.username, 'unknown') AS username,
+             EXISTS (
+                 SELECT 1 FROM comment_likes
+                 WHERE comment_likes.comment_id = c.comment_id
+                   AND comment_likes.user_id = $1
+             ) AS liked,
+             p.content AS post_content,
+             p.user_id AS post_author_id,
+             COALESCE(pr.username, 'unknown') AS post_author_username
+         FROM comments c
+         JOIN posts p ON p.post_id = c.post_id
+         LEFT JOIN profile cr ON cr.uid = c.user_id
+         LEFT JOIN profile pr ON pr.uid = p.user_id
+         WHERE c.user_id = $2
+           AND {NOT_BLOCKED_AUTHOR}
+           AND {not_blocked_commenter}
+         ORDER BY c.created_at DESC, c.comment_id DESC
+         LIMIT {AUTHOR_COMMENT_LIMIT}",
+            not_blocked_commenter = NOT_BLOCKED_AUTHOR.replace("p.user_id", "c.user_id"),
+        ),
+        vec![viewer_id.into(), author_id.into()],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| AuthorComment {
+            comment: row.comment.to_comment(),
+            post_content: row.post_content,
+            post_author_id: row.post_author_id,
+            post_author_username: row.post_author_username,
+        })
+        .collect())
+}
+
 /// Normalized weighted sum of the top 10 genres and top 10 artists.
 /// `Ok(None)` when the user has nothing to sum.
 pub async fn user_vector(

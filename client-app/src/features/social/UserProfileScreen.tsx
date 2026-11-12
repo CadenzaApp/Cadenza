@@ -1,39 +1,65 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation, useRouter, type Href } from "expo-router";
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useState,
+} from "react";
 import { FlatList, Pressable, View, type ListRenderItem } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { Toast, useToast } from "@/components/custom/toast";
 import { Button } from "@/components/ui/button";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
+import {
+    SegmentedControl,
+    type SegmentOption,
+} from "@/components/ui/segmented-control";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import {
     useBlockUser,
     useCancelFriendRequest,
     useFavoriteFriend,
+    usePost,
     useRequestFriend,
     useUserPosts,
+    useUserReplies,
 } from "@/lib/routes/social";
 import { useAppTheme } from "@/lib/theme";
+import type { SocialReply } from "@/lib/types";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 
 import { FriendOptionsMenu, type FriendMenuTarget } from "./FriendOptionsMenu";
-import { initialsFromUsername } from "./format";
+import { formatRelativeTime, initialsFromUsername } from "./format";
 import { ProfileListening } from "./ListeningNow";
 import { PostCard } from "./PostCard";
+import { PostCommentsDialog } from "./PostCommentsDialog";
 import type { SocialPost } from "./types";
 
 type Props = {
     userId: string;
 };
 
+type ProfileTab = "posts" | "replies";
+
+const PROFILE_TABS: readonly SegmentOption<ProfileTab>[] = [
+    { value: "posts", label: "Posts" },
+    { value: "replies", label: "Replies" },
+];
+
+type ProfileRow =
+    | { kind: "post"; post: SocialPost }
+    | { kind: "reply"; reply: SocialReply };
+
 /**
- * One user's public profile: avatar, username, bio, then their posts newest
- * first. Opened by tapping an author on the feed, the feed's Me button,
+ * One user's public profile: avatar, username, bio, then their posts or their
+ * replies, newest first, picked by a Posts / Replies switch. Tapping a reply
+ * opens its post's comments. Opened by tapping an author on the feed, the feed's Me button,
  * account details, or from Discuss, which closes itself and lands here on the
  * Social tab. On your own page, Edit opens account details, the one place
  * a username and bio are edited. Under the avatar and username is how many
@@ -46,12 +72,18 @@ type Props = {
  */
 export function UserProfileScreen({ userId }: Props) {
     const { listBottomInset } = useScreenOverlayInsets();
-    const scroll = useScreenScroll<FlatList<SocialPost>>();
+    const scroll = useScreenScroll<FlatList<ProfileRow>>();
     const navigation = useNavigation();
     const router = useRouter();
     const { account } = useAccount();
     const { profile, posts, userPostsLoading, userPostsErr } =
         useUserPosts(userId);
+    const [tab, setTab] = useState<ProfileTab>("posts");
+    const { replies, userRepliesLoading, userRepliesErr } = useUserReplies(
+        tab === "replies" ? userId : undefined,
+    );
+    const [openPostId, setOpenPostId] = useState<number | null>(null);
+    const { post: openedPost } = usePost(openPostId);
     const { requestFriend, requestFriendLoading } = useRequestFriend();
     const { cancelFriendRequest, cancelFriendRequestLoading } =
         useCancelFriendRequest();
@@ -94,8 +126,13 @@ export function UserProfileScreen({ userId }: Props) {
         });
     }, [navigation, username]);
 
-    const renderItem = useCallback<ListRenderItem<SocialPost>>(
-        ({ item }) => <PostCard post={item} />,
+    const renderItem = useCallback<ListRenderItem<ProfileRow>>(
+        ({ item }) =>
+            item.kind === "post" ? (
+                <PostCard post={item.post} />
+            ) : (
+                <ReplyCard reply={item.reply} onPress={setOpenPostId} />
+            ),
         [],
     );
 
@@ -143,14 +180,30 @@ export function UserProfileScreen({ userId }: Props) {
         }
     };
 
-    const loading = userPostsLoading && posts.length === 0;
-    const emptyLabel = profile?.blocked
+    const blocked = profile?.blocked === true;
+    const rows = useMemo((): ProfileRow[] => {
+        if (blocked) return [];
+        return tab === "posts"
+            ? posts.map((post) => ({ kind: "post", post }))
+            : replies.map((reply) => ({ kind: "reply", reply }));
+    }, [blocked, posts, replies, tab]);
+    const [loading, failed, noun] =
+        tab === "posts"
+            ? [userPostsLoading && posts.length === 0, userPostsErr, "posts"]
+            : [
+                  userRepliesLoading && replies.length === 0,
+                  userRepliesErr,
+                  "replies",
+              ];
+    const emptyLabel = blocked
         ? "You blocked this account."
         : loading
-          ? "Loading posts..."
-          : userPostsErr
-            ? "Couldn't load posts."
-            : "No posts yet.";
+          ? `Loading ${noun}...`
+          : failed
+            ? `Couldn't load ${noun}.`
+            : `No ${noun} yet.`;
+    const openPost =
+        openedPost && openedPost.post_id === openPostId ? openedPost : null;
 
     return (
         <View className="flex-1 bg-background">
@@ -158,9 +211,9 @@ export function UserProfileScreen({ userId }: Props) {
                 <Animated.FlatList
                     {...scroll}
                     className="flex-1"
-                    data={posts}
+                    data={rows}
                     keyboardShouldPersistTaps="handled"
-                    keyExtractor={(post) => String(post.post_id)}
+                    keyExtractor={rowKey}
                     ListHeaderComponent={
                         <View>
                             <ProfileHeader
@@ -173,7 +226,7 @@ export function UserProfileScreen({ userId }: Props) {
                                     account != null && account.id !== userId
                                 }
                                 isFriend={isFriend}
-                                blocked={profile?.blocked === true}
+                                blocked={blocked}
                                 requestReceived={
                                     acceptedFor !== userId &&
                                     unfriendedFor !== userId &&
@@ -243,6 +296,16 @@ export function UserProfileScreen({ userId }: Props) {
                                 }
                             />
                             <ProfileListening userId={userId} />
+                            {blocked ? null : (
+                                <View className="mb-4">
+                                    <SegmentedControl
+                                        size="sm"
+                                        options={PROFILE_TABS}
+                                        value={tab}
+                                        onChange={setTab}
+                                    />
+                                </View>
+                            )}
                         </View>
                     }
                     renderItem={renderItem}
@@ -280,8 +343,58 @@ export function UserProfileScreen({ userId }: Props) {
                 onOpenChange={setConfirmBlock}
                 onConfirm={() => void block()}
             />
+            {openPost ? (
+                <PostCommentsDialog
+                    open
+                    onOpenChange={(open) => {
+                        if (!open) setOpenPostId(null);
+                    }}
+                    post={openPost}
+                    onAuthorPress={(authorId) => {
+                        setOpenPostId(null);
+                        router.push(`/social/user/${authorId}`);
+                    }}
+                />
+            ) : null}
             <Toast toast={toast} />
         </View>
+    );
+}
+
+function rowKey(row: ProfileRow) {
+    return row.kind === "post"
+        ? `post:${row.post.post_id}`
+        : `reply:${row.reply.comment_id}`;
+}
+
+/** One reply: who and what it answered, then the reply itself. */
+function ReplyCard({
+    reply,
+    onPress,
+}: {
+    reply: SocialReply;
+    onPress: (postId: number) => void;
+}) {
+    return (
+        <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Reply to ${reply.post.author.username}: ${reply.content}`}
+            onPress={() => onPress(reply.post_id)}
+            className="gap-2 rounded-2xl border border-border p-4 active:opacity-60"
+        >
+            <Text className="text-xs text-muted-foreground">
+                Replying to {reply.post.author.username}
+                {" \u00b7 "}
+                {formatRelativeTime(reply.created_at)}
+            </Text>
+            <Text
+                className="border-l-2 border-border pl-3 text-sm text-muted-foreground"
+                numberOfLines={2}
+            >
+                {reply.post.content}
+            </Text>
+            <Text className="text-base text-foreground">{reply.content}</Text>
+        </Pressable>
     );
 }
 

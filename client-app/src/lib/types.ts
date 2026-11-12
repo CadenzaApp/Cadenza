@@ -144,6 +144,19 @@ export type SocialComment = {
     };
 };
 
+/** One of a user's comments, from `GET /social/comments/user/:id`. */
+export type SocialReply = SocialComment & {
+    /** The post it answers. */
+    post: {
+        post_id: number;
+        content: string;
+        author: {
+            user_id: string;
+            username: string;
+        };
+    };
+};
+
 /** What happened. The phone picks a glyph from this. */
 export type NotificationType =
     | "friend_req_received"

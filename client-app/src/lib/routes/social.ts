@@ -29,6 +29,7 @@ import type {
     SocialComment,
     Friendships,
     SocialNotification,
+    SocialReply,
     SocialPost,
     UserSearchPerson,
     SocialUserProfile,
@@ -1115,6 +1116,25 @@ export function useUserPosts(authorId?: string) {
         posts: x.data?.posts ?? EMPTY_POSTS,
         userPostsLoading: x.isLoading,
         userPostsErr: x.error,
+    };
+}
+
+const EMPTY_REPLIES: SocialReply[] = [];
+
+/**
+ * One user's comments, newest first, at most 100, each with the post it
+ * answers. Pass no id to leave it unread.
+ */
+export function useUserReplies(authorId?: string) {
+    const x = useAPIData<{ replies: SocialReply[] }>(
+        `/social/comments/user/${authorId}`,
+        undefined,
+        { enabled: Boolean(authorId) },
+    );
+    return {
+        replies: x.data?.replies ?? EMPTY_REPLIES,
+        userRepliesLoading: x.isLoading,
+        userRepliesErr: x.error,
     };
 }
 

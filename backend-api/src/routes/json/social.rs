@@ -4,7 +4,9 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::db::shared_playlists::PlaylistCard;
-use crate::db::social::{PublicProfile, SocialComment as CommentRow, SocialPost as PostRow};
+use crate::db::social::{
+    AuthorComment, PublicProfile, SocialComment as CommentRow, SocialPost as PostRow,
+};
 
 /// One post as `/social/feed`, `/social/posts/user/:id`, and
 /// `/social/posts/topic` return it.
@@ -189,6 +191,43 @@ pub struct CreatePostResponse {
 pub struct UserPostsResponse {
     pub profile: SocialUserProfile,
     pub posts: Vec<SocialPost>,
+}
+
+/// The post a reply is on, enough to show what it answered.
+#[derive(Serialize)]
+pub struct RepliedPost {
+    pub post_id: i64,
+    pub content: String,
+    pub author: SocialAuthor,
+}
+
+/// One of a user's comments, with its post.
+#[derive(Serialize)]
+pub struct SocialReply {
+    #[serde(flatten)]
+    pub comment: SocialComment,
+    pub post: RepliedPost,
+}
+
+impl From<AuthorComment> for SocialReply {
+    fn from(reply: AuthorComment) -> Self {
+        Self {
+            post: RepliedPost {
+                post_id: reply.comment.post_id,
+                content: reply.post_content,
+                author: SocialAuthor {
+                    user_id: reply.post_author_id.to_string(),
+                    username: reply.post_author_username,
+                },
+            },
+            comment: reply.comment.into(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct UserRepliesResponse {
+    pub replies: Vec<SocialReply>,
 }
 
 /// The sort position of the last topic post on a full page. The next request
