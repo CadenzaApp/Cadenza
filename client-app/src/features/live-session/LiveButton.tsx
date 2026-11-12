@@ -17,7 +17,8 @@ import { OptionRow, errorType } from "./session-parts";
 import { useShownLiveSession } from "./use-current-session";
 
 /**
- * The player's live button, where shuffle used to be. Outside a live session
+ * The player's live button, where shuffle used to be: a radio icon labeled
+ * Go live, or Live while in a session. Outside a live session
  * it opens the Go live sheet, which asks to turn what is playing into one. In
  * one it lights up and opens the session's menu: settings, listen mode,
  * leave, and end.
@@ -54,13 +55,20 @@ export function LiveButton() {
                         : "Start a live session"
                 }
                 onPress={press}
-                className="h-12 w-12 items-center justify-center active:opacity-60"
+                className="h-12 min-w-12 items-center justify-center active:opacity-60"
             >
                 <Ionicons
                     name={session ? "radio" : "radio-outline"}
-                    size={26}
+                    size={22}
                     color={session ? brand : foreground}
                 />
+                {/* an icon alone did not say what it does */}
+                <Text
+                    className="text-[10px] font-semibold"
+                    style={{ color: session ? brand : foreground }}
+                >
+                    {session ? "Live" : "Go live"}
+                </Text>
             </Pressable>
             {session ? (
                 <SessionMenu

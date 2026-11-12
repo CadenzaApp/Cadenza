@@ -118,7 +118,7 @@ over them like any tab screen. No separate player host is needed.
 Playback state lives in `PlaybackProvider`, not here.
 
 The now playing sheet is also the live session's screen. The transport's left slot is
-`LiveButton` (`@/features/live-session`), a radio icon: outside a session it opens the Go live sheet
+`LiveButton` (`@/features/live-session`), a radio icon labeled Go live (Live in a session): outside a session it opens the Go live sheet
 (`/live-session/new`); in one it turns red and opens the session menu (settings,
 listen mode, hand over, leave, end). In a session a LIVE tag and the session name sit above the
 transport, and the progress bar is red. In a session the pager's tab bar is swapped for `LiveSessionBar` (Requests, People, Add,

@@ -77,7 +77,7 @@ const SHEET_SEGMENTS = new Set([
 
 export type BottomRowAction = {
     expanded: boolean;
-    icon: "add" | "funnel" | "funnel-outline";
+    icon: "add" | "create-outline" | "funnel" | "funnel-outline";
     accessibilityLabel: string;
     onPress: () => void;
 };

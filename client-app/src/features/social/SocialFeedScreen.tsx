@@ -12,6 +12,7 @@ import {
 import {
     ActivityIndicator,
     FlatList,
+    Pressable,
     RefreshControl,
     View,
     type ListRenderItem,
@@ -23,6 +24,7 @@ import { BottomRowActionBubble } from "@/components/custom/bottom-row-action-bub
 import { ListDivider } from "@/components/custom/list-divider";
 import { Toast, useToast } from "@/components/custom/toast";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
+import { GlassPanel } from "@/components/ui/glass-panel";
 import {
     SegmentedControl,
     type SegmentOption,
@@ -40,6 +42,7 @@ import {
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
+import { useAppTheme } from "@/lib/theme";
 import { stopTopicPreview } from "@/lib/topic-preview";
 import { useTopRailInset } from "@/lib/top-rail";
 
@@ -426,6 +429,7 @@ export function SocialFeedScreen() {
                         <SocialFeedHeader
                             filter={filter}
                             onFilterChange={setFilter}
+                            onCompose={openCompose}
                         />
                     }
                     contentContainerStyle={[
@@ -460,7 +464,7 @@ export function SocialFeedScreen() {
             </ScreenScrollMarker>
 
             <BottomRowActionBubble
-                icon="add"
+                icon="create-outline"
                 accessibilityLabel="Create a new post"
                 expanded={composeOpen}
                 onPress={openCompose}
@@ -490,21 +494,43 @@ const FEED_FILTERS: readonly SegmentOption<FeedFilter>[] = [
 ];
 
 /**
- * Everything above the posts: the hub cards, the Listening now row, and the
- * For you / Friends filter.
+ * Everything above the posts: the hub cards, the Listening now row, a prompt
+ * that opens the new post sheet, and the For you / Friends filter.
  */
 function SocialFeedHeader({
     filter,
     onFilterChange,
+    onCompose,
 }: {
     filter: FeedFilter;
     onFilterChange: (filter: FeedFilter) => void;
+    onCompose: () => void;
 }) {
+    const { mutedForeground } = useAppTheme().colors;
     return (
         <View className="mb-3">
             <SocialHubCards />
             <ListeningNowStrip />
-            <View className="mt-6">
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Create a new post"
+                onPress={onCompose}
+                className="mt-6 active:opacity-60"
+            >
+                <GlassPanel>
+                    <View className="flex-row items-center gap-3 px-4 py-3">
+                        <Ionicons
+                            name="create-outline"
+                            size={20}
+                            color={mutedForeground}
+                        />
+                        <Text className="flex-1 text-base text-muted-foreground">
+                            Share what you&apos;re listening to...
+                        </Text>
+                    </View>
+                </GlassPanel>
+            </Pressable>
+            <View className="mt-4">
                 <SegmentedControl
                     size="sm"
                     options={FEED_FILTERS}
