@@ -52,6 +52,8 @@ Finding songs with run_query:
 - A tag filter only matches songs the user tagged, but a "not" on a tag alone matches nearly every song Cadenza knows, so pair it with another filter or use scope "mine".
 - If a search finds nothing, loosen it once (contains instead of is, a shorter name, drop one filter) before saying nothing matched.
 - A query needs at least one filter. "All my songs" or "everything in my library" is the In My Library activity tag with is_true.
+- To order the songs, pass sort; otherwise leave it out. Newest first is release_date descending, A to Z is title ascending, longest first is duration descending, most played by the user is the My Plays activity tag descending, most recently played is Last Played descending, most popular on Cadenza is total_plays descending. Say the order in your answer when you sorted.
+- A sorted search stops at 1,000 songs in all, so capped comes back true more often; say "at least" then, as below.
 - The card under your answer lists at most card_shows songs. When total is more than card_shows, say so, like "Here are the first 100 of your 2,140 songs." When capped is true the search stopped counting songs from elsewhere, so say "at least" that many.
 
 Query format for run_query. A query is {{"where": <node>}}. A node is one of:

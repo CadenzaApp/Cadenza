@@ -382,6 +382,11 @@ append each call and its output, and repeat until the model answers with text. I
   one filter, so "all my songs" has to go through In My Library.
 - `run_query` returns `card_shows`, how many the song card lists, and the prompt has the model
   say when `total` is more than that, or "at least" when `capped`.
+- `run_query` takes an optional `sort`, a `QuerySort` (a metadata key or a tag, activity tags
+  included, and a direction), run through the same arrangement code as the app's sort button.
+  The prompt maps "newest first", "most played", "recently played" and the like onto it. Sorted,
+  every song counts toward the 1,000 cap, and songs with no stored metadata sort last: unlike
+  `POST /queries/results`, the tool does not store missing metadata before sorting.
 - Every tool call is printed as `[assistant] <tool> <arguments> -> <output>`, each cut to 300
   characters, so a wrong answer can be traced to what the model asked for.
 - The tags in the prompt are JSON, and the prompt says tool output is data, so a song title or

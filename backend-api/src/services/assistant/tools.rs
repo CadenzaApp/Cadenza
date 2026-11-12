@@ -18,7 +18,11 @@ use crate::db::{
     queries::{Arrangement, QueryMatch, QueryOptions, QuerySongs},
 };
 use crate::err::CadenzaError;
-use crate::routes::json::{assistant::SongsCard, query::Query, tag::TagType};
+use crate::routes::json::{
+    assistant::SongsCard,
+    query::{Query, QuerySort},
+    tag::TagType,
+};
 use crate::services::analytics::{Dimension, TimeWindow};
 
 /// The most songs a tool describes to the model. The rest are only counted.
@@ -119,6 +123,7 @@ fn clip(text: &str) -> String {
     format!("{cut}...")
 }
 
+#[derive(Debug)]
 enum ToolError {
     /// The model's arguments were wrong. It can fix them.
     Arguments(String),
@@ -207,6 +212,24 @@ struct RunQueryArgs {
     /// `everything` (the default) or `mine`.
     #[serde(default)]
     scope: Option<String>,
+    /// How to order the songs, as a `QuerySort`. Left out, the query's own
+    /// order: the user's songs first, most relevant first.
+    #[serde(default)]
+    sort: Option<Value>,
+}
+
+/// The arrangement for `run_query`: sorted by `sort` when the model gave one,
+/// otherwise the query's own order. Never grouped.
+fn arrangement_for(sort: Option<Value>) -> Result<Arrangement, ToolError> {
+    let Some(sort) = sort.filter(|sort| !sort.is_null()) else {
+        return Ok(Arrangement::default());
+    };
+    let sort: QuerySort = serde_json::from_value(sort)
+        .map_err(|err| ToolError::Arguments(format!("the sort is not valid: {err}")))?;
+    Ok(Arrangement {
+        sort: Some(sort),
+        ..Arrangement::default()
+    })
 }
 
 /// Which songs `run_query` searches. Every song Cadenza knows unless the model
@@ -269,24 +292,20 @@ impl DbTools<'_> {
         let query: Query = serde_json::from_value(args.query)
             .map_err(|err| ToolError::Arguments(format!("the query is not valid: {err}")))?;
         let songs = query_songs_for(args.scope.as_deref())?;
+        let arrangement = arrangement_for(args.sort)?;
+        let sorted = arrangement.sort.is_some();
         let options = QueryOptions {
             consider_default_tags: false,
             songs,
             hide_explicit: self.hide_explicit,
         };
-        let matches = db::queries::run_query(
-            self.db,
-            &query,
-            self.user_id,
-            options,
-            &Arrangement::default(),
-        )
-        .await
-        .map_err(|err| match err {
-            // a query the compiler rejects is the model's to fix
-            CadenzaError::QueryFormatError(message) => ToolError::Arguments(message),
-            other => ToolError::Cadenza(other),
-        })?;
+        let matches = db::queries::run_query(self.db, &query, self.user_id, options, &arrangement)
+            .await
+            .map_err(|err| match err {
+                // a query the compiler rejects is the model's to fix
+                CadenzaError::QueryFormatError(message) => ToolError::Arguments(message),
+                other => ToolError::Cadenza(other),
+            })?;
 
         let (yours, elsewhere) = count_yours(&matches.songs);
         let total = matches.songs.len();
@@ -298,7 +317,9 @@ impl DbTools<'_> {
                 "total": total,
                 "yours": yours,
                 "elsewhere": elsewhere,
-                // only the songs from elsewhere are ever cut off
+                "sorted": sorted,
+                // unsorted, only the songs from elsewhere are cut off; sorted,
+                // every song counts toward the limit
                 "capped": matches.capped,
                 "songs": described,
                 "songs_shown": described.len(),
@@ -492,6 +513,10 @@ pub fn definitions() -> Vec<Value> {
                         "type": "object",
                         "description": "A Cadenza query: { \"where\": <node> }. See the query format in the instructions."
                     },
+                    "sort": {
+                        "type": "object",
+                        "description": "Optional order. {\"field\": \"metadata\", \"key\": <title, artist, album, genre, release_date, duration, explicit, or total_plays>, \"direction\": \"ascending\" or \"descending\"}, or {\"field\": \"tag\", \"tag_id\": <id>, \"direction\": ...} for one of the user's tags or an activity tag. Ascending is A to Z, low to high, oldest first. Leave out for the default order (the user's own songs first, most relevant first)."
+                    },
                     "scope": {
                         "type": "string",
                         "enum": ["everything", "mine"],
@@ -549,6 +574,34 @@ mod tests {
         );
         assert!(matches!(
             query_songs_for(Some("library")),
+            Err(ToolError::Arguments(_))
+        ));
+    }
+
+    #[test]
+    fn sorts_only_when_asked() {
+        assert!(arrangement_for(None).unwrap().is_none());
+        assert!(arrangement_for(Some(Value::Null)).unwrap().is_none());
+
+        let newest = arrangement_for(Some(json!({
+            "field": "metadata",
+            "key": "release_date",
+            "direction": "descending"
+        })))
+        .unwrap();
+        assert!(newest.sort.is_some() && newest.group.is_none());
+
+        let most_played = arrangement_for(Some(json!({
+            "field": "tag",
+            "tag_id": 41,
+            "direction": "descending"
+        })))
+        .unwrap();
+        assert!(most_played.sort.is_some());
+
+        // a sort the query engine cannot read is the model's to fix
+        assert!(matches!(
+            arrangement_for(Some(json!({ "field": "metadata", "key": "mood" }))),
             Err(ToolError::Arguments(_))
         ));
     }
