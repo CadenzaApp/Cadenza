@@ -104,6 +104,7 @@ directories with only a few straightforward files do not need documentation.
 | [client-app/src/features/cadenza/README.md](client-app/src/features/cadenza/README.md)                               | Combined tag management and query workspace                                       |
 | [client-app/src/features/account/README.md](client-app/src/features/account/README.md)                               | Account, Apple Music, and Appearance settings                                     |
 | [client-app/src/features/analytics/README.md](client-app/src/features/analytics/README.md)                           | The Analytics tab, its charts, and how it reads                                   |
+| [client-app/src/features/assistant/README.md](client-app/src/features/assistant/README.md)                           | The assistant chat sheet and its floating button                                  |
 | [client-app/src/features/library/README.md](client-app/src/features/library/README.md)                               | The library type filter in the top rail                                           |
 | [client-app/src/features/onboarding/README.md](client-app/src/features/onboarding/README.md)                         | Splash, login, and the Apple Music connect step                                   |
 | [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md)                   | The drag and drop boolean query tree                                              |
