@@ -1,14 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import type { MusicItem } from "@apple-musickit";
+import { ShuffleMode, type MusicItem } from "@apple-musickit";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
 import { logHandledError } from "@/lib/log";
 import { usePagedTracksForSongIds } from "@/lib/musickit-hooks";
-import { usePlayAll } from "@/lib/play-all";
 import { usePlaybackCommands } from "@/lib/playback";
 import { useAppTheme } from "@/lib/theme";
 
@@ -32,35 +31,52 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
         songs.song_ids,
     );
     const router = useRouter();
-    const { playQueue } = usePlaybackCommands();
-    const resolveQueue = useCallback(
-        () => resolveTracks(songs.song_ids),
-        [resolveTracks, songs.song_ids],
-    );
-    // set by usePlayAll just before a song starts, so an empty queue or a
-    // second tap while one resolves does not open the player
-    const started = useRef(false);
-    const onStart = useCallback(() => {
-        started.current = true;
-    }, []);
-    const { play, shuffle, pending } = usePlayAll({ resolveQueue, onStart });
+    const { playQueue, setShuffleMode } = usePlaybackCommands();
+    // a ref as well as state, so two taps in one frame cannot both start
+    const running = useRef(false);
+    const [pending, setPending] = useState(false);
 
     const openNowPlaying = useCallback(() => {
         router.replace("/player");
     }, [router]);
 
+    /**
+     * Plays every song on the card, in order or shuffled, then opens the now
+     * playing sheet.
+     *
+     * Shuffle shuffles the songs here and starts at the first, with Apple's
+     * shuffle off. Turning Apple's shuffle on and starting at a random song
+     * (what `usePlayAll` does) leaves the queue in list order, so Up Next only
+     * showed the songs after wherever it happened to start, sometimes one.
+     */
     const playAll = useCallback(
         async (shuffled: boolean) => {
-            started.current = false;
+            if (running.current) return;
+            running.current = true;
+            setPending(true);
             try {
-                await (shuffled ? shuffle() : play());
+                const resolved = await resolveTracks(songs.song_ids);
+                if (resolved.length === 0) return;
+                await setShuffleMode(ShuffleMode.Off);
+                await playQueue({
+                    tracks: shuffled ? shuffledCopy(resolved) : resolved,
+                    startIndex: 0,
+                });
+                openNowPlaying();
             } catch (error) {
                 logHandledError("Assistant could not play the songs", error);
-                return;
+            } finally {
+                running.current = false;
+                setPending(false);
             }
-            if (started.current) openNowPlaying();
         },
-        [openNowPlaying, play, shuffle],
+        [
+            openNowPlaying,
+            playQueue,
+            resolveTracks,
+            setShuffleMode,
+            songs.song_ids,
+        ],
     );
 
     const shown = tracks.slice(0, SHOWN_SONGS);
@@ -193,4 +209,14 @@ function SongRowSkeleton() {
             </View>
         </View>
     );
+}
+
+/** A shuffled copy of `items` (Fisher-Yates). */
+function shuffledCopy<T>(items: readonly T[]): T[] {
+    const copy = [...items];
+    for (let i = copy.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
 }

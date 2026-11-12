@@ -41,6 +41,11 @@ Assistant section of [backend-api/src/services/README.md](../../../../backend-ap
 - The composer measures how far the keyboard covers the sheet and pads by that much, on both
   platforms. Neither moves a native sheet for the keyboard: `KeyboardAvoidingView` does not see
   an iOS sheet's frame, and react-native-screens leaves a one-detent Android sheet in place.
+- The chat list has `nestedScrollEnabled`, so on Android the sheet lets it scroll first and
+  only moves itself once the list is at its top or cannot scroll.
+- Shuffle on the song card shuffles the songs itself and starts at the first, with Apple's
+  shuffle off, so Up Next lists all of them. `usePlayAll` instead starts at a random song with
+  Apple's shuffle on, and Up Next then shows only the songs after it.
 - Playing from the song card (a row, Play, or Shuffle) replaces the assistant sheet with the now
   playing sheet once a song starts. The conversation stays in the store.
 - Replies are plain text: the prompt tells the model not to use markdown, since nothing renders

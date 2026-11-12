@@ -84,6 +84,10 @@ export function AssistantChat() {
                     contentContainerClassName="grow gap-4 px-5 pb-4 pt-2"
                     keyboardShouldPersistTaps="handled"
                     keyboardDismissMode="interactive"
+                    // Android: makes this the list the sheet hands vertical
+                    // drags to. It scrolls first, and once it is at the top
+                    // (or too short to scroll) the drag moves the sheet.
+                    nestedScrollEnabled
                     onContentSizeChange={() =>
                         scrollRef.current?.scrollToEnd({ animated: true })
                     }
