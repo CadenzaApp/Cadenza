@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import {
+    Dimensions,
     Keyboard,
     LayoutAnimation,
     Platform,
@@ -64,11 +65,11 @@ export function AssistantChat() {
                 entries.length > 0 ? (
                     <GlassIconButton
                         bordered={false}
-                        accessibilityLabel="New chat"
+                        accessibilityLabel="Clear chat"
                         onPress={reset}
                     >
                         <Ionicons
-                            name="create-outline"
+                            name="trash-outline"
                             size={21}
                             color={colors.foreground}
                         />
@@ -141,34 +142,48 @@ export function AssistantChat() {
 /**
  * How far the keyboard reaches up over the bottom of `bodyRef`, in points, or
  * 0 while it is down. Measured against the view's place in the window rather
- * than assumed, since a sheet does not always end at the screen's bottom edge
- * and `KeyboardAvoidingView` does not see the sheet's frame.
- *
- * iOS only. Android resizes the window for the keyboard on its own (Expo's
- * default soft keyboard mode), so the view already ends above it.
+ * than assumed, since neither platform moves a native sheet for the keyboard:
+ * iOS leaves the sheet where it is and `KeyboardAvoidingView` does not see its
+ * frame, and react-native-screens' Android sheet stays put at a single detent
+ * even though the window resizes. A view the system already moved clear of the
+ * keyboard measures 0, so nothing is padded twice.
  */
 function useKeyboardOverlap(bodyRef: RefObject<View | null>) {
     const [overlap, setOverlap] = useState(0);
 
     useEffect(() => {
-        if (Platform.OS !== "ios") return;
+        const ios = Platform.OS === "ios";
         const animate = (event: KeyboardEvent) => {
+            // Android has no will-show event to animate alongside
+            if (!ios) return;
             LayoutAnimation.configureNext({
                 duration: event.duration || 250,
                 update: { type: LayoutAnimation.Types.keyboard },
             });
         };
-        const shown = Keyboard.addListener("keyboardWillShow", (event) => {
-            const keyboardTop = event.endCoordinates.screenY;
-            bodyRef.current?.measureInWindow((_x, y, _width, height) => {
+        const shown = Keyboard.addListener(
+            ios ? "keyboardWillShow" : "keyboardDidShow",
+            (event) => {
+                const { screenY, height } = event.endCoordinates;
+                const keyboardTop =
+                    screenY > 0
+                        ? screenY
+                        : Dimensions.get("screen").height - height;
+                bodyRef.current?.measureInWindow(
+                    (_x, y, _width, viewHeight) => {
+                        animate(event);
+                        setOverlap(Math.max(0, y + viewHeight - keyboardTop));
+                    },
+                );
+            },
+        );
+        const hidden = Keyboard.addListener(
+            ios ? "keyboardWillHide" : "keyboardDidHide",
+            (event) => {
                 animate(event);
-                setOverlap(Math.max(0, y + height - keyboardTop));
-            });
-        });
-        const hidden = Keyboard.addListener("keyboardWillHide", (event) => {
-            animate(event);
-            setOverlap(0);
-        });
+                setOverlap(0);
+            },
+        );
         return () => {
             shown.remove();
             hidden.remove();

@@ -1,10 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { Image } from "expo-image";
-import { useCallback } from "react";
+import { useRouter } from "expo-router";
+import { useCallback, useRef } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
+import { logHandledError } from "@/lib/log";
 import { usePagedTracksForSongIds } from "@/lib/musickit-hooks";
 import { usePlayAll } from "@/lib/play-all";
 import { usePlaybackCommands } from "@/lib/playback";
@@ -18,32 +20,68 @@ const SHOWN_SONGS = 5;
 /**
  * The songs a tool found, under the answer: the first few rows, how many more,
  * and Play / Shuffle for all of them. Tapping a row plays the list from it.
+ *
+ * Once anything starts playing, the assistant sheet gives way to the now
+ * playing sheet, showing the song that started. `replace` rather than `push`,
+ * so the player sits straight over the tabs like it does from the mini player,
+ * and the conversation is still there when the assistant opens again.
  */
 export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     const { colors } = useAppTheme();
     const { tracks, tracksLoading, resolveTracks } = usePagedTracksForSongIds(
         songs.song_ids,
     );
+    const router = useRouter();
     const { playQueue } = usePlaybackCommands();
     const resolveQueue = useCallback(
         () => resolveTracks(songs.song_ids),
         [resolveTracks, songs.song_ids],
     );
-    const { play, shuffle, pending } = usePlayAll({ resolveQueue });
+    // set by usePlayAll just before a song starts, so an empty queue or a
+    // second tap while one resolves does not open the player
+    const started = useRef(false);
+    const onStart = useCallback(() => {
+        started.current = true;
+    }, []);
+    const { play, shuffle, pending } = usePlayAll({ resolveQueue, onStart });
+
+    const openNowPlaying = useCallback(() => {
+        router.replace("/player");
+    }, [router]);
+
+    const playAll = useCallback(
+        async (shuffled: boolean) => {
+            started.current = false;
+            try {
+                await (shuffled ? shuffle() : play());
+            } catch (error) {
+                logHandledError("Assistant could not play the songs", error);
+                return;
+            }
+            if (started.current) openNowPlaying();
+        },
+        [openNowPlaying, play, shuffle],
+    );
 
     const shown = tracks.slice(0, SHOWN_SONGS);
     const more = songs.total - shown.length;
 
     const playFrom = useCallback(
-        (track: MusicItem) => {
+        async (track: MusicItem) => {
             const startIndex = tracks.findIndex((item) => item.id === track.id);
-            void playQueue({
-                tracks,
-                startIndex: Math.max(startIndex, 0),
-                chosenStart: true,
-            });
+            try {
+                await playQueue({
+                    tracks,
+                    startIndex: Math.max(startIndex, 0),
+                    chosenStart: true,
+                });
+            } catch (error) {
+                logHandledError("Assistant could not play the song", error);
+                return;
+            }
+            openNowPlaying();
         },
-        [playQueue, tracks],
+        [openNowPlaying, playQueue, tracks],
     );
 
     if (!tracksLoading && shown.length === 0) return null;
@@ -57,7 +95,7 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
                 : shown.map((track, index) => (
                       <Pressable
                           key={track.id}
-                          onPress={() => playFrom(track)}
+                          onPress={() => void playFrom(track)}
                           accessibilityRole="button"
                           accessibilityLabel={`Play ${track.title}`}
                           className={
@@ -107,8 +145,16 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
                         color={colors.mutedForeground}
                     />
                 ) : null}
-                <CardButton icon="play" label="Play" onPress={play} />
-                <CardButton icon="shuffle" label="Shuffle" onPress={shuffle} />
+                <CardButton
+                    icon="play"
+                    label="Play"
+                    onPress={() => void playAll(false)}
+                />
+                <CardButton
+                    icon="shuffle"
+                    label="Shuffle"
+                    onPress={() => void playAll(true)}
+                />
             </View>
         </View>
     );
