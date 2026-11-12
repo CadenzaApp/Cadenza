@@ -330,7 +330,10 @@ function fixture(collapsed = true) {
                 usePlayerHostActive: () => r.hostActive ?? r.focused,
                 useShowsRootPlayerOverlay: () => false,
                 useBottomRowAction: () => r.action ?? null,
+                useBottomRowAssistantVisible: () => r.assistant ?? false,
             };
+        if (name === "@/features/assistant/assistant-button")
+            return { AssistantRowButton: "AssistantRowButton" };
         if (name === "@/lib/bottom-selection-overlay")
             return { useBottomSelectionOverlay: () => null };
         if (name === "./media-player") return { MediaPlayer: "MediaPlayer" };
@@ -731,6 +734,45 @@ test("the tucked action centers above Search and supports the Tags plus action",
         "Create a new tag",
     );
     assert.equal(m.progress.get(), 0);
+});
+test("the assistant takes the tucked spot and the sort action moves left of it", () => {
+    const r = fixture(false);
+    r.mount();
+    r.action = {
+        expanded: false,
+        icon: "funnel-outline",
+        accessibilityLabel: "Sort and group",
+        onPress() {},
+    };
+    r.assistant = true;
+    r.api.reportNativeFrame({ x: 90, y: 720, width: 218, height: 40 });
+    r.controller();
+    const root = r.render(hostFile, "MediaPlayerFallbackOverlay", [
+        { hidden: false, nativeAccessoryActive: true },
+    ]);
+    const row = find(root, (node) => node.type?.name === "MediaPlayerRow");
+    const node = r.component(row, "row");
+    node.props.ref.current = { measureInWindow: (fn) => fn(20, 0, 353, 760) };
+    node.props.onLayout();
+    r.flush();
+    r.tick();
+    for (const animation of r.animations)
+        if (!animation.cancelled && !animation.completed)
+            animation.owner.finish();
+    const assistant = r.styles.at(-2)();
+    const sort = r.styles.at(-1)();
+    // the assistant centers above Search, where the sort action sits alone
+    assert.equal(
+        393 - 20 - 26 + assistant.transform[0].translateX,
+        393 - 20 - 8 - 20,
+    );
+    assert.equal(assistant.transform[2].scale, 40 / 52);
+    // the sort action is one tucked diameter and a gap to its left
+    assert.equal(
+        sort.transform[0].translateX - assistant.transform[0].translateX,
+        -(40 + 8),
+    );
+    assert.ok(find(node, (item) => item.type === "AssistantRowButton"));
 });
 test("temporary hiding retains its foreground host", () => {
     const r = fixture();

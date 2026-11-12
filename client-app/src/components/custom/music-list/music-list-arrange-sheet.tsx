@@ -3,7 +3,10 @@ import {
     PLAYER_SIDE_INSET,
 } from "@/lib/screen-overlay-geometry";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useBottomRowActionButton } from "@/lib/screen-overlay";
+import {
+    useBottomRowActionButton,
+    useBottomRowAssistant,
+} from "@/lib/screen-overlay";
 import { useTheme } from "expo-router/react-navigation";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
@@ -85,6 +88,8 @@ export function MusicListArrangeButton({ value, onChange }: Props) {
         [arranged, open, openSort],
     );
     const showLocal = useBottomRowActionButton(rowAction);
+    // every list with a sort button gets the assistant beside it
+    useBottomRowAssistant();
 
     return (
         <>

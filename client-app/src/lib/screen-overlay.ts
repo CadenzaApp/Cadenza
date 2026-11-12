@@ -71,6 +71,9 @@ type BottomBarVisibility = {
     setRowAction: (token: string, action: BottomRowAction | null) => void;
     suppressed: boolean;
     setSuppressed: (token: string, suppressed: boolean) => void;
+    /** Whether a focused screen wants the assistant button in the bottom row. */
+    assistantRequested: boolean;
+    setAssistantRequested: (token: string, requested: boolean) => void;
 };
 
 const NativePlayerAccessoryContext = createContext(false);
@@ -147,14 +150,39 @@ export function BottomBarVisibilityProvider({
             return next;
         });
     }, []);
+    const [assistantTokens, setAssistantTokens] = useState<ReadonlySet<string>>(
+        () => new Set(),
+    );
+    const setAssistantRequested = useCallback(
+        (token: string, requested: boolean) => {
+            setAssistantTokens((current) => {
+                if (current.has(token) === requested) return current;
+                const next = new Set(current);
+                if (requested) next.add(token);
+                else next.delete(token);
+                return next;
+            });
+        },
+        [],
+    );
     const value = useMemo(
         () => ({
             rowAction: Array.from(rowActions.values()).at(-1) ?? null,
             setRowAction,
             suppressed: keyboardVisible || tokens.size > 0,
             setSuppressed,
+            assistantRequested: assistantTokens.size > 0,
+            setAssistantRequested,
         }),
-        [keyboardVisible, setSuppressed, tokens, rowActions, setRowAction],
+        [
+            keyboardVisible,
+            setSuppressed,
+            tokens,
+            rowActions,
+            setRowAction,
+            assistantTokens,
+            setAssistantRequested,
+        ],
     );
 
     return createElement(
@@ -193,6 +221,35 @@ export function useBottomRowActionButton(action: BottomRowAction) {
 
 export function useBottomRowAction() {
     return useContext(BottomBarVisibilityContext)?.rowAction ?? null;
+}
+
+/**
+ * Asks for the assistant button in the shared bottom row while the caller's
+ * screen is focused inside the tabs. It sits at the row's right end, and a
+ * row action (the sort button) moves to its left. Outside the tabs, or while
+ * the bottom bars are hidden, nothing shows.
+ */
+export function useBottomRowAssistant(enabled = true) {
+    const focused = useIsFocused();
+    const { bottomControlRowAvailable } = useScreenOverlayInsets();
+    const hidden = useBottomBarsHidden();
+    const shared =
+        bottomActionPlacement(bottomControlRowAvailable, hidden, focused) ===
+        "shared";
+    const setRequested = useContext(
+        BottomBarVisibilityContext,
+    )?.setAssistantRequested;
+    const token = useId();
+    const requested = enabled && shared;
+    useLayoutEffect(() => {
+        setRequested?.(token, requested);
+        return () => setRequested?.(token, false);
+    }, [setRequested, token, requested]);
+}
+
+/** Whether the assistant button is in the bottom row right now. */
+export function useBottomRowAssistantVisible() {
+    return useContext(BottomBarVisibilityContext)?.assistantRequested ?? false;
 }
 
 /** Hides both bottom bars while this caller's condition is true. */
