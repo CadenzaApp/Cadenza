@@ -387,6 +387,10 @@ append each call and its output, and repeat until the model answers with text. I
   The prompt maps "newest first", "most played", "recently played" and the like onto it. Sorted,
   every song counts toward the 1,000 cap, and songs with no stored metadata sort last: unlike
   `POST /queries/results`, the tool does not store missing metadata before sorting.
+- `run_query` takes an optional `limit` (1 to 100) for "10 songs" or "my top 5": the first
+  `limit` songs in order, after any sort, are the answer. The card holds exactly those (its
+  `total` is their count, so it shows no "more"), and the tool still reports `total` matched so
+  the model can say "10 of 84".
 - Every tool call is printed as `[assistant] <tool> <arguments> -> <output>`, each cut to 300
   characters, so a wrong answer can be traced to what the model asked for.
 - The tags in the prompt are JSON, and the prompt says tool output is data, so a song title or

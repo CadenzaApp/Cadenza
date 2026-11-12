@@ -216,6 +216,16 @@ struct RunQueryArgs {
     /// order: the user's songs first, most relevant first.
     #[serde(default)]
     sort: Option<Value>,
+    /// How many songs to hand back, in order, when the user asked for a number
+    /// of them. Left out, all of them (the card still lists at most
+    /// [`MAX_CARD_SONGS`]).
+    #[serde(default)]
+    limit: Option<u64>,
+}
+
+/// The `limit` the model asked for, kept to 1 through [`MAX_CARD_SONGS`].
+fn picked_count(limit: Option<u64>) -> Option<usize> {
+    limit.map(|limit| (limit.min(MAX_CARD_SONGS as u64) as usize).max(1))
 }
 
 /// The arrangement for `run_query`: sorted by `sort` when the model gave one,
@@ -309,8 +319,16 @@ impl DbTools<'_> {
 
         let (yours, elsewhere) = count_yours(&matches.songs);
         let total = matches.songs.len();
-        let described = self.describe_songs(&matches.songs).await?;
-        let song_ids: Vec<String> = matches.songs.into_iter().map(|song| song.song_id).collect();
+        // with a limit, only the first `limit` in order are the answer: the card
+        // holds just those, and Play queues just those
+        let limit = picked_count(args.limit);
+        let picked = &matches.songs[..limit.map_or(total, |limit| limit.min(total))];
+        let described = self.describe_songs(picked).await?;
+        let song_ids: Vec<String> = picked
+            .iter()
+            .take(MAX_CARD_SONGS)
+            .map(|song| song.song_id.clone())
+            .collect();
         let mut outcome = ToolOutcome::ok(
             json!({
                 "scope": if songs == QuerySongs::Everything { "everything" } else { "mine" },
@@ -321,18 +339,23 @@ impl DbTools<'_> {
                 // unsorted, only the songs from elsewhere are cut off; sorted,
                 // every song counts toward the limit
                 "capped": matches.capped,
+                "limit": limit,
+                // how many songs this answer is made of: `limit` of them, or all
+                "returned": picked.len(),
                 "songs": described,
                 "songs_shown": described.len(),
                 // how many the song card under the answer lists
-                "card_shows": total.min(MAX_CARD_SONGS),
+                "card_shows": song_ids.len(),
             }),
             "",
         );
-        if total > 0 {
+        if !song_ids.is_empty() {
             outcome.songs = Some(SongsCard {
-                song_ids: song_ids.into_iter().take(MAX_CARD_SONGS).collect(),
-                total,
-                capped: matches.capped,
+                // a limited answer is complete at its own size, so the card
+                // shows no "more" for the songs left out on purpose
+                total: if limit.is_some() { picked.len() } else { total },
+                capped: limit.is_none() && matches.capped,
+                song_ids,
             });
         }
         Ok(outcome)
@@ -517,6 +540,10 @@ pub fn definitions() -> Vec<Value> {
                         "type": "object",
                         "description": "Optional order. {\"field\": \"metadata\", \"key\": <title, artist, album, genre, release_date, duration, explicit, or total_plays>, \"direction\": \"ascending\" or \"descending\"}, or {\"field\": \"tag\", \"tag_id\": <id>, \"direction\": ...} for one of the user's tags or an activity tag. Ascending is A to Z, low to high, oldest first. Leave out for the default order (the user's own songs first, most relevant first)."
                     },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Optional. When the user asks for a number of songs (\"10 songs\", \"my top 5\", \"a few\"), how many to hand back, 1 to 100, taken in order after sort. The card and Play then hold exactly these. Leave out to return every match."
+                    },
                     "scope": {
                         "type": "string",
                         "enum": ["everything", "mine"],
@@ -576,6 +603,14 @@ mod tests {
             query_songs_for(Some("library")),
             Err(ToolError::Arguments(_))
         ));
+    }
+
+    #[test]
+    fn a_limit_stays_between_one_and_the_card_size() {
+        assert_eq!(picked_count(None), None);
+        assert_eq!(picked_count(Some(10)), Some(10));
+        assert_eq!(picked_count(Some(0)), Some(1));
+        assert_eq!(picked_count(Some(5_000)), Some(MAX_CARD_SONGS));
     }
 
     #[test]

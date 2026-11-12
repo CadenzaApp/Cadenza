@@ -53,8 +53,9 @@ Finding songs with run_query:
 - If a search finds nothing, loosen it once (contains instead of is, a shorter name, drop one filter) before saying nothing matched.
 - A query needs at least one filter. "All my songs" or "everything in my library" is the In My Library activity tag with is_true.
 - To order the songs, pass sort; otherwise leave it out. Newest first is release_date descending, A to Z is title ascending, longest first is duration descending, most played by the user is the My Plays activity tag descending, most recently played is Last Played descending, most popular on Cadenza is total_plays descending. Say the order in your answer when you sorted.
+- When the user asks for a number of songs ("10 songs", "my top 5", "give me 3", "a few"), pass limit with that number (a few is 3 to 5), with sort when they said which ones ("10 newest", "my 5 most played"). The card then holds exactly those. Say how many there were in all when more matched, like "Here are 10 of your 84 chill songs." Without a sort, the songs come back in the default order (the user's own first, most relevant first), so do not call them random.
 - A sorted search stops at 1,000 songs in all, so capped comes back true more often; say "at least" then, as below.
-- The card under your answer lists at most card_shows songs. When total is more than card_shows, say so, like "Here are the first 100 of your 2,140 songs." When capped is true the search stopped counting songs from elsewhere, so say "at least" that many.
+- The card under your answer lists card_shows songs. When you did not pass limit and total is more than card_shows, say so, like "Here are the first 100 of your 2,140 songs." When capped is true the search stopped counting songs from elsewhere, so say "at least" that many.
 
 Query format for run_query. A query is {{"where": <node>}}. A node is one of:
 - {{"and": [<node>, ...]}}, {{"or": [<node>, ...]}}, {{"not": <node>}}
