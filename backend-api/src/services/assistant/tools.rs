@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::db::{
     self,
     entity::tags,
-    queries::{Arrangement, QueryOptions, QuerySongs},
+    queries::{Arrangement, QueryMatch, QueryOptions, QuerySongs},
 };
 use crate::err::CadenzaError;
 use crate::routes::json::{assistant::SongsCard, query::Query, tag::TagType};
@@ -23,7 +23,9 @@ use crate::services::analytics::{Dimension, TimeWindow};
 /// The most songs a tool describes to the model. The rest are only counted.
 const MAX_SONGS_TO_MODEL: usize = 25;
 /// The most song ids the song card under an answer gets.
-pub const MAX_CARD_SONGS: usize = 200;
+pub const MAX_CARD_SONGS: usize = 100;
+/// The most of a tool call's arguments and output written to the server log.
+const MAX_LOGGED_CHARS: usize = 300;
 /// The most songs `get_song_metadata` looks up in one call.
 const MAX_METADATA_SONGS: usize = 25;
 const DEFAULT_TOP_LIMIT: u64 = 10;
@@ -89,15 +91,31 @@ impl ToolRunner for DbTools<'_> {
             "listening_summary" => self.listening_summary(args).await,
             _ => return ToolOutcome::error(format!("there is no tool named {name}"), label),
         };
-        match result {
+        let outcome = match result {
             Ok(mut outcome) => {
                 outcome.label = label.to_owned();
                 outcome
             }
             Err(ToolError::Arguments(message)) => ToolOutcome::error(message, label),
             Err(ToolError::Cadenza(err)) => ToolOutcome::error(err.to_string(), label),
-        }
+        };
+        // what the model asked for and got back, so a wrong answer can be traced
+        println!(
+            "[assistant] {name} {} -> {}",
+            clip(arguments),
+            clip(&outcome.output.to_string()),
+        );
+        outcome
     }
+}
+
+/// `text` cut to [`MAX_LOGGED_CHARS`] characters for the log.
+fn clip(text: &str) -> String {
+    if text.chars().count() <= MAX_LOGGED_CHARS {
+        return text.to_owned();
+    }
+    let cut: String = text.chars().take(MAX_LOGGED_CHARS).collect();
+    format!("{cut}...")
 }
 
 enum ToolError {
@@ -146,9 +164,29 @@ pub fn describe_tags(tags: &[tags::Model]) -> Vec<Value> {
 #[derive(Deserialize)]
 struct RunQueryArgs {
     query: Value,
-    /// `mine` (the default) or `everything`.
+    /// `everything` (the default) or `mine`.
     #[serde(default)]
     scope: Option<String>,
+}
+
+/// Which songs `run_query` searches. Every song Cadenza knows unless the model
+/// asks for `mine`, the user's library and tagged songs. The app's own "Show
+/// songs only in library or tagged" setting does not apply here.
+fn query_songs_for(scope: Option<&str>) -> Result<QuerySongs, ToolError> {
+    match scope {
+        None | Some("everything") => Ok(QuerySongs::Everything),
+        Some("mine") => Ok(QuerySongs::LibraryOrTagged),
+        Some(other) => Err(ToolError::Arguments(format!(
+            "scope must be everything or mine, not {other}"
+        ))),
+    }
+}
+
+/// How many of `songs` are the user's own (in their library or tagged), and
+/// how many come from elsewhere.
+fn count_yours(songs: &[QueryMatch]) -> (usize, usize) {
+    let yours = songs.iter().filter(|song| song.certain).count();
+    (yours, songs.len() - yours)
 }
 
 #[derive(Deserialize)]
@@ -190,15 +228,7 @@ impl DbTools<'_> {
         let args: RunQueryArgs = parse_args(args)?;
         let query: Query = serde_json::from_value(args.query)
             .map_err(|err| ToolError::Arguments(format!("the query is not valid: {err}")))?;
-        let songs = match args.scope.as_deref() {
-            None | Some("mine") => QuerySongs::LibraryOrTagged,
-            Some("everything") => QuerySongs::Everything,
-            Some(other) => {
-                return Err(ToolError::Arguments(format!(
-                    "scope must be mine or everything, not {other}"
-                )));
-            }
-        };
+        let songs = query_songs_for(args.scope.as_deref())?;
         let options = QueryOptions {
             consider_default_tags: false,
             songs,
@@ -218,12 +248,17 @@ impl DbTools<'_> {
             other => ToolError::Cadenza(other),
         })?;
 
+        let (yours, elsewhere) = count_yours(&matches.songs);
+        let total = matches.songs.len();
+        let described = self.describe_songs(&matches.songs).await?;
         let song_ids: Vec<String> = matches.songs.into_iter().map(|song| song.song_id).collect();
-        let total = song_ids.len();
-        let described = self.describe_songs(&song_ids).await?;
         let mut outcome = ToolOutcome::ok(
             json!({
+                "scope": if songs == QuerySongs::Everything { "everything" } else { "mine" },
                 "total": total,
+                "yours": yours,
+                "elsewhere": elsewhere,
+                // only the songs from elsewhere are ever cut off
                 "capped": matches.capped,
                 "songs": described,
                 "songs_shown": described.len(),
@@ -349,19 +384,22 @@ impl DbTools<'_> {
         ))
     }
 
-    /// Title and artist for the first songs in `song_ids`, in order, from the
-    /// stored metadata. A song with none stored still appears, by id.
-    async fn describe_songs(&self, song_ids: &[String]) -> Result<Vec<Value>, CadenzaError> {
-        let shown: Vec<String> = song_ids.iter().take(MAX_SONGS_TO_MODEL).cloned().collect();
-        let rows = db::metadata_tags::get_song_rows(self.db, &shown).await?;
+    /// Title, artist, and whether it is the user's own, for the first songs in
+    /// `songs`, in order, from the stored metadata. A song with none stored
+    /// still appears, by id.
+    async fn describe_songs(&self, songs: &[QueryMatch]) -> Result<Vec<Value>, CadenzaError> {
+        let shown = &songs[..songs.len().min(MAX_SONGS_TO_MODEL)];
+        let ids: Vec<String> = shown.iter().map(|song| song.song_id.clone()).collect();
+        let rows = db::metadata_tags::get_song_rows(self.db, &ids).await?;
         Ok(shown
             .iter()
-            .map(|song_id| {
-                let row = rows.get(song_id);
+            .map(|song| {
+                let row = rows.get(&song.song_id);
                 json!({
-                    "song_id": song_id,
+                    "song_id": song.song_id,
                     "title": row.map(|row| row.name.clone()),
                     "artist": row.and_then(|row| row.artist_name.clone()),
+                    "yours": song.certain,
                 })
             })
             .collect())
@@ -404,7 +442,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "run_query",
-            "description": "Finds songs matching a Cadenza query, with how many matched and the first 25 with title and artist. The user sees the songs as a card under your answer, so do not list more than a few.",
+            "description": "Finds songs matching a Cadenza query among every song Cadenza knows, the user's own first. Returns how many matched, how many of those are the user's own (in their library or tagged) and how many come from elsewhere, and the first 25 with title, artist, and a yours flag. The user sees the songs as a card under your answer, so do not list more than a few.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -414,8 +452,8 @@ pub fn definitions() -> Vec<Value> {
                     },
                     "scope": {
                         "type": "string",
-                        "enum": ["mine", "everything"],
-                        "description": "mine (default): the user's library and tagged songs. everything: also songs from other users Cadenza knows."
+                        "enum": ["everything", "mine"],
+                        "description": "everything (default): every song Cadenza knows, the user's own first. mine: only the user's library and tagged songs. Use mine only when the user asks for songs in their library, songs they have, or their own songs."
                     }
                 },
                 "required": ["query"]
@@ -455,6 +493,43 @@ pub fn definitions() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queries_search_everything_unless_asked_for_mine() {
+        assert_eq!(query_songs_for(None).ok(), Some(QuerySongs::Everything));
+        assert_eq!(
+            query_songs_for(Some("everything")).ok(),
+            Some(QuerySongs::Everything)
+        );
+        assert_eq!(
+            query_songs_for(Some("mine")).ok(),
+            Some(QuerySongs::LibraryOrTagged)
+        );
+        assert!(matches!(
+            query_songs_for(Some("library")),
+            Err(ToolError::Arguments(_))
+        ));
+    }
+
+    #[test]
+    fn counts_the_users_own_songs_apart_from_the_rest() {
+        let song = |id: &str, certain| QueryMatch {
+            song_id: id.into(),
+            certain,
+        };
+        assert_eq!(
+            count_yours(&[song("1", true), song("2", false), song("3", true)]),
+            (2, 1)
+        );
+        assert_eq!(count_yours(&[]), (0, 0));
+    }
+
+    #[test]
+    fn long_log_lines_are_cut() {
+        assert_eq!(clip("short"), "short");
+        let long = "a".repeat(MAX_LOGGED_CHARS + 50);
+        assert_eq!(clip(&long).chars().count(), MAX_LOGGED_CHARS + 3);
+    }
 
     #[test]
     fn every_definition_has_a_label() {

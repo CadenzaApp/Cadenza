@@ -370,8 +370,14 @@ append each call and its output, and repeat until the model answers with text. I
 - Every tool only reads and runs as the JWT's user. The model never supplies a user id.
 - A tool never fails the request. Bad JSON, a query the compiler rejects, or a failed read comes
   back to the model as `{"error": ...}` so it can fix the call.
-- `run_query` defaults to the user's library and tagged songs (`QuerySongs::LibraryOrTagged`),
-  so results are never capped. `scope: "everything"` adds songs from elsewhere.
+- `run_query` searches every song Cadenza knows (`QuerySongs::Everything`), the user's own first,
+  unless the model passes `scope: "mine"` (library and tagged songs only). The prompt tells it to
+  use `mine` only when the user asks for their own songs. The app's "Show songs only in library
+  or tagged" setting lives on the phone and does not reach the assistant. Each song comes back
+  with a `yours` flag and the result counts `yours` and `elsewhere`; only the songs from
+  elsewhere are capped (at 1,000). The song card gets the first 100 ids.
+- Every tool call is printed as `[assistant] <tool> <arguments> -> <output>`, each cut to 300
+  characters, so a wrong answer can be traced to what the model asked for.
 - The tags in the prompt are JSON, and the prompt says tool output is data, so a song title or
   tag name cannot pass as an instruction.
 - The model is `ASSISTANT_MODEL` in `model.rs`, separate from tag generation's. Change it there.

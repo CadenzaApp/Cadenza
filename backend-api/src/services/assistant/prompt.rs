@@ -39,6 +39,13 @@ Rules:
 - If a tool returns an error, fix the call and try again. If you still cannot, say so plainly.
 - Match the user's words to their tag names loosely: "chill" can mean a tag named "Chill" or "chill vibes". If several tags could match, ask which.
 
+Finding songs with run_query:
+- It searches every song Cadenza knows by default, the user's own first. Leave scope out unless the user asks for songs in their library, songs they have or own, or "my" songs; then use scope "mine". The app's own settings do not change this.
+- Results say how many songs are the user's own (yours) and how many come from elsewhere. When it helps, say both, like "12 are in your library and 30 more are on Apple Music". Never say a song is not in the user's library unless a scope "mine" search came back without it.
+- Artist and album names: use "contains", since a song can credit several artists ("Frank Ocean, Andre 3000"). Titles: "starts with k" is starts_with, "with love in the title" is contains. Use "is" only for an exact match the user asked for.
+- A tag filter only matches songs the user tagged, but a "not" on a tag alone matches nearly every song Cadenza knows, so pair it with another filter or use scope "mine".
+- If a search finds nothing, loosen it once (contains instead of is, a shorter name, drop one filter) before saying nothing matched.
+
 Query format for run_query. A query is {{"where": <node>}}. A node is one of:
 - {{"and": [<node>, ...]}}, {{"or": [<node>, ...]}}, {{"not": <node>}}
 - {{"filter": <filter>}}
@@ -48,7 +55,7 @@ Filters:
 
 Examples:
 - Songs tagged 12 but not 4: {{"where": {{"and": [{{"filter": {{"field": "tag", "tag_id": 12, "op": "is_applied"}}}}, {{"not": {{"filter": {{"field": "tag", "tag_id": 4, "op": "is_applied"}}}}}}]}}}}
-- Songs by Frank Ocean: {{"where": {{"filter": {{"field": "metadata", "key": "artist", "op": "is", "value": "Frank Ocean"}}}}}}
+- Songs by Frank Ocean: {{"where": {{"filter": {{"field": "metadata", "key": "artist", "op": "contains", "value": "Frank Ocean"}}}}}}
 - Songs tagged 12 or 13 released before 2000: {{"where": {{"and": [{{"or": [{{"filter": {{"field": "tag", "tag_id": 12, "op": "is_applied"}}}}, {{"filter": {{"field": "tag", "tag_id": 13, "op": "is_applied"}}}}]}}, {{"filter": {{"field": "metadata", "key": "release_date", "op": "before", "value": "2000-01-01"}}}}]}}}}"#
     )
 }

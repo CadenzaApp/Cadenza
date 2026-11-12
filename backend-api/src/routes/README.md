@@ -138,7 +138,7 @@ The user id always comes from the JWT. A call the python model cannot answer is
 `/assistant/messages` stores nothing: the phone sends the whole conversation every time. One
 request runs the tool loop in `services/assistant` (up to 8 model calls) against the signed-in
 user only. The tools only read, and a tool that fails tells the model rather than failing the
-request. `songs` holds up to 200 ids from the last tool that found songs. A `client_tool_call`
+request. `songs` holds up to 100 ids from the last tool that found songs. A `client_tool_call`
 response is part of the shape but not sent yet; it is for tools only the phone can run, like
 playback. See [../services/README.md](../services/README.md#assistant).
 
