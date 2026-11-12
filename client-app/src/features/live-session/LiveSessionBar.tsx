@@ -16,7 +16,6 @@ import { useAccount } from "@/lib/account";
 import { useOpenScreen } from "@/lib/open-screen";
 import {
     SESSION_ROLE_LABELS,
-    sessionCan,
     useLiveSessionWrites,
     type LiveSession,
     type LiveSessionMember,
@@ -43,8 +42,7 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
     const { colors } = useAppTheme();
     const openScreen = useOpenScreen();
     const writes = useLiveSessionWrites(session.session_id);
-    const role = session.my_role;
-    const isHost = role === "host";
+    const isHost = session.my_role === "host";
     const [open, setOpen] = useState<Open>(null);
     const [memberMenu, setMemberMenu] = useState<LiveSessionMember | null>(
         null,
@@ -74,7 +72,7 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
     return (
         <>
             <PlayerBarShell>
-                {sessionCan.suggest(role) ? (
+                {session.can.suggest ? (
                     <PlayerBarButton
                         icon="hand-left-outline"
                         label="Requests"
@@ -93,10 +91,10 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                     accessibilityLabel={`People, ${session.members.length}`}
                     onPress={() => setOpen("people")}
                 />
-                {sessionCan.suggest(role) ? (
+                {session.can.suggest ? (
                     <PlayerBarButton
                         icon="add-circle-outline"
-                        label={sessionCan.editQueue(role) ? "Add" : "Suggest"}
+                        label={session.can.edit_queue ? "Add" : "Suggest"}
                         onPress={() => setOpen("add")}
                     />
                 ) : null}
@@ -342,11 +340,9 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
             {open === "add" ? (
                 <SongSearchSheet
                     title={
-                        sessionCan.editQueue(role)
-                            ? "Add songs"
-                            : "Suggest a song"
+                        session.can.edit_queue ? "Add songs" : "Suggest a song"
                     }
-                    actionLabel={sessionCan.editQueue(role) ? "Add" : "Suggest"}
+                    actionLabel={session.can.edit_queue ? "Add" : "Suggest"}
                     onClose={() => setOpen(null)}
                     onPick={async (song) => {
                         const songs = sessionSongs([song]);

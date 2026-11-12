@@ -4,12 +4,14 @@
 
 use chrono::{Duration, Utc};
 use sea_orm::{
-    ActiveValue::Set, ConnectionTrait, DbBackend, DbErr, EntityTrait, RuntimeErr, Statement,
-    prelude::Uuid,
+    ActiveEnum, ActiveValue::Set, ConnectionTrait, DbErr, EntityTrait, RuntimeErr, prelude::Uuid,
 };
 
-use crate::db::Db;
-use crate::db::entity::{invite_codes, sea_orm_active_enums::InviteTarget};
+use crate::db::entity::{
+    invite_codes,
+    sea_orm_active_enums::{InviteTarget, PlaylistRole},
+};
+use crate::db::{Db, stmt};
 use crate::err::CadenzaError;
 use crate::services::invite_codes::generate_code;
 
@@ -52,14 +54,14 @@ impl InviteTargetRef {
 #[derive(Clone, Debug)]
 pub struct Redeemed {
     pub target: InviteTargetRef,
-    pub grants_role: Option<String>,
+    pub grants_role: Option<PlaylistRole>,
 }
 
 /// Options for a new code.
 #[derive(Clone, Debug, Default)]
 pub struct NewInvite {
-    /// `viewer` or `editor` for a playlist. Ignored for a session.
-    pub grants_role: Option<String>,
+    /// Viewer (the default) or editor for a playlist. Ignored for a session.
+    pub grants_role: Option<PlaylistRole>,
     pub expires_in: Option<Duration>,
     pub max_uses: Option<i32>,
 }
@@ -77,14 +79,13 @@ pub async fn create_invite<C: ConnectionTrait>(
         ));
     }
     let grants_role = match target {
-        InviteTargetRef::SharedPlaylist(_) => match options.grants_role.as_deref() {
-            None | Some("viewer") => Some("viewer".to_owned()),
-            Some("editor") => Some("editor".to_owned()),
-            Some(other) => {
-                return Err(CadenzaError::InvalidRequestBody(format!(
-                    "a playlist code grants viewer or editor, not '{other}'"
-                )));
+        InviteTargetRef::SharedPlaylist(_) => match options.grants_role {
+            Some(PlaylistRole::Owner) => {
+                return Err(CadenzaError::InvalidRequestBody(
+                    "a playlist code grants viewer or editor".into(),
+                ));
             }
+            role => Some(role.unwrap_or(PlaylistRole::Viewer).to_value()),
         },
         InviteTargetRef::LiveSession(_) => None,
     };
@@ -128,8 +129,7 @@ fn is_unique_violation(err: &DbErr) -> bool {
 pub async fn redeem_invite(db: &impl Db, code: &str) -> Result<Redeemed, CadenzaError> {
     // one statement, so two redeems of a one use code cannot both pass
     let row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DbBackend::Postgres,
+        .query_one_raw(stmt(
             "UPDATE invite_codes
              SET uses = uses + 1
              WHERE code = $1
@@ -142,18 +142,9 @@ pub async fn redeem_invite(db: &impl Db, code: &str) -> Result<Redeemed, Cadenza
         .await?
         .ok_or(CadenzaError::InviteCodeInvalid)?;
 
-    let kind: String = row.try_get("", "target_kind")?;
+    let kind: InviteTarget = row.try_get("", "target_kind")?;
     let target_id: String = row.try_get("", "target_id")?;
-    let grants_role: Option<String> = row.try_get("", "grants_role")?;
-    let kind = match kind.as_str() {
-        "shared_playlist" => InviteTarget::SharedPlaylist,
-        "live_session" => InviteTarget::LiveSession,
-        other => {
-            return Err(CadenzaError::DatabaseError(format!(
-                "unknown invite target '{other}'"
-            )));
-        }
-    };
+    let grants_role: Option<PlaylistRole> = row.try_get("", "grants_role")?;
     Ok(Redeemed {
         target: InviteTargetRef::from_row(&kind, &target_id)?,
         grants_role,
@@ -165,8 +156,7 @@ pub async fn revoke_invites_for<C: ConnectionTrait>(
     db: &C,
     target: &InviteTargetRef,
 ) -> Result<(), CadenzaError> {
-    db.execute_raw(Statement::from_sql_and_values(
-        DbBackend::Postgres,
+    db.execute_raw(stmt(
         "UPDATE invite_codes SET revoked_at = now()
          WHERE target_kind = $1::invite_target AND target_id = $2 AND revoked_at IS NULL",
         vec![

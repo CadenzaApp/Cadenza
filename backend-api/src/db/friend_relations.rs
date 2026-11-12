@@ -4,10 +4,14 @@
 
 use std::collections::HashSet;
 
-use sea_orm::{ConnectionTrait, DbBackend, FromQueryResult, Statement, prelude::Uuid};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, EntityTrait, FromQueryResult,
+    PaginatorTrait, QueryFilter, QuerySelect, prelude::Uuid, sea_query::OnConflict,
+};
 
-use crate::db::Db;
+use crate::db::entity::{friend_favorites, friendships, user_blocks};
 use crate::db::social::{FriendPerson, is_friend};
+use crate::db::{Db, stmt};
 use crate::err::CadenzaError;
 
 /// A `WHERE` clause piece that drops a post when its author `p.user_id` and
@@ -17,15 +21,6 @@ pub const NOT_BLOCKED_AUTHOR: &str = "NOT EXISTS (
     WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
        OR (b.blocker_id = p.user_id AND b.blocked_id = $1)
 )";
-
-fn stmt(sql: &str, values: Vec<sea_orm::Value>) -> Statement {
-    Statement::from_sql_and_values(DbBackend::Postgres, sql, values)
-}
-
-#[derive(FromQueryResult)]
-struct UserIdRow {
-    user_id: Uuid,
-}
 
 #[derive(FromQueryResult)]
 struct PersonRow {
@@ -42,11 +37,20 @@ pub async fn favorite_friend(
     if !is_friend(db, user_id, friend_id).await? {
         return Err(CadenzaError::NotFound);
     }
-    db.execute_raw(stmt(
-        "INSERT INTO friend_favorites (user_id, friend_id) VALUES ($1, $2)
-         ON CONFLICT DO NOTHING",
-        vec![user_id.into(), friend_id.into()],
-    ))
+    friend_favorites::Entity::insert(friend_favorites::ActiveModel {
+        user_id: Set(user_id),
+        friend_id: Set(friend_id),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([
+            friend_favorites::Column::UserId,
+            friend_favorites::Column::FriendId,
+        ])
+        .do_nothing()
+        .to_owned(),
+    )
+    .exec_without_returning(db)
     .await?;
     Ok(())
 }
@@ -57,11 +61,9 @@ pub async fn unfavorite_friend(
     user_id: Uuid,
     friend_id: Uuid,
 ) -> Result<(), CadenzaError> {
-    db.execute_raw(stmt(
-        "DELETE FROM friend_favorites WHERE user_id = $1 AND friend_id = $2",
-        vec![user_id.into(), friend_id.into()],
-    ))
-    .await?;
+    friend_favorites::Entity::delete_by_id((user_id, friend_id))
+        .exec(db)
+        .await?;
     Ok(())
 }
 
@@ -70,13 +72,14 @@ pub async fn favorite_ids(
     db: &impl ConnectionTrait,
     user_id: Uuid,
 ) -> Result<HashSet<Uuid>, CadenzaError> {
-    let rows = UserIdRow::find_by_statement(stmt(
-        "SELECT friend_id AS user_id FROM friend_favorites WHERE user_id = $1",
-        vec![user_id.into()],
-    ))
-    .all(db)
-    .await?;
-    Ok(rows.into_iter().map(|row| row.user_id).collect())
+    let ids: Vec<Uuid> = friend_favorites::Entity::find()
+        .select_only()
+        .column(friend_favorites::Column::FriendId)
+        .filter(friend_favorites::Column::UserId.eq(user_id))
+        .into_tuple()
+        .all(db)
+        .await?;
+    Ok(ids.into_iter().collect())
 }
 
 /// Drops both directions of favorite between the pair. For when a friendship
@@ -86,12 +89,14 @@ pub async fn clear_favorites_between(
     a: Uuid,
     b: Uuid,
 ) -> Result<(), CadenzaError> {
-    db.execute_raw(stmt(
-        "DELETE FROM friend_favorites
-         WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)",
-        vec![a.into(), b.into()],
-    ))
-    .await?;
+    friend_favorites::Entity::delete_many()
+        .filter(
+            Condition::any()
+                .add(favorite_from(a, b))
+                .add(favorite_from(b, a)),
+        )
+        .exec(db)
+        .await?;
     Ok(())
 }
 
@@ -108,17 +113,25 @@ pub async fn block_user(
         ));
     }
     let txn = db.begin().await?;
-    txn.execute_raw(stmt(
-        "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)
-         ON CONFLICT DO NOTHING",
-        vec![blocker_id.into(), blocked_id.into()],
-    ))
+    user_blocks::Entity::insert(user_blocks::ActiveModel {
+        blocker_id: Set(blocker_id),
+        blocked_id: Set(blocked_id),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([
+            user_blocks::Column::BlockerId,
+            user_blocks::Column::BlockedId,
+        ])
+        .do_nothing()
+        .to_owned(),
+    )
+    .exec_without_returning(&txn)
     .await?;
-    txn.execute_raw(stmt(
-        "DELETE FROM friendships WHERE user1 = LEAST($1, $2) AND user2 = GREATEST($1, $2)",
-        vec![blocker_id.into(), blocked_id.into()],
-    ))
-    .await?;
+    // a friendship row keeps the smaller id in user1
+    friendships::Entity::delete_by_id((blocker_id.min(blocked_id), blocker_id.max(blocked_id)))
+        .exec(&txn)
+        .await?;
     clear_favorites_between(&txn, blocker_id, blocked_id).await?;
     txn.commit().await?;
     Ok(())
@@ -130,11 +143,9 @@ pub async fn unblock_user(
     blocker_id: Uuid,
     blocked_id: Uuid,
 ) -> Result<(), CadenzaError> {
-    db.execute_raw(stmt(
-        "DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
-        vec![blocker_id.into(), blocked_id.into()],
-    ))
-    .await?;
+    user_blocks::Entity::delete_by_id((blocker_id, blocked_id))
+        .exec(db)
+        .await?;
     Ok(())
 }
 
@@ -144,18 +155,10 @@ pub async fn has_blocked(
     blocker_id: Uuid,
     other_id: Uuid,
 ) -> Result<bool, CadenzaError> {
-    let row = db
-        .query_one_raw(stmt(
-            "SELECT EXISTS (
-                 SELECT 1 FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2
-             )",
-            vec![blocker_id.into(), other_id.into()],
-        ))
-        .await?;
-    Ok(match row {
-        Some(row) => row.try_get_by_index(0)?,
-        None => false,
-    })
+    Ok(user_blocks::Entity::find_by_id((blocker_id, other_id))
+        .one(db)
+        .await?
+        .is_some())
 }
 
 /// Whether either of the pair blocked the other.
@@ -164,20 +167,11 @@ pub async fn blocked_either_way(
     a: Uuid,
     b: Uuid,
 ) -> Result<bool, CadenzaError> {
-    let row = db
-        .query_one_raw(stmt(
-            "SELECT EXISTS (
-                 SELECT 1 FROM user_blocks
-                 WHERE (blocker_id = $1 AND blocked_id = $2)
-                    OR (blocker_id = $2 AND blocked_id = $1)
-             )",
-            vec![a.into(), b.into()],
-        ))
+    let blocks = user_blocks::Entity::find()
+        .filter(Condition::any().add(block_from(a, b)).add(block_from(b, a)))
+        .count(db)
         .await?;
-    Ok(match row {
-        Some(row) => row.try_get_by_index(0)?,
-        None => false,
-    })
+    Ok(blocks > 0)
 }
 
 /// The accounts `user_id` blocked, username order.
@@ -202,4 +196,16 @@ pub async fn blocked_people(
             username: row.username,
         })
         .collect())
+}
+
+fn favorite_from(user_id: Uuid, friend_id: Uuid) -> Condition {
+    Condition::all()
+        .add(friend_favorites::Column::UserId.eq(user_id))
+        .add(friend_favorites::Column::FriendId.eq(friend_id))
+}
+
+fn block_from(blocker_id: Uuid, blocked_id: Uuid) -> Condition {
+    Condition::all()
+        .add(user_blocks::Column::BlockerId.eq(blocker_id))
+        .add(user_blocks::Column::BlockedId.eq(blocked_id))
 }

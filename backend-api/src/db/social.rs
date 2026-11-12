@@ -20,7 +20,7 @@ use sea_orm::{
     ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
     FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect, QueryTrait, RuntimeErr,
     Statement, TransactionTrait, Value,
-    sea_query::{ArrayType, Expr, ExprTrait, Func, OnConflict},
+    sea_query::{Expr, ExprTrait, Func, OnConflict},
 };
 
 /// How many posts one `/feed` call returns. A shorter page means that exclude
@@ -767,7 +767,7 @@ pub async fn mark_posts_loaded(
          SELECT post_id, $1, 'loaded'
          FROM unnest($2::bigint[]) AS post_id
          ON CONFLICT (post_id, user_id) DO NOTHING",
-        vec![user_id.into(), bigint_array(post_ids)],
+        vec![user_id.into(), post_ids.to_vec().into()],
     ))
     .await?;
     Ok(())
@@ -790,7 +790,7 @@ pub async fn mark_posts_viewed(
          ON CONFLICT (post_id, user_id) DO UPDATE
          SET status = 'viewed',
              date = now()",
-        vec![user_id.into(), bigint_array(post_ids)],
+        vec![user_id.into(), post_ids.to_vec().into()],
     ))
     .await?;
     Ok(())
@@ -829,7 +829,7 @@ pub async fn get_posts(
          WHERE p.post_id = ANY($2::bigint[])
            AND {NOT_BLOCKED_AUTHOR}"
         ),
-        vec![viewer_id.into(), bigint_array(post_ids)],
+        vec![viewer_id.into(), post_ids.to_vec().into()],
     ))
     .all(db)
     .await?;
@@ -1672,7 +1672,7 @@ pub async fn upsert_interests(
          ON CONFLICT (name, interest_type) DO UPDATE SET name = EXCLUDED.name
          RETURNING interest_id, name, interest_type::text AS interest_type,
                    (embedding IS NOT NULL) AS embedding_exists",
-            vec![text_array(&names), text_array(&types)],
+            vec![names.to_vec().into(), types.to_vec().into()],
         ))
         .all(db)
         .await?,
@@ -1700,7 +1700,7 @@ pub async fn set_interest_embeddings(
          SET embedding = v.embedding::vector
          FROM unnest($1::bigint[], $2::text[]) AS v(interest_id, embedding)
          WHERE i.interest_id = v.interest_id",
-        vec![bigint_array(interest_ids), text_array(&literals)],
+        vec![interest_ids.to_vec().into(), literals.to_vec().into()],
     ))
     .await?;
     Ok(())
@@ -1726,8 +1726,8 @@ pub async fn add_interest_scores(
          SET score = interest_scores.score + EXCLUDED.score",
         vec![
             user_id.into(),
-            bigint_array(interest_ids),
-            double_array(deltas),
+            interest_ids.to_vec().into(),
+            deltas.to_vec().into(),
         ],
     ))
     .await
@@ -1938,43 +1938,6 @@ fn exclude_clause(exclude: FeedExclude, user_id: Uuid) -> (&'static str, Vec<Val
             vec![user_id.into()],
         ),
     }
-}
-
-fn bigint_array(ids: &[i64]) -> Value {
-    Value::Array(
-        ArrayType::BigInt,
-        Some(Box::new(
-            ids.iter()
-                .copied()
-                .map(|id| Value::BigInt(Some(id)))
-                .collect(),
-        )),
-    )
-}
-
-fn text_array(items: &[String]) -> Value {
-    Value::Array(
-        ArrayType::String,
-        Some(Box::new(
-            items
-                .iter()
-                .map(|item| Value::String(Some(item.clone())))
-                .collect(),
-        )),
-    )
-}
-
-fn double_array(items: &[f64]) -> Value {
-    Value::Array(
-        ArrayType::Double,
-        Some(Box::new(
-            items
-                .iter()
-                .copied()
-                .map(|n| Value::Double(Some(n)))
-                .collect(),
-        )),
-    )
 }
 
 fn is_missing_user(err: &DbErr) -> bool {

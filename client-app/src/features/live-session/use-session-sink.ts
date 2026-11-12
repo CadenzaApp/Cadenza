@@ -11,7 +11,6 @@ import {
 } from "@/lib/playback";
 import {
     MAX_SESSION_ADD,
-    sessionCan,
     useLiveSessionWrites,
     type LiveSession,
     type QueueSongBody,
@@ -65,9 +64,12 @@ export function useSessionSink(session: LiveSession | null) {
         latest.current = { session, playback, writes };
     });
 
+    // permissions follow the role, so the role keys the sink
     const role = session?.my_role ?? null;
+    const permissions = session?.can;
     const sink = useMemo<PlaybackSink | null>(() => {
-        if (role === null) return null;
+        if (role === null || !permissions) return null;
+        const can = permissions;
         const isHost = role === "host";
 
         async function run(what: string, write: () => Promise<unknown>) {
@@ -94,18 +96,18 @@ export function useSessionSink(session: LiveSession | null) {
                 );
                 return;
             }
-            if (!sessionCan.suggest(role!)) {
+            if (!can.suggest) {
                 tell("Live session", "Listeners can't add songs.");
                 return;
             }
-            if (!sessionCan.editQueue(role!)) {
+            if (!can.edit_queue) {
                 await run("suggest that", () =>
                     latest.current.writes.addSongs({ songs }),
                 );
                 tell("Suggested", "The host decides whether it plays.");
                 return;
             }
-            const playNow = at === "now" && sessionCan.control(role!);
+            const playNow = at === "now" && can.control;
             await run("add those songs", () =>
                 latest.current.writes.addSongs({
                     songs,
@@ -138,7 +140,7 @@ export function useSessionSink(session: LiveSession | null) {
             playNext: (tracks) => add(tracks, "next"),
             moveQueueItem: async (from, to) => {
                 const found = entryAt(from);
-                if (!found || !sessionCan.editQueue(role)) return;
+                if (!found || !can.edit_queue) return;
                 const position = upcomingPosition(
                     latest.current.playback.queueIndex,
                     to,
@@ -152,13 +154,13 @@ export function useSessionSink(session: LiveSession | null) {
             },
             removeQueueItem: async (index) => {
                 const found = entryAt(index);
-                if (!found || !sessionCan.editQueue(role)) return;
+                if (!found || !can.edit_queue) return;
                 await run("remove that song", () =>
                     latest.current.writes.removeEntry(found.entry.entry_id),
                 );
             },
         };
-        const canControl = sessionCan.control(role);
+        const canControl = can.control;
         async function control(what: string, write: () => Promise<unknown>) {
             if (!canControl) {
                 tell("Live session", "Only controllers can change playback.");

@@ -4,6 +4,15 @@ import type { CreateInviteBody, Invite } from "./invites";
 
 export type PlaylistRole = "owner" | "editor" | "viewer";
 
+/** What the caller's role allows, from the backend's own table. */
+export type PlaylistPermissions = {
+    edit_songs: boolean;
+    edit_details: boolean;
+    manage_members: boolean;
+    make_invite: boolean;
+    delete: boolean;
+};
+
 /** One playlist in `GET /shared-playlists`. */
 export type SharedPlaylistSummary = {
     playlist_id: number;
@@ -11,6 +20,7 @@ export type SharedPlaylistSummary = {
     description: string;
     owner: { user_id: string; username: string };
     role: PlaylistRole;
+    can: PlaylistPermissions;
     song_count: number;
     member_count: number;
     /** The first four songs' catalog ids, for a cover mosaic. */
@@ -43,6 +53,7 @@ export type SharedPlaylist = {
     description: string;
     version: number;
     my_role: PlaylistRole;
+    can: PlaylistPermissions;
     members: SharedPlaylistMember[];
     entries: SharedPlaylistEntry[];
     created_at: string;
@@ -51,11 +62,6 @@ export type SharedPlaylist = {
 
 /** What every write returns. `deleted` when the owner left or deleted it. */
 export type PlaylistVersion = { version: number | null; deleted: boolean };
-
-/** Editors and the owner change songs; only the owner manages the rest. */
-export function canEditSongs(role: PlaylistRole | undefined): boolean {
-    return role === "owner" || role === "editor";
-}
 
 const LIST = { path: "/shared-playlists" };
 const detail = (id: number) => ({ path: `/shared-playlists/${id}` });

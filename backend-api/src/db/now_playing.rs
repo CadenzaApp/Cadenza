@@ -8,10 +8,8 @@
 
 use chrono::{DateTime, Duration, FixedOffset, Utc};
 use sea_orm::{
-    ActiveValue::Set,
-    ConnectionTrait, DbBackend, EntityTrait, FromQueryResult, Statement,
-    prelude::Uuid,
-    sea_query::{ArrayType, OnConflict},
+    ActiveValue::Set, ConnectionTrait, DbBackend, EntityTrait, FromQueryResult, Statement,
+    prelude::Uuid, sea_query::OnConflict,
 };
 
 use serde::{Deserialize, Serialize};
@@ -19,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::{
     audience::{PrivacyField, can_see_field, visible_friend_ids},
     entity::now_playing::{self, Column},
-    live_sessions::OPEN_SESSION_SQL,
+    live_sessions::{HAS_GUESTS_SQL, OPEN_SESSION_SQL},
 };
 use crate::err::CadenzaError;
 
@@ -296,25 +294,23 @@ pub async fn friends_listening(
                         )
                         ELSE false
                     END AS can_join,
-                    NOT s.listen_along OR EXISTS (
-                        SELECT 1 FROM live_session_members g
-                        WHERE g.session_id = s.session_id AND g.user_id <> s.host_id
-                          AND g.left_at IS NULL AND NOT g.banned
-                    ) AS shows_live
+                    NOT s.listen_along OR {has_guests} AS shows_live
              FROM live_session_members m
              JOIN live_sessions s ON s.session_id = m.session_id
              LEFT JOIN privacy_settings hp ON hp.user_id = s.host_id
              WHERE m.user_id = f.user_id AND m.left_at IS NULL AND NOT m.banned
-               AND {OPEN_SESSION_SQL}
+               AND {open}
                AND (s.host_id = f.user_id OR m.listen_mode = 'synced')
              ORDER BY (s.host_id = f.user_id) DESC
              LIMIT 1
          ) ls ON true
          LEFT JOIN live_session_queue ce ON ce.entry_id = ls.current_entry_id
          WHERE np.is_playing OR COALESCE(ls.shows_live, false)
-         ORDER BY COALESCE(np.updated_at, ls.position_at) DESC"
+         ORDER BY COALESCE(np.updated_at, ls.position_at) DESC",
+            open = *OPEN_SESSION_SQL,
+            has_guests = HAS_GUESTS_SQL,
         ),
-        vec![uuid_array(&ids), viewer.into()],
+        vec![ids.to_vec().into(), viewer.into()],
     ))
     .all(db)
     .await?;
@@ -345,17 +341,6 @@ pub async fn friends_listening(
         })
         .filter(|user| user.in_live_session || is_live(&user.now_playing, now))
         .collect())
-}
-
-fn uuid_array(ids: &[Uuid]) -> sea_orm::Value {
-    sea_orm::Value::Array(
-        ArrayType::Uuid,
-        Some(Box::new(
-            ids.iter()
-                .map(|id| sea_orm::Value::Uuid(Some(*id)))
-                .collect(),
-        )),
-    )
 }
 
 #[cfg(test)]

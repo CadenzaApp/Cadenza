@@ -141,20 +141,6 @@ export function applyOps(local: LocalQueue, ops: readonly QueueOp[]): string[] {
     return items;
 }
 
-/**
- * Where the local player should be, in ms, at `serverNowMs`: the snapshot's
- * position plus the time since it was taken, while playing.
- */
-export function expectedPositionMs(
-    positionMs: number,
-    asOfMs: number,
-    isPlaying: boolean,
-    serverNowMs: number,
-): number {
-    if (!isPlaying) return positionMs;
-    return positionMs + Math.max(0, serverNowMs - asOfMs);
-}
-
 /** Off by more than this, a synced player seeks to catch up. */
 export const DRIFT_TOLERANCE_MS = 2_000;
 /** And it seeks at most this often, so a slow buffer does not stutter. */

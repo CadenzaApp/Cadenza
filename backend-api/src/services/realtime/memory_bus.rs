@@ -57,6 +57,7 @@ mod tests {
     use sea_orm::prelude::Uuid;
 
     use super::*;
+    use crate::services::realtime::EventKind;
 
     #[tokio::test]
     async fn subscribers_get_their_topic_only() {
@@ -65,8 +66,8 @@ mod tests {
         let b = Topic::User(Uuid::from_u128(2));
         let mut rx = bus.subscribe(&a);
 
-        bus.publish(Event::new(b.clone(), 1, "now_playing"));
-        bus.publish(Event::new(a.clone(), 7, "now_playing"));
+        bus.publish(Event::new(b.clone(), 1, EventKind::NowPlaying));
+        bus.publish(Event::new(a.clone(), 7, EventKind::NowPlaying));
 
         let got = rx.recv().await.unwrap();
         assert_eq!(got.topic, a);
@@ -79,7 +80,7 @@ mod tests {
         let bus = InMemoryBus::new();
         let topic = Topic::LiveSession(Uuid::from_u128(3));
         drop(bus.subscribe(&topic));
-        bus.publish(Event::new(topic, 1, "state"));
+        bus.publish(Event::new(topic, 1, EventKind::Session));
         assert_eq!(bus.topic_count(), 0);
     }
 

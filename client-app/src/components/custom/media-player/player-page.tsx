@@ -37,7 +37,7 @@ import { LiveButton } from "@/features/live-session/LiveButton";
 import { useShownLiveSession } from "@/features/live-session/use-current-session";
 import { LiveChip } from "@/features/social/LiveChip";
 import { usePlayback } from "@/lib/playback";
-import { MAX_SESSION_QUEUE, sessionCan } from "@/lib/routes/live-sessions";
+import { MAX_SESSION_QUEUE } from "@/lib/routes/live-sessions";
 import {
     useArtistPreview,
     useSongArtists,
@@ -421,7 +421,7 @@ export function PlayerPage() {
                     onOpenMenu={() => setMenuOpen(true)}
                     onToggleShuffle={toggleShuffle}
                     onCycleRepeat={cycleRepeat}
-                    editable={!live || sessionCan.editQueue(live.my_role)}
+                    editable={!live || live.can.edit_queue}
                     queueCount={
                         live
                             ? `${live.up_next.length + (live.current ? 1 : 0)}/${MAX_SESSION_QUEUE}`

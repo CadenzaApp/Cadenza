@@ -10,12 +10,10 @@
 //! other option; deleting is simpler and nothing depended on it surviving.
 
 use chrono::{DateTime, FixedOffset};
-use sea_orm::{
-    ConnectionTrait, DatabaseTransaction, DbBackend, FromQueryResult, Statement, Value,
-    prelude::Uuid,
-};
+use sea_orm::{ActiveEnum, ConnectionTrait, DatabaseTransaction, FromQueryResult, prelude::Uuid};
 
-use crate::db::Db;
+use crate::db::collab::{check_name, moved_order, write_order};
+use crate::db::{Db, stmt};
 use crate::db::{
     audience::{PrivacyField, can_see_field},
     invites::{InviteTargetRef, revoke_invites_for},
@@ -27,32 +25,7 @@ use crate::err::CadenzaError;
 pub const MAX_PLAYLIST_SONGS: usize = 1000;
 pub const MAX_SONGS_PER_ADD: usize = 200;
 
-/// A member's role. Ordered, so a check is `role >= Role::Editor`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum PlaylistRole {
-    Viewer,
-    Editor,
-    Owner,
-}
-
-impl PlaylistRole {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Viewer => "viewer",
-            Self::Editor => "editor",
-            Self::Owner => "owner",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "viewer" => Some(Self::Viewer),
-            "editor" => Some(Self::Editor),
-            "owner" => Some(Self::Owner),
-            _ => None,
-        }
-    }
-}
+pub use crate::db::entity::sea_orm_active_enums::PlaylistRole;
 
 /// What a role may do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,7 +42,7 @@ pub enum PlaylistAction {
 pub fn allowed(role: PlaylistRole, action: PlaylistAction) -> bool {
     match action {
         PlaylistAction::Read => true,
-        PlaylistAction::EditSongs => role >= PlaylistRole::Editor,
+        PlaylistAction::EditSongs => role != PlaylistRole::Viewer,
         PlaylistAction::EditDetails
         | PlaylistAction::ManageMembers
         | PlaylistAction::MakeInvite
@@ -85,7 +58,7 @@ pub struct PlaylistSummary {
     pub description: String,
     pub owner_id: Uuid,
     pub owner_username: String,
-    pub role: String,
+    pub role: PlaylistRole,
     pub song_count: i64,
     pub member_count: i64,
     /// The first four songs, for a cover mosaic.
@@ -98,7 +71,7 @@ pub struct PlaylistSummary {
 pub struct PlaylistMember {
     pub user_id: Uuid,
     pub username: String,
-    pub role: String,
+    pub role: PlaylistRole,
     pub joined_at: DateTime<FixedOffset>,
 }
 
@@ -129,10 +102,6 @@ pub struct PlaylistDetail {
     pub my_role: PlaylistRole,
     pub members: Vec<PlaylistMember>,
     pub entries: Vec<PlaylistEntry>,
-}
-
-fn stmt(sql: &str, values: Vec<Value>) -> Statement {
-    Statement::from_sql_and_values(DbBackend::Postgres, sql, values)
 }
 
 /// What a post shows of a shared playlist it attaches. Anyone who sees the
@@ -166,7 +135,7 @@ pub async fn playlist_cards<C: ConnectionTrait>(
                       ORDER BY s.position, s.entry_id LIMIT 4) AS cover_song_ids
          FROM shared_playlists p
          WHERE p.playlist_id = ANY($1)",
-        vec![bigint_array(playlist_ids)],
+        vec![playlist_ids.to_vec().into()],
     ))
     .all(db)
     .await?;
@@ -189,13 +158,10 @@ pub async fn member_role<C: ConnectionTrait>(
             vec![playlist_id.into(), user_id.into()],
         ))
         .await?;
-    match row {
-        Some(row) => {
-            let role: String = row.try_get("", "role")?;
-            Ok(PlaylistRole::parse(&role))
-        }
-        None => Ok(None),
-    }
+    Ok(match row {
+        Some(row) => Some(row.try_get("", "role")?),
+        None => None,
+    })
 }
 
 /// Locks the playlist, checks the caller may do `action`, and checks
@@ -221,7 +187,7 @@ async fn lock_for(
     if !allowed(role, action) {
         return Err(CadenzaError::Forbidden(format!(
             "a playlist {} cannot do that",
-            role.as_str()
+            role.to_value()
         )));
     }
     if let Some(expected) = expected_version
@@ -276,16 +242,6 @@ fn check_song_ids(song_ids: &[String]) -> Result<(), CadenzaError> {
     Ok(())
 }
 
-fn check_name(name: &str) -> Result<String, CadenzaError> {
-    let name = name.trim();
-    if name.is_empty() || name.chars().count() > 100 {
-        return Err(CadenzaError::InvalidRequestBody(
-            "a playlist name is 1 to 100 characters".into(),
-        ));
-    }
-    Ok(name.to_owned())
-}
-
 /// The caller's shared playlists, most recently changed first.
 pub async fn list_my_playlists(
     db: &impl Db,
@@ -322,7 +278,7 @@ pub async fn create_playlist(
     description: &str,
     song_ids: &[String],
 ) -> Result<i64, CadenzaError> {
-    let name = check_name(name)?;
+    let name = check_name(name, "playlist")?;
     check_song_ids(song_ids)?;
     let txn = db.begin().await?;
     let row = txn
@@ -402,7 +358,7 @@ pub async fn update_details(
             "set a name or a description".into(),
         ));
     }
-    let name = name.map(check_name).transpose()?;
+    let name = name.map(|name| check_name(name, "playlist")).transpose()?;
     let description = description.map(|d| d.trim().to_owned());
     if description
         .as_ref()
@@ -491,7 +447,7 @@ async fn insert_songs(
             playlist_id.into(),
             at.into(),
             added_by.into(),
-            text_array(song_ids),
+            song_ids.to_vec().into(),
         ],
     ))
     .await?;
@@ -592,27 +548,17 @@ pub async fn move_entry(
         .map(|row| row.try_get::<i64>("", "entry_id"))
         .collect::<Result<_, _>>()?;
     let order = moved_order(&ids, entry_id, to_position).ok_or(CadenzaError::NotFound)?;
-    txn.execute_raw(stmt(
-        "UPDATE shared_playlist_songs s SET position = t.ord::int - 1
-         FROM unnest($2::bigint[]) WITH ORDINALITY AS t(entry_id, ord)
-         WHERE s.playlist_id = $1 AND s.entry_id = t.entry_id",
-        vec![playlist_id.into(), bigint_array(&order)],
-    ))
+    write_order(
+        &txn,
+        "shared_playlist_songs",
+        "playlist_id",
+        playlist_id,
+        &order,
+    )
     .await?;
     let version = bump(&txn, playlist_id).await?;
     txn.commit().await?;
     Ok(version)
-}
-
-/// `ids` with `entry_id` moved to `to`, clamped to the ends. `None` when it is
-/// not there.
-pub fn moved_order(ids: &[i64], entry_id: i64, to: i32) -> Option<Vec<i64>> {
-    let from = ids.iter().position(|id| *id == entry_id)?;
-    let mut order = ids.to_vec();
-    let moved = order.remove(from);
-    let to = (to.max(0) as usize).min(order.len());
-    order.insert(to, moved);
-    Some(order)
 }
 
 /// Adds `member_id` directly, as `role` (viewer or editor). Owner only, and
@@ -647,7 +593,7 @@ pub async fn add_member(
     txn.execute_raw(stmt(
         "INSERT INTO shared_playlist_members (playlist_id, user_id, role)
          VALUES ($1, $2, $3::playlist_role) ON CONFLICT DO NOTHING",
-        vec![playlist_id.into(), member_id.into(), role.as_str().into()],
+        vec![playlist_id.into(), member_id.into(), role.into()],
     ))
     .await?;
     let version = bump(&txn, playlist_id).await?;
@@ -655,15 +601,18 @@ pub async fn add_member(
     Ok(version)
 }
 
-/// Joins through a redeemed code as `role`. Someone already in keeps the
-/// higher of the two roles. Returns the new version.
+/// Joins through a redeemed code as `role`, at most editor. Someone already
+/// in keeps the higher of the two roles. Returns the new version.
 pub async fn join_by_code(
     db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
     role: PlaylistRole,
 ) -> Result<i64, CadenzaError> {
-    let role = role.min(PlaylistRole::Editor);
+    let role = match role {
+        PlaylistRole::Owner => PlaylistRole::Editor,
+        role => role,
+    };
     let txn = db.begin().await?;
     txn.query_one_raw(stmt(
         "SELECT 1 FROM shared_playlists WHERE playlist_id = $1 FOR UPDATE",
@@ -672,12 +621,13 @@ pub async fn join_by_code(
     .await?
     .ok_or(CadenzaError::NotFound)?;
     let current = member_role(&txn, playlist_id, user_id).await?;
-    if current.is_none_or(|current| current < role) {
+    let upgrade = current == Some(PlaylistRole::Viewer) && role == PlaylistRole::Editor;
+    if current.is_none() || upgrade {
         txn.execute_raw(stmt(
             "INSERT INTO shared_playlist_members (playlist_id, user_id, role)
              VALUES ($1, $2, $3::playlist_role)
              ON CONFLICT (playlist_id, user_id) DO UPDATE SET role = EXCLUDED.role",
-            vec![playlist_id.into(), user_id.into(), role.as_str().into()],
+            vec![playlist_id.into(), user_id.into(), role.into()],
         ))
         .await?;
     }
@@ -713,7 +663,7 @@ pub async fn set_member_role(
         .execute_raw(stmt(
             "UPDATE shared_playlist_members SET role = $3::playlist_role
              WHERE playlist_id = $1 AND user_id = $2 AND role <> 'owner'",
-            vec![playlist_id.into(), member_id.into(), role.as_str().into()],
+            vec![playlist_id.into(), member_id.into(), role.into()],
         ))
         .await?;
     if updated.rows_affected() == 0 {
@@ -785,30 +735,6 @@ pub async fn check_can_invite(
     Ok(())
 }
 
-pub(crate) fn text_array(items: &[String]) -> Value {
-    Value::Array(
-        sea_orm::sea_query::ArrayType::String,
-        Some(Box::new(
-            items
-                .iter()
-                .map(|item| Value::String(Some(item.clone())))
-                .collect(),
-        )),
-    )
-}
-
-pub(crate) fn bigint_array(items: &[i64]) -> Value {
-    Value::Array(
-        sea_orm::sea_query::ArrayType::BigInt,
-        Some(Box::new(
-            items
-                .iter()
-                .map(|item| Value::BigInt(Some(*item)))
-                .collect(),
-        )),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -835,30 +761,8 @@ mod tests {
     }
 
     #[test]
-    fn moving_an_entry_reorders_and_clamps() {
-        let ids = [10, 20, 30, 40];
-        assert_eq!(moved_order(&ids, 10, 2).unwrap(), vec![20, 30, 10, 40]);
-        assert_eq!(moved_order(&ids, 40, 0).unwrap(), vec![40, 10, 20, 30]);
-        assert_eq!(moved_order(&ids, 20, 99).unwrap(), vec![10, 30, 40, 20]);
-        assert_eq!(moved_order(&ids, 20, -5).unwrap(), vec![20, 10, 30, 40]);
-        assert!(moved_order(&ids, 99, 0).is_none());
-    }
-
-    #[test]
     fn library_songs_cannot_be_added() {
         assert!(check_song_ids(&["123".into()]).is_ok());
         assert!(check_song_ids(&["i.abc".into()]).is_err());
-    }
-
-    #[test]
-    fn role_strings_round_trip() {
-        for role in [
-            PlaylistRole::Viewer,
-            PlaylistRole::Editor,
-            PlaylistRole::Owner,
-        ] {
-            assert_eq!(PlaylistRole::parse(role.as_str()), Some(role));
-        }
-        assert!(PlaylistRole::Owner > PlaylistRole::Editor);
     }
 }

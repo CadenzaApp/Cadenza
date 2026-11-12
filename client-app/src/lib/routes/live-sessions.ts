@@ -12,6 +12,7 @@ import {
     withPendingModes,
     type SessionModes,
 } from "../session-modes";
+import { playbackPositionMs } from "../session-playback";
 import type { CreateInviteBody, Invite } from "./invites";
 
 export type SessionRole =
@@ -81,6 +82,14 @@ export type LiveSession = {
     version: number;
     /** `host`, or the caller's role. */
     my_role: "host" | SessionRole;
+    /** What the caller's role allows, from the backend's own table. */
+    can: {
+        suggest: boolean;
+        edit_queue: boolean;
+        control: boolean;
+        review: boolean;
+        manage: boolean;
+    };
     my_listen_mode: ListenMode;
     members: LiveSessionMember[];
     /** The entry the server's anchor is on. */
@@ -131,23 +140,6 @@ export type PlaybackBody =
           command_seq: number | null;
       }
     | { kind: "advance"; from_entry_id: number };
-
-type Role = LiveSession["my_role"];
-const RANK: Record<Role, number> = {
-    listener: 0,
-    suggester: 1,
-    queue_editor: 2,
-    controller: 3,
-    host: 4,
-};
-
-/** What a role may do. Mirrors `services/live_sessions.rs` on the backend. */
-export const sessionCan = {
-    suggest: (role: Role) => RANK[role] >= RANK.suggester,
-    editQueue: (role: Role) => RANK[role] >= RANK.queue_editor,
-    control: (role: Role) => RANK[role] >= RANK.controller,
-    manage: (role: Role) => role === "host",
-};
 
 /**
  * Whether a session shows as live: any regular one, and a listen along one
@@ -236,11 +228,7 @@ function optimisticPlayback(
     body: PlaybackBody,
 ): LiveSessionPlayback | null {
     const now = serverNow();
-    const position =
-        playback.position_ms +
-        (playback.is_playing
-            ? Math.max(0, now - Date.parse(playback.as_of))
-            : 0);
+    const position = playbackPositionMs(playback, now);
     const at = new Date(now).toISOString();
     switch (body.kind) {
         case "play":

@@ -19,7 +19,6 @@ import { DetailScreen } from "@/components/ui/detail-screen";
 import { GlassPill } from "@/components/ui/glass-pill";
 import { Text } from "@/components/ui/text";
 import {
-    canEditSongs,
     useAddToSharedPlaylist,
     useSharedPlaylists,
 } from "@/lib/routes/shared-playlists";
@@ -51,8 +50,8 @@ export default function AddToPlaylistScreen() {
     const { addSongsToPlaylist, createPlaylist } = usePlaylistMutations();
     const { sharedPlaylists } = useSharedPlaylists();
     const { addToSharedPlaylist } = useAddToSharedPlaylist();
-    const editableShared = (sharedPlaylists ?? []).filter((p) =>
-        canEditSongs(p.role),
+    const editableShared = (sharedPlaylists ?? []).filter(
+        (p) => p.can.edit_songs,
     );
     // only catalog songs can be shared; a library id means nothing to others
     const shareable = Boolean(songId) && !songId.startsWith("i.");

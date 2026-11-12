@@ -161,10 +161,14 @@ Rebuilding db entities after a schema change:
 
 ```sh
 cargo install sea-orm-cli@2.0.4 --locked
-sea-orm-cli generate entity -o ./src/db/entity --entity-format compact
+sea-orm-cli generate entity -o ./src/db/entity --entity-format compact \
+  --enum-extra-derives 'Copy,Hash,serde::Serialize,serde::Deserialize' \
+  --enum-extra-attributes 'serde(rename_all = "snake_case")'
 ```
 
-Keep the CLI version equal to the `sea-orm` version in `Cargo.lock`. The stable 2.0.0 CLI writes
+The enum flags are not optional: routes and json types use the generated enums directly, so a
+regen without them does not compile. Raw SQL still reads an enum as `col::text` and binds one
+with a `$n::type` cast. Keep the CLI version equal to the `sea-orm` version in `Cargo.lock`. The stable 2.0.0 CLI writes
 code this crate cannot compile: `rs_type = "Enum"` on Postgres enums, and `BelongsTo` relation
 fields in the dense format.
 
@@ -179,7 +183,9 @@ The schema was built by applying SQL to Supabase by hand. Keep doing that, but l
 
 ```sh
 psql "$(grep ^DATABASE_URL .env | cut -d= -f2-)" -v ON_ERROR_STOP=1 -f sql/your_change.sql
-sea-orm-cli generate entity -o ./src/db/entity --entity-format compact
+sea-orm-cli generate entity -o ./src/db/entity --entity-format compact \
+  --enum-extra-derives 'Copy,Hash,serde::Serialize,serde::Deserialize' \
+  --enum-extra-attributes 'serde(rename_all = "snake_case")'
 ```
 
 Write the DDL so it can be run twice (`create table if not exists`, `create index if not exists`),

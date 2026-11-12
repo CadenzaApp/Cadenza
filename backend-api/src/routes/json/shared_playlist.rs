@@ -2,7 +2,34 @@ use chrono::{DateTime, Utc};
 use sea_orm::prelude::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::db::shared_playlists::{PlaylistDetail, PlaylistEntry, PlaylistMember, PlaylistSummary};
+use crate::db::shared_playlists::{
+    PlaylistAction, PlaylistDetail, PlaylistEntry, PlaylistMember, PlaylistRole, PlaylistSummary,
+    allowed,
+};
+
+/// [`allowed`] for each action the app gates on, so it never keeps its own
+/// table.
+#[derive(Serialize)]
+pub struct PlaylistPermissions {
+    pub edit_songs: bool,
+    pub edit_details: bool,
+    pub manage_members: bool,
+    pub make_invite: bool,
+    pub delete: bool,
+}
+
+impl From<PlaylistRole> for PlaylistPermissions {
+    fn from(role: PlaylistRole) -> Self {
+        let can = |action| allowed(role, action);
+        Self {
+            edit_songs: can(PlaylistAction::EditSongs),
+            edit_details: can(PlaylistAction::EditDetails),
+            manage_members: can(PlaylistAction::ManageMembers),
+            make_invite: can(PlaylistAction::MakeInvite),
+            delete: can(PlaylistAction::Delete),
+        }
+    }
+}
 
 #[derive(Serialize)]
 pub struct SharedPlaylistSummary {
@@ -10,8 +37,9 @@ pub struct SharedPlaylistSummary {
     pub name: String,
     pub description: String,
     pub owner: Person,
-    /// The caller's role: `owner`, `editor`, or `viewer`.
-    pub role: String,
+    /// The caller's role.
+    pub role: PlaylistRole,
+    pub can: PlaylistPermissions,
     pub song_count: i64,
     pub member_count: i64,
     /// The first four songs, for a cover mosaic. Catalog ids.
@@ -31,6 +59,7 @@ impl From<PlaylistSummary> for SharedPlaylistSummary {
                 username: row.owner_username,
             },
             role: row.role,
+            can: row.role.into(),
             song_count: row.song_count,
             member_count: row.member_count,
             cover_song_ids: row.cover_song_ids,
@@ -55,7 +84,7 @@ pub struct SharedPlaylistsResponse {
 pub struct SharedPlaylistMember {
     pub user_id: Uuid,
     pub username: String,
-    pub role: String,
+    pub role: PlaylistRole,
     pub joined_at: DateTime<Utc>,
 }
 
@@ -99,7 +128,8 @@ pub struct SharedPlaylistDetail {
     pub name: String,
     pub description: String,
     pub version: i64,
-    pub my_role: String,
+    pub my_role: PlaylistRole,
+    pub can: PlaylistPermissions,
     pub members: Vec<SharedPlaylistMember>,
     pub entries: Vec<SharedPlaylistEntry>,
     pub created_at: DateTime<Utc>,
@@ -114,7 +144,8 @@ impl From<PlaylistDetail> for SharedPlaylistDetail {
             name: detail.header.name,
             description: detail.header.description,
             version: detail.header.version,
-            my_role: detail.my_role.as_str().to_owned(),
+            my_role: detail.my_role,
+            can: detail.my_role.into(),
             members: detail.members.into_iter().map(Into::into).collect(),
             entries: detail.entries.into_iter().map(Into::into).collect(),
             created_at: detail.header.created_at.with_timezone(&Utc),
@@ -167,12 +198,13 @@ pub struct ExpectedVersion {
 pub struct AddSharedPlaylistMember {
     pub user_id: Uuid,
     /// `viewer` or `editor`.
-    pub role: String,
+    pub role: PlaylistRole,
 }
 
 #[derive(Deserialize)]
 pub struct SetSharedPlaylistRole {
-    pub role: String,
+    /// `viewer` or `editor`.
+    pub role: PlaylistRole,
 }
 
 /// What a write left the playlist at. `deleted` when the owner left.

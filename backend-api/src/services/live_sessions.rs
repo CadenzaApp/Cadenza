@@ -9,39 +9,14 @@
 
 use chrono::{DateTime, Duration, Utc};
 
-/// A member's role. Ordered: each one can do everything the one before can.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SessionRole {
-    /// Sees the queue and now playing.
-    Listener,
-    /// Adds songs as suggestions the host approves.
-    Suggester,
-    /// Adds, removes, and reorders the queue directly.
-    QueueEditor,
-    /// Queue editor plus play, pause, skip, seek, and jump.
-    Controller,
-}
-
-impl SessionRole {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Listener => "listener",
-            Self::Suggester => "suggester",
-            Self::QueueEditor => "queue_editor",
-            Self::Controller => "controller",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "listener" => Some(Self::Listener),
-            "suggester" => Some(Self::Suggester),
-            "queue_editor" => Some(Self::QueueEditor),
-            "controller" => Some(Self::Controller),
-            _ => None,
-        }
-    }
-}
+/// A member's role. Each one can do everything the one before can: listener
+/// sees the queue and now playing, suggester adds songs the host
+/// approves, queue editor edits the queue directly, controller also plays,
+/// pauses, skips, seeks, and jumps.
+///
+/// Repeat mode: off stops after the last song, all puts the played songs back
+/// once the last one is current, one loops the current song.
+pub use crate::db::entity::sea_orm_active_enums::{RepeatMode, SessionEntryStatus, SessionRole};
 
 /// Who is asking: the host, or a member with a role.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,20 +45,22 @@ pub fn allowed(actor: Actor, action: SessionAction) -> bool {
         Actor::Host => true,
         Actor::Member(role) => match action {
             SessionAction::View => true,
-            SessionAction::Suggest => role >= SessionRole::Suggester,
-            SessionAction::EditQueue => role >= SessionRole::QueueEditor,
-            SessionAction::Control => role >= SessionRole::Controller,
+            SessionAction::Suggest => role != SessionRole::Listener,
+            SessionAction::EditQueue => {
+                matches!(role, SessionRole::QueueEditor | SessionRole::Controller)
+            }
+            SessionAction::Control => role == SessionRole::Controller,
             SessionAction::Review | SessionAction::Manage | SessionAction::Report => false,
         },
     }
 }
 
 /// What adding a song does for this actor: queue it, or suggest it.
-pub fn add_lands_as(actor: Actor) -> Option<&'static str> {
+pub fn add_lands_as(actor: Actor) -> Option<SessionEntryStatus> {
     if allowed(actor, SessionAction::EditQueue) {
-        Some("queued")
+        Some(SessionEntryStatus::Queued)
     } else if allowed(actor, SessionAction::Suggest) {
-        Some("suggested")
+        Some(SessionEntryStatus::Suggested)
     } else {
         None
     }
@@ -125,34 +102,6 @@ pub fn timed_out(session: Liveness, now: DateTime<Utc>) -> bool {
             .is_some_and(|away| now - away > AWAY_TIMEOUT);
     let alone_and_quiet = !session.has_guests && now - session.host_seen_at > HOST_TIMEOUT;
     paused_too_long || closed || alone_and_quiet
-}
-
-/// A session's repeat mode. Off stops after the last song; all puts the
-/// played songs back once the last one is current; one loops the current song.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RepeatMode {
-    Off,
-    All,
-    One,
-}
-
-impl RepeatMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Off => "off",
-            Self::All => "all",
-            Self::One => "one",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "off" => Some(Self::Off),
-            "all" => Some(Self::All),
-            "one" => Some(Self::One),
-            _ => None,
-        }
-    }
 }
 
 /// Back past this far into a song restarts it instead of going to the one
@@ -263,13 +212,13 @@ mod tests {
         assert_eq!(add_lands_as(Actor::Member(SessionRole::Listener)), None);
         assert_eq!(
             add_lands_as(Actor::Member(SessionRole::Suggester)),
-            Some("suggested")
+            Some(SessionEntryStatus::Suggested)
         );
         assert_eq!(
             add_lands_as(Actor::Member(SessionRole::QueueEditor)),
-            Some("queued")
+            Some(SessionEntryStatus::Queued)
         );
-        assert_eq!(add_lands_as(Actor::Host), Some("queued"));
+        assert_eq!(add_lands_as(Actor::Host), Some(SessionEntryStatus::Queued));
     }
 
     #[test]

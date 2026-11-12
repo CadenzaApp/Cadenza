@@ -1,18 +1,21 @@
 use chrono::{DateTime, Utc};
-use sea_orm::prelude::Uuid;
+use sea_orm::{ActiveEnum, prelude::Uuid};
 use serde::{Deserialize, Serialize};
 
+use crate::db::entity::sea_orm_active_enums::ListenMode;
 use crate::db::live_sessions::{
     NewQueueSong, PlaybackNow, ProjectedPlayback, QueueEntry, SessionMember, SessionRow,
     SessionSnapshot,
 };
-use crate::services::live_sessions::{Actor, SessionRole};
+use crate::services::live_sessions::{
+    Actor, RepeatMode, SessionAction, SessionEntryStatus, SessionRole, allowed,
+};
 
 #[derive(Deserialize)]
 pub struct StartLiveSession {
     pub name: String,
     /// What new members join as. Default `suggester`.
-    pub default_role: Option<String>,
+    pub default_role: Option<SessionRole>,
     /// Default true: anyone the host's `session_join` audience allows can join
     /// without a code.
     pub allow_join_without_code: Option<bool>,
@@ -33,8 +36,8 @@ pub struct LiveSessionId {
 pub struct LiveSessionMember {
     pub user_id: Uuid,
     pub username: String,
-    pub role: String,
-    pub listen_mode: String,
+    pub role: SessionRole,
+    pub listen_mode: ListenMode,
     pub is_host: bool,
     pub joined_at: DateTime<Utc>,
 }
@@ -47,7 +50,7 @@ pub struct LiveSessionEntry {
     pub artist: Option<String>,
     pub artwork_url: Option<String>,
     pub duration_ms: Option<i64>,
-    pub status: String,
+    pub status: SessionEntryStatus,
     /// Order among entries of the same status.
     pub position: i32,
     pub added_by: Option<Uuid>,
@@ -75,7 +78,6 @@ impl From<QueueEntry> for LiveSessionEntry {
 
 /// Where playback is, projected to `as_of` (server clock). `command_seq`
 /// moves only when someone other than the host's phone changes playback.
-/// `repeat_mode` is `off`, `all`, or `one`.
 #[derive(Serialize)]
 pub struct LiveSessionPlayback {
     pub entry_id: Option<i64>,
@@ -84,7 +86,7 @@ pub struct LiveSessionPlayback {
     pub as_of: DateTime<Utc>,
     pub command_seq: i64,
     pub shuffle: bool,
-    pub repeat_mode: String,
+    pub repeat_mode: RepeatMode,
 }
 
 impl LiveSessionPlayback {
@@ -96,7 +98,7 @@ impl LiveSessionPlayback {
             as_of: projected.as_of,
             command_seq: session.command_seq,
             shuffle: session.shuffle,
-            repeat_mode: session.repeat_mode.clone(),
+            repeat_mode: session.repeat_mode,
         }
     }
 }
@@ -112,7 +114,7 @@ pub struct LiveSessionSnapshot {
     pub session_id: Uuid,
     pub name: String,
     pub host: LiveSessionMember,
-    pub default_role: String,
+    pub default_role: SessionRole,
     pub allow_join_without_code: bool,
     /// Opened by listen along, and not turned into a regular session since.
     pub listen_along: bool,
@@ -122,7 +124,9 @@ pub struct LiveSessionSnapshot {
     pub version: i64,
     /// `host`, or the caller's role.
     pub my_role: String,
-    pub my_listen_mode: String,
+    /// What the caller's role allows, so the app never keeps its own table.
+    pub can: SessionPermissions,
+    pub my_listen_mode: ListenMode,
     pub members: Vec<LiveSessionMember>,
     /// The entry the anchor is on. `playback.entry_id` can be later, when the
     /// projection has walked past it.
@@ -160,16 +164,16 @@ impl From<SessionSnapshot> for LiveSessionSnapshot {
             .map(|m| LiveSessionMember {
                 user_id: m.user_id,
                 username: m.username.clone(),
-                role: m.role.clone(),
-                listen_mode: m.listen_mode.clone(),
+                role: m.role,
+                listen_mode: m.listen_mode,
                 is_host: true,
                 joined_at: m.joined_at,
             })
             .unwrap_or(LiveSessionMember {
                 user_id: host_id,
                 username: session.host_username.clone(),
-                role: SessionRole::Controller.as_str().to_owned(),
-                listen_mode: "synced".to_owned(),
+                role: SessionRole::Controller,
+                listen_mode: ListenMode::Synced,
                 is_host: true,
                 joined_at: session.created_at.with_timezone(&Utc),
             });
@@ -191,9 +195,10 @@ impl From<SessionSnapshot> for LiveSessionSnapshot {
                 })
                 .collect(),
             version: session.version,
+            can: snapshot.me.into(),
             my_role: match snapshot.me {
                 Actor::Host => "host".to_owned(),
-                Actor::Member(role) => role.as_str().to_owned(),
+                Actor::Member(role) => role.to_value(),
             },
             my_listen_mode: snapshot.my_listen_mode,
             members,
@@ -202,6 +207,29 @@ impl From<SessionSnapshot> for LiveSessionSnapshot {
             suggestions: snapshot.suggestions.into_iter().map(Into::into).collect(),
             playback,
             created_at: session.created_at.with_timezone(&Utc),
+        }
+    }
+}
+
+/// [`allowed`] for each action the app gates on.
+#[derive(Serialize)]
+pub struct SessionPermissions {
+    pub suggest: bool,
+    pub edit_queue: bool,
+    pub control: bool,
+    pub review: bool,
+    pub manage: bool,
+}
+
+impl From<Actor> for SessionPermissions {
+    fn from(actor: Actor) -> Self {
+        let can = |action| allowed(actor, action);
+        Self {
+            suggest: can(SessionAction::Suggest),
+            edit_queue: can(SessionAction::EditQueue),
+            control: can(SessionAction::Control),
+            review: can(SessionAction::Review),
+            manage: can(SessionAction::Manage),
         }
     }
 }
@@ -216,7 +244,7 @@ pub struct LiveSessionJoinRequest {
 #[derive(Deserialize)]
 pub struct PatchLiveSession {
     pub name: Option<String>,
-    pub default_role: Option<String>,
+    pub default_role: Option<SessionRole>,
     pub allow_join_without_code: Option<bool>,
     /// False turns a listen along session into a regular one.
     pub listen_along: Option<bool>,
@@ -245,13 +273,12 @@ pub struct JoinListeningResult {
 
 #[derive(Deserialize)]
 pub struct SetLiveSessionRole {
-    pub role: String,
+    pub role: SessionRole,
 }
 
 #[derive(Deserialize)]
 pub struct SetListenMode {
-    /// `remote` or `synced`.
-    pub listen_mode: String,
+    pub listen_mode: ListenMode,
 }
 
 #[derive(Deserialize)]
@@ -318,9 +345,8 @@ pub enum PlaybackBody {
     Shuffle {
         on: bool,
     },
-    /// `off`, `all`, or `one`.
     Repeat {
-        mode: String,
+        mode: RepeatMode,
     },
     Report {
         entry_id: Option<i64>,

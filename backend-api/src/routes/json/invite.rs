@@ -1,13 +1,16 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::db::{entity::invite_codes, invites::InviteTargetRef};
+use crate::db::{
+    entity::{invite_codes, sea_orm_active_enums::PlaylistRole},
+    invites::InviteTargetRef,
+};
 
 /// Options for a new code. All optional.
 #[derive(Deserialize, Default)]
 pub struct CreateInvite {
     /// Playlists only: `viewer` (default) or `editor`.
-    pub role: Option<String>,
+    pub role: Option<PlaylistRole>,
     pub expires_in_hours: Option<i64>,
     pub max_uses: Option<i32>,
 }

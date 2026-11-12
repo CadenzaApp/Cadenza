@@ -14,6 +14,7 @@ use sea_orm::{
     prelude::Uuid,
 };
 
+use crate::db::entity::sea_orm_active_enums::ListenMode;
 use crate::db::{
     invites::{InviteTargetRef, NewInvite, create_invite, redeem_invite},
     live_sessions::{self as sessions, NewQueueSong, PlaybackCommand},
@@ -68,7 +69,7 @@ async fn social_listening_shared_playlist_flow() {
     let mine = playlists::list_my_playlists(&txn, owner).await.unwrap();
     let summary = mine.iter().find(|p| p.playlist_id == id).unwrap();
     assert_eq!(summary.song_count, 2);
-    assert_eq!(summary.role, "owner");
+    assert_eq!(summary.role, PlaylistRole::Owner);
 
     // a stranger cannot see it
     assert!(matches!(
@@ -112,7 +113,7 @@ async fn social_listening_shared_playlist_flow() {
         owner,
         &InviteTargetRef::SharedPlaylist(id),
         NewInvite {
-            grants_role: Some("editor".into()),
+            grants_role: Some(PlaylistRole::Editor),
             max_uses: Some(1),
             ..Default::default()
         },
@@ -301,7 +302,7 @@ async fn social_listening_live_session_flow() {
     sessions::playback_command(&txn, guest, id, PlaybackCommand::Play)
         .await
         .unwrap();
-    sessions::set_listen_mode(&txn, guest, id, "synced")
+    sessions::set_listen_mode(&txn, guest, id, ListenMode::Synced)
         .await
         .unwrap();
 
@@ -374,7 +375,7 @@ async fn social_listening_host_leaving_hands_the_session_over() {
     ));
     let snap = sessions::get_snapshot(&txn, guest, id).await.unwrap();
     assert_eq!(snap.me, crate::services::live_sessions::Actor::Host);
-    assert_eq!(snap.my_listen_mode, "synced");
+    assert_eq!(snap.my_listen_mode, ListenMode::Synced);
     assert_eq!(snap.current.as_ref().unwrap().song_id, "20");
     assert!(!sessions::is_participant(&txn, id, host).await.unwrap());
 
@@ -870,7 +871,10 @@ async fn social_listening_back_repeat_and_stale_reports() {
     })
     .await
     .unwrap();
-    assert_eq!(change.playback.unwrap().session.repeat_mode, "all");
+    assert_eq!(
+        change.playback.unwrap().session.repeat_mode,
+        RepeatMode::All
+    );
     command(PlaybackCommand::Next).await.unwrap();
     assert_eq!(songs().await, ["32", "30", "31"]);
 
@@ -973,6 +977,49 @@ async fn social_listening_joining_without_a_code_asks_the_host() {
         sessions::answer_join_request(&txn, host, id, guest, true).await,
         Err(CadenzaError::NotFound)
     ));
+
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_favorites_and_blocks() {
+    use crate::db::friend_relations as relations;
+
+    let txn = scratch().await;
+    let (a, b) = two_users(&txn).await;
+    // start from friends with no blocks between them
+    relations::unblock_user(&txn, a, b).await.unwrap();
+    relations::unblock_user(&txn, b, a).await.unwrap();
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "INSERT INTO friendships (user1, user2, status) VALUES (LEAST($1, $2), GREATEST($1, $2), 'complete')
+         ON CONFLICT (user1, user2) DO UPDATE SET status = 'complete'",
+        vec![a.into(), b.into()],
+    ))
+    .await
+    .unwrap();
+
+    relations::favorite_friend(&txn, a, b).await.unwrap();
+    relations::favorite_friend(&txn, a, b).await.unwrap();
+    assert!(relations::favorite_ids(&txn, a).await.unwrap().contains(&b));
+    relations::unfavorite_friend(&txn, a, b).await.unwrap();
+    assert!(!relations::favorite_ids(&txn, a).await.unwrap().contains(&b));
+
+    relations::favorite_friend(&txn, b, a).await.unwrap();
+    relations::block_user(&txn, a, b).await.unwrap();
+    relations::block_user(&txn, a, b).await.unwrap();
+    assert!(relations::has_blocked(&txn, a, b).await.unwrap());
+    assert!(!relations::has_blocked(&txn, b, a).await.unwrap());
+    assert!(relations::blocked_either_way(&txn, b, a).await.unwrap());
+    // the block ended the friendship and both favorites
+    assert!(!crate::db::social::is_friend(&txn, a, b).await.unwrap());
+    assert!(!relations::favorite_ids(&txn, b).await.unwrap().contains(&a));
+    let blocked = relations::blocked_people(&txn, a).await.unwrap();
+    assert!(blocked.iter().any(|person| person.user_id == b));
+
+    relations::unblock_user(&txn, a, b).await.unwrap();
+    assert!(!relations::blocked_either_way(&txn, a, b).await.unwrap());
 
     txn.rollback().await.unwrap();
 }

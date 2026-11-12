@@ -3,7 +3,6 @@ import test from "node:test";
 
 import {
     applyOps,
-    expectedPositionMs,
     hostTarget,
     reconcile,
     shouldCorrectDrift,
@@ -88,12 +87,6 @@ test("songs already played before the current one are left alone", () => {
         "b",
     ]);
     assert.ok(ops.every((op) => op.kind !== "remove" || op.index > 1));
-});
-
-test("expected position runs while playing only", () => {
-    assert.equal(expectedPositionMs(10_000, 1_000, true, 4_000), 13_000);
-    assert.equal(expectedPositionMs(10_000, 1_000, false, 4_000), 10_000);
-    assert.equal(expectedPositionMs(10_000, 5_000, true, 4_000), 10_000);
 });
 
 test("drift is corrected past 2 s, at most every 5 s", () => {

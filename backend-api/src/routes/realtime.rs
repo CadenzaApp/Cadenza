@@ -41,7 +41,8 @@ use crate::{
     auth::SupabaseClaims,
     db::live_sessions::{self, HostLink},
     services::realtime::{
-        Event, SharedEventBus, SharedPresence, Topic, access::can_subscribe, publish_version,
+        Event, EventKind, SharedEventBus, SharedPresence, Topic, access::can_subscribe,
+        publish_user,
     },
 };
 
@@ -112,23 +113,13 @@ async fn ws_handler(
             return;
         };
         if presence.disconnect(user_id) {
-            publish_presence(&bus, user_id);
+            publish_user(&bus, user_id, EventKind::Presence);
             // a host who closed the app: their session ends in a minute
             if let Err(err) = live_sessions::set_host_link(&db, user_id, link).await {
                 eprintln!("realtime: could not mark {user_id} away: {err}");
             }
         }
     })
-}
-
-/// Tells anyone watching `user_id` that they came online or went offline.
-fn publish_presence(bus: &SharedEventBus, user_id: Uuid) {
-    publish_version(
-        bus,
-        Topic::User(user_id),
-        Utc::now().timestamp_millis(),
-        "presence",
-    );
 }
 
 async fn send(socket: &mut WebSocket, message: &ServerMessage) -> bool {
@@ -181,7 +172,7 @@ async fn run_socket(
         return None;
     };
     if presence.connect(user_id) {
-        publish_presence(&bus, user_id);
+        publish_user(&bus, user_id, EventKind::Presence);
         if let Err(err) = live_sessions::set_host_link(&db, user_id, HostLink::Back).await {
             eprintln!("realtime: could not mark {user_id} back: {err}");
         }
@@ -345,12 +336,12 @@ mod tests {
     #[test]
     fn events_go_out_flat() {
         let message = ServerMessage::Event {
-            event: Event::new(Topic::SharedPlaylist(3), 9, "songs"),
+            event: Event::new(Topic::SharedPlaylist(3), 9, EventKind::Playlist),
         };
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["type"], "event");
         assert_eq!(json["version"], 9);
         assert_eq!(json["topic"]["kind"], "shared_playlist");
-        assert_eq!(json["kind"], "songs");
+        assert_eq!(json["kind"], "playlist");
     }
 }

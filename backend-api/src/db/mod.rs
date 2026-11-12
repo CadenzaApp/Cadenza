@@ -1,6 +1,7 @@
 pub mod activity_tags;
 pub mod analytics;
 pub mod audience;
+pub mod collab;
 pub mod entity;
 pub mod events;
 pub mod friend_relations;
@@ -24,6 +25,12 @@ pub mod tag_activity;
 pub mod tags;
 pub mod user_data;
 pub mod user_songs;
+
+/// A postgres statement with its bound values, for SQL the entities cannot
+/// express.
+pub fn stmt(sql: &str, values: Vec<sea_orm::Value>) -> sea_orm::Statement {
+    sea_orm::Statement::from_sql_and_values(sea_orm::DbBackend::Postgres, sql, values)
+}
 
 /// A connection or an open transaction. Functions that open their own
 /// transaction take `&impl Db`, so a test can run them inside one that rolls

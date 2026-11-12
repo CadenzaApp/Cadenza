@@ -25,7 +25,6 @@ import type { PlaySource } from "@/lib/play-source";
 import { usePlayFromList } from "@/lib/play-from-list";
 import { usePlaybackCommands } from "@/lib/playback";
 import {
-    canEditSongs,
     useSharedPlaylist,
     useSharedPlaylistWrites,
     type SharedPlaylistEntry,
@@ -90,7 +89,7 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
     const reorderHref = `/social/playlist/${playlistId}/reorder` as Href;
     const role = playlist?.my_role;
     const isOwner = role === "owner";
-    const editable = canEditSongs(role);
+    const editable = playlist?.can.edit_songs ?? false;
     const entries = useMemo(() => playlist?.entries ?? [], [playlist]);
 
     const {

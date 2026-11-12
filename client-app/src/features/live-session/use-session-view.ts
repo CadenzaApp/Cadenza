@@ -9,7 +9,7 @@ import {
 import { serverNow } from "@/lib/realtime";
 import type { LiveSession } from "@/lib/routes/live-sessions";
 
-import { expectedPositionMs } from "./session-reconciler";
+import { playbackPositionMs } from "@/lib/session-playback";
 import { entryToTrack, sessionTarget } from "./use-session-player";
 
 /** How often the shown position moves while the session plays. */
@@ -53,12 +53,7 @@ export function useSessionView(session: LiveSession | null, showing: boolean) {
     const view = useMemo<PlaybackView | null>(() => {
         if (!showing || !session) return null;
         const current = target[0];
-        const positionMs = expectedPositionMs(
-            session.playback.position_ms,
-            Date.parse(session.playback.as_of),
-            session.playback.is_playing,
-            now,
-        );
+        const positionMs = playbackPositionMs(session.playback, now);
         const durationMs = current?.duration_ms ?? null;
         // repeat one loops in place; anything else waits at the end for the
         // next snapshot

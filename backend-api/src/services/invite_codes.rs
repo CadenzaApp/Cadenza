@@ -15,7 +15,7 @@ use crate::db::{
     shared_playlists::{PlaylistRole, join_by_code},
 };
 use crate::err::CadenzaError;
-use crate::services::realtime::{SharedEventBus, Topic, publish_version};
+use crate::services::realtime::{EventKind, SharedEventBus, Topic, publish_version};
 
 /// No `0 O 1 I L`, so a code read aloud or off a screen cannot be misread.
 pub const CODE_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
@@ -103,24 +103,25 @@ pub async fn accept_invite(
     let redeemed = redeem_invite(db, &code).await?;
     match &redeemed.target {
         InviteTargetRef::SharedPlaylist(playlist_id) => {
-            let role = redeemed
-                .grants_role
-                .as_deref()
-                .and_then(PlaylistRole::parse)
-                .unwrap_or(PlaylistRole::Viewer);
+            let role = redeemed.grants_role.unwrap_or(PlaylistRole::Viewer);
             let version = join_by_code(db, user_id, *playlist_id, role).await?;
             publish_version(
                 bus,
                 Topic::SharedPlaylist(*playlist_id),
                 version,
-                "playlist",
+                EventKind::Playlist,
             );
         }
         InviteTargetRef::LiveSession(session_id) => {
             let version = join_session(db, user_id, *session_id, true)
                 .await?
                 .version();
-            publish_version(bus, Topic::LiveSession(*session_id), version, "session");
+            publish_version(
+                bus,
+                Topic::LiveSession(*session_id),
+                version,
+                EventKind::Session,
+            );
         }
     }
     Ok(redeemed.target)

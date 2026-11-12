@@ -8,7 +8,6 @@ import { ErrorNotice } from "@/components/custom/error-notice";
 import { ReorderableList } from "@/components/custom/reorderable-list";
 import { Text } from "@/components/ui/text";
 import {
-    canEditSongs,
     useSharedPlaylist,
     useSharedPlaylistWrites,
 } from "@/lib/routes/shared-playlists";
@@ -66,7 +65,7 @@ export function SharedPlaylistReorderScreen({
         );
     }
 
-    const editable = canEditSongs(playlist?.my_role);
+    const editable = playlist?.can.edit_songs ?? false;
 
     return (
         <View className="flex-1 bg-background">

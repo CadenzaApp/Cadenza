@@ -12,7 +12,7 @@ use crate::{
     auth::SupabaseClaims,
     db::{
         invites::{InviteTargetRef, NewInvite, create_invite},
-        shared_playlists::{self as playlists, MemberRemoved, PlaylistRole},
+        shared_playlists::{self as playlists, MemberRemoved},
     },
     err::CadenzaError,
     routes::json::{
@@ -26,13 +26,18 @@ use crate::{
     },
     services::{
         metadata_tags::spawn_store_song_metadata,
-        realtime::{SharedEventBus, Topic, publish_version},
+        realtime::{EventKind, SharedEventBus, Topic, publish_version},
         song_metadata::SongMetadataService,
     },
 };
 
 fn changed(bus: &SharedEventBus, playlist_id: i64, version: i64) -> Json<PlaylistVersion> {
-    publish_version(bus, Topic::SharedPlaylist(playlist_id), version, "playlist");
+    publish_version(
+        bus,
+        Topic::SharedPlaylist(playlist_id),
+        version,
+        EventKind::Playlist,
+    );
     Json(PlaylistVersion {
         version: Some(version),
         deleted: false,
@@ -40,20 +45,16 @@ fn changed(bus: &SharedEventBus, playlist_id: i64, version: i64) -> Json<Playlis
 }
 
 fn deleted(bus: &SharedEventBus, playlist_id: i64) -> Json<PlaylistVersion> {
-    publish_version(bus, Topic::SharedPlaylist(playlist_id), i64::MAX, "ended");
+    publish_version(
+        bus,
+        Topic::SharedPlaylist(playlist_id),
+        i64::MAX,
+        EventKind::Ended,
+    );
     Json(PlaylistVersion {
         version: None,
         deleted: true,
     })
-}
-
-fn parse_role(role: &str) -> Result<PlaylistRole, CadenzaError> {
-    match PlaylistRole::parse(role) {
-        Some(role) if role != PlaylistRole::Owner => Ok(role),
-        _ => Err(CadenzaError::InvalidRequestBody(
-            "role is viewer or editor".into(),
-        )),
-    }
 }
 
 /// The caller's shared playlists, most recently changed first.
@@ -219,9 +220,8 @@ async fn add_member_handler(
     Path(playlist_id): Path<i64>,
     Json(body): Json<AddSharedPlaylistMember>,
 ) -> Result<Json<PlaylistVersion>, CadenzaError> {
-    let role = parse_role(&body.role)?;
     let version =
-        playlists::add_member(&db, claims.user_id, playlist_id, body.user_id, role).await?;
+        playlists::add_member(&db, claims.user_id, playlist_id, body.user_id, body.role).await?;
     Ok(changed(&bus, playlist_id, version))
 }
 
@@ -233,9 +233,8 @@ async fn set_role_handler(
     Path((playlist_id, member_id)): Path<(i64, Uuid)>,
     Json(body): Json<SetSharedPlaylistRole>,
 ) -> Result<Json<PlaylistVersion>, CadenzaError> {
-    let role = parse_role(&body.role)?;
     let version =
-        playlists::set_member_role(&db, claims.user_id, playlist_id, member_id, role).await?;
+        playlists::set_member_role(&db, claims.user_id, playlist_id, member_id, body.role).await?;
     Ok(changed(&bus, playlist_id, version))
 }
 

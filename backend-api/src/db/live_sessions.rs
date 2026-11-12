@@ -17,24 +17,29 @@
 //! host's app closed for a minute, or a host alone in it quiet for 30.
 //! [`end_timed_out`] writes those ends; the server runs it every 30 s.
 
+use std::sync::LazyLock;
+
 use chrono::{DateTime, FixedOffset, Utc};
 use sea_orm::{
-    ConnectionTrait, DatabaseTransaction, DbBackend, EntityTrait, FromQueryResult, Statement,
-    Value, prelude::Uuid,
+    ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait, FromQueryResult, QueryFilter,
+    prelude::Uuid, sea_query::Expr,
 };
 
-use crate::db::Db;
+use crate::db::collab::{check_name, moved_order, write_order};
+use crate::db::entity::sea_orm_active_enums::{JoinRequestStatus, ListenMode};
+use crate::db::{Db, stmt};
 use crate::db::{
     audience::{PrivacyField, can_see_field},
-    entity::now_playing as now_playing_row,
+    entity::{live_sessions as sessions, now_playing as now_playing_row},
     invites::{InviteTargetRef, revoke_invites_for},
     notification::NotificationType,
     now_playing::{is_catalog_id, is_live, projected_position_ms, read_up_next},
 };
 use crate::err::CadenzaError;
 use crate::services::live_sessions::{
-    Actor, Anchor, Liveness, Projected, REPORT_JUMP_MS, RESTART_THRESHOLD_MS, RepeatMode,
-    SessionAction, SessionRole, add_lands_as, allowed, project, timed_out,
+    AWAY_TIMEOUT, Actor, Anchor, HOST_TIMEOUT, Liveness, PAUSED_TIMEOUT, Projected, REPORT_JUMP_MS,
+    RESTART_THRESHOLD_MS, RepeatMode, SessionAction, SessionEntryStatus, SessionRole, add_lands_as,
+    allowed, project, timed_out,
 };
 use crate::services::notification::{NewNotification, push_notification};
 
@@ -42,17 +47,13 @@ use crate::services::notification::{NewNotification, push_notification};
 pub const MAX_SONGS_PER_ADD: usize = 100;
 pub const MAX_QUEUE: i64 = 500;
 
-fn stmt(sql: &str, values: Vec<Value>) -> Statement {
-    Statement::from_sql_and_values(DbBackend::Postgres, sql, values)
-}
-
 #[derive(Clone, Debug, FromQueryResult)]
 pub struct SessionRow {
     pub session_id: Uuid,
     pub host_id: Uuid,
     pub host_username: String,
     pub name: String,
-    pub default_role: String,
+    pub default_role: SessionRole,
     pub allow_join_without_code: bool,
     pub current_entry_id: Option<i64>,
     pub is_playing: bool,
@@ -71,8 +72,7 @@ pub struct SessionRow {
     /// Someone joining without a code asks first, and the host lets them in.
     pub approve_joins: bool,
     pub shuffle: bool,
-    /// `off`, `all`, or `one`. See [`RepeatMode`].
-    pub repeat_mode: String,
+    pub repeat_mode: RepeatMode,
     /// Someone besides the host is in it, so a quiet host does not end it.
     pub has_guests: bool,
     /// When the host's app lost its realtime connection, if it has.
@@ -82,10 +82,6 @@ pub struct SessionRow {
 }
 
 impl SessionRow {
-    pub fn repeat(&self) -> RepeatMode {
-        RepeatMode::parse(&self.repeat_mode).unwrap_or(RepeatMode::Off)
-    }
-
     fn anchor(&self) -> Anchor {
         Anchor {
             is_playing: self.is_playing,
@@ -110,33 +106,40 @@ impl SessionRow {
     }
 }
 
-const SESSION_COLUMNS: &str =
-    "s.session_id, s.host_id, COALESCE(h.username, 'unknown') AS host_username,
+/// SQL for whether session `s` has someone besides the host in it.
+pub const HAS_GUESTS_SQL: &str = "EXISTS (
+     SELECT 1 FROM live_session_members g
+     WHERE g.session_id = s.session_id AND g.user_id <> s.host_id
+       AND g.left_at IS NULL AND NOT g.banned
+ )";
+
+static SESSION_COLUMNS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "s.session_id, s.host_id, COALESCE(h.username, 'unknown') AS host_username,
      s.name, s.default_role::text AS default_role, s.allow_join_without_code,
      s.current_entry_id, s.is_playing, s.position_ms, s.position_at, s.version, s.command_seq,
      s.host_seen_at, s.created_at, s.ended_at, s.listen_along, s.approve_joins,
-     s.shuffle, s.repeat_mode,
-     EXISTS (
-         SELECT 1 FROM live_session_members g
-         WHERE g.session_id = s.session_id AND g.user_id <> s.host_id
-           AND g.left_at IS NULL AND NOT g.banned
-     ) AS has_guests,
-     s.host_away_since, s.host_closed_app";
+     s.shuffle, s.repeat_mode::text AS repeat_mode, {HAS_GUESTS_SQL} AS has_guests,
+     s.host_away_since, s.host_closed_app"
+    )
+});
 
 /// SQL for whether session `s` is still open, the same rule as
-/// [`SessionRow::is_open`] and `timed_out`: not ended, not paused 10 minutes,
-/// not a minute past the host closing the app (or going quiet while
-/// playing), and not a host alone and quiet for 30.
-pub const OPEN_SESSION_SQL: &str = "s.ended_at IS NULL
-     AND (s.is_playing OR s.position_at > now() - interval '10 minutes')
+/// [`SessionRow::is_open`] and `timed_out`, built from the same timeouts: not
+/// ended, not paused too long, not past the host closing the app (or going
+/// quiet while playing), and not a host alone and quiet too long.
+pub static OPEN_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "s.ended_at IS NULL
+     AND (s.is_playing OR s.position_at > now() - interval '{paused} seconds')
      AND NOT ((s.is_playing OR s.host_closed_app)
-              AND COALESCE(s.host_away_since < now() - interval '1 minute', false))
-     AND (s.host_seen_at > now() - interval '30 minutes'
-          OR EXISTS (
-              SELECT 1 FROM live_session_members g
-              WHERE g.session_id = s.session_id AND g.user_id <> s.host_id
-                AND g.left_at IS NULL AND NOT g.banned
-          ))";
+              AND COALESCE(s.host_away_since < now() - interval '{away} seconds', false))
+     AND (s.host_seen_at > now() - interval '{host} seconds' OR {HAS_GUESTS_SQL})",
+        paused = PAUSED_TIMEOUT.num_seconds(),
+        away = AWAY_TIMEOUT.num_seconds(),
+        host = HOST_TIMEOUT.num_seconds(),
+    )
+});
 
 /// What happened to a host's realtime connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,25 +162,30 @@ pub async fn set_host_link(
 ) -> Result<(), CadenzaError> {
     let away = link != HostLink::Back;
     let closed = link == HostLink::Closed;
-    db.execute_raw(stmt(
-        "UPDATE live_sessions
-         SET host_away_since = CASE WHEN $2 THEN now() END, host_closed_app = $3
-         WHERE host_id = $1 AND ended_at IS NULL",
-        vec![user_id.into(), away.into(), closed.into()],
-    ))
-    .await?;
+    let away_since = if away {
+        Expr::current_timestamp()
+    } else {
+        Expr::value(Option::<DateTime<FixedOffset>>::None)
+    };
+    sessions::Entity::update_many()
+        .col_expr(sessions::Column::HostAwaySince, away_since)
+        .col_expr(sessions::Column::HostClosedApp, Expr::value(closed))
+        .filter(sessions::Column::HostId.eq(user_id))
+        .filter(sessions::Column::EndedAt.is_null())
+        .exec(db)
+        .await?;
     Ok(())
 }
 
 /// Marks every open session's host away, for startup: no socket outlives a
 /// restart, and a host who comes back clears it on connect.
 pub async fn mark_all_hosts_away(db: &impl ConnectionTrait) -> Result<(), CadenzaError> {
-    db.execute_raw(stmt(
-        "UPDATE live_sessions SET host_away_since = now()
-         WHERE ended_at IS NULL AND host_away_since IS NULL",
-        vec![],
-    ))
-    .await?;
+    sessions::Entity::update_many()
+        .col_expr(sessions::Column::HostAwaySince, Expr::current_timestamp())
+        .filter(sessions::Column::EndedAt.is_null())
+        .filter(sessions::Column::HostAwaySince.is_null())
+        .exec(db)
+        .await?;
     Ok(())
 }
 
@@ -187,8 +195,16 @@ pub struct TimedOut {
     pub session_id: Uuid,
     pub version: i64,
     pub member_ids: Vec<Uuid>,
-    /// `host_gone` (the app closed or went quiet) or `paused`.
-    pub reason: String,
+    pub reason: EndReason,
+}
+
+/// Why a session ran its course.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndReason {
+    /// The host's app closed or went quiet.
+    HostGone,
+    Paused,
 }
 
 /// Ends every open session that ran its course, and revokes its codes. A
@@ -203,11 +219,11 @@ pub async fn end_timed_out(db: &impl Db) -> Result<Vec<TimedOut>, CadenzaError> 
             &format!(
                 "UPDATE live_sessions s
                  SET ended_at = now(), is_playing = false, version = version + 1
-                 WHERE s.ended_at IS NULL AND NOT ({OPEN_SESSION_SQL})
+                 WHERE s.ended_at IS NULL AND NOT ({open})
                  RETURNING s.session_id, s.host_id, s.version,
-                     CASE WHEN s.host_away_since IS NOT NULL
-                               OR s.host_seen_at < now() - interval '30 minutes'
-                          THEN 'host_gone' ELSE 'paused' END AS reason"
+                     s.host_away_since IS NOT NULL OR s.host_seen_at < now() - interval '{host} seconds' AS host_gone",
+                open = *OPEN_SESSION_SQL,
+                host = HOST_TIMEOUT.num_seconds(),
             ),
             vec![],
         ))
@@ -215,9 +231,13 @@ pub async fn end_timed_out(db: &impl Db) -> Result<Vec<TimedOut>, CadenzaError> 
     let mut ended = Vec::with_capacity(rows.len());
     for row in rows {
         let session_id: Uuid = row.try_get("", "session_id")?;
-        let reason: String = row.try_get("", "reason")?;
+        let reason = if row.try_get("", "host_gone")? {
+            EndReason::HostGone
+        } else {
+            EndReason::Paused
+        };
         revoke_invites_for(&txn, &InviteTargetRef::LiveSession(session_id)).await?;
-        if reason == "host_gone" {
+        if reason == EndReason::HostGone {
             let host_id: Uuid = row.try_get("", "host_id")?;
             txn.execute_raw(stmt(
                 "DELETE FROM now_playing WHERE user_id = $1",
@@ -250,8 +270,8 @@ pub async fn end_timed_out(db: &impl Db) -> Result<Vec<TimedOut>, CadenzaError> 
 pub struct SessionMember {
     pub user_id: Uuid,
     pub username: String,
-    pub role: String,
-    pub listen_mode: String,
+    pub role: SessionRole,
+    pub listen_mode: ListenMode,
     pub joined_at: DateTime<FixedOffset>,
 }
 
@@ -264,7 +284,7 @@ pub struct QueueEntry {
     pub artwork_url: Option<String>,
     pub duration_ms: Option<i64>,
     pub position: i32,
-    pub status: String,
+    pub status: SessionEntryStatus,
     pub added_by: Option<Uuid>,
     pub added_by_username: Option<String>,
     pub added_at: DateTime<FixedOffset>,
@@ -313,7 +333,7 @@ pub struct Change {
 pub struct SessionSnapshot {
     pub session: SessionRow,
     pub me: Actor,
-    pub my_listen_mode: String,
+    pub my_listen_mode: ListenMode,
     pub members: Vec<SessionMember>,
     pub current: Option<QueueEntry>,
     pub up_next: Vec<QueueEntry>,
@@ -405,16 +425,6 @@ pub enum PlaybackCommand {
     },
 }
 
-fn check_name(name: &str) -> Result<String, CadenzaError> {
-    let name = name.trim();
-    if name.is_empty() || name.chars().count() > 100 {
-        return Err(CadenzaError::InvalidRequestBody(
-            "a session name is 1 to 100 characters".into(),
-        ));
-    }
-    Ok(name.to_owned())
-}
-
 async fn load_session<C: ConnectionTrait>(
     db: &C,
     session_id: Uuid,
@@ -425,9 +435,10 @@ async fn load_session<C: ConnectionTrait>(
     let lock = if for_update { "FOR UPDATE OF s" } else { "" };
     Ok(SessionRow::find_by_statement(stmt(
         &format!(
-            "SELECT {SESSION_COLUMNS} FROM live_sessions s
+            "SELECT {columns} FROM live_sessions s
              LEFT JOIN profile h ON h.uid = s.host_id
-             WHERE s.session_id = $1 {lock}"
+             WHERE s.session_id = $1 {lock}",
+            columns = *SESSION_COLUMNS,
         ),
         vec![session_id.into()],
     ))
@@ -452,10 +463,7 @@ async fn actor_for<C: ConnectionTrait>(
         ))
         .await?;
     Ok(match row {
-        Some(row) => {
-            let role: String = row.try_get("", "role")?;
-            SessionRole::parse(&role).map(Actor::Member)
-        }
+        Some(row) => Some(Actor::Member(row.try_get("", "role")?)),
         None => None,
     })
 }
@@ -499,6 +507,22 @@ async fn lock_for(
     Ok((session, actor))
 }
 
+/// Sets one column of the session.
+async fn set_column(
+    txn: &DatabaseTransaction,
+    session_id: Uuid,
+    column: sessions::Column,
+    value: impl Into<Expr>,
+) -> Result<(), CadenzaError> {
+    sessions::Entity::update_many()
+        // casts an enum value to its postgres type
+        .col_expr(column, column.save_as(value.into()))
+        .filter(sessions::Column::SessionId.eq(session_id))
+        .exec(txn)
+        .await?;
+    Ok(())
+}
+
 async fn bump(txn: &DatabaseTransaction, session_id: Uuid) -> Result<i64, CadenzaError> {
     let row = txn
         .query_one_raw(stmt(
@@ -511,7 +535,6 @@ async fn bump(txn: &DatabaseTransaction, session_id: Uuid) -> Result<i64, Cadenz
     Ok(row.try_get("", "version")?)
 }
 
-/// Sets the anchor. `current_entry_id` changes only when `entry` is `Some`.
 /// Who moved playback. Only a command bumps `command_seq`, which is how the
 /// host's phone tells a change it must follow from its own report coming back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -522,48 +545,30 @@ enum AnchorBy {
     Command,
 }
 
+/// Sets the anchor: `current` playing or not, at `position_ms` as of now.
 async fn set_anchor(
     txn: &DatabaseTransaction,
     session_id: Uuid,
-    entry: Option<Option<i64>>,
+    current: Option<i64>,
     is_playing: bool,
     position_ms: i64,
     by: AnchorBy,
 ) -> Result<(), CadenzaError> {
     let steps: i64 = if by == AnchorBy::Command { 1 } else { 0 };
-    match entry {
-        Some(entry_id) => {
-            txn.execute_raw(stmt(
-                "UPDATE live_sessions
-                 SET current_entry_id = $2, is_playing = $3, position_ms = $4, position_at = now(),
-                     command_seq = command_seq + $5
-                 WHERE session_id = $1",
-                vec![
-                    session_id.into(),
-                    entry_id.into(),
-                    is_playing.into(),
-                    position_ms.max(0).into(),
-                    steps.into(),
-                ],
-            ))
-            .await?
-        }
-        None => {
-            txn.execute_raw(stmt(
-                "UPDATE live_sessions
-                 SET is_playing = $2, position_ms = $3, position_at = now(),
-                     command_seq = command_seq + $4
-                 WHERE session_id = $1",
-                vec![
-                    session_id.into(),
-                    is_playing.into(),
-                    position_ms.max(0).into(),
-                    steps.into(),
-                ],
-            ))
-            .await?
-        }
-    };
+    txn.execute_raw(stmt(
+        "UPDATE live_sessions
+         SET current_entry_id = $2, is_playing = $3, position_ms = $4, position_at = now(),
+             command_seq = command_seq + $5
+         WHERE session_id = $1",
+        vec![
+            session_id.into(),
+            current.into(),
+            is_playing.into(),
+            position_ms.max(0).into(),
+            steps.into(),
+        ],
+    ))
+    .await?;
     Ok(())
 }
 
@@ -572,13 +577,13 @@ async fn queued_entries<C: ConnectionTrait>(
     db: &C,
     session_id: Uuid,
 ) -> Result<Vec<QueueEntry>, CadenzaError> {
-    entries_with_status(db, session_id, "queued").await
+    entries_with_status(db, session_id, SessionEntryStatus::Queued).await
 }
 
 async fn entries_with_status<C: ConnectionTrait>(
     db: &C,
     session_id: Uuid,
-    status: &str,
+    status: SessionEntryStatus,
 ) -> Result<Vec<QueueEntry>, CadenzaError> {
     Ok(QueueEntry::find_by_statement(stmt(
         "SELECT q.entry_id, q.song_id, q.title, q.artist, q.artwork_url, q.duration_ms,
@@ -612,11 +617,7 @@ async fn playback_now(
         .await?
         .ok_or(CadenzaError::NotFound)?;
     let queued = queued_entries(txn, session_id).await?;
-    let current = session
-        .current_entry_id
-        .and_then(|id| queued.iter().find(|entry| entry.entry_id == id));
-    let up_next = upcoming(&queued, session.current_entry_id);
-    let projected = projected_playback(&session, current, &up_next, Utc::now());
+    let projected = projected_playback(&session, &queued, Utc::now());
     Ok(PlaybackNow { session, projected })
 }
 
@@ -647,10 +648,7 @@ async fn mark_played(
     txn.execute_raw(stmt(
         "UPDATE live_session_queue SET status = 'played', played_at = now()
          WHERE session_id = $1 AND entry_id = ANY($2)",
-        vec![
-            session_id.into(),
-            crate::db::shared_playlists::bigint_array(entry_ids),
-        ],
+        vec![session_id.into(), entry_ids.to_vec().into()],
     ))
     .await?;
     Ok(())
@@ -721,7 +719,7 @@ pub async fn start_session(
     host_id: Uuid,
     new: NewSession<'_>,
 ) -> Result<Uuid, CadenzaError> {
-    let name = check_name(new.name)?;
+    let name = check_name(new.name, "session")?;
     let txn = db.begin().await?;
     // a session whose host went quiet has ended, even if nothing wrote that yet
     end_stale_sessions_of(&txn, host_id).await?;
@@ -743,7 +741,7 @@ pub async fn start_session(
             vec![
                 host_id.into(),
                 name.into(),
-                new.default_role.as_str().into(),
+                new.default_role.into(),
                 new.allow_join_without_code.into(),
                 new.listen_along.into(),
                 new.approve_joins.into(),
@@ -770,7 +768,8 @@ async fn end_stale_sessions_of<C: ConnectionTrait>(
         &format!(
             "UPDATE live_sessions s
              SET ended_at = now(), is_playing = false, version = version + 1
-             WHERE s.host_id = $1 AND s.ended_at IS NULL AND NOT ({OPEN_SESSION_SQL})"
+             WHERE s.host_id = $1 AND s.ended_at IS NULL AND NOT ({open})",
+            open = *OPEN_SESSION_SQL,
         ),
         vec![host_id.into()],
     ))
@@ -802,9 +801,10 @@ pub async fn current_session_id(db: &impl Db, user_id: Uuid) -> Result<Option<Uu
                 "SELECT s.session_id FROM live_session_members m
                  JOIN live_sessions s ON s.session_id = m.session_id
                  WHERE m.user_id = $1 AND m.left_at IS NULL AND NOT m.banned
-                   AND {OPEN_SESSION_SQL}
+                   AND {open}
                  ORDER BY (s.host_id = $1) DESC, m.joined_at DESC
-                 LIMIT 1"
+                 LIMIT 1",
+                open = *OPEN_SESSION_SQL,
             ),
             vec![user_id.into()],
         ))
@@ -850,15 +850,14 @@ pub async fn get_snapshot(
     let my_listen_mode = members
         .iter()
         .find(|member| member.user_id == user_id)
-        .map(|member| member.listen_mode.clone())
-        .unwrap_or_else(|| "remote".to_owned());
+        .map_or(ListenMode::Remote, |member| member.listen_mode);
 
     let queued = queued_entries(db, session_id).await?;
     let current = session
         .current_entry_id
         .and_then(|id| queued.iter().find(|entry| entry.entry_id == id).cloned());
     let up_next = upcoming(&queued, session.current_entry_id);
-    let suggestions = entries_with_status(db, session_id, "suggested").await?;
+    let suggestions = entries_with_status(db, session_id, SessionEntryStatus::Suggested).await?;
     let join_requests = if session.host_id == user_id {
         JoinRequest::find_by_statement(stmt(
             "SELECT r.user_id, COALESCE(p.username, 'unknown') AS username, r.requested_at
@@ -873,7 +872,7 @@ pub async fn get_snapshot(
     } else {
         Vec::new()
     };
-    let playback = projected_playback(&session, current.as_ref(), &up_next, now);
+    let playback = projected_playback(&session, &queued, now);
 
     Ok(SessionSnapshot {
         session,
@@ -888,13 +887,17 @@ pub async fn get_snapshot(
     })
 }
 
-/// The anchor walked forward through the queue to `now`.
+/// The anchor walked forward through `queued`, the session's queued entries in
+/// play order, to `now`.
 pub fn projected_playback(
     session: &SessionRow,
-    current: Option<&QueueEntry>,
-    up_next: &[QueueEntry],
+    queued: &[QueueEntry],
     now: DateTime<Utc>,
 ) -> ProjectedPlayback {
+    let current = session
+        .current_entry_id
+        .and_then(|id| queued.iter().find(|entry| entry.entry_id == id));
+    let up_next = upcoming(queued, session.current_entry_id);
     let Some(current) = current else {
         return ProjectedPlayback {
             entry_id: None,
@@ -905,11 +908,11 @@ pub fn projected_playback(
     };
     // repeat one loops the current song; repeat all loops what is queued,
     // which by the last song holds the played ones again
-    let repeat = session.repeat();
+    let repeat = session.repeat_mode;
     let ahead = if repeat == RepeatMode::One {
         &[][..]
     } else {
-        up_next
+        &up_next[..]
     };
     let durations: Vec<Option<i64>> = std::iter::once(current.duration_ms)
         .chain(ahead.iter().map(|entry| entry.duration_ms))
@@ -1226,10 +1229,14 @@ pub async fn answer_join_request(
 ) -> Result<Answered, CadenzaError> {
     let txn = db.begin().await?;
     let (session, _) = lock_for(&txn, session_id, host_id, SessionAction::Manage).await?;
-    let status = if accept { "accepted" } else { "ignored" };
+    let status = if accept {
+        JoinRequestStatus::Accepted
+    } else {
+        JoinRequestStatus::Ignored
+    };
     let updated = txn
         .execute_raw(stmt(
-            "UPDATE live_session_join_requests SET status = $3
+            "UPDATE live_session_join_requests SET status = $3::join_request_status
              WHERE session_id = $1 AND user_id = $2 AND status = 'pending'",
             vec![session_id.into(), user_id.into(), status.into()],
         ))
@@ -1300,15 +1307,14 @@ async fn end_if_unused(
     }
     let row = txn
         .query_one_raw(stmt(
-            "SELECT EXISTS (
-                 SELECT 1 FROM live_session_members g
-                 WHERE g.session_id = $1 AND g.user_id <> $2
-                   AND g.left_at IS NULL AND NOT g.banned
-             ) OR EXISTS (
-                 SELECT 1 FROM live_session_join_requests r
-                 WHERE r.session_id = $1 AND r.status = 'pending'
-             ) AS used",
-            vec![session.session_id.into(), session.host_id.into()],
+            &format!(
+                "SELECT {HAS_GUESTS_SQL} OR EXISTS (
+                     SELECT 1 FROM live_session_join_requests r
+                     WHERE r.session_id = s.session_id AND r.status = 'pending'
+                 ) AS used
+                 FROM live_sessions s WHERE s.session_id = $1"
+            ),
+            vec![session.session_id.into()],
         ))
         .await?
         .ok_or_else(|| CadenzaError::DatabaseError("exists returned nothing".into()))?;
@@ -1392,15 +1398,11 @@ async fn hand_over(
     let new_host: Uuid = row.try_get("", "user_id")?;
 
     let queued = queued_entries(txn, session.session_id).await?;
-    let current = session
-        .current_entry_id
-        .and_then(|id| queued.iter().find(|entry| entry.entry_id == id));
-    let up_next = upcoming(&queued, session.current_entry_id);
-    let here = projected_playback(session, current, &up_next, Utc::now());
+    let here = projected_playback(session, &queued, Utc::now());
     set_anchor(
         txn,
         session.session_id,
-        Some(here.entry_id),
+        here.entry_id,
         here.is_playing,
         here.position_ms,
         // the new host's phone has to pick it up
@@ -1480,7 +1482,11 @@ pub async fn update_session(
             "set at least one setting".into(),
         ));
     }
-    let name = patch.name.as_deref().map(check_name).transpose()?;
+    let name = patch
+        .name
+        .as_deref()
+        .map(|name| check_name(name, "session"))
+        .transpose()?;
     let txn = db.begin().await?;
     lock_for(&txn, session_id, user_id, SessionAction::Manage).await?;
     txn.execute_raw(stmt(
@@ -1494,7 +1500,7 @@ pub async fn update_session(
         vec![
             session_id.into(),
             name.into(),
-            patch.default_role.map(|role| role.as_str()).into(),
+            patch.default_role.into(),
             patch.allow_join_without_code.into(),
             patch.listen_along.into(),
             patch.approve_joins.into(),
@@ -1525,7 +1531,7 @@ pub async fn set_member_role(
         .execute_raw(stmt(
             "UPDATE live_session_members SET role = $3::session_role
              WHERE session_id = $1 AND user_id = $2 AND left_at IS NULL AND NOT banned",
-            vec![session_id.into(), member_id.into(), role.as_str().into()],
+            vec![session_id.into(), member_id.into(), role.into()],
         ))
         .await?;
     if updated.rows_affected() == 0 {
@@ -1572,13 +1578,8 @@ pub async fn set_listen_mode(
     db: &impl Db,
     user_id: Uuid,
     session_id: Uuid,
-    mode: &str,
+    mode: ListenMode,
 ) -> Result<i64, CadenzaError> {
-    if mode != "remote" && mode != "synced" {
-        return Err(CadenzaError::InvalidRequestBody(
-            "listen mode is remote or synced".into(),
-        ));
-    }
     let txn = db.begin().await?;
     lock_for(&txn, session_id, user_id, SessionAction::View).await?;
     txn.execute_raw(stmt(
@@ -1627,13 +1628,14 @@ pub async fn add_songs(
     }
 
     let queued = queued_entries(&txn, session_id).await?;
-    if status == "queued" && queued.len() as i64 + songs.len() as i64 > MAX_QUEUE {
+    if status == SessionEntryStatus::Queued && queued.len() as i64 + songs.len() as i64 > MAX_QUEUE
+    {
         return Err(CadenzaError::InvalidRequestBody(format!(
             "a session queue holds at most {MAX_QUEUE} songs"
         )));
     }
     // positions for suggestions only order them among themselves
-    let start = if status == "queued" {
+    let start = if status == SessionEntryStatus::Queued {
         let current_index = session
             .current_entry_id
             .and_then(|id| queued.iter().position(|entry| entry.entry_id == id));
@@ -1679,14 +1681,10 @@ pub async fn add_songs(
             .ok_or(CadenzaError::NotFound)?;
         first_added.get_or_insert(row.try_get::<i64>("", "entry_id")?);
     }
-    if status == "queued" {
+    if status == SessionEntryStatus::Queued {
         renumber(&txn, session_id).await?;
         if at == AddAt::PlayNow {
-            let playing = SessionRow {
-                is_playing: true,
-                ..session.clone()
-            };
-            advance_to(&txn, &playing, first_added, AnchorBy::Command).await?;
+            advance_to(&txn, &session, first_added, true, AnchorBy::Command).await?;
         } else if session.current_entry_id.is_none()
             // an empty session starts on what was just added
             && let Some(first) = queued_entries(&txn, session_id).await?.first()
@@ -1698,7 +1696,7 @@ pub async fn add_songs(
             set_anchor(
                 &txn,
                 session_id,
-                Some(Some(first.entry_id)),
+                Some(first.entry_id),
                 start.is_playing,
                 start.position_ms,
                 // a seed is the host's phone saying where it already is
@@ -1727,7 +1725,11 @@ pub async fn review_suggestion(
 ) -> Result<i64, CadenzaError> {
     let txn = db.begin().await?;
     let (session, _) = lock_for(&txn, session_id, user_id, SessionAction::Review).await?;
-    let status = if approve { "queued" } else { "rejected" };
+    let status = if approve {
+        SessionEntryStatus::Queued
+    } else {
+        SessionEntryStatus::Rejected
+    };
     let updated = txn
         .execute_raw(stmt(
             "UPDATE live_session_queue SET status = $3::session_entry_status,
@@ -1741,15 +1743,7 @@ pub async fn review_suggestion(
         return Err(CadenzaError::NotFound);
     }
     if approve && session.current_entry_id.is_none() {
-        set_anchor(
-            &txn,
-            session_id,
-            Some(Some(entry_id)),
-            true,
-            0,
-            AnchorBy::Command,
-        )
-        .await?;
+        set_anchor(&txn, session_id, Some(entry_id), true, 0, AnchorBy::Command).await?;
     }
     let version = bump(&txn, session_id).await?;
     txn.commit().await?;
@@ -1779,12 +1773,13 @@ pub async fn remove_entry(
         ))
         .await?
         .ok_or(CadenzaError::NotFound)?;
-    let status: String = row.try_get("", "status")?;
+    let status: SessionEntryStatus = row.try_get("", "status")?;
     let added_by: Option<Uuid> = row.try_get("", "added_by")?;
-    let own_suggestion = status == "suggested" && added_by == Some(user_id);
-    let may = match status.as_str() {
-        "queued" => allowed(actor, SessionAction::EditQueue),
-        "suggested" => own_suggestion || allowed(actor, SessionAction::Review),
+    let may = match status {
+        SessionEntryStatus::Queued => allowed(actor, SessionAction::EditQueue),
+        SessionEntryStatus::Suggested => {
+            added_by == Some(user_id) || allowed(actor, SessionAction::Review)
+        }
         _ => false,
     };
     if !may {
@@ -1816,47 +1811,35 @@ pub async fn move_entry(
     let txn = db.begin().await?;
     let (session, _) = lock_for(&txn, session_id, user_id, SessionAction::EditQueue).await?;
     let queued = queued_entries(&txn, session_id).await?;
-    let mut order: Vec<i64> = upcoming(&queued, session.current_entry_id)
+    let ids: Vec<i64> = upcoming(&queued, session.current_entry_id)
         .iter()
         .map(|entry| entry.entry_id)
         .collect();
-    let from = order
-        .iter()
-        .position(|id| *id == entry_id)
-        .ok_or(CadenzaError::NotFound)?;
-    let moved = order.remove(from);
-    order.insert((to.max(0) as usize).min(order.len()), moved);
+    let mut order = moved_order(&ids, entry_id, to).ok_or(CadenzaError::NotFound)?;
     // the current song keeps the front
     if let Some(current) = session.current_entry_id {
         order.insert(0, current);
     }
-    txn.execute_raw(stmt(
-        "UPDATE live_session_queue q SET position = t.ord::int - 1
-         FROM unnest($2::bigint[]) WITH ORDINALITY AS t(entry_id, ord)
-         WHERE q.session_id = $1 AND q.entry_id = t.entry_id",
-        vec![
-            session_id.into(),
-            crate::db::shared_playlists::bigint_array(&order),
-        ],
-    ))
-    .await?;
+    write_order(&txn, "live_session_queue", "session_id", session_id, &order).await?;
     let version = bump(&txn, session_id).await?;
     txn.commit().await?;
     Ok(version)
 }
 
-/// Moves the current song to `played` and makes `next` current, playing from 0.
+/// Moves the current song to `played` and makes `next` current from 0,
+/// playing when `playing` and there is a next.
 async fn advance_to(
     txn: &DatabaseTransaction,
     session: &SessionRow,
     next: Option<i64>,
+    playing: bool,
     by: AnchorBy,
 ) -> Result<(), CadenzaError> {
     if let Some(current) = session.current_entry_id {
         mark_played(txn, session.session_id, &[current]).await?;
     }
-    let playing = next.is_some() && session.is_playing;
-    set_anchor(txn, session.session_id, Some(next), playing, 0, by).await?;
+    let playing = next.is_some() && playing;
+    set_anchor(txn, session.session_id, next, playing, 0, by).await?;
     renumber(txn, session.session_id).await?;
     refill_for_repeat(txn, session.session_id).await?;
     Ok(())
@@ -1875,11 +1858,8 @@ pub async fn playback_command(
     let (session, _) = lock_for(&txn, session_id, user_id, SessionAction::Control).await?;
     let now = Utc::now();
     let queued = queued_entries(&txn, session_id).await?;
-    let current = session
-        .current_entry_id
-        .and_then(|id| queued.iter().find(|entry| entry.entry_id == id));
     let up_next = upcoming(&queued, session.current_entry_id);
-    let here = projected_playback(&session, current, &up_next, now);
+    let here = projected_playback(&session, &queued, now);
 
     // whether the queue stayed put, so only playback moved
     let only_playback = match command {
@@ -1887,7 +1867,7 @@ pub async fn playback_command(
             set_anchor(
                 &txn,
                 session_id,
-                None,
+                session.current_entry_id,
                 command == PlaybackCommand::Play && session.current_entry_id.is_some(),
                 here.position_ms,
                 AnchorBy::Command,
@@ -1899,7 +1879,7 @@ pub async fn playback_command(
             set_anchor(
                 &txn,
                 session_id,
-                None,
+                session.current_entry_id,
                 session.is_playing,
                 position_ms,
                 AnchorBy::Command,
@@ -1912,6 +1892,7 @@ pub async fn playback_command(
                 &txn,
                 &session,
                 up_next.first().map(|entry| entry.entry_id),
+                session.is_playing,
                 AnchorBy::Command,
             )
             .await?;
@@ -1945,7 +1926,7 @@ pub async fn playback_command(
                     set_anchor(
                         &txn,
                         session_id,
-                        Some(Some(entry_id)),
+                        Some(entry_id),
                         playing,
                         0,
                         AnchorBy::Command,
@@ -1957,7 +1938,7 @@ pub async fn playback_command(
                     set_anchor(
                         &txn,
                         session_id,
-                        None,
+                        session.current_entry_id,
                         session.is_playing,
                         0,
                         AnchorBy::Command,
@@ -1968,11 +1949,7 @@ pub async fn playback_command(
             false
         }
         PlaybackCommand::Shuffle { on } => {
-            txn.execute_raw(stmt(
-                "UPDATE live_sessions SET shuffle = $2 WHERE session_id = $1",
-                vec![session_id.into(), on.into()],
-            ))
-            .await?;
+            set_column(&txn, session_id, sessions::Column::Shuffle, on).await?;
             // off keeps the order; on reorders the queue
             if on {
                 shuffle_upcoming(&txn, session_id, session.current_entry_id).await?;
@@ -1980,11 +1957,7 @@ pub async fn playback_command(
             !on
         }
         PlaybackCommand::Repeat { mode } => {
-            txn.execute_raw(stmt(
-                "UPDATE live_sessions SET repeat_mode = $2 WHERE session_id = $1",
-                vec![session_id.into(), mode.as_str().into()],
-            ))
-            .await?;
+            set_column(&txn, session_id, sessions::Column::RepeatMode, mode).await?;
             !refill_for_repeat(&txn, session_id).await?
         }
         PlaybackCommand::Jump { entry_id } => {
@@ -1998,11 +1971,7 @@ pub async fn playback_command(
                 .map(|entry| entry.entry_id)
                 .collect();
             mark_played(&txn, session_id, &skipped).await?;
-            let playing = SessionRow {
-                is_playing: true,
-                ..session.clone()
-            };
-            advance_to(&txn, &playing, Some(entry_id), AnchorBy::Command).await?;
+            advance_to(&txn, &session, Some(entry_id), true, AnchorBy::Command).await?;
             false
         }
     };
@@ -2039,10 +2008,12 @@ pub async fn host_report(
     } = report;
     let txn = db.begin().await?;
     let (session, _) = lock_for(&txn, session_id, user_id, SessionAction::Report).await?;
-    txn.execute_raw(stmt(
-        "UPDATE live_sessions SET host_seen_at = now() WHERE session_id = $1",
-        vec![session_id.into()],
-    ))
+    set_column(
+        &txn,
+        session_id,
+        sessions::Column::HostSeenAt,
+        Expr::current_timestamp(),
+    )
     .await?;
     if command_seq.is_some_and(|seen| seen < session.command_seq) {
         txn.commit().await?;
@@ -2052,19 +2023,13 @@ pub async fn host_report(
     let queued = queued_entries(&txn, session_id).await?;
     let known = entry_id.filter(|id| queued.iter().any(|entry| entry.entry_id == *id));
     // where everyone else thinks the phone is, to tell a seek from a heartbeat
-    let here = {
-        let current = session
-            .current_entry_id
-            .and_then(|id| queued.iter().find(|entry| entry.entry_id == id));
-        let up_next = upcoming(&queued, session.current_entry_id);
-        projected_playback(&session, current, &up_next, Utc::now())
-    };
+    let here = projected_playback(&session, &queued, Utc::now());
     let jumped = known.is_some()
         && known == here.entry_id
         && (here.position_ms - position_ms).abs() > REPORT_JUMP_MS;
-    let moved_on = known.is_some() && known != session.current_entry_id;
-    if moved_on {
-        let target = known.unwrap();
+    let moved_to = known.filter(|id| Some(*id) != session.current_entry_id);
+    let moved_on = moved_to.is_some();
+    if let Some(target) = moved_to {
         let before: Vec<i64> = queued
             .iter()
             .take_while(|entry| entry.entry_id != target)
@@ -2074,7 +2039,7 @@ pub async fn host_report(
         set_anchor(
             &txn,
             session_id,
-            Some(Some(target)),
+            Some(target),
             is_playing,
             position_ms,
             AnchorBy::HostPhone,
@@ -2086,7 +2051,7 @@ pub async fn host_report(
         set_anchor(
             &txn,
             session_id,
-            None,
+            session.current_entry_id,
             is_playing,
             position_ms,
             AnchorBy::HostPhone,
@@ -2130,11 +2095,20 @@ pub async fn host_advance(
     let next = upcoming(&queued, session.current_entry_id)
         .first()
         .map(|entry| entry.entry_id);
-    advance_to(&txn, &session, next, AnchorBy::HostPhone).await?;
-    txn.execute_raw(stmt(
-        "UPDATE live_sessions SET host_seen_at = now() WHERE session_id = $1",
-        vec![session_id.into()],
-    ))
+    advance_to(
+        &txn,
+        &session,
+        next,
+        session.is_playing,
+        AnchorBy::HostPhone,
+    )
+    .await?;
+    set_column(
+        &txn,
+        session_id,
+        sessions::Column::HostSeenAt,
+        Expr::current_timestamp(),
+    )
     .await?;
     let version = bump(&txn, session_id).await?;
     txn.commit().await?;
@@ -2176,7 +2150,7 @@ mod tests {
             artwork_url: None,
             duration_ms,
             position: 0,
-            status: "queued".into(),
+            status: SessionEntryStatus::Queued,
             added_by: None,
             added_by_username: None,
             added_at: Utc::now().fixed_offset(),
@@ -2190,7 +2164,7 @@ mod tests {
             host_id: Uuid::nil(),
             host_username: "host".into(),
             name: "s".into(),
-            default_role: "suggester".into(),
+            default_role: SessionRole::Suggester,
             allow_join_without_code: true,
             current_entry_id: current,
             is_playing,
@@ -2204,7 +2178,7 @@ mod tests {
             listen_along: false,
             approve_joins: true,
             shuffle: false,
-            repeat_mode: "off".into(),
+            repeat_mode: RepeatMode::Off,
             has_guests: false,
             host_away_since: None,
             host_closed_app: false,
@@ -2224,10 +2198,9 @@ mod tests {
     #[test]
     fn playback_projects_into_the_next_entry() {
         let s = session(Some(1), true, 9_000);
-        let current = entry(1, Some(10_000));
-        let next = [entry(2, Some(60_000))];
+        let queued = [entry(1, Some(10_000)), entry(2, Some(60_000))];
         let at = s.position_at.with_timezone(&Utc) + Duration::seconds(3);
-        let p = projected_playback(&s, Some(&current), &next, at);
+        let p = projected_playback(&s, &queued, at);
         assert_eq!(p.entry_id, Some(2));
         assert_eq!(p.position_ms, 2_000);
         assert!(p.is_playing);
@@ -2236,7 +2209,7 @@ mod tests {
     #[test]
     fn an_empty_session_is_not_playing() {
         let s = session(None, true, 0);
-        let p = projected_playback(&s, None, &[], Utc::now());
+        let p = projected_playback(&s, &[], Utc::now());
         assert_eq!(p.entry_id, None);
         assert!(!p.is_playing);
     }

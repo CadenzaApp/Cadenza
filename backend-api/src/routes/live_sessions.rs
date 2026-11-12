@@ -4,7 +4,7 @@ use axum::{
     routing::{get, patch, post},
 };
 use axum_jwt_auth::Claims;
-use chrono::{Duration, Utc};
+use chrono::Duration;
 use sea_orm::{DatabaseConnection, prelude::Uuid};
 
 use crate::{
@@ -27,13 +27,18 @@ use crate::{
         },
     },
     services::{
-        live_sessions::{RepeatMode, SessionRole},
-        realtime::{Event, SharedEventBus, Topic, publish_version},
+        live_sessions::SessionRole,
+        realtime::{Event, EventKind, SharedEventBus, Topic, publish_user, publish_version},
     },
 };
 
 fn changed(bus: &SharedEventBus, session_id: Uuid, version: i64) -> Json<SessionVersion> {
-    publish_version(bus, Topic::LiveSession(session_id), version, "session");
+    publish_version(
+        bus,
+        Topic::LiveSession(session_id),
+        version,
+        EventKind::Session,
+    );
     Json(SessionVersion {
         version: Some(version),
         ended: false,
@@ -54,7 +59,12 @@ fn playback_changed(
     let playback = LiveSessionPlayback::from(&now);
     let data = serde_json::to_value(&playback).unwrap_or(serde_json::Value::Null);
     bus.publish(
-        Event::new(Topic::LiveSession(session_id), change.version, "playback").with_data(data),
+        Event::new(
+            Topic::LiveSession(session_id),
+            change.version,
+            EventKind::Playback,
+        )
+        .with_data(data),
     );
     Json(SessionVersion {
         version: Some(change.version),
@@ -64,7 +74,12 @@ fn playback_changed(
 }
 
 fn ended(bus: &SharedEventBus, session_id: Uuid, version: i64) -> Json<SessionVersion> {
-    publish_version(bus, Topic::LiveSession(session_id), version, "ended");
+    publish_version(
+        bus,
+        Topic::LiveSession(session_id),
+        version,
+        EventKind::Ended,
+    );
     Json(SessionVersion {
         version: Some(version),
         ended: true,
@@ -76,18 +91,9 @@ fn ended(bus: &SharedEventBus, session_id: Uuid, version: i64) -> Json<SessionVe
 /// carries the session they are live in. For a start, an end, a join, or a
 /// leave, so friends' Listening now drops or gains the live chip at once.
 fn publish_presence(bus: &SharedEventBus, user_ids: &[Uuid]) {
-    let at = Utc::now().timestamp_millis();
     for user_id in user_ids {
-        publish_version(bus, Topic::User(*user_id), at, "live_session");
+        publish_user(bus, *user_id, EventKind::LiveSession);
     }
-}
-
-fn parse_role(role: &str) -> Result<SessionRole, CadenzaError> {
-    SessionRole::parse(role).ok_or_else(|| {
-        CadenzaError::InvalidRequestBody(
-            "role is listener, suggester, queue_editor, or controller".into(),
-        )
-    })
 }
 
 /// Starts a session hosted by the caller, or returns the one they already
@@ -102,12 +108,7 @@ async fn start_handler(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(body): Json<StartLiveSession>,
 ) -> Result<Json<LiveSessionId>, CadenzaError> {
-    let default_role = body
-        .default_role
-        .as_deref()
-        .map(parse_role)
-        .transpose()?
-        .unwrap_or(SessionRole::Suggester);
+    let default_role = body.default_role.unwrap_or(SessionRole::Suggester);
     let session_id = sessions::start_session(
         &db,
         claims.user_id,
@@ -189,7 +190,12 @@ async fn join_handler(
 ) -> Result<Json<JoinResult>, CadenzaError> {
     let joined = sessions::join_session(&db, claims.user_id, session_id, false).await?;
     let version = joined.version();
-    publish_version(&bus, Topic::LiveSession(session_id), version, "session");
+    publish_version(
+        &bus,
+        Topic::LiveSession(session_id),
+        version,
+        EventKind::Session,
+    );
     let status = match joined {
         Joined::Member(_) => {
             publish_presence(&bus, &[claims.user_id]);
@@ -220,7 +226,7 @@ async fn join_listening_handler(
         &bus,
         Topic::LiveSession(result.session_id),
         version,
-        "session",
+        EventKind::Session,
     );
     // the owner's phone learns it hosts a session, and starts playing it
     if result.created {
@@ -300,7 +306,7 @@ async fn patch_handler(
 ) -> Result<Json<SessionVersion>, CadenzaError> {
     let patch = SessionPatch {
         name: body.name,
-        default_role: body.default_role.as_deref().map(parse_role).transpose()?,
+        default_role: body.default_role,
         allow_join_without_code: body.allow_join_without_code,
         listen_along: body.listen_along,
         approve_joins: body.approve_joins,
@@ -317,9 +323,8 @@ async fn set_role_handler(
     Path((session_id, member_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<SetLiveSessionRole>,
 ) -> Result<Json<SessionVersion>, CadenzaError> {
-    let role = parse_role(&body.role)?;
     let version =
-        sessions::set_member_role(&db, claims.user_id, session_id, member_id, role).await?;
+        sessions::set_member_role(&db, claims.user_id, session_id, member_id, body.role).await?;
     Ok(changed(&bus, session_id, version))
 }
 
@@ -344,7 +349,7 @@ async fn me_handler(
     Json(body): Json<SetListenMode>,
 ) -> Result<Json<SessionVersion>, CadenzaError> {
     let version =
-        sessions::set_listen_mode(&db, claims.user_id, session_id, &body.listen_mode).await?;
+        sessions::set_listen_mode(&db, claims.user_id, session_id, body.listen_mode).await?;
     Ok(changed(&bus, session_id, version))
 }
 
@@ -434,12 +439,7 @@ async fn playback_handler(
         PlaybackBody::Previous => Some(command(PlaybackCommand::Previous).await?),
         PlaybackBody::Jump { entry_id } => Some(command(PlaybackCommand::Jump { entry_id }).await?),
         PlaybackBody::Shuffle { on } => Some(command(PlaybackCommand::Shuffle { on }).await?),
-        PlaybackBody::Repeat { mode } => {
-            let mode = RepeatMode::parse(&mode).ok_or_else(|| {
-                CadenzaError::InvalidRequestBody("repeat is off, all, or one".into())
-            })?;
-            Some(command(PlaybackCommand::Repeat { mode }).await?)
-        }
+        PlaybackBody::Repeat { mode } => Some(command(PlaybackCommand::Repeat { mode }).await?),
         PlaybackBody::Report {
             entry_id,
             position_ms,

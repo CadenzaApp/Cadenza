@@ -25,7 +25,7 @@ use crate::{
         },
         vec_into,
     },
-    services::realtime::{SharedEventBus, Topic, publish_version},
+    services::realtime::{EventKind, SharedEventBus, publish_user},
 };
 
 /// How many recent plays `GET /listening/users/{user_id}` returns by default.
@@ -41,7 +41,7 @@ async fn put_now_playing(
     Json(payload): Json<PutNowPlaying>,
 ) -> Result<Json<()>, CadenzaError> {
     upsert_now_playing(&db, claims.user_id, payload.into()).await?;
-    publish_now_playing(&bus, claims.user_id);
+    publish_user(&bus, claims.user_id, EventKind::NowPlaying);
     Ok(Json(()))
 }
 
@@ -52,19 +52,8 @@ async fn delete_now_playing(
     Claims { claims, .. }: Claims<SupabaseClaims>,
 ) -> Result<Json<()>, CadenzaError> {
     clear_now_playing(&db, claims.user_id).await?;
-    publish_now_playing(&bus, claims.user_id);
+    publish_user(&bus, claims.user_id, EventKind::NowPlaying);
     Ok(Json(()))
-}
-
-/// Tells anyone watching this user to refetch. The row has no version, so the
-/// time stands in for one; it only has to grow.
-fn publish_now_playing(bus: &SharedEventBus, user_id: Uuid) {
-    publish_version(
-        bus,
-        Topic::User(user_id),
-        Utc::now().timestamp_millis(),
-        "now_playing",
-    );
 }
 
 /// Friends playing something now who let friends see it, most recently

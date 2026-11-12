@@ -13,6 +13,7 @@ import {
 } from "@/lib/playback";
 import type { PlaySource } from "@/lib/play-source";
 import { serverNow } from "@/lib/realtime";
+import { playbackPositionMs } from "@/lib/session-playback";
 import {
     useLiveSessionWrites,
     type LiveSession,
@@ -20,7 +21,6 @@ import {
 } from "@/lib/routes/live-sessions";
 
 import {
-    expectedPositionMs,
     hostTarget,
     reconcile,
     shouldCorrectDrift,
@@ -309,12 +309,7 @@ export function useSessionPlayer(
             if (wantPlaying !== playback.isPlaying && playback.activeTrack) {
                 await commands.togglePlayback(playback.activeTrack);
             }
-            const expected = expectedPositionMs(
-                session!.playback.position_ms,
-                Date.parse(session!.playback.as_of),
-                wantPlaying,
-                serverNow(),
-            );
+            const expected = playbackPositionMs(session!.playback, serverNow());
             const now = Date.now();
             // a command, like a seek or back, is followed at once; only drift
             // waits out the interval

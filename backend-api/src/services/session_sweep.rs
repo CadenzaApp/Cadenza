@@ -8,12 +8,11 @@
 
 use std::time::Duration;
 
-use chrono::Utc;
 use sea_orm::DatabaseConnection;
 use tokio::time::{MissedTickBehavior, interval};
 
 use crate::db::live_sessions;
-use crate::services::realtime::{Event, SharedEventBus, Topic, publish_version};
+use crate::services::realtime::{Event, EventKind, SharedEventBus, Topic, publish_user};
 
 const LOG_TAG: &str = "session sweep";
 const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
@@ -38,14 +37,13 @@ pub fn spawn_session_sweep(db: DatabaseConnection, bus: SharedEventBus) {
                             Event::new(
                                 Topic::LiveSession(session.session_id),
                                 session.version,
-                                "ended",
+                                EventKind::Ended,
                             )
                             .with_data(serde_json::json!({ "reason": session.reason })),
                         );
                         // their current session is gone too
-                        let at = Utc::now().timestamp_millis();
                         for user_id in session.member_ids {
-                            publish_version(&bus, Topic::User(user_id), at, "live_session");
+                            publish_user(&bus, user_id, EventKind::LiveSession);
                         }
                     }
                 }
