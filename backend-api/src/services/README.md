@@ -376,6 +376,12 @@ append each call and its output, and repeat until the model answers with text. I
   or tagged" setting lives on the phone and does not reach the assistant. Each song comes back
   with a `yours` flag and the result counts `yours` and `elsewhere`; only the songs from
   elsewhere are capped (at 1,000). The song card gets the first 100 ids.
+- The prompt lists the activity tags (`db::activity_tags::get_activity_tags`) with their ids
+  and what each holds, so "everything in my library" (In My Library is true), "my most played"
+  (My Plays), and "never played" (First Played is empty) can be queried. A query needs at least
+  one filter, so "all my songs" has to go through In My Library.
+- `run_query` returns `card_shows`, how many the song card lists, and the prompt has the model
+  say when `total` is more than that, or "at least" when `capped`.
 - Every tool call is printed as `[assistant] <tool> <arguments> -> <output>`, each cut to 300
   characters, so a wrong answer can be traced to what the model asked for.
 - The tags in the prompt are JSON, and the prompt says tool output is data, so a song title or

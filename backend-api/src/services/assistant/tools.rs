@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 use crate::db::{
     self,
+    activity_tags::ActivityTag,
     entity::tags,
     queries::{Arrangement, QueryMatch, QueryOptions, QuerySongs},
 };
@@ -161,6 +162,45 @@ pub fn describe_tags(tags: &[tags::Model]) -> Vec<Value> {
         .collect()
 }
 
+/// The activity tags as the model sees them in the prompt: the shared tags
+/// whose values come from the user's own listening, with what each one means.
+pub fn describe_activity_tags(tags: &[(ActivityTag, tags::Model)]) -> Vec<Value> {
+    tags.iter()
+        .map(|(activity, tag)| {
+            json!({
+                "id": tag.tag_id,
+                "name": tag.name,
+                "type": TagType::from(tag.r#type.clone()),
+                "means": activity_meaning(*activity),
+            })
+        })
+        .collect()
+}
+
+/// What an activity tag holds, and how to filter on it, for the prompt.
+fn activity_meaning(tag: ActivityTag) -> &'static str {
+    match tag {
+        ActivityTag::MyPlays => {
+            "How many times the user has played the song; 0 if never. Number ops: eq, ne, lt, le, gt, ge."
+        }
+        ActivityTag::FirstPlayed => {
+            "When the user first played the song. before, after, on, on_or_before, on_or_after with an RFC 3339 time; is_empty for never played."
+        }
+        ActivityTag::LastPlayed => {
+            "When the user last played the song. before, after, on, on_or_before, on_or_after with an RFC 3339 time; is_empty for never played."
+        }
+        ActivityTag::InMyLibrary => {
+            "Whether the song is in the user's Apple Music library. is_true or is_false."
+        }
+        ActivityTag::Favorited => {
+            "Whether the user favorited the song in Cadenza. is_true or is_false."
+        }
+        ActivityTag::Tagged => {
+            "Whether the user put any tag of their own on the song. is_true or is_false."
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct RunQueryArgs {
     query: Value,
@@ -262,6 +302,8 @@ impl DbTools<'_> {
                 "capped": matches.capped,
                 "songs": described,
                 "songs_shown": described.len(),
+                // how many the song card under the answer lists
+                "card_shows": total.min(MAX_CARD_SONGS),
             }),
             "",
         );

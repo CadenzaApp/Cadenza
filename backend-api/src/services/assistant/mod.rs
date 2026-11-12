@@ -22,7 +22,7 @@ use crate::routes::json::assistant::{
 use crate::services::analytics::sanitize_timezone;
 
 use model::AssistantModel;
-use tools::{DbTools, ToolRunner, definitions, describe_tags};
+use tools::{DbTools, ToolRunner, definitions, describe_activity_tags, describe_tags};
 
 /// The most model calls one message may take. Each tool round is one.
 pub const MAX_STEPS: usize = 8;
@@ -44,6 +44,7 @@ pub async fn answer(
     let input = to_input(&request)?;
 
     let tags = db::tags::get_all_user_tags(db, user_id).await?;
+    let activity_tags = db::activity_tags::get_activity_tags(db).await?;
     let hide_explicit = db::settings::get_settings(db, user_id).await?.hide_explicit;
     let time_zone = sanitize_timezone(request.time_zone.as_deref().unwrap_or("UTC"));
     let now = request
@@ -51,7 +52,12 @@ pub async fn answer(
         .clone()
         .filter(|now| now.len() <= 64)
         .unwrap_or_else(|| Utc::now().to_rfc3339());
-    let instructions = prompt::instructions(&now, time_zone, &describe_tags(&tags));
+    let instructions = prompt::instructions(
+        &now,
+        time_zone,
+        &describe_tags(&tags),
+        &describe_activity_tags(&activity_tags),
+    );
 
     let runner = DbTools {
         db,
