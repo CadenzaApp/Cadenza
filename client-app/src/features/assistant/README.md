@@ -13,7 +13,7 @@ Assistant section of [backend-api/src/services/README.md](../../../../backend-ap
 | `assistant-button.tsx`  | `AssistantRowButton`, the round button that opens the sheet. The media player host draws it as the bottom row's rightmost control. |
 | `assistant-chat.tsx`    | `AssistantChat`, the sheet: messages, typing dots, error with Retry, and the composer. `app/assistant.tsx` renders it.             |
 | `chat-parts.tsx`        | `MessageRow`, the step rows above an answer, `TypingIndicator`, `ErrorRow`, and `EmptyChat` with suggestion chips.                 |
-| `song-results-card.tsx` | `SongResultsCard`, the songs a tool found: the first five rows, how many more, Play and Shuffle for all of them.                   |
+| `song-results-card.tsx` | `SongResultsCard`, the songs a tool found: the first five rows, how many more, Play and Shuffle for all of them. A row plays only that song: next in the current queue, then skipped to, so the rest of the queue stays. |
 | `use-assistant-chat.ts` | `useAssistantChat`: `entries`, `sending`, `error`, `send`, `retry`, `reset`.                                                       |
 | `assistant-store.ts`    | The conversation in memory, outside the sheet, so closing and reopening keeps it. Per account, gone on restart.                    |
 | `types.ts`              | The request and response shapes, and `ChatEntry`.                                                                                  |

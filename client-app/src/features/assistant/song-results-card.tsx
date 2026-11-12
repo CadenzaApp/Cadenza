@@ -8,7 +8,7 @@ import { ActivityIndicator, Pressable, View } from "react-native";
 import { Text } from "@/components/ui/text";
 import { logHandledError } from "@/lib/log";
 import { usePagedTracksForSongIds } from "@/lib/musickit-hooks";
-import { usePlaybackCommands } from "@/lib/playback";
+import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { useAppTheme } from "@/lib/theme";
 
 import type { AssistantSongs } from "./types";
@@ -18,7 +18,7 @@ const SHOWN_SONGS = 5;
 
 /**
  * The songs a tool found, under the answer: the first few rows, how many more,
- * and Play / Shuffle for all of them. Tapping a row plays the list from it.
+ * and Play / Shuffle for all of them. Tapping a row plays just that song.
  *
  * Once anything starts playing, the assistant sheet gives way to the now
  * playing sheet, showing the song that started. `replace` rather than `push`,
@@ -31,7 +31,9 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
         songs.song_ids,
     );
     const router = useRouter();
-    const { playQueue, setShuffleMode } = usePlaybackCommands();
+    const { playQueue, playNext, skipToNext, setShuffleMode } =
+        usePlaybackCommands();
+    const { activeTrack } = usePlaybackTrackState();
     // a ref as well as state, so two taps in one frame cannot both start
     const running = useRef(false);
     const [pending, setPending] = useState(false);
@@ -82,22 +84,28 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     const shown = tracks.slice(0, SHOWN_SONGS);
     const more = songs.total - shown.length;
 
-    const playFrom = useCallback(
+    /**
+     * Plays just the tapped song, queueing none of the card's others. With
+     * something already playing it goes in next and is skipped to, so whatever
+     * was queued after the old song is still there after this one. With
+     * nothing playing it starts a queue of one.
+     */
+    const playOne = useCallback(
         async (track: MusicItem) => {
-            const startIndex = tracks.findIndex((item) => item.id === track.id);
             try {
-                await playQueue({
-                    tracks,
-                    startIndex: Math.max(startIndex, 0),
-                    chosenStart: true,
-                });
+                if (activeTrack) {
+                    await playNext([track]);
+                    await skipToNext();
+                } else {
+                    await playQueue({ tracks: [track], chosenStart: true });
+                }
             } catch (error) {
                 logHandledError("Assistant could not play the song", error);
                 return;
             }
             openNowPlaying();
         },
-        [openNowPlaying, playQueue, tracks],
+        [activeTrack, openNowPlaying, playNext, playQueue, skipToNext],
     );
 
     if (!tracksLoading && shown.length === 0) return null;
@@ -111,7 +119,7 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
                 : shown.map((track, index) => (
                       <Pressable
                           key={track.id}
-                          onPress={() => void playFrom(track)}
+                          onPress={() => void playOne(track)}
                           accessibilityRole="button"
                           accessibilityLabel={`Play ${track.title}`}
                           className={
