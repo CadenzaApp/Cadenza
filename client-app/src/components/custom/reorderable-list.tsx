@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 import {
+    useExclusiveGestures,
     usePanGesture,
     InterceptingGestureDetector,
     VirtualGestureDetector,
@@ -28,17 +29,7 @@ const SETTLE_SPRING = { damping: 20, stiffness: 220, mass: 0.6 };
 type ReorderableListProps<T> = {
     data: readonly T[];
     keyExtractor: (item: T, index: number) => string;
-    /**
-     * `dragHandle` wraps the row's grab handle. A drag from inside it starts
-     * on the first movement, with no long press, and takes the touch from
-     * whatever is around the list (a sheet's drag to dismiss, a pager). A
-     * long press anywhere else on the row still starts a drag too.
-     */
-    renderItem: (info: {
-        item: T;
-        index: number;
-        dragHandle: (handle: ReactNode) => ReactNode;
-    }) => ReactNode;
+    renderItem: (info: { item: T; index: number }) => ReactNode;
     /** Every row is this tall. The list positions rows rather than measuring. */
     itemHeight: number;
     /** Fires once on drop, with positions in the list's own index space. */
@@ -49,11 +40,11 @@ type ReorderableListProps<T> = {
     style?: StyleProp<ViewStyle>;
     contentContainerStyle?: StyleProp<ViewStyle>;
     /**
-     * True from a touch on a drag handle until that drag ends. Lets the
-     * caller hold still what it owns, like a sheet's drag to dismiss on iOS,
-     * where a native gesture outside the list can otherwise still win.
+     * How wide a strip at each row's right edge drags on the first movement,
+     * however long it was held, like a row's grab handle. The rest of the row
+     * drags after a long press. 0, the default, is long press only.
      */
-    onHandleTouchChange?: (touching: boolean) => void;
+    handleWidth?: number;
 };
 
 /**
@@ -69,8 +60,9 @@ type ReorderableListProps<T> = {
  * playback queue or anything else.
  *
  * A drag begins on a long press, which leaves short drags to the scroll view,
- * or straight away from a row's `dragHandle`, which stops the list scrolling
- * from the moment it is touched.
+ * or straight away inside the `handleWidth` strip, which stops the list
+ * scrolling from the moment it is touched. Both are one exclusive gesture on
+ * the row's one detector, the strip's first, so they never race.
  * Near either edge the list scrolls itself, otherwise a queue longer than the
  * screen could only be reordered within one screenful.
  *
@@ -90,7 +82,7 @@ export function ReorderableList<T>({
     empty,
     style,
     contentContainerStyle,
-    onHandleTouchChange,
+    handleWidth = 0,
 }: ReorderableListProps<T>) {
     const scrollRef = useAnimatedRef<Animated.ScrollView>();
     const scrollY = useSharedValue(0);
@@ -228,7 +220,7 @@ export function ReorderableList<T>({
                                 dropOffset={dropOffset}
                                 dragOwner={dragOwner}
                                 handleHeld={handleHeld}
-                                onHandleTouchChange={onHandleTouchChange}
+                                handleWidth={handleWidth}
                                 setAutoScrollActive={autoScroll.setActive}
                                 onCommit={commitReorder}
                                 render={renderItem}
@@ -262,7 +254,7 @@ function ReorderableRow<T>({
     dropOffset,
     dragOwner,
     handleHeld,
-    onHandleTouchChange,
+    handleWidth,
     setAutoScrollActive,
     onCommit,
     render,
@@ -285,19 +277,13 @@ function ReorderableRow<T>({
     dropOffset: SharedValue<number>;
     dragOwner: SharedValue<string>;
     handleHeld: SharedValue<boolean>;
-    onHandleTouchChange?: (touching: boolean) => void;
+    handleWidth: number;
     setAutoScrollActive: (active: boolean) => void;
     onCommit: (from: number, to: number) => void;
-    render: (info: {
-        item: T;
-        index: number;
-        dragHandle: (handle: ReactNode) => ReactNode;
-    }) => ReactNode;
+    render: (info: { item: T; index: number }) => ReactNode;
 }) {
     const pressOwner = `${rowKey}:press`;
     const handleOwner = `${rowKey}:handle`;
-    const reportHandleTouch = (touching: boolean) =>
-        onHandleTouchChange?.(touching);
 
     // The same drag either way; `owner` says which gesture is running it.
     const activate = (owner: string) => {
@@ -367,7 +353,7 @@ function ReorderableRow<T>({
         autoScrolled.set(0);
     };
 
-    // A long press anywhere on the row but the handle.
+    // A long press anywhere on the row outside the handle strip.
     const pressGesture = usePanGesture({
         activateAfterLongPress: 220,
         failOffsetX: [-20, 20],
@@ -389,17 +375,17 @@ function ReorderableRow<T>({
         },
     });
 
-    // The handle drags on the first point of movement, however long it was
-    // held, before a sheet's own drag (which waits for its touch slop) can
-    // claim the touch. It blocks the row's long press, so holding the handle
-    // still never starts a second drag under this one.
+    // The handle strip drags on the first point of movement, however long it
+    // was held, before a sheet's own drag (which waits for its touch slop) can
+    // claim the touch. Its hit area is only the strip, so a touch anywhere
+    // else never begins it and goes straight to the long press.
     const handleGesture = usePanGesture({
+        enabled: handleWidth > 0,
+        hitSlop: { right: 0, width: handleWidth },
         minDistance: 1,
-        block: pressGesture,
         onBegin: () => {
             "worklet";
             handleHeld.set(true);
-            runOnJS(reportHandleTouch)(true);
         },
         onActivate: () => {
             "worklet";
@@ -417,15 +403,11 @@ function ReorderableRow<T>({
             "worklet";
             finalize(handleOwner, event.canceled);
             handleHeld.set(false);
-            runOnJS(reportHandleTouch)(false);
         },
     });
 
-    const dragHandle = (handle: ReactNode) => (
-        <VirtualGestureDetector gesture={handleGesture}>
-            <View collapsable={false}>{handle}</View>
-        </VirtualGestureDetector>
-    );
+    // the strip first: while it holds a touch, the long press waits on it
+    const gesture = useExclusiveGestures(handleGesture, pressGesture);
 
     const rowStyle = useAnimatedStyle(() => {
         const active = activeIndex.get();
@@ -481,7 +463,7 @@ function ReorderableRow<T>({
     });
 
     return (
-        <VirtualGestureDetector gesture={pressGesture}>
+        <VirtualGestureDetector gesture={gesture}>
             <Animated.View
                 style={[
                     {
@@ -494,7 +476,7 @@ function ReorderableRow<T>({
                     rowStyle,
                 ]}
             >
-                {render({ item, index, dragHandle })}
+                {render({ item, index })}
             </Animated.View>
         </VirtualGestureDetector>
     );

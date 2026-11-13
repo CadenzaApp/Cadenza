@@ -190,11 +190,9 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   thing either native player can do; see the queue section of the module README.
 - The queue list is `ReorderableList`, which positions rows off a fixed `QUEUE_ROW_HEIGHT`
   rather than measuring them. Change the row's height and that constant has to move with it.
-- The three-bar handle on a queue row drags on the first movement, however long it was held, and
-  turns the list's scrolling off from touch down so the list cannot take the touch and cancel the
-  drag. A long press anywhere else on the row drags too. On iOS, `player-page.tsx` also sets the
-  sheet's `gestureEnabled` to false while a finger is on a handle, since UIKit's dismiss gesture
-  can otherwise still win.
+- The right end of a queue row (`QUEUE_HANDLE_STRIP`, the three-bar handle and its padding)
+  drags on the first movement, however long it was held. A long press anywhere else on the row
+  drags too.
 - On Android the queue only scrolls because the pager's `SheetScrollRegion` covers the pages
   while it is open. `player-page.tsx` reports its queue view through `useReportQueueOpen`
   (`queue-open.tsx`). With the artwork showing, the region shrinks again so pulling the artwork

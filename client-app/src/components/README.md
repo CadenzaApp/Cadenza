@@ -92,10 +92,10 @@ It knows nothing about songs: `data`, `itemHeight`, `renderItem`, and an `onReor
 Rows are absolutely positioned off `itemHeight` instead of measured, so dragging moves a
 transform and never triggers layout, and it scrolls itself near either edge. A drag starts two
 ways: a long press anywhere on the row, which leaves short drags to the scroll view, or the first
-movement inside the `dragHandle` that `renderItem` gets. Touching a handle turns the list's
-scrolling off until the finger lifts, and the handle blocks its row's long press, so the two never
-fight. `dragOwner` keeps a gesture that lost from resetting the drag, and `onHandleTouchChange`
-lets the caller hold an iOS sheet still while a finger is on a handle. Inside an Android sheet the list only
+movement inside a `handleWidth` strip at the row's right edge. Both are one exclusive gesture on
+the row's one detector, the strip's first; nesting a second detector for the handle let the two
+fight and the drag snap back. Touching the strip turns the list's scrolling off until the finger
+lifts. Inside an Android sheet the list only
 scrolls where the host lets the sheet pass drags through (the player pager's
 `SheetScrollRegion`). Do **not** reuse the query builder's
 drag code for a list: it caches drop-zone rects once at drag start, so it breaks under scroll.
