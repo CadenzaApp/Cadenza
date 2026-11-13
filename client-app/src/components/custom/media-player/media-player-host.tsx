@@ -51,18 +51,11 @@ const FALLBACK_TAB_BAR_HEIGHT = Platform.select({
 const SORT_OFFSCREEN_X = PLAYER_SIDE_INSET + PLAYER_CONTROL_SIZE + 32;
 const SORT_SPRING = BOTTOM_CONTROL_SPRING;
 
-type PlayerArtworkStateProps = {
-    failedArtworkUrl: string | null;
-    onArtworkError: (url: string | null) => void;
-};
-
 /** The morphing player above the primary native tab bar on every platform. */
 export function MediaPlayerFallbackOverlay({
     hidden,
     nativeAccessoryActive = false,
-    failedArtworkUrl,
-    onArtworkError,
-}: PlayerArtworkStateProps & {
+}: {
     hidden: boolean;
     nativeAccessoryActive?: boolean;
 }) {
@@ -92,8 +85,6 @@ export function MediaPlayerFallbackOverlay({
                 <MediaPlayerRow
                     nativePlayer={nativeAccessoryActive}
                     kind="tabs"
-                    failedArtworkUrl={failedArtworkUrl}
-                    onArtworkError={onArtworkError}
                 />
             </View>
         </View>
@@ -104,8 +95,7 @@ export function MediaPlayerFallbackOverlay({
 function MediaPlayerRow({
     nativePlayer = false,
     kind = "detail",
-    ...props
-}: PlayerArtworkStateProps & {
+}: {
     nativePlayer?: boolean;
     kind?: "tabs" | "detail";
 }) {
@@ -343,7 +333,6 @@ function MediaPlayerRow({
                 ]}
             >
                 <MediaPlayer
-                    {...props}
                     nativePlayer={nativePlayer}
                     visible={!barsHidden}
                     kind={kind}

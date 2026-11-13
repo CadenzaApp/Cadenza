@@ -1,3 +1,4 @@
+import type { SFSymbol } from "expo-symbols";
 import { useEffect, useRef, useState } from "react";
 import {
     Platform,
@@ -12,13 +13,15 @@ import Animated, {
     useSharedValue,
 } from "react-native-reanimated";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import type { IoniconName } from "@/components/ui/ionicon-name";
 import { Text } from "@/components/ui/text";
 import { LiveSessionBar } from "@/features/live-session/LiveSessionBar";
 import { useShownLiveSession } from "@/features/live-session/use-current-session";
+import { useAppTheme } from "@/lib/theme";
 
 import { DiscussPage } from "./discuss-page";
 import {
+    PLAYER_BAR_INSET,
     PLAYER_BAR_RADIUS,
     PlayerBarButton,
     PlayerBarShell,
@@ -29,25 +32,38 @@ import { TagsPage } from "./tags-page";
 import { PLAYER_TABS, type PlayerTab, usePlayerTabs } from "./player-tabs";
 import { QueueOpenContext } from "./queue-open";
 
-const SELECTION_INSET = 4;
-const SELECTION_RADIUS = PLAYER_BAR_RADIUS - SELECTION_INSET;
+const SELECTION_RADIUS = PLAYER_BAR_RADIUS - PLAYER_BAR_INSET;
+/** The pill sits darker than the glass, like the native tab bar's. */
+const SELECTION_FILL = {
+    light: "rgba(0, 0, 0, 0.08)",
+    dark: "rgba(0, 0, 0, 0.35)",
+} as const;
+/** How much wider the pill gets halfway between two tabs, like UIKit's. */
+const SELECTION_STRETCH = 0.12;
 const TAB_PRESENTATION = {
     discuss: {
         label: "Discuss",
-        activeIcon: "chatbubble",
-        inactiveIcon: "chatbubble-outline",
+        sf: { active: "bubble.left.fill", inactive: "bubble.left" },
+        icon: { active: "chatbubble", inactive: "chatbubble-outline" },
     },
     player: {
         label: "Player",
-        activeIcon: "musical-note",
-        inactiveIcon: "musical-note-outline",
+        sf: { active: "music.note", inactive: "music.note" },
+        icon: { active: "musical-note", inactive: "musical-note-outline" },
     },
     tags: {
         label: "Tags",
-        activeIcon: "pricetag",
-        inactiveIcon: "pricetag-outline",
+        sf: { active: "tag.fill", inactive: "tag" },
+        icon: { active: "pricetag", inactive: "pricetag-outline" },
     },
-} as const;
+} as const satisfies Record<
+    PlayerTab,
+    {
+        label: string;
+        sf: Record<"active" | "inactive", SFSymbol>;
+        icon: Record<"active" | "inactive", IoniconName>;
+    }
+>;
 
 /**
  * Three always-mounted pages in one native horizontal scroll surface. In a
@@ -67,6 +83,13 @@ export function PlayerPager() {
         () => new Set([selectedTab]),
     );
     const selectedIndex = PLAYER_TABS.indexOf(selectedTab);
+    // The first page only. A changed `contentOffset` prop jumps UIKit's scroll
+    // view without animating, which skipped the slide on every tab tap.
+    const [initialOffset] = useState(() => ({
+        x: selectedIndex * width,
+        y: 0,
+    }));
+    const { scheme } = useAppTheme();
 
     function activateTab(tab: PlayerTab) {
         setVisitedTabs((current) =>
@@ -89,15 +112,15 @@ export function PlayerPager() {
         },
     });
     const selectionStyle = useAnimatedStyle(() => {
-        const itemWidth = tabBarWidth / PLAYER_TABS.length;
+        const itemWidth =
+            (tabBarWidth - PLAYER_BAR_INSET * 2) / PLAYER_TABS.length;
+        const position = width > 0 ? scrollX.value / width : 0;
+        // 0 on a tab, 1 halfway to the next
+        const between = Math.sin(Math.PI * (position - Math.floor(position)));
+        const stretch = itemWidth * SELECTION_STRETCH * between;
         return {
-            width: itemWidth,
-            transform: [
-                {
-                    translateX:
-                        width > 0 ? (scrollX.value / width) * itemWidth : 0,
-                },
-            ],
+            width: itemWidth + stretch,
+            transform: [{ translateX: position * itemWidth - stretch / 2 }],
         };
     });
 
@@ -116,7 +139,7 @@ export function PlayerPager() {
                     removeClippedSubviews={false}
                     showsHorizontalScrollIndicator={false}
                     scrollEventThrottle={16}
-                    contentOffset={{ x: selectedIndex * width, y: 0 }}
+                    contentOffset={initialOffset}
                     onScroll={scrollHandler}
                     onMomentumScrollEnd={(event) => {
                         const index = Math.max(
@@ -171,18 +194,19 @@ export function PlayerPager() {
                     {tabBarWidth > 0 ? (
                         <Animated.View
                             pointerEvents="none"
-                            className="absolute bottom-1 top-1"
-                            style={selectionStyle}
-                        >
-                            <GlassSurface
-                                style={{
-                                    flex: 1,
+                            className="absolute"
+                            style={[
+                                {
+                                    top: PLAYER_BAR_INSET,
+                                    bottom: PLAYER_BAR_INSET,
+                                    left: PLAYER_BAR_INSET,
                                     borderRadius: SELECTION_RADIUS,
                                     borderCurve: "continuous",
-                                    overflow: "hidden",
-                                }}
-                            />
-                        </Animated.View>
+                                    backgroundColor: SELECTION_FILL[scheme],
+                                },
+                                selectionStyle,
+                            ]}
+                        />
                     ) : null}
                     {PLAYER_TABS.map((tab) => {
                         const look = TAB_PRESENTATION[tab];
@@ -192,10 +216,9 @@ export function PlayerPager() {
                                 key={tab}
                                 role="tab"
                                 selected={selected}
+                                sf={look.sf[selected ? "active" : "inactive"]}
                                 icon={
-                                    selected
-                                        ? look.activeIcon
-                                        : look.inactiveIcon
+                                    look.icon[selected ? "active" : "inactive"]
                                 }
                                 label={look.label}
                                 onPress={() => activateTab(tab)}

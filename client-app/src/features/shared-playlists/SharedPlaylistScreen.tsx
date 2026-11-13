@@ -86,7 +86,7 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
         noticeTimer.current = setTimeout(() => setNotice(null), 3000);
     }, []);
 
-    const reorderHref = `/social/playlist/${playlistId}/reorder` as Href;
+    const reorderHref = `/shared-playlist/${playlistId}/reorder` as Href;
     const role = playlist?.my_role;
     const isOwner = role === "owner";
     const editable = playlist?.can.edit_songs ?? false;
@@ -278,7 +278,7 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
                                 accessibilityLabel={`${members.length} members`}
                                 onPress={() =>
                                     router.push(
-                                        `/social/playlist/${playlistId}/members` as Href,
+                                        `/shared-playlist/${playlistId}/members` as Href,
                                     )
                                 }
                                 className="flex-row items-center active:opacity-60"
@@ -353,7 +353,7 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
                         onPress={() => {
                             setOptionsOpen(false);
                             router.push(
-                                `/social/playlist/${playlistId}/members` as Href,
+                                `/shared-playlist/${playlistId}/members` as Href,
                             );
                         }}
                     />

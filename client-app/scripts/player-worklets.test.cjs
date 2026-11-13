@@ -341,6 +341,8 @@ function fixture(collapsed = true) {
         if (name === "./compact") return { MediaPlayerCompact: "Compact" };
         if (name === "@/components/ui/glass-surface")
             return { GlassSurface: "Glass" };
+        if (name === "@/components/ui/remote-artwork")
+            return { RemoteArtwork: "RemoteArtwork" };
         if (name === "@/components/ui/glass-icon-button")
             return { GlassIconButton: "GlassIconButton" };
         if (name === "react-native-screens")
@@ -454,8 +456,6 @@ test("React Compiler keeps shared-value reads out of every player render", () =>
                     visible: true,
                     kind: "tabs",
                     bubbleLift: r.api.motion.lift,
-                    failedArtworkUrl: null,
-                    onArtworkError() {},
                 },
             ]),
         );
@@ -463,7 +463,7 @@ test("React Compiler keeps shared-value reads out of every player render", () =>
             r.render(
                 "src/components/custom/media-player/native-player-accessory.tsx",
                 "NativePlayerAccessory",
-                [{ failedArtworkUrl: null, onArtworkError() {} }],
+                [{}],
             ),
         );
         assert.doesNotThrow(() =>
@@ -780,8 +780,6 @@ test("temporary hiding retains its foreground host", () => {
         visible: true,
         kind: "tabs",
         bubbleLift: r.api.motion.lift,
-        failedArtworkUrl: null,
-        onArtworkError() {},
     };
     r.render(viewFile, "MediaPlayer", [props]);
     r.flush();
@@ -843,8 +841,6 @@ test("circle bounds and free dragging subscribe to geometry as a mapper input", 
             visible: true,
             kind: "tabs",
             bubbleLift: m.lift,
-            failedArtworkUrl: null,
-            onArtworkError() {},
         },
     ]);
     assert.ok(
@@ -944,8 +940,6 @@ test("detail player keeps full layout width when its card is measured during a z
             visible: true,
             kind: "detail",
             bubbleLift: r.api.motion.lift,
-            failedArtworkUrl: null,
-            onArtworkError() {},
         },
     ]);
     r.flush();
@@ -1037,7 +1031,7 @@ test("native layout ignores measurements overtaken by newer layout or unmount", 
     const view = r.render(
         "src/components/custom/media-player/native-player-accessory.tsx",
         "NativePlayerAccessory",
-        [{ failedArtworkUrl: null, onArtworkError() {} }],
+        [{}],
     );
     r.flush();
     const callbacks = [];

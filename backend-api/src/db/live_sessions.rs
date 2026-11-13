@@ -1890,7 +1890,8 @@ pub async fn add_songs(
     Ok(version)
 }
 
-/// Approves a suggestion onto the end of the queue, or rejects it. Host only.
+/// Approves a suggestion onto the end of the queue, or rejects it. The host, a
+/// controller, or a queue editor.
 /// Returns the new version.
 pub async fn review_suggestion(
     db: &impl Db,

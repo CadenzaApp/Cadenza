@@ -1,13 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ReactNode } from "react";
-import { Alert, Image, Pressable, View } from "react-native";
+import { Alert, Pressable, View } from "react-native";
 
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import {
     SESSION_ROLE_LABELS,
     type LiveSessionEntry,
 } from "@/lib/routes/live-sessions";
-import { isUsableArtworkUrl } from "@/lib/utils";
 
 export const ROLE_CHOICES = (
     ["listener", "suggester", "queue_editor", "controller"] as const
@@ -97,14 +97,10 @@ export function EntryRow({
                 <View className="absolute left-[68px] right-0 top-0 h-px bg-border" />
             )}
             <View className="flex-1 flex-row items-center gap-3 px-4">
-                {isUsableArtworkUrl(entry.artwork_url) ? (
-                    <Image
-                        source={{ uri: entry.artwork_url! }}
-                        className="h-10 w-10 rounded-md bg-muted"
-                    />
-                ) : (
-                    <View className="h-10 w-10 rounded-md bg-muted" />
-                )}
+                <RemoteArtwork
+                    url={entry.artwork_url}
+                    className="h-10 w-10 rounded-md"
+                />
                 <View className="min-w-0 flex-1">
                     <Text
                         className="text-sm font-medium text-foreground"

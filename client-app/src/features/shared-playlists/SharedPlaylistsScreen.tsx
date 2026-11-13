@@ -1,31 +1,39 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { useNavigation, useRouter, type Href } from "expo-router";
-import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
-import { Pressable, View } from "react-native";
-import Animated from "react-native-reanimated";
+import type { MusicItem } from "@apple-musickit";
+import { useNavigation, type Href } from "expo-router";
+import {
+    useCallback,
+    useLayoutEffect,
+    useMemo,
+    useState,
+    type ReactNode,
+} from "react";
+import { View } from "react-native";
 
-import { ArtworkMosaic } from "@/components/custom/artwork-mosaic";
-import { ErrorNotice } from "@/components/custom/error-notice";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassInput } from "@/components/ui/glass-input";
-import { GlassPanel } from "@/components/ui/glass-panel";
-import { GlassPill } from "@/components/ui/glass-pill";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import { useSongInfo } from "@/lib/musickit-hooks";
+import { LibraryList, LibraryListRow } from "@/features/library/library-list";
+import { useLibraryListSearch } from "@/features/library/library-list-header";
+import { concatUnique, mapInOrder } from "@/features/library/play-queue";
+import { useSongInfo, useTrackLookup } from "@/lib/musickit-hooks";
+import { useOpenScreen } from "@/lib/open-screen";
+import { usePlayAll } from "@/lib/play-all";
 import {
+    fetchSharedPlaylistSongIds,
     useCreateSharedPlaylist,
     useSharedPlaylists,
     type SharedPlaylistSummary,
 } from "@/lib/routes/shared-playlists";
-import { useScreenOverlayInsets } from "@/lib/screen-overlay";
-import { useScreenScroll } from "@/lib/screen-scroll";
-import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
-import { useAppTheme } from "@/lib/theme";
 import { isUsableArtworkUrl } from "@/lib/utils";
 
 import { roleLabel } from "./roles";
+
+/** Playlists whose songs are read at once when Play queues them. */
+const PLAYLIST_READS_AT_ONCE = 3;
+/** The most songs Play queues across every playlist. */
+const MAX_QUEUED_SONGS = 500;
+const NO_PLAYLISTS: SharedPlaylistSummary[] = [];
 
 /** `/social/playlists`: the caller's shared playlists on their own screen. */
 export function SharedPlaylistsScreen() {
@@ -37,23 +45,32 @@ export function SharedPlaylistsScreen() {
 }
 
 /**
- * The caller's shared playlists, ones they own and ones they joined, as a
- * screen's scroller. New playlist and Enter code sit above the list. `header`
- * goes above everything, inside the scroller, like the Library's switch
- * between its own playlists and these.
+ * The caller's shared playlists, ones they own and ones they joined, on
+ * `LibraryList`, the same list as Library > Queries. `header` goes above
+ * everything, like the Library's switch between its own playlists and these.
+ * Search filters by name on the phone. Play and Shuffle queue every playlist
+ * on show, in order.
  */
 export function SharedPlaylistsList({ header }: { header?: ReactNode }) {
-    const router = useRouter();
-    const { listBottomInset } = useScreenOverlayInsets();
-    const scroll = useScreenScroll();
-    const { colors } = useAppTheme();
+    const openScreen = useOpenScreen();
+    const search = useLibraryListSearch();
     const { sharedPlaylists, sharedPlaylistsLoading, sharedPlaylistsErr } =
         useSharedPlaylists();
     const [creating, setCreating] = useState(false);
+    const shown = useMemo(() => {
+        const all = sharedPlaylists ?? NO_PLAYLISTS;
+        const term = search.term?.toLowerCase();
+        return term
+            ? all.filter((playlist) =>
+                  playlist.name.toLowerCase().includes(term),
+              )
+            : all;
+    }, [search.term, sharedPlaylists]);
 
     // one lookup for every cover, not one per row
     const coverIds = useMemo(
-        () => (sharedPlaylists ?? []).flatMap((p) => p.cover_song_ids),
+        () =>
+            (sharedPlaylists ?? NO_PLAYLISTS).flatMap((p) => p.cover_song_ids),
         [sharedPlaylists],
     );
     const { songInfo } = useSongInfo(coverIds);
@@ -67,121 +84,70 @@ export function SharedPlaylistsList({ header }: { header?: ReactNode }) {
         return map;
     }, [songInfo]);
 
-    let body;
-    if (sharedPlaylistsErr) {
-        body = <ErrorNotice error={sharedPlaylistsErr} />;
-    } else if (sharedPlaylistsLoading && !sharedPlaylists) {
-        body = (
-            <GlassPanel>
-                {[0, 1, 2].map((i) => (
-                    <View
-                        key={i}
-                        className="flex-row items-center gap-3 px-4 py-3"
-                    >
-                        <Skeleton className="h-14 w-14 rounded-xl" />
-                        <View className="gap-2">
-                            <Skeleton className="h-4 w-36 rounded" />
-                            <Skeleton className="h-3 w-24 rounded" />
-                        </View>
-                    </View>
-                ))}
-            </GlassPanel>
+    const lookupTracks = useTrackLookup();
+    const resolveQueue = useCallback(async (): Promise<MusicItem[]> => {
+        const lists = await mapInOrder(
+            shown,
+            PLAYLIST_READS_AT_ONCE,
+            (playlist) => fetchSharedPlaylistSongIds(playlist.playlist_id),
         );
-    } else if (!sharedPlaylists?.length) {
-        body = (
-            <View className="items-center gap-2 py-16">
-                <Ionicons
-                    name="albums-outline"
-                    size={40}
-                    color={colors.mutedForeground}
-                />
-                <Text className="text-base font-semibold text-foreground">
-                    No shared playlists yet
-                </Text>
-                <Text className="text-center text-sm text-muted-foreground">
-                    Make one and invite friends, or join one with a code.
-                </Text>
-                <View className="mt-3 flex-row gap-2">
-                    <GlassPill
-                        icon="add"
-                        label="New playlist"
-                        onPress={() => setCreating(true)}
-                    />
-                    <GlassPill
-                        icon="keypad-outline"
-                        label="Enter code"
-                        onPress={() => router.push("/join" as Href)}
-                    />
-                </View>
-            </View>
+        const songIds = concatUnique(lists, (id) => id).slice(
+            0,
+            MAX_QUEUED_SONGS,
         );
-    } else {
-        body = (
-            <View className="gap-3">
-                <View className="flex-row gap-2">
-                    <GlassPill
-                        icon="add"
-                        label="New playlist"
-                        onPress={() => setCreating(true)}
-                    />
-                    <GlassPill
-                        icon="keypad-outline"
-                        label="Enter code"
-                        onPress={() => router.push("/join" as Href)}
-                    />
-                </View>
-                <GlassPanel>
-                    {sharedPlaylists.map((playlist, index) => (
-                        <View key={playlist.playlist_id}>
-                            {index > 0 ? (
-                                <View className="ml-[84px] h-px bg-border" />
-                            ) : null}
-                            <PlaylistRow
-                                playlist={playlist}
-                                artworkUrls={playlist.cover_song_ids
-                                    .map((id) => artworkById.get(id))
-                                    .filter((url): url is string =>
-                                        Boolean(url),
-                                    )}
-                                onPress={() =>
-                                    router.push(
-                                        `/social/playlist/${playlist.playlist_id}` as Href,
-                                    )
-                                }
-                            />
-                        </View>
-                    ))}
-                </GlassPanel>
-            </View>
+        const found = await lookupTracks(songIds);
+        return concatUnique(
+            [songIds.flatMap((songId) => found.get(songId) ?? [])],
+            (track) => track.id,
         );
-    }
+    }, [lookupTracks, shown]);
+    const playAll = usePlayAll({ resolveQueue });
 
     return (
-        <View className="flex-1 bg-background">
-            <ScreenScrollMarker>
-                <Animated.ScrollView
-                    {...scroll}
-                    className="flex-1"
-                    contentContainerStyle={[
-                        {
-                            paddingHorizontal: 20,
-                            paddingTop: 8,
-                            paddingBottom: listBottomInset + 48,
-                        },
-                        scroll.contentContainerStyle,
-                    ]}
-                    showsVerticalScrollIndicator={false}
-                >
-                    {header ? <View className="mb-3">{header}</View> : null}
-                    {body}
-                </Animated.ScrollView>
-            </ScreenScrollMarker>
+        <View className="flex-1">
+            <LibraryList
+                items={shown}
+                keyOf={(playlist) => String(playlist.playlist_id)}
+                renderItem={(playlist) => (
+                    <PlaylistRow
+                        playlist={playlist}
+                        artworkUrls={playlist.cover_song_ids.flatMap(
+                            (id) => artworkById.get(id) ?? [],
+                        )}
+                        onPress={() =>
+                            openScreen(
+                                `/shared-playlist/${playlist.playlist_id}` as Href,
+                            )
+                        }
+                    />
+                )}
+                isLoading={sharedPlaylistsLoading && !sharedPlaylists}
+                error={sharedPlaylistsErr}
+                emptyLabel={
+                    search.term
+                        ? "No shared playlists match."
+                        : "No shared playlists yet. Make one and invite friends, or join one with a code."
+                }
+                above={header}
+                search={search}
+                placeholder="Search Shared Playlists"
+                create={{
+                    label: "New playlist",
+                    onPress: () => setCreating(true),
+                }}
+                actions={{
+                    onPlay: playAll.play,
+                    onShuffle: playAll.shuffle,
+                    disabled: shown.length === 0,
+                    pending: playAll.pending,
+                }}
+            />
             {creating ? (
                 <NewPlaylistPopup
                     onClose={() => setCreating(false)}
                     onCreated={(id) => {
                         setCreating(false);
-                        router.push(`/social/playlist/${id}` as Href);
+                        openScreen(`/shared-playlist/${id}` as Href);
                     }}
                 />
             ) : null}
@@ -198,42 +164,17 @@ function PlaylistRow({
     artworkUrls: string[];
     onPress: () => void;
 }) {
-    const { colors } = useAppTheme();
     const songs = `${playlist.song_count} song${playlist.song_count === 1 ? "" : "s"}`;
     const people = `${playlist.member_count} member${playlist.member_count === 1 ? "" : "s"}`;
     return (
-        <Pressable
-            accessibilityRole="button"
+        <LibraryListRow
+            title={playlist.name}
+            subtitle={`${songs} · ${roleLabel(playlist.role)} · ${people}`}
+            artworkUrls={artworkUrls}
+            fallbackIcon="albums"
             accessibilityLabel={`${playlist.name}, ${songs}, ${roleLabel(playlist.role)}`}
             onPress={onPress}
-            className="flex-row items-center gap-3 px-4 py-3 active:opacity-60"
-        >
-            <ArtworkMosaic
-                artworkUrls={artworkUrls}
-                size={56}
-                placeholderColor={colors.muted}
-                className="rounded-xl"
-            />
-            <View className="min-w-0 flex-1 gap-0.5">
-                <Text
-                    className="text-base font-semibold text-foreground"
-                    numberOfLines={1}
-                >
-                    {playlist.name}
-                </Text>
-                <Text
-                    className="text-xs text-muted-foreground"
-                    numberOfLines={1}
-                >
-                    {songs} · {roleLabel(playlist.role)} · {people}
-                </Text>
-            </View>
-            <Ionicons
-                name="chevron-forward"
-                size={16}
-                color={colors.mutedForeground}
-            />
-        </Pressable>
+        />
     );
 }
 

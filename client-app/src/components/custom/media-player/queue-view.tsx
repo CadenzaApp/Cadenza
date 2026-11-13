@@ -5,17 +5,12 @@ import {
     type MusicItem,
     type SongFavoriteStatus,
 } from "@apple-musickit";
-import {
-    Image,
-    Pressable,
-    StyleSheet,
-    View,
-    type ColorValue,
-} from "react-native";
+import { Pressable, StyleSheet, View, type ColorValue } from "react-native";
 import type { ReactNode } from "react";
 
 import { ReorderableList } from "@/components/custom/reorderable-list";
 import { GlassSurface } from "@/components/ui/glass-surface";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 
 import { MediaPlayerTrackHeading } from "./playback-details";
@@ -274,10 +269,6 @@ function QueueRow({
     /** Leave out for a row that cannot be removed or dragged. */
     onRemove?: () => void;
 }) {
-    const artworkUrl = track.artworkUrl?.trim();
-    const canRenderArtwork =
-        typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
-
     return (
         <View className="flex-1 flex-row items-center gap-3 pr-1">
             <Pressable
@@ -286,20 +277,17 @@ function QueueRow({
                 onPress={onPress}
                 className="h-full flex-1 flex-row items-center gap-3 active:opacity-60"
             >
-                {canRenderArtwork ? (
-                    <Image
-                        source={{ uri: artworkUrl }}
-                        className="h-11 w-11 rounded bg-muted"
-                    />
-                ) : (
-                    <View className="h-11 w-11 items-center justify-center rounded bg-muted">
+                <RemoteArtwork
+                    url={track.artworkUrl}
+                    className="h-11 w-11 rounded"
+                    fallback={
                         <Ionicons
                             name="musical-notes"
                             size={18}
                             color={textColor}
                         />
-                    </View>
-                )}
+                    }
+                />
                 <View className="flex-1">
                     <Text
                         className="text-base font-semibold text-foreground"

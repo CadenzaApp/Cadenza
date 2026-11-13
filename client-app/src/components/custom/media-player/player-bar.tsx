@@ -1,7 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useTheme } from "expo-router/react-navigation";
-import type { ComponentProps, ReactNode } from "react";
+import { SymbolView, type SFSymbol } from "expo-symbols";
+import type { ReactNode } from "react";
 import {
+    Platform,
     Pressable,
     StyleSheet,
     useWindowDimensions,
@@ -11,17 +12,30 @@ import {
 import Animated, { LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import type { IoniconName } from "@/components/ui/ionicon-name";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
+import { useAppTheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 
-export const PLAYER_BAR_HEIGHT = 72;
+// iOS 26's floating tab bar metrics, so this bar matches the app's native one.
+export const PLAYER_BAR_HEIGHT = 62;
 export const PLAYER_BAR_RADIUS = PLAYER_BAR_HEIGHT / 2;
-/** Was 76%; the selector reads better with more room for three labels. */
-const PLAYER_BAR_WIDTH_PERCENT = 91;
+/** From the glass edge to the selection pill and the buttons. */
+export const PLAYER_BAR_INSET = 2;
+/** From the screen's sides, and its bottom on iOS. */
+const BAR_MARGIN = 21;
 /** Room per button in a bar sized to its buttons. */
-const PLAYER_BAR_ITEM_WIDTH = 92;
-/** The shell's own side padding, `px-4`. */
-const SHELL_PADDING = 16;
+const PLAYER_BAR_ITEM_WIDTH = 98;
+/**
+ * The point size SF Symbols are drawn at, medium weight, large scale. Matched
+ * by eye to the native tab bar's icons. Drawn at that size, never stretched to
+ * a box, so every glyph keeps its own proportions like UIKit's do. Needs the
+ * `pointSize` prop from `patches/expo-symbols`.
+ */
+const ICON_POINT_SIZE = 22;
+/** Height of the icon row. Twice as wide, so no glyph is clipped. */
+const ICON_BOX = 30;
 const RESIZE = LinearTransition.duration(220);
 
 /**
@@ -41,23 +55,31 @@ export function PlayerBarShell({
 }) {
     const insets = useSafeAreaInsets();
     const { width: screenWidth } = useWindowDimensions();
-    const fullWidth =
-        ((screenWidth - SHELL_PADDING * 2) * PLAYER_BAR_WIDTH_PERCENT) / 100;
+    const fullWidth = screenWidth - BAR_MARGIN * 2;
     const width =
         itemCount === undefined
             ? fullWidth
-            : Math.min(fullWidth, itemCount * PLAYER_BAR_ITEM_WIDTH);
+            : Math.min(
+                  fullWidth,
+                  itemCount * PLAYER_BAR_ITEM_WIDTH + PLAYER_BAR_INSET * 2,
+              );
     return (
         <View
-            className="items-center px-4 pt-2"
-            style={{ paddingBottom: Math.max(insets.bottom, 8) }}
+            className="items-center pt-2"
+            style={{
+                paddingBottom:
+                    Platform.OS === "ios"
+                        ? BAR_MARGIN
+                        : Math.max(insets.bottom, 8),
+            }}
         >
             <Animated.View
                 layout={RESIZE}
-                className="relative flex-row overflow-hidden border border-border"
+                className="relative flex-row overflow-hidden"
                 style={{
                     width,
                     height: PLAYER_BAR_HEIGHT,
+                    padding: PLAYER_BAR_INSET,
                     borderRadius: PLAYER_BAR_RADIUS,
                     borderCurve: "continuous",
                 }}
@@ -74,7 +96,7 @@ export function PlayerBarShell({
                         style={[
                             StyleSheet.absoluteFill,
                             {
-                                borderRadius: PLAYER_BAR_RADIUS - 1,
+                                borderRadius: PLAYER_BAR_RADIUS,
                                 borderCurve: "continuous",
                             },
                         ]}
@@ -86,8 +108,13 @@ export function PlayerBarShell({
     );
 }
 
-/** One icon and label in the bar. */
+/**
+ * One icon and label in the bar. An SF Symbol on iOS, the Ionicon elsewhere.
+ * A tab (`selected` set) takes the accent when selected and the muted color
+ * otherwise, like the native tab bar. A plain button stays the text color.
+ */
 export function PlayerBarButton({
+    sf,
     icon,
     label,
     accessibilityLabel,
@@ -96,7 +123,8 @@ export function PlayerBarButton({
     badge,
     onPress,
 }: {
-    icon: ComponentProps<typeof Ionicons>["name"];
+    sf: SFSymbol;
+    icon: IoniconName;
     label: string;
     accessibilityLabel?: string;
     role?: "button" | "tab";
@@ -105,7 +133,14 @@ export function PlayerBarButton({
     badge?: number;
     onPress: () => void;
 }) {
-    const { colors } = useTheme();
+    const { brand, foreground, mutedForeground } = useAppTheme().colors;
+    const color =
+        selected === undefined
+            ? foreground
+            : selected
+              ? brand
+              : mutedForeground;
+    const fallback = <Ionicons name={icon} size={22} color={color} />;
     return (
         <Pressable
             accessibilityRole={role}
@@ -114,19 +149,48 @@ export function PlayerBarButton({
                 selected === undefined ? undefined : { selected }
             }
             onPress={onPress}
-            className="flex-1 items-center justify-center active:opacity-70"
+            className={cn(
+                "flex-1 items-center justify-center",
+                role === "button" && "active:opacity-70",
+            )}
         >
-            <View>
-                <Ionicons name={icon} size={26} color={colors.text} />
+            <View
+                className="items-center justify-center"
+                style={{ width: ICON_BOX * 2, height: ICON_BOX }}
+            >
+                {Platform.OS === "ios" ? (
+                    <SymbolView
+                        name={sf}
+                        pointSize={ICON_POINT_SIZE}
+                        weight="medium"
+                        scale="large"
+                        resizeMode="center"
+                        style={{ width: ICON_BOX * 2, height: ICON_BOX }}
+                        tintColor={color}
+                        fallback={fallback}
+                    />
+                ) : (
+                    fallback
+                )}
                 {badge ? (
-                    <View className="absolute -right-2.5 -top-1 h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1">
+                    <View
+                        className="absolute -top-0.5 h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1"
+                        // over the glyph's top right, from the row's center
+                        style={{ left: ICON_BOX + 6 }}
+                    >
                         <Text className="text-[10px] font-bold text-white">
                             {badge}
                         </Text>
                     </View>
                 ) : null}
             </View>
-            <Text className="mt-0.5 text-xs font-medium">{label}</Text>
+            <Text
+                className="text-[10px] font-semibold"
+                style={{ color, marginTop: 1 }}
+                numberOfLines={1}
+            >
+                {label}
+            </Text>
         </Pressable>
     );
 }

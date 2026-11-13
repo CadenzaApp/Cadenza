@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Image, View, type ColorValue } from "react-native";
+import { View, type ColorValue } from "react-native";
 
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,13 +23,22 @@ export function ArtworkMosaic({
 }) {
     const oneArtwork = artworkUrls.length === 1 ? artworkUrls[0] : null;
     const cell = size / 2;
+    const glyph = (
+        <Ionicons
+            name="musical-notes"
+            size={Math.round(cell / 4)}
+            color={placeholderColor}
+            style={{ opacity: 0.45 }}
+        />
+    );
 
     if (oneArtwork) {
         return (
-            <Image
-                source={{ uri: oneArtwork }}
-                className={cn("bg-muted", className)}
+            <RemoteArtwork
+                url={oneArtwork}
+                className={className}
                 style={{ width: size, height: size }}
+                fallback={glyph}
             />
         );
     }
@@ -41,30 +51,14 @@ export function ArtworkMosaic({
             )}
             style={{ width: size, height: size }}
         >
-            {Array.from({ length: 4 }, (_, index) => {
-                const url = artworkUrls[index];
-                return url ? (
-                    <Image
-                        key={`${url}:${index}`}
-                        source={{ uri: url }}
-                        className="bg-muted"
-                        style={{ width: cell, height: cell }}
-                    />
-                ) : (
-                    <View
-                        key={index}
-                        className="items-center justify-center bg-muted"
-                        style={{ width: cell, height: cell }}
-                    >
-                        <Ionicons
-                            name="musical-notes"
-                            size={Math.round(cell / 4)}
-                            color={placeholderColor}
-                            style={{ opacity: 0.45 }}
-                        />
-                    </View>
-                );
-            })}
+            {Array.from({ length: 4 }, (_, index) => (
+                <RemoteArtwork
+                    key={index}
+                    url={artworkUrls[index]}
+                    style={{ width: cell, height: cell }}
+                    fallback={glyph}
+                />
+            ))}
         </View>
     );
 }

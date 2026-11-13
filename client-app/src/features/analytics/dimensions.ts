@@ -54,7 +54,7 @@ export type QueryRoute = {
 };
 
 export type SharedPlaylistRoute = {
-    pathname: "/social/playlist/[id]";
+    pathname: "/shared-playlist/[id]";
     params: { id: string };
 };
 
@@ -148,13 +148,13 @@ export function queryRouteFor(entity: RankedEntity): QueryRoute | null {
     };
 }
 
-/** The shared playlist's page, on the Social tab. */
+/** The shared playlist's page, in the tab it opens from. */
 export function sharedPlaylistRouteFor(
     entity: RankedEntity,
 ): SharedPlaylistRoute | null {
     if (!entity.entity_id) return null;
     return {
-        pathname: "/social/playlist/[id]",
+        pathname: "/shared-playlist/[id]",
         params: { id: entity.entity_id },
     };
 }

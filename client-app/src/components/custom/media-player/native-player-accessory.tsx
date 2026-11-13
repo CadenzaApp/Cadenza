@@ -3,24 +3,17 @@ import { useRouter } from "expo-router";
 import { NativeTabs } from "expo-router/native-tabs";
 import { useTheme } from "expo-router/react-navigation";
 import { useEffect, useRef } from "react";
-import { Image, View, useWindowDimensions } from "react-native";
+import { View, useWindowDimensions } from "react-native";
 import { runOnUI } from "react-native-reanimated";
 
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { useLiveSessionBadge } from "@/features/live-session/use-live-badge";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { usePlayerPresentation } from "@/lib/player-presentation";
 import { MediaPlayerCompact } from "./compact";
 
-type Props = {
-    failedArtworkUrl: string | null;
-    onArtworkError: (url: string | null) => void;
-};
-
 /** UIKit supplies the glass, sizing, and transition between regular and inline. */
-export function NativePlayerAccessory({
-    failedArtworkUrl,
-    onArtworkError,
-}: Props) {
+export function NativePlayerAccessory() {
     const inline = NativeTabs.BottomAccessory.usePlacement() === "inline";
     const { activeTrack, isPlaying, isLoading, canSkipToNext, controlsLocked } =
         usePlaybackTrackState();
@@ -46,27 +39,16 @@ export function NativePlayerAccessory({
     const { canPress } = motion;
     if (!activeTrack) return null;
 
-    const artworkUrl = activeTrack.artworkUrl?.trim();
-    const hasArtwork = Boolean(
-        artworkUrl &&
-        artworkUrl !== failedArtworkUrl &&
-        /^https?:\/\//i.test(artworkUrl),
-    );
     const artworkSize = inline ? 28 : 32;
-    const artwork = hasArtwork ? (
-        <Image
-            source={{ uri: artworkUrl }}
-            className="rounded-md bg-muted"
+    const artwork = (
+        <RemoteArtwork
+            url={activeTrack.artworkUrl}
+            className="rounded-md"
             style={{ width: artworkSize, height: artworkSize }}
-            onError={() => onArtworkError(artworkUrl ?? null)}
+            fallback={
+                <Ionicons name="musical-notes" size={18} color={colors.text} />
+            }
         />
-    ) : (
-        <View
-            className="items-center justify-center rounded-md bg-muted"
-            style={{ width: artworkSize, height: artworkSize }}
-        >
-            <Ionicons name="musical-notes" size={18} color={colors.text} />
-        </View>
     );
 
     return (

@@ -1,20 +1,14 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useEffect, useState } from "react";
-import {
-    ActivityIndicator,
-    Image,
-    Pressable,
-    ScrollView,
-    View,
-} from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { GlassInput } from "@/components/ui/glass-input";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import { useCatalogSongSearch } from "@/lib/musickit-hooks";
 import { useAppTheme } from "@/lib/theme";
-import { isUsableArtworkUrl } from "@/lib/utils";
 
 const SEARCH_DEBOUNCE_MS = 350;
 const MIN_SEARCH_LENGTH = 2;
@@ -141,24 +135,18 @@ function ResultRow({
             onPress={onPress}
             className="flex-row items-center gap-3 px-2 py-2 active:opacity-60"
         >
-            {isUsableArtworkUrl(song.artworkUrl) ? (
-                <Image
-                    source={{ uri: song.artworkUrl }}
-                    className="rounded-md bg-muted"
-                    style={{ width: 40, height: 40 }}
-                />
-            ) : (
-                <View
-                    className="items-center justify-center rounded-md bg-muted"
-                    style={{ width: 40, height: 40 }}
-                >
+            <RemoteArtwork
+                url={song.artworkUrl}
+                className="rounded-md"
+                style={{ width: 40, height: 40 }}
+                fallback={
                     <Ionicons
                         name="musical-notes"
                         size={16}
                         color={colors.mutedForeground}
                     />
-                </View>
-            )}
+                }
+            />
             <View className="min-w-0 flex-1">
                 <Text
                     className="text-sm font-medium text-foreground"

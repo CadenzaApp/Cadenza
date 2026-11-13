@@ -1,13 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation, useRouter } from "expo-router";
 import { useLayoutEffect, useState, type ReactNode } from "react";
-import {
-    Image,
-    Pressable,
-    ScrollView,
-    useWindowDimensions,
-    View,
-} from "react-native";
+import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
@@ -16,6 +10,7 @@ import { Toast, useToast } from "@/components/custom/toast";
 import { Button } from "@/components/ui/button";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import { useFriendsListening } from "@/lib/routes/listening";
 import {
@@ -32,7 +27,6 @@ import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useAppTheme } from "@/lib/theme";
 import type { SocialPerson } from "@/lib/types";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { isUsableArtworkUrl } from "@/lib/utils";
 
 import { LiveChip } from "./LiveChip";
 import { Initials } from "./MemberRow";
@@ -530,13 +524,5 @@ function PersonSection<Person extends SocialPerson>({
 }
 
 function SmallArt({ url }: { url: string | null }) {
-    return isUsableArtworkUrl(url) ? (
-        <Image
-            source={{ uri: url! }}
-            className="rounded-lg bg-muted"
-            style={{ width: 40, height: 40 }}
-        />
-    ) : (
-        <View className="h-10 w-10 rounded-lg bg-muted" />
-    );
+    return <RemoteArtwork url={url} className="h-10 w-10 rounded-lg" />;
 }

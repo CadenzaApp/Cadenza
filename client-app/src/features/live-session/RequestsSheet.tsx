@@ -13,8 +13,9 @@ import { AnswerButtons, EntryRow, runSessionWrite } from "./session-parts";
 /**
  * A live session's Requests, in a sheet over the player, full width and flush
  * with the bottom: people waiting to join and songs suggested, each let
- * through with the green check or turned down with the red X. Host only,
- * since only the host reviews them.
+ * through with the green check or turned down with the red X. For whoever
+ * reviews suggestions: the host, controllers, and queue editors. Join
+ * requests reach the host alone.
  */
 export function RequestsSheet({
     session,

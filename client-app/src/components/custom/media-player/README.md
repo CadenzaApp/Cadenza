@@ -76,9 +76,13 @@ needs device verification; no test harness simulates UIKit's material or hit tes
 `app/player/_layout.tsx` presents the sheet and its route slot. `/player`, `/player/discuss`, and
 `/player/tags` each render the same `PlayerPager`, which mounts Discuss, Player, and Tags side by
 side inside one horizontal paging `ScrollView`. The route selects Player, Discuss, or Tags.
-Swipes expose the adjacent live page under the finger, and the glass selector's highlight follows
-the scroll position continuously. Each selected tab uses its filled icon variant; inactive tabs
-use outlines. The three page instances stay mounted for the sheet's lifetime. Tags and Discuss do not
+Swipes expose the adjacent live page under the finger, and the selection pill follows the scroll
+position continuously, stretching between tabs. The bar copies iOS 26's native tab bar
+(`player-bar.tsx`): its size, margins, a pill darker than the glass, SF Symbols, and label type, with the
+accent on the selected tab. Icons are drawn at a set point size through a `pointSize` prop that
+`patches/expo-symbols+58.0.4.patch` adds; rebuild iOS after changing the patch. It cannot be the native bar: native tabs do not page by swipe, and in a live session the bar
+holds session buttons instead of tabs. The pager's `contentOffset` is set once. Changing it later
+jumps UIKit's scroll view without animating. The three page instances stay mounted for the sheet's lifetime. Tags and Discuss do not
 start their network reads merely because their page shells are mounted. The pager enables a page's
 reads the first time that page is selected, then leaves them enabled so revisiting it is instant.
 Preserve that separation when adding data to an offscreen player page.

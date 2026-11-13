@@ -2,10 +2,11 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useNavigation } from "expo-router";
 import { useLayoutEffect, useMemo, useState } from "react";
-import { Image, View } from "react-native";
+import { View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
 import { ReorderableList } from "@/components/custom/reorderable-list";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import {
     useSharedPlaylist,
@@ -13,7 +14,6 @@ import {
 } from "@/lib/routes/shared-playlists";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useAppTheme } from "@/lib/theme";
-import { isUsableArtworkUrl } from "@/lib/utils";
 
 import { entryIdOf, usePlaylistTracks } from "./use-playlist-tracks";
 
@@ -148,14 +148,10 @@ function SongRow({
             }}
             className="flex-1 flex-row items-center gap-3"
         >
-            {isUsableArtworkUrl(track.artworkUrl) ? (
-                <Image
-                    source={{ uri: track.artworkUrl!.trim() }}
-                    className="h-11 w-11 rounded bg-muted"
-                />
-            ) : (
-                <View className="h-11 w-11 rounded bg-muted" />
-            )}
+            <RemoteArtwork
+                url={track.artworkUrl}
+                className="h-11 w-11 rounded"
+            />
             <View className="min-w-0 flex-1">
                 <Text
                     className="text-base font-semibold text-foreground"

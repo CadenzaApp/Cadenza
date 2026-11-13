@@ -46,11 +46,12 @@ pub fn allowed(actor: Actor, action: SessionAction) -> bool {
         Actor::Member(role) => match action {
             SessionAction::View => true,
             SessionAction::Suggest => role != SessionRole::Listener,
-            SessionAction::EditQueue => {
+            // whoever edits the queue also decides what gets onto it
+            SessionAction::EditQueue | SessionAction::Review => {
                 matches!(role, SessionRole::QueueEditor | SessionRole::Controller)
             }
             SessionAction::Control => role == SessionRole::Controller,
-            SessionAction::Review | SessionAction::Manage | SessionAction::Report => false,
+            SessionAction::Manage | SessionAction::Report => false,
         },
     }
 }
@@ -230,7 +231,10 @@ mod tests {
         assert!(allowed(member(QueueEditor), EditQueue));
         assert!(!allowed(member(QueueEditor), Control));
         assert!(allowed(member(Controller), Control));
-        for action in [Review, Manage, Report] {
+        assert!(!allowed(member(Suggester), Review));
+        assert!(allowed(member(QueueEditor), Review));
+        assert!(allowed(member(Controller), Review));
+        for action in [Manage, Report] {
             assert!(!allowed(member(Controller), action));
             assert!(allowed(Actor::Host, action));
         }

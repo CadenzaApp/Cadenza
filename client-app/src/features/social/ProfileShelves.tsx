@@ -91,7 +91,7 @@ function PlaylistsShelf({ userId }: { userId: string }) {
                             accessibilityLabel={`Open shared playlist ${playlist.name}`}
                             onPress={() =>
                                 openScreen(
-                                    `/social/playlist/${playlist.playlist_id}` as Href,
+                                    `/shared-playlist/${playlist.playlist_id}` as Href,
                                 )
                             }
                         />

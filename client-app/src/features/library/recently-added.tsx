@@ -2,12 +2,13 @@ import type { MusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import type { ReactNode } from "react";
-import { FlatList, Image, View } from "react-native";
+import { FlatList, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { usePrefetchCollectionSongs } from "@/lib/musickit-hooks";
 
 import { ZoomTile } from "@/components/custom/zoom-tile";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
@@ -131,9 +132,6 @@ function RecentlyAddedTile({
     const { colors } = useTheme();
     const prefetch = usePrefetchCollectionSongs();
     const isSong = item.resourceKind === "song";
-    const artworkUrl = item.artworkUrlLarge?.trim() ?? item.artworkUrl?.trim();
-    const canRenderArtwork =
-        typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
     // Playlists carry a curator in artistName and often carry no one at all.
     const subtitle = item.artistName ?? KIND_LABEL[item.resourceKind];
 
@@ -152,20 +150,17 @@ function RecentlyAddedTile({
             className="mb-5 w-[48%] active:opacity-80"
             artwork={
                 <View collapsable={false} className="aspect-square w-full">
-                    {canRenderArtwork ? (
-                        <Image
-                            source={{ uri: artworkUrl }}
-                            className="h-full w-full rounded-lg bg-muted"
-                        />
-                    ) : (
-                        <View className="h-full w-full items-center justify-center rounded-lg bg-muted">
+                    <RemoteArtwork
+                        url={item.artworkUrlLarge ?? item.artworkUrl}
+                        className="h-full w-full rounded-lg"
+                        fallback={
                             <Ionicons
                                 name={KIND_ICON[item.resourceKind]}
                                 size={28}
                                 color={colors.text}
                             />
-                        </View>
-                    )}
+                        }
+                    />
                 </View>
             }
         >

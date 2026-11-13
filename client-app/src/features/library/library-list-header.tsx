@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { View } from "react-native";
 
 import { SearchField } from "@/components/custom/search-field";
@@ -43,17 +43,20 @@ export type LibraryListPlayActions = {
 /**
  * The top of a library category list, the way Apple Music lays it out: a
  * search field, then Play and Shuffle for the lists that can be played. Goes
- * in the list as its header, so it scrolls with the rows.
+ * in the list as its header, so it scrolls with the rows. `below` goes under
+ * everything.
  */
 export function LibraryListHeader({
     search,
     placeholder,
     actions,
+    below,
 }: {
     search: LibraryListSearch;
     placeholder: string;
     /** Omitted for a list with nothing to play, like Artists. */
     actions?: LibraryListPlayActions;
+    below?: ReactNode;
 }) {
     return (
         <View className="gap-4 px-5 pb-3 pt-1">
@@ -67,6 +70,7 @@ export function LibraryListHeader({
                 />
             </View>
             {actions ? <PlayShuffleRow {...actions} /> : null}
+            {below}
         </View>
     );
 }

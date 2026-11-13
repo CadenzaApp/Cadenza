@@ -1,7 +1,8 @@
 import type { MusicItem } from "@apple-musickit";
 import { useCallback, useMemo } from "react";
-import { Image, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import {
     indexTracksById,
@@ -10,7 +11,7 @@ import {
 } from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
 import type { EntityPlayCount } from "@/lib/routes/analytics";
-import { cn, isUsableArtworkUrl } from "@/lib/utils";
+import { isUsableArtworkUrl } from "@/lib/utils";
 import { useOpenScreen } from "@/lib/open-screen";
 
 import type { DimensionDescriptor } from "./dimensions";
@@ -167,18 +168,10 @@ const ARTWORK_SIZE = 40;
 
 /** The same placeholder the music list rows use. */
 function Artwork({ url, round }: { url?: string; round?: boolean }) {
-    return isUsableArtworkUrl(url) ? (
-        <Image
-            source={{ uri: url?.trim() }}
-            style={{
-                width: ARTWORK_SIZE,
-                height: ARTWORK_SIZE,
-                borderRadius: round ? ARTWORK_SIZE / 2 : 4,
-            }}
-        />
-    ) : (
-        <View
-            className={cn("bg-muted", round ? "rounded-full" : "rounded")}
+    return (
+        <RemoteArtwork
+            url={url}
+            className={round ? "rounded-full" : "rounded"}
             style={{ width: ARTWORK_SIZE, height: ARTWORK_SIZE }}
         />
     );

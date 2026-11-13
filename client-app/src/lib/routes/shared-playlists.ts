@@ -1,5 +1,5 @@
 import { useAccount } from "../account";
-import { useAPIData, useAPIMutation } from "../api-actions";
+import { fetchAPIData, useAPIData, useAPIMutation } from "../api-actions";
 import { useRealtimeTopic } from "../realtime";
 import type { CreateInviteBody, Invite } from "./invites";
 
@@ -133,6 +133,18 @@ export function useSharedPlaylist(id: number | null) {
         sharedPlaylistErr: x.error,
         reloadSharedPlaylist: x.mutate,
     };
+}
+
+/** A shared playlist's song ids, in its order. One read, no realtime. */
+export async function fetchSharedPlaylistSongIds(
+    id: number,
+): Promise<string[]> {
+    const playlist = await fetchAPIData<SharedPlaylist>(
+        `/shared-playlists/${id}`,
+    );
+    return [...playlist.entries]
+        .sort((a, b) => a.position - b.position)
+        .map((entry) => entry.song_id);
 }
 
 export function useCreateSharedPlaylist() {

@@ -48,7 +48,7 @@ export function SharedPlaylistPostCard({
             accessibilityLabel={`Open shared playlist ${playlist.name}`}
             onPress={(event) => {
                 event.stopPropagation();
-                openScreen(`/social/playlist/${playlist.playlist_id}` as Href);
+                openScreen(`/shared-playlist/${playlist.playlist_id}` as Href);
             }}
             className="flex-row items-center overflow-hidden rounded-lg bg-muted active:opacity-80"
         >

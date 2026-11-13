@@ -1,12 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { RepeatMode, ShuffleMode } from "@apple-musickit";
+import { Image } from "expo-image";
 import { useNavigation, type Href } from "expo-router";
 import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
     Platform,
     Alert,
-    Image,
     Pressable,
     StyleSheet,
     useWindowDimensions,
@@ -32,6 +32,7 @@ import { ModalPopup } from "@/components/custom/modal-popup";
 import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
 import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
 import { useAlbumRouteForTrack } from "@/lib/album-route";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import { LiveButton } from "@/features/live-session/LiveButton";
 import { useShownLiveSession } from "@/features/live-session/use-current-session";
@@ -46,6 +47,7 @@ import {
 import { useOpenScreen } from "@/lib/open-screen";
 import { SHEET_DETENT, useAppTheme } from "@/lib/theme";
 import { logHandledError } from "@/lib/log";
+import { isUsableArtworkUrl } from "@/lib/utils";
 
 import {
     MediaPlayerProgress,
@@ -144,9 +146,6 @@ export function PlayerPage() {
         string | null
     >(null);
     const scrubPositionRef = useRef<number | null>(null);
-    const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
-        null,
-    );
     const animatedPlaybackProgress = useSharedValue(progress);
     const favoriteSongId = activeTrack?.catalogId ?? activeTrack?.id;
     const {
@@ -161,10 +160,6 @@ export function PlayerPage() {
 
     const artworkUrl = activeTrack?.artworkUrl?.trim();
     const fullArtworkUrl = activeTrack?.artworkUrlLarge?.trim() || artworkUrl;
-    const canRenderFullArtwork =
-        typeof fullArtworkUrl === "string" &&
-        fullArtworkUrl !== failedArtworkUrl &&
-        /^https?:\/\//i.test(fullArtworkUrl);
     const isUpdatingFavorite = favoriteUpdateSongId === favoriteSongId;
     const displayedProgress = scrubPosition ?? progress;
     // The sheet is shorter than the window, so size against the measured body.
@@ -444,40 +439,29 @@ export function PlayerPage() {
             ) : (
                 <>
                     <View className="flex-1 items-center justify-center">
-                        {canRenderFullArtwork ? (
-                            <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel="Artwork options"
-                                onPress={() => setArtworkView("menu")}
-                                className="active:opacity-80"
-                            >
-                                <Image
-                                    source={{ uri: fullArtworkUrl }}
-                                    style={{
-                                        width: artworkSize,
-                                        height: artworkSize,
-                                    }}
-                                    className="rounded-xl bg-muted"
-                                    onError={() =>
-                                        setFailedArtworkUrl(fullArtworkUrl)
-                                    }
-                                />
-                            </Pressable>
-                        ) : (
-                            <View
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Artwork options"
+                            disabled={!isUsableArtworkUrl(fullArtworkUrl)}
+                            onPress={() => setArtworkView("menu")}
+                            className="active:opacity-80"
+                        >
+                            <RemoteArtwork
+                                url={fullArtworkUrl}
+                                className="rounded-xl"
                                 style={{
                                     width: artworkSize,
                                     height: artworkSize,
                                 }}
-                                className="items-center justify-center rounded-xl bg-muted"
-                            >
-                                <Ionicons
-                                    name="musical-notes"
-                                    size={72}
-                                    color={colors.text}
-                                />
-                            </View>
-                        )}
+                                fallback={
+                                    <Ionicons
+                                        name="musical-notes"
+                                        size={72}
+                                        color={colors.text}
+                                    />
+                                }
+                            />
+                        </Pressable>
                     </View>
 
                     <MediaPlayerTrackHeading
@@ -565,7 +549,8 @@ export function PlayerPage() {
                     <View className="bg-black" style={StyleSheet.absoluteFill}>
                         <Image
                             source={{ uri: fullArtworkUrl }}
-                            resizeMode="contain"
+                            contentFit="contain"
+                            cachePolicy="memory-disk"
                             style={StyleSheet.absoluteFill}
                             accessibilityLabel={`${track.title} artwork`}
                         />

@@ -1,13 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useMemo } from "react";
-import { Image, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import { useOpenScreen } from "@/lib/open-screen";
 import { useSongInfo } from "@/lib/musickit-hooks";
 import { toggleTopicPreview, useTopicPreview } from "@/lib/topic-preview";
 import type { PostTopic } from "@/lib/types";
-import { isUsableArtworkUrl } from "@/lib/utils";
 
 import { topicFromSong, topicSubtitle, topicTitle } from "./topic";
 import { useAppTheme } from "@/lib/theme";
@@ -168,26 +168,18 @@ export function PostTopicCard({ topic, cardId, onRemove }: Props) {
 
 function TopicArtwork({ topic }: { topic: PostTopic }) {
     const { mutedForeground } = useAppTheme().colors;
-    if (isUsableArtworkUrl(topic.artworkUrl)) {
-        return (
-            <Image
-                source={{ uri: topic.artworkUrl }}
-                className="h-full w-full"
-                resizeMode="cover"
-            />
-        );
-    }
-    if (topic.kind === "artist") {
-        return (
-            <View className="h-full w-full items-center justify-center bg-secondary">
-                <Ionicons name="person" size={22} color={mutedForeground} />
-            </View>
-        );
-    }
     return (
-        <View className="h-full w-full items-center justify-center bg-secondary">
-            <Ionicons name="musical-notes" size={22} color={mutedForeground} />
-        </View>
+        <RemoteArtwork
+            url={topic.artworkUrl}
+            className="h-full w-full bg-secondary"
+            fallback={
+                <Ionicons
+                    name={topic.kind === "artist" ? "person" : "musical-notes"}
+                    size={22}
+                    color={mutedForeground}
+                />
+            }
+        />
     );
 }
 

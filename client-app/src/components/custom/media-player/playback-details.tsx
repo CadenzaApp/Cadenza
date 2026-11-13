@@ -3,13 +3,14 @@ import type { MusicItem, SongFavoriteStatus } from "@apple-musickit";
 import type { ReactNode } from "react";
 import {
     ActivityIndicator,
-    Image,
     Pressable,
     View,
     type ColorValue,
 } from "react-native";
 
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
+import { isUsableArtworkUrl } from "@/lib/utils";
 
 /** Side of the artwork the heading shows when the queue is open. */
 const COMPACT_ARTWORK_SIZE = 52;
@@ -49,22 +50,16 @@ export function MediaPlayerTrackHeading({
     onOpenMenu: () => void;
     onOpenArtist?: () => void;
 }) {
-    const artworkUrl = track.artworkUrl?.trim();
-    const canRenderArtwork =
-        compact &&
-        typeof artworkUrl === "string" &&
-        /^https?:\/\//i.test(artworkUrl);
-
     return (
         <View className="flex-row items-center gap-3">
-            {canRenderArtwork ? (
-                <Image
-                    source={{ uri: artworkUrl }}
+            {compact && isUsableArtworkUrl(track.artworkUrl) ? (
+                <RemoteArtwork
+                    url={track.artworkUrl}
+                    className="rounded-lg"
                     style={{
                         width: COMPACT_ARTWORK_SIZE,
                         height: COMPACT_ARTWORK_SIZE,
                     }}
-                    className="rounded-lg bg-muted"
                 />
             ) : null}
 

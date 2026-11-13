@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, type Href } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, Pressable, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
 import { MarqueeText } from "@/components/custom/marquee-text";
@@ -10,6 +10,7 @@ import { PeekCarousel } from "@/components/custom/peek-carousel";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { GlassPill } from "@/components/ui/glass-pill";
 import type { IoniconName } from "@/components/ui/ionicon-name";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
@@ -25,7 +26,7 @@ import {
 } from "@/lib/routes/listening";
 import { useJoinListening } from "@/lib/routes/live-sessions";
 import { useAppTheme } from "@/lib/theme";
-import { cn, isUsableArtworkUrl } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 import {
     markAskedToJoin,
@@ -752,40 +753,29 @@ function RecentPlays({ plays }: { plays: RecentPlay[] }) {
     );
 }
 
-/** Square unless `height` is given. `rounded` off for art that fills a tile. */
+/** Square. `rounded` off for art that fills a tile. */
 function Artwork({
     url,
     size,
-    height = size,
     rounded = true,
 }: {
     url?: string | null;
     size: number;
-    height?: number;
     rounded?: boolean;
 }) {
     const { mutedForeground } = useAppTheme().colors;
     return (
-        <View
-            className={cn(
-                "items-center justify-center overflow-hidden bg-secondary",
-                rounded && "rounded-lg",
-            )}
-            style={{ width: size, height }}
-        >
-            {isUsableArtworkUrl(url) ? (
-                <Image
-                    source={{ uri: url! }}
-                    className="h-full w-full"
-                    resizeMode="cover"
-                />
-            ) : (
+        <RemoteArtwork
+            url={url}
+            className={cn("bg-secondary", rounded && "rounded-lg")}
+            style={{ width: size, height: size }}
+            fallback={
                 <Ionicons
                     name="musical-notes"
                     size={size / 3}
                     color={mutedForeground}
                 />
-            )}
-        </View>
+            }
+        />
     );
 }

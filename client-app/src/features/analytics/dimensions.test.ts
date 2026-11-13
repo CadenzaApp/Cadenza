@@ -233,7 +233,7 @@ test("shared playlists and live sessions open by their id", () => {
         entity_id: "7",
     };
     assert.deepEqual(sharedPlaylistRouteFor(entity), {
-        pathname: "/social/playlist/[id]",
+        pathname: "/shared-playlist/[id]",
         params: { id: "7" },
     });
     assert.deepEqual(liveSessionRouteFor(entity)?.params, { id: "7" });

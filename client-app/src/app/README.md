@@ -22,9 +22,6 @@ logic out.
 | `(tabs)/(social)/social/listening.tsx`                                        | `/social/listening`            | Every friend listening, from See all.                                                                         |
 | `(tabs)/(social)/social/playlists.tsx`                                        | `/social/playlists`            | The caller's shared playlists, new playlist, enter code. The same list is in Library > Playlists.             |
 | `(tabs)/(social)/social/library/[kind].tsx` | `/social/library/:kind` | A Library section on the Social stack, from a profile's See all, so back returns to the profile. |
-| `(tabs)/(social)/social/playlist/[id]/index.tsx`                              | `/social/playlist/:id`         | One shared playlist on `TrackCollectionView`. Draws its own header.                                           |
-| `(tabs)/(social)/social/playlist/[id]/members.tsx`                            | `/social/playlist/:id/members` | Members, roles, invite, add friends.                                                                          |
-| `(tabs)/(social)/social/playlist/[id]/reorder.tsx`                            | `/social/playlist/:id/reorder` | Drag songs into a new order.                                                                                  |
 | `live-session/new.tsx`                                                        | `/live-session/new`            | Sheet. Go live, or `?edit=1` for the session's settings.                                                      |
 | `live-session/[id].tsx`                                                       | `/live-session/:id`            | Sheet. Hands an open session to `/player`; says when one is over.                                             |
 | `join/index.tsx`, `join/[code].tsx`                                           | `/join`, `/join/:code`         | Sheet. Join with an invite code. `cadenza://join/CODE` lands on the second and redeems at once.               |
@@ -38,6 +35,9 @@ logic out.
 | `(tabs)/(analytics,cadenza,library,search,social)/collection/[kind]/[id].tsx` | `/collection/:kind/:id`        | The songs in one album or playlist.                                                                           |
 | `(tabs)/(analytics,cadenza,library,search,social)/tag/[tagId].tsx`            | `/tag/:tagId`                  | One tag and the songs carrying it.                                                                            |
 | `(tabs)/(analytics,cadenza,library,search,social)/artist/[id].tsx`            | `/artist/:id`                  | One catalog artist: the artist image and a play button, top songs, then an albums rail.                       |
+| `(tabs)/(analytics,cadenza,library,search,social)/shared-playlist/[id].tsx` | `/shared-playlist/:id` | One shared playlist on `TrackCollectionView`, in the tab it opens from. Draws its own header. |
+| `(tabs)/(analytics,cadenza,library,search,social)/shared-playlist/[id]/members.tsx` | `/shared-playlist/:id/members` | Members, roles, invite, add friends. |
+| `(tabs)/(analytics,cadenza,library,search,social)/shared-playlist/[id]/reorder.tsx` | `/shared-playlist/:id/reorder` | Drag songs into a new order. |
 | `(tabs)/(analytics,cadenza,library,search,social)/discuss/[songId].tsx`       | `/discuss/:songId`             | Posts about one song, outside the now playing sheet.                                                          |
 | `(tabs)/(analytics,cadenza,library,search,social)/query-results.tsx`          | `/query-results`               | Query matches.                                                                                                |
 | `account.tsx`                                                                 | `/account`                     | Account sheet. Wires `AccountSettingsScreen`.                                                                 |

@@ -1,4 +1,4 @@
-import { useRouter, type Href } from "expo-router";
+import { useRoute, useRouter, type Href } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Platform, View } from "react-native";
 
@@ -6,6 +6,7 @@ import { DetailScreen } from "@/components/ui/detail-screen";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassInput } from "@/components/ui/glass-input";
 import { Text } from "@/components/ui/text";
+import { useOpenScreen } from "@/lib/open-screen";
 import {
     cleanInviteCode,
     INVITE_CODE_LENGTH,
@@ -35,12 +36,14 @@ function failureMessage(error: unknown): string {
 /**
  * Enter an invite code for a live session or a shared playlist. With
  * `initialCode`, from a `cadenza://join/CODE` link, it redeems straight away.
- * A session opens in its sheet; a playlist opens on the Social tab. A code
+ * A session opens in its sheet; a playlist opens in the tab underneath. A code
  * into another session takes the caller out of the one they were in, which
  * Listening now's Join with code warned about.
  */
 export function JoinScreen({ initialCode }: { initialCode?: string }) {
     const router = useRouter();
+    const route = useRoute();
+    const openScreen = useOpenScreen();
     const { redeemInvite, redeemInviteLoading } = useRedeemInvite();
     const current = useCurrentLiveSession();
     const { leaveSession } = useLiveSessionWrites(
@@ -65,8 +68,9 @@ export function JoinScreen({ initialCode }: { initialCode?: string }) {
             }
             router.replace("/player");
         } else {
-            router.back();
-            router.push(`/social/playlist/${target.id}` as Href);
+            openScreen(`/shared-playlist/${target.id}` as Href, {
+                closing: route.name,
+            });
         }
     }
 

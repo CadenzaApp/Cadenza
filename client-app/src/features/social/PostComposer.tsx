@@ -2,15 +2,10 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ArtistItem, MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
-import {
-    ActivityIndicator,
-    Image,
-    Pressable,
-    TextInput,
-    View,
-} from "react-native";
+import { ActivityIndicator, Pressable, TextInput, View } from "react-native";
 
 import { Button } from "@/components/ui/button";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import {
@@ -19,7 +14,7 @@ import {
 } from "@/lib/musickit-hooks";
 import { useAppTheme } from "@/lib/theme";
 import type { PostTopic } from "@/lib/types";
-import { cn, isUsableArtworkUrl } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 import { PostTopicCard } from "./PostTopicCard";
 import { topicFromArtist, topicFromSong } from "./topic";
@@ -456,30 +451,21 @@ function TopicSearchRow({
             onPress={onPress}
             className="flex-row items-center gap-3 px-3 py-2 active:opacity-60"
         >
-            {isUsableArtworkUrl(artworkUrl) ? (
-                <Image
-                    source={{ uri: artworkUrl }}
-                    className={cn(
-                        "shrink-0 bg-muted",
-                        round ? "rounded-full" : "rounded-md",
-                    )}
-                    style={{ width: 36, height: 36 }}
-                />
-            ) : (
-                <View
-                    className={cn(
-                        "shrink-0 items-center justify-center bg-muted",
-                        round ? "rounded-full" : "rounded-md",
-                    )}
-                    style={{ width: 36, height: 36 }}
-                >
+            <RemoteArtwork
+                url={artworkUrl}
+                className={cn(
+                    "shrink-0",
+                    round ? "rounded-full" : "rounded-md",
+                )}
+                style={{ width: 36, height: 36 }}
+                fallback={
                     <Ionicons
                         name={round ? "person" : "musical-notes"}
                         size={16}
                         color={mutedForeground}
                     />
-                </View>
-            )}
+                }
+            />
             <View className="min-w-0 flex-1">
                 <Text
                     className="text-sm font-medium text-foreground"

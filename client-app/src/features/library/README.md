@@ -12,13 +12,14 @@ the user's choice.
 | `library-categories.tsx`      | `LibraryCategoriesProvider` / `useLibraryCategories`. Which rows show.                                                                                                  |
 | `category-row.tsx`            | One row of the index. Pushes a normal view in the Library tab stack.                                                                                                    |
 | `library-category-screen.tsx` | Picks the body for a category and sets the title.                                                                                                                       |
-| `library-list-header.tsx`     | `LibraryListHeader` (search field, then Play and Shuffle) and `useLibraryListSearch`, the debounced term.                                                               |
+| `library-list-header.tsx`     | `LibraryListHeader` (search field, Play and Shuffle, then an optional `below` slot) and `useLibraryListSearch`, the debounced term.                                                               |
+| `library-list.tsx` | `LibraryList` and `LibraryListRow`: switch, search, Play and Shuffle, New and Enter code, then rows. Shared playlists and Queries both use it, so they lay out the same. |
 | `library-songs.tsx`           | Songs: Apple's paged library, the backend's sorted copy, or library search results.                                                                                     |
 | `library-collections.tsx`     | Albums or Playlists, or the ones matching search. Albums can be played whole.                                                                                           |
 | `library-playlists.tsx`       | Playlists: Your playlists or Shared playlists, over `LibraryCollections` or `SharedPlaylistsList`. |
 | `library-view-switch.tsx`     | `useLibraryViewSwitch`, a category's two-view switch, kept in the `view` param so a link opens on either. Playlists and Queries use it. |
 | `library-artists.tsx`         | Artists, or the ones matching search.                                                                                                                                   |
-| `saved-queries-view.tsx`      | Queries: the user's saved queries, or only the ones shared on their profile, favorites first, each with its saved cover. A row opens its stored songs on `/query-results`; the trash icon deletes it.             |
+| `saved-queries-view.tsx`      | Queries: the user's saved queries, or only the ones shared on their profile on `LibraryList` (with New query, to the Cadenza tab, and Enter code), favorites first, each with its saved cover. A row opens its stored songs on `/query-results`; the trash icon deletes it.             |
 | `play-queue.ts`               | `mapInOrder` and `concatUnique`, for one queue built from several lists. Tested.                                                                                        |
 | `recently-added.tsx`          | `RecentlyAddedGrid`, the paged artwork grid that owns the screen scroll and reports it with `useScreenScroll`. Collection tiles open with the native zoom (`ZoomTile`). |
 | `tags-view.tsx`               | Every tag as a pill, opening `/tag/:tagId`. The Tags category's body.                                                                                                   |

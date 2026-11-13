@@ -1,7 +1,6 @@
 import { Redirect } from "expo-router";
 import { NativeTabs } from "expo-router/native-tabs";
 import { useTheme } from "expo-router/react-navigation";
-import { useState } from "react";
 import { DynamicColorIOS, Platform, View } from "react-native";
 
 import { MediaPlayerFallbackOverlay } from "@/components/custom/media-player";
@@ -43,9 +42,6 @@ export default function TabLayout() {
     const { colors: palette } = useAppTheme();
     const hidden = useBottomBarsHidden();
     const nativePlayer = useNativePlayerAccessoryEnabled();
-    const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
-        null,
-    );
     // the user's accent, the same in light and dark
     const selectedColor = palette.brand;
     const unselectedColor =
@@ -86,10 +82,7 @@ export default function TabLayout() {
             >
                 {nativePlayer ? (
                     <NativeTabs.BottomAccessory>
-                        <NativePlayerAccessory
-                            failedArtworkUrl={failedArtworkUrl}
-                            onArtworkError={setFailedArtworkUrl}
-                        />
+                        <NativePlayerAccessory />
                     </NativeTabs.BottomAccessory>
                 ) : null}
                 <NativeTabs.Trigger name="(social)" {...TRIGGER_PROPS}>
@@ -154,8 +147,6 @@ export default function TabLayout() {
             <MediaPlayerFallbackOverlay
                 hidden={hidden}
                 nativeAccessoryActive={nativePlayer}
-                failedArtworkUrl={failedArtworkUrl}
-                onArtworkError={setFailedArtworkUrl}
             />
         </View>
     );

@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState, type ReactNode } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import Animated, {
@@ -15,6 +15,7 @@ import Animated, {
 import type { MusicItem } from "@apple-musickit";
 
 import { Button } from "@/components/ui/button";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAppTheme, type ThemeColorToken } from "@/lib/theme";
@@ -370,54 +371,27 @@ const WITHOUT_TAGS_STYLE = { rowGap: 1, transform: [{ translateY: 5 }] };
 
 /** A row's cover, or a placeholder when it has none or it fails to load. */
 const TrackArtwork = memo(function TrackArtwork({
-    artworkUrl: rawUrl,
+    artworkUrl,
     compact,
 }: {
     artworkUrl?: string;
     compact: boolean;
 }) {
-    // the url that failed, not a flag: a list reuses this row for other
-    // songs, and a failed cover must not carry over to the next one
-    const [failedUrl, setFailedUrl] = useState<string | null>(null);
-    const artworkUrl = rawUrl?.trim();
-    const canRenderArtwork =
-        artworkUrl !== failedUrl &&
-        typeof artworkUrl === "string" &&
-        /^https?:\/\//i.test(artworkUrl);
-    const artworkSize = compact ? COMPACT_ARTWORK_SIZE : ARTWORK_SIZE;
-
-    return canRenderArtwork ? (
-        <View
-            pointerEvents="none"
-            className="mr-2 shrink-0"
+    return (
+        <RemoteArtwork
+            url={artworkUrl}
+            className="mr-2 shrink-0 rounded"
             style={{
-                width: artworkSize,
+                width: compact ? COMPACT_ARTWORK_SIZE : ARTWORK_SIZE,
                 aspectRatio: 1,
                 transform: [{ translateY: compact ? 2 : 4 }],
             }}
-        >
-            <Image
-                source={{ uri: artworkUrl }}
-                className="h-full w-full rounded bg-muted"
-                resizeMode="cover"
-                style={{ borderRadius: 4 }}
-                onError={() => setFailedUrl(artworkUrl ?? null)}
-            />
-        </View>
-    ) : (
-        <View
-            pointerEvents="none"
-            className="mr-2 shrink-0 items-center justify-center rounded bg-muted"
-            style={{
-                width: artworkSize,
-                aspectRatio: 1,
-                transform: [{ translateY: compact ? 2 : 4 }],
-            }}
-        >
-            <Text className="text-xs text-muted-foreground text-center">
-                No Art
-            </Text>
-        </View>
+            fallback={
+                <Text className="text-xs text-muted-foreground text-center">
+                    No Art
+                </Text>
+            }
+        />
     );
 });
 

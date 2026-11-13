@@ -31,8 +31,8 @@ const LIST_MAX_HEIGHT = 420;
 
 /**
  * The now playing sheet's bottom bar in a live session, in place of the page
- * tabs: Requests (the host's), People, Add songs, and Share, as the caller's
- * role allows.
+ * tabs: Requests (the host, controllers, and queue editors), People, Add
+ * songs, and Share (the host's), as the caller's role allows.
  * The bar is only as wide as the buttons it has. Requests opens in a bottom
  * sheet. The host can make anyone else host from
  * People, and stays in as a controller. The queue itself is the player's own.
@@ -47,7 +47,6 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
         null,
     );
 
-    // only the host reviews requests
     const canReview = session.can.review;
     const requests = session.suggestions.length + session.join_requests.length;
     const canSuggest = session.can.suggest;
@@ -81,6 +80,7 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
             <PlayerBarShell itemCount={buttonCount}>
                 {canReview ? (
                     <PlayerBarButton
+                        sf="hand.raised"
                         icon="hand-left-outline"
                         label="Requests"
                         accessibilityLabel={`Requests, ${requests}`}
@@ -89,6 +89,7 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                     />
                 ) : null}
                 <PlayerBarButton
+                    sf="person.2"
                     icon="people-outline"
                     label={`People (${session.members.length})`}
                     accessibilityLabel={`People, ${session.members.length}`}
@@ -96,6 +97,7 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                 />
                 {canSuggest ? (
                     <PlayerBarButton
+                        sf="plus.circle"
                         icon="add-circle-outline"
                         label={session.can.edit_queue ? "Add" : "Suggest"}
                         onPress={() => setOpen("add")}
@@ -103,6 +105,7 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                 ) : null}
                 {isHost ? (
                     <PlayerBarButton
+                        sf="square.and.arrow.up"
                         icon="share-outline"
                         label="Share"
                         accessibilityLabel="Invite people"

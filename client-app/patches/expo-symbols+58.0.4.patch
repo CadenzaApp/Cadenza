@@ -1,0 +1,71 @@
+diff --git a/node_modules/expo-symbols/build/SymbolModule.types.d.ts b/node_modules/expo-symbols/build/SymbolModule.types.d.ts
+index 8bb645d..bc1228b 100644
+--- a/node_modules/expo-symbols/build/SymbolModule.types.d.ts
++++ b/node_modules/expo-symbols/build/SymbolModule.types.d.ts
+@@ -26,6 +26,12 @@ export type SymbolViewProps = {
+      * @platform ios
+      */
+     scale?: SymbolScale;
++    /**
++     * The point size the symbol is drawn at, before `resizeMode` fits it to the view.
++     * Use with `resizeMode="center"` to draw at an exact size, like UIKit does.
++     * @platform ios
++     */
++    pointSize?: number;
+     /**
+      * The weight of the symbol to render. On Android and web import from `expo-symbols/androidWeights/{weight}`.
+      * @default 'unspecified'
+diff --git a/node_modules/expo-symbols/ios/SymbolModule.swift b/node_modules/expo-symbols/ios/SymbolModule.swift
+index 056f9ae..f79dd78 100644
+--- a/node_modules/expo-symbols/ios/SymbolModule.swift
++++ b/node_modules/expo-symbols/ios/SymbolModule.swift
+@@ -37,6 +37,10 @@ public class SymbolModule: Module {
+         view.imageContentMode = resizeMode?.toContentMode() ?? SymbolView.defaultContentMode
+       }
+ 
++      Prop("pointSize") { (view, pointSize: Double?) in
++        view.pointSize = pointSize
++      }
++
+       Prop("animationSpec") { (view, spec: AnimationSpec?) in
+         view.animationSpec = spec
+       }
+diff --git a/node_modules/expo-symbols/ios/SymbolView.swift b/node_modules/expo-symbols/ios/SymbolView.swift
+index d3209d1..5e57f9f 100644
+--- a/node_modules/expo-symbols/ios/SymbolView.swift
++++ b/node_modules/expo-symbols/ios/SymbolView.swift
+@@ -23,6 +23,8 @@ class SymbolView: ExpoView {
+   var scale: UIImage.SymbolScale = .default
+   var imageContentMode: UIView.ContentMode = .scaleToFill
+ #endif
++  /// Point size the symbol is drawn at. Nil keeps the system font size.
++  var pointSize: Double?
+   var symbolType: SymbolType = .monochrome
+   var tint: UIColor?
+   var animationSpec: AnimationSpec?
+@@ -124,7 +126,7 @@ class SymbolView: ExpoView {
+     #if os(tvOS)
+     var config = UIImage.SymbolConfiguration(pointSize: 18.0, weight: weight, scale: scale)
+     #else
+-    var config = UIImage.SymbolConfiguration(pointSize: UIFont.systemFontSize, weight: weight, scale: scale)
++    var config = UIImage.SymbolConfiguration(pointSize: pointSize.map { CGFloat($0) } ?? UIFont.systemFontSize, weight: weight, scale: scale)
+     #endif
+ 
+     switch symbolType {
+diff --git a/node_modules/expo-symbols/src/SymbolModule.types.ts b/node_modules/expo-symbols/src/SymbolModule.types.ts
+index acb6e0a..d18e22c 100644
+--- a/node_modules/expo-symbols/src/SymbolModule.types.ts
++++ b/node_modules/expo-symbols/src/SymbolModule.types.ts
+@@ -24,6 +24,12 @@ export type SymbolViewProps = {
+    * @platform ios
+    */
+   scale?: SymbolScale;
++  /**
++   * The point size the symbol is drawn at, before `resizeMode` fits it to the view.
++   * Use with `resizeMode="center"` to draw at an exact size, like UIKit does.
++   * @platform ios
++   */
++  pointSize?: number;
+   /**
+    * The weight of the symbol to render. On Android and web import from `expo-symbols/androidWeights/{weight}`.
+    * @default 'unspecified'
