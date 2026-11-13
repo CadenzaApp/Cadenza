@@ -8,11 +8,11 @@ import {
     useMemo,
     useRef,
     useState,
+    type ReactNode,
 } from "react";
 import {
     ActivityIndicator,
     FlatList,
-    Pressable,
     RefreshControl,
     View,
     type ListRenderItem,
@@ -20,17 +20,16 @@ import {
 } from "react-native";
 import Animated from "react-native-reanimated";
 
-import { BottomRowActionBubble } from "@/components/custom/bottom-row-action-bubble";
 import { ListDivider } from "@/components/custom/list-divider";
 import { Toast, useToast } from "@/components/custom/toast";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
-import { GlassPanel } from "@/components/ui/glass-panel";
 import {
     SegmentedControl,
     type SegmentOption,
 } from "@/components/ui/segmented-control";
 import { Text } from "@/components/ui/text";
 import { invalidateAPIData } from "@/lib/api-actions";
+import { useKeyboardScroll } from "@/lib/keyboard-scroll";
 import { useProfile } from "@/lib/routes/profile";
 import {
     useCreatePost,
@@ -42,11 +41,10 @@ import {
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
-import { useAppTheme } from "@/lib/theme";
 import { stopTopicPreview } from "@/lib/topic-preview";
 import { useTopRailInset } from "@/lib/top-rail";
 
-import { CreatePostDialog } from "./CreatePostDialog";
+import { InlinePostComposer } from "./InlinePostComposer";
 import { ListeningNowStrip } from "./ListeningNow";
 import { SocialHubCards } from "./SocialHubCards";
 import { PostCard } from "./PostCard";
@@ -131,7 +129,19 @@ export function SocialFeedScreen() {
     );
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
-    const openCompose = useCallback(() => setComposeOpen(true), []);
+    // where the composer sits in the list, so opening it can scroll it up
+    // above the keyboard
+    const composerY = useRef(0);
+    const scrollWithKeyboard = useKeyboardScroll(scroll.ref);
+    const onComposeOpenChange = useCallback(
+        (open: boolean) => {
+            setComposeOpen(open);
+            // the keyboard carries it up until its top is just under the
+            // top rail
+            if (open) scrollWithKeyboard(composerY.current + 8);
+        },
+        [scrollWithKeyboard],
+    );
     const { toast, showToast } = useToast();
 
     const feed = useMemo((): FeedRow[] => {
@@ -425,11 +435,21 @@ export function SocialFeedScreen() {
                     onViewableItemsChanged={onViewableItemsChanged}
                     viewabilityConfig={VIEWABILITY_CONFIG}
                     ItemSeparatorComponent={PostSeparator}
+                    keyboardShouldPersistTaps="handled"
                     ListHeaderComponent={
                         <SocialFeedHeader
                             filter={filter}
                             onFilterChange={setFilter}
-                            onCompose={openCompose}
+                            onComposerY={(y) => {
+                                composerY.current = y;
+                            }}
+                            composer={
+                                <InlinePostComposer
+                                    open={composeOpen}
+                                    onOpenChange={onComposeOpenChange}
+                                    onCreate={handleCreate}
+                                />
+                            }
                         />
                     }
                     contentContainerStyle={[
@@ -463,18 +483,6 @@ export function SocialFeedScreen() {
                 />
             </ScreenScrollMarker>
 
-            <BottomRowActionBubble
-                icon="create-outline"
-                accessibilityLabel="Create a new post"
-                expanded={composeOpen}
-                onPress={openCompose}
-            />
-            <CreatePostDialog
-                open={composeOpen}
-                onOpenChange={setComposeOpen}
-                onCreate={handleCreate}
-            />
-
             <Toast toast={toast} />
         </View>
     );
@@ -494,42 +502,32 @@ const FEED_FILTERS: readonly SegmentOption<FeedFilter>[] = [
 ];
 
 /**
- * Everything above the posts: the hub cards, the Listening now row, a prompt
- * that opens the new post sheet, and the For you / Friends filter.
+ * Everything above the posts: the hub cards, the Listening now shelf with the
+ * session buttons, the inline new post composer, and the For you / Friends
+ * filter.
  */
 function SocialFeedHeader({
     filter,
     onFilterChange,
-    onCompose,
+    composer,
+    onComposerY,
 }: {
     filter: FeedFilter;
     onFilterChange: (filter: FeedFilter) => void;
-    onCompose: () => void;
+    composer: ReactNode;
+    /** Where the composer sits in the header, which is where the list starts. */
+    onComposerY: (y: number) => void;
 }) {
-    const { mutedForeground } = useAppTheme().colors;
     return (
         <View className="mb-3">
             <SocialHubCards />
             <ListeningNowStrip />
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Create a new post"
-                onPress={onCompose}
-                className="mt-6 active:opacity-60"
+            <View
+                className="mt-6"
+                onLayout={(event) => onComposerY(event.nativeEvent.layout.y)}
             >
-                <GlassPanel>
-                    <View className="flex-row items-center gap-3 px-4 py-3">
-                        <Ionicons
-                            name="create-outline"
-                            size={20}
-                            color={mutedForeground}
-                        />
-                        <Text className="flex-1 text-base text-muted-foreground">
-                            Share what you&apos;re listening to...
-                        </Text>
-                    </View>
-                </GlassPanel>
-            </Pressable>
+                {composer}
+            </View>
             <View className="mt-4">
                 <SegmentedControl
                     size="sm"

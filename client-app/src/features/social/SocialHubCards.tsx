@@ -1,11 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useRouter, type Href } from "expo-router";
-import type { GestureResponderEvent } from "react-native";
+import { useRouter } from "expo-router";
+import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
 import { GlassPanel } from "@/components/ui/glass-panel";
 import type { IoniconName } from "@/components/ui/ionicon-name";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { useFriendsListening } from "@/lib/routes/listening";
@@ -13,119 +12,44 @@ import { useProfile } from "@/lib/routes/profile";
 import { useFriendshipsWithPresence } from "@/lib/routes/social";
 import { useAppTheme } from "@/lib/theme";
 
-import { Initials } from "./MemberRow";
-import { isFriendOnline, onlineFirst } from "./presence";
-
-/** Friends shown in the avatar stack before "+N". */
-const STACK_SIZE = 3;
+import { isFriendOnline } from "./presence";
 
 /**
- * The two cards at the top of the Social tab: Me (profile, shared playlists,
- * privacy) and Friends (who is online, and requests waiting). A friend is
- * online with the app open or while playing something, and online friends
- * lead the avatar stack.
+ * The two cards at the top of the Social tab: My profile, and Friends with
+ * who is online and requests waiting. A friend is online with the app open
+ * or while playing something.
  */
 export function SocialHubCards() {
     return (
         <View className="mb-6 flex-row gap-3">
-            <MeCard />
+            <ProfileCard />
             <FriendsCard />
         </View>
     );
 }
 
-function MeCard() {
+function ProfileCard() {
     const router = useRouter();
     const { account } = useAccount();
-    const { profile, profileLoading } = useProfile();
-    const { mutedForeground } = useAppTheme().colors;
-    const openProfile = () => {
-        if (account?.id) router.push(`/social/user/${account.id}`);
-    };
-
+    const { profile } = useProfile();
     return (
-        <GlassPanel className="flex-1">
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Your profile"
-                onPress={openProfile}
-                className="gap-3 p-4 active:opacity-60"
-                style={{ minHeight: 132 }}
-            >
-                <View className="flex-row items-center gap-2">
-                    {profileLoading ? (
-                        <Skeleton className="h-8 w-8 rounded-full" />
-                    ) : (
-                        <Initials
-                            username={
-                                profile?.username ?? account?.email ?? "?"
-                            }
-                            size={32}
-                        />
-                    )}
-                    <Text className="flex-1 text-base font-semibold text-foreground">
-                        Me
-                    </Text>
-                    <Ionicons
-                        name="chevron-forward"
-                        size={16}
-                        color={mutedForeground}
-                    />
-                </View>
-                <View className="flex-row justify-between">
-                    <Shortcut
-                        icon="person-circle-outline"
-                        label="Profile"
-                        accessibilityLabel="Your profile"
-                        onPress={openProfile}
-                    />
-                    <Shortcut
-                        icon="albums-outline"
-                        label="Playlists"
-                        accessibilityLabel="Shared playlists"
-                        onPress={() => router.push("/social/playlists" as Href)}
-                    />
-                    <Shortcut
-                        icon="lock-closed-outline"
-                        label="Privacy"
-                        accessibilityLabel="Privacy settings"
-                        onPress={() => router.push("/privacy" as Href)}
-                    />
-                </View>
-            </Pressable>
-        </GlassPanel>
-    );
-}
-
-function Shortcut({
-    icon,
-    label,
-    accessibilityLabel,
-    onPress,
-}: {
-    icon: IoniconName;
-    label: string;
-    accessibilityLabel: string;
-    onPress: () => void;
-}) {
-    const { brand } = useAppTheme().colors;
-    return (
-        <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={accessibilityLabel}
-            hitSlop={4}
-            onPress={(event: GestureResponderEvent) => {
-                event.stopPropagation();
-                onPress();
+        <HubCard
+            icon="person-outline"
+            title="My profile"
+            accessibilityLabel="Your profile"
+            onPress={() => {
+                if (account?.id) router.push(`/social/user/${account.id}`);
             }}
-            className="min-w-12 items-center gap-1 active:opacity-60"
         >
-            {/* tinted and ringed like a button, so it reads as one */}
-            <View className="h-10 w-10 items-center justify-center rounded-full border border-foreground/20 bg-muted/60">
-                <Ionicons name={icon} size={20} color={brand} />
-            </View>
-            <Text className="text-xs font-medium text-foreground">{label}</Text>
-        </Pressable>
+            {profile?.username ? (
+                <Text
+                    className="text-xs text-muted-foreground"
+                    numberOfLines={1}
+                >
+                    @{profile.username}
+                </Text>
+            ) : null}
+        </HubCard>
     );
 }
 
@@ -134,106 +58,100 @@ function FriendsCard() {
     const { friends, incoming, friendshipsLoading, friendshipsErr } =
         useFriendshipsWithPresence();
     const { friendsListening } = useFriendsListening();
-    const { mutedForeground } = useAppTheme().colors;
 
     const listeningIds = new Set(
         (friendsListening ?? []).map((friend) => friend.user_id),
     );
-    const ordered = onlineFirst(friends, listeningIds);
-    const shown = ordered.slice(0, STACK_SIZE);
-    const more = ordered.length - shown.length;
-    const online = ordered.filter((friend) =>
+    const online = friends.filter((friend) =>
         isFriendOnline(friend, listeningIds),
     ).length;
+    const requests = incoming.length;
+    const requestsLabel = `${requests} request${requests === 1 ? "" : "s"}`;
 
     const status = friendshipsErr
         ? "Couldn't load"
-        : friends.length === 0 && !friendshipsLoading
-          ? "Find people"
+        : requests > 0
+          ? requestsLabel
           : online > 0
             ? `${online} online`
-            : `${friends.length} friends`;
+            : friends.length === 0 && !friendshipsLoading
+              ? "Find people"
+              : `${friends.length} friends`;
     const label = [
         "Friends",
         online > 0 ? `${online} online` : null,
-        incoming.length > 0
-            ? `${incoming.length} request${incoming.length === 1 ? "" : "s"}`
-            : null,
+        requests > 0 ? requestsLabel : null,
     ]
         .filter(Boolean)
         .join(", ");
 
     return (
-        <GlassPanel className="flex-1">
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={label}
-                onPress={() => router.push("/social/friends")}
-                className="gap-2 p-4 active:opacity-60"
-                style={{ minHeight: 132 }}
-            >
-                <View className="flex-row items-center">
-                    <Text className="flex-1 text-base font-semibold text-foreground">
-                        Friends
-                    </Text>
-                    <Ionicons
-                        name="chevron-forward"
-                        size={16}
-                        color={mutedForeground}
-                    />
-                </View>
+        <HubCard
+            icon="people-outline"
+            title="Friends"
+            accessibilityLabel={label}
+            onPress={() => router.push("/social/friends")}
+        >
+            {friendshipsLoading && friends.length === 0 ? null : (
                 <View className="flex-row items-center gap-1.5">
-                    {online > 0 ? (
+                    {requests === 0 && online > 0 ? (
                         <View className="h-2 w-2 rounded-full bg-success" />
                     ) : null}
-                    <Text className="text-sm text-muted-foreground">
+                    <Text
+                        className={
+                            requests > 0
+                                ? "text-xs font-semibold text-brand"
+                                : "text-xs text-muted-foreground"
+                        }
+                        numberOfLines={1}
+                    >
                         {status}
                     </Text>
                 </View>
-                {friendshipsLoading ? (
-                    <View className="flex-row">
-                        {[0, 1, 2].map((i) => (
-                            <Skeleton
-                                key={i}
-                                className={`h-8 w-8 rounded-full ${i ? "-ml-2" : ""}`}
-                            />
-                        ))}
-                    </View>
-                ) : shown.length > 0 ? (
-                    <View
-                        className="flex-row"
-                        importantForAccessibility="no-hide-descendants"
+            )}
+        </HubCard>
+    );
+}
+
+/** An icon, a title with a line under it, and a chevron. */
+function HubCard({
+    icon,
+    title,
+    accessibilityLabel,
+    onPress,
+    children,
+}: {
+    icon: IoniconName;
+    title: string;
+    accessibilityLabel: string;
+    onPress: () => void;
+    children?: ReactNode;
+}) {
+    const { foreground, mutedForeground } = useAppTheme().colors;
+    return (
+        <GlassPanel className="flex-1">
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={accessibilityLabel}
+                onPress={onPress}
+                className="flex-row items-center gap-3 px-4 py-3 active:opacity-60"
+                style={{ minHeight: 60 }}
+            >
+                <Ionicons name={icon} size={22} color={foreground} />
+                <View className="min-w-0 flex-1">
+                    <Text
+                        className="text-base font-semibold text-foreground"
+                        numberOfLines={1}
                     >
-                        {shown.map((friend, i) => (
-                            <View
-                                key={friend.user_id}
-                                className={i ? "-ml-2" : ""}
-                            >
-                                <Initials
-                                    username={friend.username}
-                                    size={32}
-                                    online={isFriendOnline(
-                                        friend,
-                                        listeningIds,
-                                    )}
-                                />
-                            </View>
-                        ))}
-                        {more > 0 ? (
-                            <View className="-ml-2 h-8 w-8 items-center justify-center rounded-full border border-foreground/20 bg-muted">
-                                <Text className="text-xs font-semibold text-foreground">
-                                    +{more}
-                                </Text>
-                            </View>
-                        ) : null}
-                    </View>
-                ) : null}
-                {incoming.length > 0 ? (
-                    <Text className="text-xs font-semibold text-brand">
-                        {incoming.length} request
-                        {incoming.length === 1 ? "" : "s"}
+                        {title}
                     </Text>
-                ) : null}
+                    {children}
+                </View>
+                <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={mutedForeground}
+                />
             </Pressable>
         </GlassPanel>
     );

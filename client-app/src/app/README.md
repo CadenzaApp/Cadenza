@@ -15,12 +15,13 @@ logic out.
 | `reconnect-apple-music.tsx`                                                   | `/reconnect-apple-music`       | The same connect page as a modal, opened when Apple drops the connection.                                     |
 | `(tabs)/_layout.tsx`                                                          |                                | Protected native tab group, its five triggers, and the media-player bottom accessory.                         |
 | `(tabs)/(<tab>)/_layout.tsx`                                                  |                                | One native `Stack` per tab, using `TabStack` for the shared top rail.                                         |
-| `(tabs)/(social)/social/index.tsx`                                            | `/social`                      | The Social tab: hub cards, Listening now, then the feed with a For you / Friends filter.                      |
+| `(tabs)/(social)/social/index.tsx`                                            | `/social`                      | The Social tab: My profile and Friends, Listening now, the inline composer, then the feed with a For you / Friends filter. |
 | `(tabs)/(social)/social/friends.tsx`                                          | `/social/friends`              | Requests, listening now, friends, sent. Opened from the Friends card.                                         |
 | `(tabs)/(social)/social/notifications.tsx`                                    | `/social/notifications`        | Your notifications. A friend request has accept and ignore. Opened from the bell.                             |
-| `(tabs)/(social)/social/user/[userId].tsx`                                    | `/social/user/:userId`         | One user's public profile (username, bio) and their posts, newest first. Your own page edits both.            |
+| `(tabs)/(social)/social/user/[userId].tsx`                                    | `/social/user/:userId`         | One user's public profile: username, bio, listening, shared playlists and queries, then posts. Your own page edits the first two. |
 | `(tabs)/(social)/social/listening.tsx`                                        | `/social/listening`            | Every friend listening, from See all.                                                                         |
-| `(tabs)/(social)/social/playlists.tsx`                                        | `/social/playlists`            | The caller's shared playlists, new playlist, enter code.                                                      |
+| `(tabs)/(social)/social/playlists.tsx`                                        | `/social/playlists`            | The caller's shared playlists, new playlist, enter code. The same list is in Library > Playlists.             |
+| `(tabs)/(social)/social/library/[kind].tsx` | `/social/library/:kind` | A Library section on the Social stack, from a profile's See all, so back returns to the profile. |
 | `(tabs)/(social)/social/playlist/[id]/index.tsx`                              | `/social/playlist/:id`         | One shared playlist on `TrackCollectionView`. Draws its own header.                                           |
 | `(tabs)/(social)/social/playlist/[id]/members.tsx`                            | `/social/playlist/:id/members` | Members, roles, invite, add friends.                                                                          |
 | `(tabs)/(social)/social/playlist/[id]/reorder.tsx`                            | `/social/playlist/:id/reorder` | Drag songs into a new order.                                                                                  |
@@ -198,7 +199,9 @@ with `sheetScreenOptions` from `@/lib/theme`, the single definition of what a sh
 a rounded `formSheet` at the `SHEET_DETENT` detent with a visible native grabber. That detent is
 `1`, the system's large one, so a sheet is full width, runs to the bottom edge, and stops just
 below the status bar. Anything smaller gets iOS 26's inset card, which leaves gaps down the
-sides and along the bottom. Either closes with the X or a drag down.
+sides and along the bottom. Either closes with the X or a drag down. For a short list that should
+stop partway up, like a live session's Requests over the player, use `BottomSheet`
+(`components/custom/bottom-sheet.tsx`), which the app draws full width and flush with the bottom.
 
 Open a detail screen with `useOpenScreen` (`@/lib/open-screen`) or a `ZoomTile`, not
 `router.push`. `useOpenScreen` resets the current tab's stack: opening one already on it goes back
@@ -224,7 +227,7 @@ replace whatever is playing. The sheet's own Discuss page is still the pager tab
 song the sheet is focused on. Tapping an author on either Discuss surface closes that
 screen and opens `/social/user/:userId` on the Social tab, with the feed still underneath.
 Account details' "View public profile" row uses that same navigation for your own page. The
-Social tab's Me card pushes `/social/user/:userId` on the social stack, like a feed author
+Social tab's My profile card pushes `/social/user/:userId` on the social stack, like a feed author
 tap. Your own public page is read only; its Edit button opens `/account-details`, the only place a
 username and bio are edited.
 Song menus edit tags in their own `TagSelector` popup

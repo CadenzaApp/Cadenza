@@ -39,6 +39,7 @@ import { formatRelativeTime, initialsFromUsername } from "./format";
 import { ProfileListening } from "./ListeningNow";
 import { PostCard } from "./PostCard";
 import { PostCommentsDialog } from "./PostCommentsDialog";
+import { ProfileShelves } from "./ProfileShelves";
 import type { SocialPost } from "./types";
 
 type Props = {
@@ -57,11 +58,13 @@ type ProfileRow =
     | { kind: "reply"; reply: SocialReply };
 
 /**
- * One user's public profile: avatar, username, bio, then their posts or their
- * replies, newest first, picked by a Posts / Replies switch. Tapping a reply
- * opens its post's comments. Opened by tapping an author on the feed, the feed's Me button,
- * account details, or from Discuss, which closes itself and lands here on the
- * Social tab. On your own page, Edit opens account details, the one place
+ * One user's public profile: avatar, username, bio, what they are playing and
+ * their recent plays, their shared playlists and shared queries, then their
+ * posts or their replies, newest first, picked by a Posts / Replies switch.
+ * Each part above the posts shows as their privacy settings allow. Tapping a
+ * reply opens its post's comments. Opened by tapping an author on the feed,
+ * the feed's My profile card, account details, or from Discuss, which closes
+ * itself and lands here on the Social tab. On your own page, Edit opens account details, the one place
  * a username and bio are edited. Under the avatar and username is how many
  * friends they have. On someone else's page, Add friend sits on that same
  * row. Already friends says Friends with a chevron, which opens a menu:
@@ -295,7 +298,12 @@ export function UserProfileScreen({ userId }: Props) {
                                     router.push("/account-details" as Href)
                                 }
                             />
-                            <ProfileListening userId={userId} />
+                            <View className="mb-6 gap-6">
+                                <ProfileListening userId={userId} />
+                                {blocked ? null : (
+                                    <ProfileShelves userId={userId} />
+                                )}
+                            </View>
                             {blocked ? null : (
                                 <View className="mb-4">
                                     <SegmentedControl

@@ -1,72 +1,38 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
-import type { ArtistItem, MusicItem } from "@apple-musickit";
-import { useTheme } from "expo-router/react-navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import {
-    ActivityIndicator,
-    Image,
-    Pressable,
-    ScrollView,
-    TextInput,
-    useWindowDimensions,
-    View,
-} from "react-native";
+import { ScrollView, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
-import { Button } from "@/components/ui/button";
 import { DialogCloseButton } from "@/components/ui/dialog-close-button";
 import { Text } from "@/components/ui/text";
-import { useAppleMusic } from "@/lib/apple-music-auth";
-import {
-    useCatalogArtistSearch,
-    useCatalogSongSearch,
-} from "@/lib/musickit-hooks";
-import type { PostTopic } from "@/lib/types";
-import { cn, isUsableArtworkUrl } from "@/lib/utils";
 
-import { PostTopicCard } from "./PostTopicCard";
-import { topicFromArtist, topicFromSong } from "./topic";
-import { useAppTheme } from "@/lib/theme";
+import {
+    PostComposerFields,
+    PostComposerSubmit,
+    usePostComposer,
+    type PostComposerOptions,
+} from "./PostComposer";
 
 const MAX_DIALOG_WIDTH = 400;
 const SCREEN_MARGIN = 20;
 const DIALOG_PADDING = 24;
-const MAX_POST_LENGTH = 500;
-const SEARCH_DEBOUNCE_MS = 350;
-const MIN_SEARCH_LENGTH = 2;
-const SONG_RESULT_LIMIT = 6;
-const ARTIST_RESULT_LIMIT = 4;
 
-type Props = {
+type Props = Pick<
+    PostComposerOptions,
+    "onCreate" | "lockedTopic" | "lockedAttachment"
+> & {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    /**
-     * Called with the trimmed body and the attached topic, if there is one.
-     * Resolve once the post exists. Reject to leave the dialog open.
-     */
-    onCreate: (
-        content: string,
-        topic?: PostTopic | null,
-    ) => void | Promise<void>;
     /** Dialog heading. */
     title?: string;
     /** Submit button label. */
     submitLabel?: string;
-    /**
-     * Topic the user cannot change. Hides the search and the remove control.
-     * `onCreate` receives this topic.
-     */
-    lockedTopic?: PostTopic | null;
-    /**
-     * Something attached that is not a song or artist, like a shared
-     * playlist's card. Shown in place of the topic and its search; the caller
-     * sends it with the post, and `onCreate` gets no topic.
-     */
-    lockedAttachment?: ReactNode;
 };
 
-/** Compose dialog for a new post. The button spins until the post exists. */
+/**
+ * Compose dialog for a new post, for posting about something already picked,
+ * like a shared playlist or the song playing. The feed composes inline
+ * instead. The button spins until the post exists.
+ */
 export function CreatePostDialog({
     open,
     onOpenChange,
@@ -76,129 +42,32 @@ export function CreatePostDialog({
     lockedTopic,
     lockedAttachment,
 }: Props) {
-    const { mutedForeground, primaryForeground } = useAppTheme().colors;
-    const { colors } = useTheme();
     const insets = useSafeAreaInsets();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
     const dialogWidth = Math.min(
         screenWidth - SCREEN_MARGIN * 2,
         MAX_DIALOG_WIDTH,
     );
-    // attaching a song or artist searches the catalog, which works without
-    // Apple Music connected
-    const { canReadCatalog } = useAppleMusic();
-    const [content, setContent] = useState("");
-    const [topic, setTopic] = useState<PostTopic | null>(null);
-    const [topicQuery, setTopicQuery] = useState("");
-    const [submittedTerm, setSubmittedTerm] = useState<string | undefined>();
-    const [posting, setPosting] = useState(false);
-    const [postError, setPostError] = useState<string | null>(null);
-    const postingRef = useRef(false);
+    const composer = usePostComposer({
+        active: open,
+        onCreate,
+        onPosted: () => onOpenChange(false),
+        lockedTopic,
+        lockedAttachment,
+    });
 
-    const topicLocked = lockedTopic != null || lockedAttachment != null;
-    const selectedTopic = topicLocked ? lockedTopic : topic;
-    const catalogSongs = useCatalogSongSearch(
-        open && canReadCatalog && !topicLocked,
-    );
-    const catalogArtists = useCatalogArtistSearch(
-        submittedTerm,
-        open && canReadCatalog && Boolean(submittedTerm) && !topicLocked,
-    );
-
-    useEffect(() => {
-        if (!open || topicLocked) return;
-        const trimmed = topicQuery.trim();
-        const delay =
-            trimmed.length < MIN_SEARCH_LENGTH ? 0 : SEARCH_DEBOUNCE_MS;
-        const timer = setTimeout(() => {
-            if (trimmed.length < MIN_SEARCH_LENGTH) {
-                setSubmittedTerm(undefined);
-                catalogSongs.clearSearchCatalog();
-                return;
-            }
-            setSubmittedTerm(trimmed);
-            catalogSongs.searchCatalog(trimmed);
-        }, delay);
-        return () => clearTimeout(timer);
-        // searchCatalog is recreated each render; the term is the real input.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, topicLocked, topicQuery]);
-
-    function resetForm() {
-        setContent("");
-        setTopic(null);
-        setTopicQuery("");
-        setSubmittedTerm(undefined);
-        setPostError(null);
-        catalogSongs.clearSearchCatalog();
+    function close() {
+        if (composer.isPosting()) return;
+        composer.reset();
+        onOpenChange(false);
     }
 
-    function setPostingState(value: boolean) {
-        postingRef.current = value;
-        setPosting(value);
-    }
-
-    function setOpen(val: boolean) {
-        if (!val && postingRef.current) return;
-        if (!val) resetForm();
-        onOpenChange(val);
-    }
-
-    async function handlePost() {
-        const trimmed = content.trim();
-        if (
-            !trimmed ||
-            trimmed.length > MAX_POST_LENGTH ||
-            postingRef.current
-        ) {
-            return;
-        }
-        setPostError(null);
-        setPostingState(true);
-        try {
-            await onCreate(trimmed, topicLocked ? lockedTopic : topic);
-            setPostingState(false);
-            setOpen(false);
-        } catch {
-            setPostingState(false);
-            setPostError("Couldn't publish your post.");
-        }
-    }
-
-    function selectSong(song: MusicItem) {
-        if (postingRef.current) return;
-        setTopic(topicFromSong(song));
-        setTopicQuery("");
-        setSubmittedTerm(undefined);
-        catalogSongs.clearSearchCatalog();
-    }
-
-    function selectArtist(artist: ArtistItem) {
-        if (postingRef.current) return;
-        setTopic(topicFromArtist(artist));
-        setTopicQuery("");
-        setSubmittedTerm(undefined);
-        catalogSongs.clearSearchCatalog();
-    }
-
-    const trimmedLength = content.trim().length;
-    const canPost = trimmedLength > 0 && trimmedLength <= MAX_POST_LENGTH;
-    const songs = catalogSongs.searchResults.slice(0, SONG_RESULT_LIMIT);
-    const artists = catalogArtists.artists.slice(0, ARTIST_RESULT_LIMIT);
-    const searching =
-        catalogSongs.searchCatalogLoading || catalogArtists.artistsLoading;
-    const showResults =
-        !selectedTopic &&
-        Boolean(submittedTerm) &&
-        topicQuery.trim().length >= MIN_SEARCH_LENGTH;
-    const noResults =
-        showResults && !searching && songs.length === 0 && artists.length === 0;
     const maxDialogHeight = screenHeight - insets.top - insets.bottom - 24;
 
     return (
         <ModalPopup
             visible={open}
-            onClose={() => setOpen(false)}
+            onClose={close}
             backdropClassName="justify-start py-0"
             contentStyle={{
                 width: dialogWidth,
@@ -209,7 +78,7 @@ export function CreatePostDialog({
             }}
         >
             <DialogCloseButton
-                onPress={() => setOpen(false)}
+                onPress={close}
                 accessibilityLabel={
                     title === "New post"
                         ? "Close create post dialog"
@@ -228,219 +97,15 @@ export function CreatePostDialog({
                 showsVerticalScrollIndicator={false}
                 style={{ maxHeight: maxDialogHeight - 80 }}
             >
-                <View className="gap-3">
-                    <View className="overflow-hidden rounded-2xl border border-border">
-                        <TextInput
-                            value={content}
-                            onChangeText={(text) =>
-                                setContent(text.slice(0, MAX_POST_LENGTH))
-                            }
-                            placeholder="What's on your mind?"
-                            placeholderTextColor={mutedForeground}
-                            multiline
-                            autoFocus
-                            editable={!posting}
-                            maxLength={MAX_POST_LENGTH}
-                            textAlignVertical="top"
-                            className="min-h-[120px] px-3 py-3 text-base text-foreground"
-                        />
-                    </View>
-
-                    <Text className="text-right text-xs text-muted-foreground">
-                        {content.length}/{MAX_POST_LENGTH}
-                    </Text>
-
-                    <View className="gap-1.5">
-                        <Text className="text-sm font-semibold leading-none">
-                            Topic
-                        </Text>
-                        {lockedAttachment ? (
-                            lockedAttachment
-                        ) : selectedTopic ? (
-                            <PostTopicCard
-                                topic={selectedTopic}
-                                onRemove={
-                                    topicLocked || posting
-                                        ? undefined
-                                        : () => setTopic(null)
-                                }
-                            />
-                        ) : (
-                            <View className="overflow-hidden rounded-2xl border border-border">
-                                <View className="flex-row items-center gap-2 px-3">
-                                    <Ionicons
-                                        name="search"
-                                        size={16}
-                                        color={mutedForeground}
-                                    />
-                                    <TextInput
-                                        value={topicQuery}
-                                        onChangeText={setTopicQuery}
-                                        placeholder="Search songs and artists"
-                                        placeholderTextColor={mutedForeground}
-                                        returnKeyType="search"
-                                        autoCorrect={false}
-                                        autoCapitalize="none"
-                                        editable={!posting}
-                                        className="flex-1 py-3 text-base text-foreground"
-                                    />
-                                    {topicQuery.length > 0 ? (
-                                        <Pressable
-                                            accessibilityRole="button"
-                                            accessibilityLabel="Clear topic search"
-                                            onPress={() => {
-                                                setTopicQuery("");
-                                                setSubmittedTerm(undefined);
-                                                catalogSongs.clearSearchCatalog();
-                                            }}
-                                            hitSlop={8}
-                                            className="active:opacity-60"
-                                        >
-                                            <Ionicons
-                                                name="close-circle"
-                                                size={16}
-                                                color={mutedForeground}
-                                            />
-                                        </Pressable>
-                                    ) : null}
-                                </View>
-                            </View>
-                        )}
-                    </View>
-
-                    {showResults ? (
-                        <View className="overflow-hidden rounded-2xl border border-border">
-                            {searching &&
-                            songs.length === 0 &&
-                            artists.length === 0 ? (
-                                <View className="items-center py-4">
-                                    <ActivityIndicator color={colors.text} />
-                                </View>
-                            ) : noResults ? (
-                                <Text className="px-3 py-3 text-sm text-muted-foreground">
-                                    No matching songs or artists.
-                                </Text>
-                            ) : (
-                                <>
-                                    {artists.map((artist) => (
-                                        <TopicSearchRow
-                                            key={`artist-${artist.id}`}
-                                            title={artist.name}
-                                            subtitle="Artist"
-                                            artworkUrl={artist.artworkUrl}
-                                            round
-                                            onPress={() => selectArtist(artist)}
-                                        />
-                                    ))}
-                                    {songs.map((song) => (
-                                        <TopicSearchRow
-                                            key={`song-${song.id}`}
-                                            title={song.title}
-                                            subtitle={song.artistName}
-                                            artworkUrl={song.artworkUrl}
-                                            onPress={() => selectSong(song)}
-                                        />
-                                    ))}
-                                </>
-                            )}
-                        </View>
-                    ) : null}
-                </View>
+                <PostComposerFields composer={composer} />
             </ScrollView>
 
-            <View className="mt-4 gap-2">
-                {postError ? (
-                    <Text
-                        accessibilityRole="alert"
-                        className="text-center text-sm text-destructive"
-                    >
-                        {postError}
-                    </Text>
-                ) : null}
-                <Button
-                    accessibilityLabel={posting ? "Posting" : submitLabel}
-                    accessibilityState={{
-                        disabled: !canPost || posting,
-                        busy: posting,
-                    }}
-                    disabled={!canPost || posting}
-                    onPress={() => void handlePost()}
-                >
-                    {posting ? (
-                        <ActivityIndicator
-                            color={primaryForeground}
-                            size="small"
-                        />
-                    ) : (
-                        <Text>{submitLabel}</Text>
-                    )}
-                </Button>
+            <View className="mt-4">
+                <PostComposerSubmit
+                    composer={composer}
+                    submitLabel={submitLabel}
+                />
             </View>
         </ModalPopup>
-    );
-}
-
-function TopicSearchRow({
-    title,
-    subtitle,
-    artworkUrl,
-    round = false,
-    onPress,
-}: {
-    title: string;
-    subtitle?: string;
-    artworkUrl?: string;
-    round?: boolean;
-    onPress: () => void;
-}) {
-    const { mutedForeground } = useAppTheme().colors;
-    return (
-        <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Attach ${title}`}
-            onPress={onPress}
-            className="flex-row items-center gap-3 px-3 py-2 active:opacity-60"
-        >
-            {isUsableArtworkUrl(artworkUrl) ? (
-                <Image
-                    source={{ uri: artworkUrl }}
-                    className={cn(
-                        "shrink-0 bg-muted",
-                        round ? "rounded-full" : "rounded-md",
-                    )}
-                    style={{ width: 36, height: 36 }}
-                />
-            ) : (
-                <View
-                    className={cn(
-                        "shrink-0 items-center justify-center bg-muted",
-                        round ? "rounded-full" : "rounded-md",
-                    )}
-                    style={{ width: 36, height: 36 }}
-                >
-                    <Ionicons
-                        name={round ? "person" : "musical-notes"}
-                        size={16}
-                        color={mutedForeground}
-                    />
-                </View>
-            )}
-            <View className="min-w-0 flex-1">
-                <Text
-                    className="text-sm font-medium text-foreground"
-                    numberOfLines={1}
-                >
-                    {title}
-                </Text>
-                {subtitle ? (
-                    <Text
-                        className="text-xs text-muted-foreground"
-                        numberOfLines={1}
-                    >
-                        {subtitle}
-                    </Text>
-                ) : null}
-            </View>
-        </Pressable>
     );
 }

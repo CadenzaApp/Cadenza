@@ -1,15 +1,19 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, type Href } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Image, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Pressable, View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
 import { MarqueeText } from "@/components/custom/marquee-text";
+import { PeekCarousel } from "@/components/custom/peek-carousel";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { GlassPill } from "@/components/ui/glass-pill";
+import type { IoniconName } from "@/components/ui/ionicon-name";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
+import { withAlpha } from "@/lib/artwork-color";
 import { useSongInfo } from "@/lib/musickit-hooks";
 import {
     useFriendsListening,
@@ -21,111 +25,90 @@ import {
 } from "@/lib/routes/listening";
 import { useJoinListening } from "@/lib/routes/live-sessions";
 import { useAppTheme } from "@/lib/theme";
-import { isUsableArtworkUrl } from "@/lib/utils";
+import { cn, isUsableArtworkUrl } from "@/lib/utils";
 
-import { hasAskedToJoin, markAskedToJoin } from "../live-session/asked-to-join";
-import { useShownLiveSession } from "../live-session/use-current-session";
+import {
+    markAskedToJoin,
+    useHasAskedToJoin,
+} from "../live-session/asked-to-join";
+import {
+    useCurrentLiveSession,
+    useShownLiveSession,
+} from "../live-session/use-current-session";
 import { formatRelativeTime } from "./format";
 import { formatTrackTime, livePositionMs } from "./listening-progress";
 import { LiveChip } from "./LiveChip";
 import { Initials } from "./MemberRow";
+import { ShelfHeader } from "./ShelfHeader";
 
-/** Recent plays a profile shows. */
-const PROFILE_RECENT_PLAYS = 10;
+/** Recent plays a profile shows, and how many to a swipeable column. */
+const PROFILE_RECENT_PLAYS = 16;
+const RECENT_PLAYS_PER_COLUMN = 4;
 
-/** How wide the featured card is in the feed's row, so the next one peeks in. */
-const STRIP_CARD_WIDTH = 300;
-
-/** Artwork size on a card. The progress and up next sit beside it. */
+/** Artwork size on a full card. The progress and up next sit beside it. */
 const CARD_ARTWORK_SIZE = 104;
 
-/** Small tiles in the row, and the session tile, are this wide. */
-const TILE_WIDTH = 112;
+/** How far a tile's gray fades up into the bottom of its artwork. */
+const TILE_BLEND = 6;
+
+/** The shade under the title and artist on the art, clear at its top. */
+const TITLE_SHADE = ["rgba(0,0,0,0)", "rgba(0,0,0,0.45)"] as const;
 
 /** Past this many friends listening, the header offers See all. */
-const STRIP_SEE_ALL_AFTER = 4;
+const STRIP_SEE_ALL_AFTER = 2;
 
 /**
- * The Listening now row at the top of the feed. Under the title sit the
- * session buttons (start one and enter a code, or open yours), then the most
- * recent friend as a full card, then the rest as small tiles. Tapping a friend opens their
- * profile. Join appears on a card whose friend the viewer may join: their
- * session, or with none, one made for them on the spot. A friend in a live
- * session stays on the row while it is open, paused or not.
+ * The Listening now shelf on the feed: a carousel of friends playing now, two
+ * whole and the next peeking in, then the session buttons (start one and
+ * enter a code, or open yours). Tapping a friend opens their profile. Join
+ * appears on a tile whose friend the viewer may join: their session, or with
+ * none, one made for them on the spot. A friend in a live session stays on
+ * the row while it is open, paused or not.
  */
 export function ListeningNowStrip() {
     const router = useRouter();
     const { friendsListening, friendsListeningLoading, friendsListeningErr } =
         useFriendsListening();
-    const { mutedForeground, foreground } = useAppTheme().colors;
-    const [featured, ...rest] = friendsListening ?? [];
-    const seeAll = (friendsListening?.length ?? 0) > STRIP_SEE_ALL_AFTER;
+    const listening = friendsListening ?? [];
+    const seeAll = listening.length > STRIP_SEE_ALL_AFTER;
 
     return (
-        <View className="mb-2 gap-2">
-            <View className="flex-row items-center gap-1.5">
-                <Ionicons
-                    name="headset-outline"
-                    size={14}
-                    color={mutedForeground}
+        <View className="mb-2 gap-3">
+            <ShelfHeader
+                title="Listening now"
+                onSeeAll={
+                    seeAll
+                        ? () => router.push("/social/listening" as Href)
+                        : undefined
+                }
+            />
+            {listening.length > 0 ? (
+                <PeekCarousel
+                    items={listening}
+                    keyOf={(friend) => friend.user_id}
+                    renderItem={(friend, width) => (
+                        <ListeningTile friend={friend} width={width} />
+                    )}
                 />
-                <Text className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                    Listening now
+            ) : friendsListeningLoading ? (
+                <PeekCarousel
+                    items={[0, 1, 2]}
+                    keyOf={(i) => `skeleton-${i}`}
+                    renderItem={(_, width) => (
+                        <Skeleton
+                            className="rounded-2xl"
+                            style={{ width, height: width * 1.6 }}
+                        />
+                    )}
+                />
+            ) : (
+                <Text className="py-2 text-sm text-muted-foreground">
+                    {friendsListeningErr
+                        ? "Couldn't load listening"
+                        : "No friends playing right now"}
                 </Text>
-            </View>
+            )}
             <SessionButtons />
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                className="-mx-5"
-                contentContainerClassName="gap-3 px-5"
-            >
-                {featured ? (
-                    <FriendCard friend={featured} />
-                ) : friendsListeningLoading ? (
-                    <Skeleton
-                        className="rounded-3xl"
-                        style={{ width: STRIP_CARD_WIDTH, height: 220 }}
-                    />
-                ) : (
-                    <View className="justify-center px-2">
-                        <Text className="text-sm text-muted-foreground">
-                            {friendsListeningErr
-                                ? "Couldn't load listening"
-                                : "No friends playing right now"}
-                        </Text>
-                    </View>
-                )}
-                {rest.map((friend) => (
-                    <CompactListeningTile
-                        key={friend.user_id}
-                        friend={friend}
-                    />
-                ))}
-                {seeAll ? (
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="See all friends listening"
-                        onPress={() => router.push("/social/listening" as Href)}
-                        className="items-center gap-2 active:opacity-60"
-                        style={{ width: TILE_WIDTH }}
-                    >
-                        <View
-                            className="items-center justify-center rounded-2xl bg-muted/60"
-                            style={{ width: TILE_WIDTH, height: TILE_WIDTH }}
-                        >
-                            <Ionicons
-                                name="chevron-forward"
-                                size={28}
-                                color={foreground}
-                            />
-                        </View>
-                        <Text className="text-sm font-semibold text-foreground">
-                            See all
-                        </Text>
-                    </Pressable>
-                ) : null}
-            </ScrollView>
         </View>
     );
 }
@@ -148,58 +131,116 @@ export function AllListening() {
     return (
         <View className="gap-3">
             {friendsListening.map((friend) => (
-                <FriendCard key={friend.user_id} friend={friend} fullWidth />
+                <FriendCard key={friend.user_id} friend={friend} />
             ))}
         </View>
     );
 }
 
-/** Start a session and enter a code; or, when in one, open it. */
+/**
+ * Two buttons side by side: Start a session, or with one open, Open live
+ * session; and Join with code. In a session, joining with a code asks first,
+ * since a code for another session takes the caller out of this one.
+ */
 function SessionButtons() {
     const router = useRouter();
     const liveSession = useShownLiveSession();
 
-    if (liveSession) {
-        return (
-            <View className="flex-row">
-                <GlassPill
-                    icon="radio"
-                    label="Open your live session"
-                    chevron
-                    accessibilityLabel={`Open your live session, ${liveSession.name}`}
-                    onPress={() => router.push("/player")}
-                />
-            </View>
+    function joinWithCode() {
+        if (!liveSession) {
+            router.push("/join" as Href);
+            return;
+        }
+        Alert.alert(
+            "Leave your live session?",
+            `Joining another session with a code takes you out of ${liveSession.name}.`,
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Enter a code",
+                    style: "destructive",
+                    onPress: () => router.push("/join" as Href),
+                },
+            ],
         );
     }
+
     return (
-        <View className="flex-row flex-wrap items-center gap-2">
-            <GlassPill
-                icon="radio-outline"
-                label="Listen together"
-                accessibilityLabel="Start a live session"
-                onPress={() =>
-                    router.push("/live-session/new?openPlayer=1" as Href)
-                }
-            />
-            <GlassPill
+        <View className="flex-row gap-3">
+            {liveSession ? (
+                <SessionAction
+                    filled
+                    icon="radio"
+                    label="Open live session"
+                    accessibilityLabel={`Open live session, ${liveSession.name}`}
+                    onPress={() => router.push("/player")}
+                />
+            ) : (
+                <SessionAction
+                    filled
+                    icon="radio-outline"
+                    label="Start a session"
+                    accessibilityLabel="Start a live session"
+                    onPress={() =>
+                        router.push("/live-session/new?openPlayer=1" as Href)
+                    }
+                />
+            )}
+            <SessionAction
                 icon="keypad-outline"
                 label="Join with code"
                 accessibilityLabel="Join with a code"
-                onPress={() => router.push("/join" as Href)}
+                onPress={joinWithCode}
             />
         </View>
     );
 }
 
-/** The featured card in the row, or a full width card in See all. */
-function FriendCard({
-    friend,
-    fullWidth = false,
+/** One of the two session buttons. `filled` is the brand colored one. */
+function SessionAction({
+    filled = false,
+    icon,
+    label,
+    accessibilityLabel,
+    onPress,
 }: {
-    friend: FriendListening;
-    fullWidth?: boolean;
+    filled?: boolean;
+    icon: IoniconName;
+    label: string;
+    accessibilityLabel: string;
+    onPress: () => void;
 }) {
+    const { brandForeground, foreground } = useAppTheme().colors;
+    return (
+        <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={accessibilityLabel}
+            onPress={onPress}
+            className={cn(
+                "h-12 flex-1 flex-row items-center justify-center gap-2 rounded-2xl active:opacity-70",
+                filled ? "bg-brand" : "border border-border bg-muted",
+            )}
+        >
+            <Ionicons
+                name={icon}
+                size={18}
+                color={filled ? brandForeground : foreground}
+            />
+            <Text
+                className={cn(
+                    "text-base font-semibold",
+                    filled ? "text-brand-foreground" : "text-foreground",
+                )}
+                numberOfLines={1}
+            >
+                {label}
+            </Text>
+        </Pressable>
+    );
+}
+
+/** A full width card, for See all. Opens the profile. */
+function FriendCard({ friend }: { friend: FriendListening }) {
     const router = useRouter();
     return (
         <Pressable
@@ -207,7 +248,6 @@ function FriendCard({
             accessibilityLabel={`${friend.username} is playing ${friend.now_playing.title}`}
             onPress={() => router.push(`/social/user/${friend.user_id}`)}
             className="active:opacity-60"
-            style={fullWidth ? undefined : { width: STRIP_CARD_WIDTH }}
         >
             <ListeningCard
                 nowPlaying={friend.now_playing}
@@ -219,39 +259,107 @@ function FriendCard({
     );
 }
 
-/** A small tile: art, song title, who. Opens the profile. */
-function CompactListeningTile({ friend }: { friend: FriendListening }) {
+/**
+ * One friend in the carousel: square artwork with the title and artist on it,
+ * over a soft shade, on a tile that is one gray throughout. The art's bottom
+ * edge fades into the gray over a few pixels, below the text. Under it the
+ * friend and how many are listening, the live progress, then Join when they
+ * can be joined. Tiles in a row stretch to the tallest, so
+ * Join lines up across them.
+ */
+function ListeningTile({
+    friend,
+    width,
+}: {
+    friend: FriendListening;
+    width: number;
+}) {
     const router = useRouter();
-    const { now_playing: nowPlaying } = friend;
+    const { muted } = useAppTheme().colors;
+    const { now_playing: nowPlaying, listener_count: listeners } = friend;
+
     return (
-        <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${friend.username} is playing ${nowPlaying.title}`}
-            onPress={() => router.push(`/social/user/${friend.user_id}`)}
-            className="active:opacity-60"
-            style={{ width: TILE_WIDTH }}
-        >
-            <View>
-                <Artwork url={nowPlaying.artwork_url} size={TILE_WIDTH} />
-                {nowPlaying.live_session_id ? (
-                    <LiveChip className="absolute left-1.5 top-1.5" />
+        <View className="flex-1 overflow-hidden rounded-2xl border border-border bg-muted">
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${friend.username} is playing ${nowPlaying.title}, ${listeners} listening`}
+                onPress={() => router.push(`/social/user/${friend.user_id}`)}
+                className="active:opacity-80"
+            >
+                <View>
+                    <Artwork
+                        url={nowPlaying.artwork_url}
+                        size={width}
+                        rounded={false}
+                    />
+                    <View className="absolute bottom-0 left-0 right-0">
+                        <LinearGradient
+                            colors={TITLE_SHADE}
+                            style={{
+                                gap: 2,
+                                paddingHorizontal: 10,
+                                paddingTop: 24,
+                                // clear of the gray at the art's bottom edge
+                                paddingBottom: TILE_BLEND + 6,
+                            }}
+                        >
+                            <MarqueeText className="text-base font-semibold text-white">
+                                {nowPlaying.title}
+                            </MarqueeText>
+                            {nowPlaying.artist ? (
+                                <Text
+                                    className="text-xs text-white"
+                                    numberOfLines={1}
+                                >
+                                    {nowPlaying.artist}
+                                </Text>
+                            ) : null}
+                        </LinearGradient>
+                    </View>
+                    <LinearGradient
+                        pointerEvents="none"
+                        colors={[withAlpha(muted, 0), muted]}
+                        style={{
+                            position: "absolute",
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            height: TILE_BLEND,
+                        }}
+                    />
+                    {nowPlaying.live_session_id ? (
+                        <LiveChip className="absolute left-2 top-2" />
+                    ) : null}
+                </View>
+                <View className="px-2.5 pt-2">
+                    <View className="flex-row items-center gap-1.5">
+                        <Initials username={friend.username} size={20} />
+                        <Text
+                            className="min-w-0 flex-shrink text-[11px] font-medium text-foreground"
+                            numberOfLines={1}
+                        >
+                            {friend.username}
+                        </Text>
+                        <Text
+                            className="text-[11px] text-muted-foreground"
+                            numberOfLines={1}
+                        >
+                            · {listeners} listening
+                        </Text>
+                    </View>
+                </View>
+            </Pressable>
+            <View className="flex-1 justify-between gap-2.5 px-2.5 pb-2.5 pt-2.5">
+                <LiveProgress nowPlaying={nowPlaying} />
+                {friend.can_join ? (
+                    <JoinButton
+                        userId={friend.user_id}
+                        username={friend.username}
+                        appearance="outline"
+                    />
                 ) : null}
             </View>
-            <View className="mt-2 gap-0.5">
-                <MarqueeText className="text-sm font-semibold text-foreground">
-                    {nowPlaying.title}
-                </MarqueeText>
-                <View className="flex-row items-center gap-1">
-                    <Initials username={friend.username} size={20} />
-                    <Text
-                        className="min-w-0 flex-1 text-xs text-muted-foreground"
-                        numberOfLines={1}
-                    >
-                        {friend.username}
-                    </Text>
-                </View>
-            </View>
-        </Pressable>
+        </View>
     );
 }
 
@@ -268,7 +376,7 @@ export function ProfileListening({ userId }: { userId: string }) {
     if (!nowPlaying && !recentPlays?.length) return null;
 
     return (
-        <View className="mb-4 gap-4 border-b border-border pb-5">
+        <View className="gap-6">
             {nowPlaying ? (
                 <ListeningCard
                     nowPlaying={nowPlaying}
@@ -379,19 +487,31 @@ function ListeningCard({
     );
 }
 
-/** Joins without a code, then opens the session. */
+/**
+ * Joins without a code, then opens the session. While the caller waits to be
+ * let in it says so, and once they are in with this person it opens the
+ * session instead. Both follow the caller's session and the asked marks, so
+ * being let in changes it on every card at once. `pill` is the small glass
+ * pill on a full card; `outline` fills a carousel tile's width.
+ */
 function JoinButton({
     userId,
     username,
+    appearance = "pill",
 }: {
     userId: string;
     username?: string;
+    appearance?: "pill" | "outline";
 }) {
     const router = useRouter();
     const { joinListening, joinListeningLoading } = useJoinListening();
-    const [state, setState] = useState<"idle" | "asked" | "refused">(() =>
-        hasAskedToJoin(userId) ? "asked" : "idle",
-    );
+    const asked = useHasAskedToJoin(userId);
+    const [refused, setRefused] = useState(false);
+    const mine = useCurrentLiveSession();
+    const together =
+        mine !== null &&
+        (mine.host.user_id === userId ||
+            mine.members.some((member) => member.user_id === userId));
 
     async function join() {
         try {
@@ -400,39 +520,110 @@ function JoinButton({
             });
             if (status === "asked") {
                 markAskedToJoin(session_id, userId);
-                setState("asked");
                 return;
             }
             router.push("/player");
         } catch {
-            setState("refused");
+            setRefused(true);
         }
     }
 
-    if (state !== "idle") {
+    if (together) {
         return (
-            <Text className="max-w-28 text-right text-xs text-muted-foreground">
-                {state === "asked"
+            <JoinAction
+                appearance={appearance}
+                icon="radio-outline"
+                label="Open"
+                accessibilityLabel={`Open the session with ${username ?? "them"}`}
+                onPress={() => router.push("/player")}
+            />
+        );
+    }
+    if (asked || refused) {
+        return (
+            <Text
+                className={cn(
+                    "text-xs text-muted-foreground",
+                    appearance === "pill"
+                        ? "max-w-28 text-right"
+                        : "text-center",
+                )}
+            >
+                {asked
                     ? `Asked to join. ${username ?? "They"} will let you in.`
                     : `Ask ${username ?? "them"} for a code to join.`}
             </Text>
         );
     }
     return (
-        <View className="items-end">
-            <GlassPill
-                size="sm"
-                icon="enter-outline"
-                label="Join"
-                loading={joinListeningLoading}
-                accessibilityLabel={`Join ${username ?? "their"}'s session`}
-                onPress={() => void join()}
-            />
-        </View>
+        <JoinAction
+            appearance={appearance}
+            icon="enter-outline"
+            label="Join"
+            loading={joinListeningLoading}
+            accessibilityLabel={`Join ${username ?? "their"}'s session`}
+            onPress={() => void join()}
+        />
     );
 }
 
-/** A bar and `m:ss` times, ticking once a second. */
+/**
+ * The button Join draws: on a tile a small centered pill, brand colored with
+ * a faint brand fill inside its rim, or a glass pill on a full card. The fill
+ * is the brand color with alpha, since a `/NN` class takes no opacity on a
+ * theme color.
+ */
+function JoinAction({
+    appearance,
+    icon,
+    label,
+    loading = false,
+    accessibilityLabel,
+    onPress,
+}: {
+    appearance: "pill" | "outline";
+    icon: IoniconName;
+    label: string;
+    loading?: boolean;
+    accessibilityLabel: string;
+    onPress: () => void;
+}) {
+    const { brand } = useAppTheme().colors;
+    if (appearance === "pill") {
+        return (
+            <View className="items-end">
+                <GlassPill
+                    size="sm"
+                    icon={icon}
+                    label={label}
+                    loading={loading}
+                    accessibilityLabel={accessibilityLabel}
+                    onPress={onPress}
+                />
+            </View>
+        );
+    }
+    return (
+        <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={accessibilityLabel}
+            accessibilityState={{ busy: loading }}
+            disabled={loading}
+            onPress={onPress}
+            className="h-7 flex-row items-center justify-center gap-1 self-center rounded-full border border-brand px-4 active:opacity-60"
+            style={{ backgroundColor: withAlpha(brand, 0.15) }}
+        >
+            {loading ? (
+                <ActivityIndicator size="small" color={brand} />
+            ) : (
+                <Ionicons name={icon} size={14} color={brand} />
+            )}
+            <Text className="text-xs font-semibold text-brand">{label}</Text>
+        </Pressable>
+    );
+}
+
+/** A bar, then where it is and how long it runs as `m:ss`. Ticks each second. */
 function LiveProgress({ nowPlaying }: { nowPlaying: NowPlaying }) {
     const { position_ms, as_of, duration_ms, is_playing } = nowPlaying;
     const [now, setNow] = useState(() => Date.now());
@@ -495,58 +686,92 @@ function UpNext({ songs }: { songs: UpNextSong[] }) {
     );
 }
 
-/** Titles and artwork come from Apple Music by catalog id. */
+/**
+ * Recent plays in columns of four, swiped through sideways, with the next
+ * column peeking in. Titles and artwork come from Apple Music by catalog id,
+ * looked up once for every column.
+ */
 function RecentPlays({ plays }: { plays: RecentPlay[] }) {
     const songIds = useMemo(() => plays.map((play) => play.song_id), [plays]);
     const { songInfo } = useSongInfo(songIds);
+    const columns = useMemo(() => {
+        const out: RecentPlay[][] = [];
+        for (let i = 0; i < plays.length; i += RECENT_PLAYS_PER_COLUMN) {
+            out.push(plays.slice(i, i + RECENT_PLAYS_PER_COLUMN));
+        }
+        return out;
+    }, [plays]);
 
     return (
-        <View className="gap-2">
-            <Text className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                Recent plays
-            </Text>
-            {plays.map((play, index) => {
-                const song = songInfo.find(
-                    (item) =>
-                        item.id === play.song_id ||
-                        item.catalogId === play.song_id,
-                );
-                return (
-                    <View
-                        key={`${play.song_id}-${play.played_at}-${index}`}
-                        className="flex-row items-center gap-3"
-                    >
-                        <Artwork url={song?.artworkUrl} size={40} />
-                        <View className="min-w-0 flex-1">
-                            <Text
-                                className="text-sm text-foreground"
-                                numberOfLines={1}
-                            >
-                                {song?.title ?? "..."}
-                            </Text>
-                            <Text
-                                className="text-xs text-muted-foreground"
-                                numberOfLines={1}
-                            >
-                                {song?.artistName ?? play.artist_name ?? ""}
-                            </Text>
-                        </View>
-                        <Text className="text-xs text-muted-foreground">
-                            {formatRelativeTime(play.played_at)}
-                        </Text>
+        <View className="gap-3">
+            <ShelfHeader title="Recent plays" />
+            <PeekCarousel
+                items={columns}
+                visible={1}
+                keyOf={(_, index) => `column-${index}`}
+                renderItem={(column, _width, columnIndex) => (
+                    <View className="gap-2.5">
+                        {column.map((play, index) => {
+                            const song = songInfo.find(
+                                (item) =>
+                                    item.id === play.song_id ||
+                                    item.catalogId === play.song_id,
+                            );
+                            return (
+                                <View
+                                    key={`${play.song_id}-${play.played_at}-${columnIndex}-${index}`}
+                                    className="flex-row items-center gap-3"
+                                >
+                                    <Artwork url={song?.artworkUrl} size={44} />
+                                    <View className="min-w-0 flex-1">
+                                        <Text
+                                            className="text-sm text-foreground"
+                                            numberOfLines={1}
+                                        >
+                                            {song?.title ?? "..."}
+                                        </Text>
+                                        <Text
+                                            className="text-xs text-muted-foreground"
+                                            numberOfLines={1}
+                                        >
+                                            {song?.artistName ??
+                                                play.artist_name ??
+                                                ""}
+                                        </Text>
+                                    </View>
+                                    <Text className="text-xs text-muted-foreground">
+                                        {formatRelativeTime(play.played_at)}
+                                    </Text>
+                                </View>
+                            );
+                        })}
                     </View>
-                );
-            })}
+                )}
+            />
         </View>
     );
 }
 
-function Artwork({ url, size }: { url?: string | null; size: number }) {
+/** Square unless `height` is given. `rounded` off for art that fills a tile. */
+function Artwork({
+    url,
+    size,
+    height = size,
+    rounded = true,
+}: {
+    url?: string | null;
+    size: number;
+    height?: number;
+    rounded?: boolean;
+}) {
     const { mutedForeground } = useAppTheme().colors;
     return (
         <View
-            className="items-center justify-center overflow-hidden rounded-lg bg-secondary"
-            style={{ width: size, height: size }}
+            className={cn(
+                "items-center justify-center overflow-hidden bg-secondary",
+                rounded && "rounded-lg",
+            )}
+            style={{ width: size, height }}
         >
             {isUsableArtworkUrl(url) ? (
                 <Image
