@@ -14,6 +14,12 @@ import {
 } from "@/lib/screen-overlay";
 import { PALETTE, useAppTheme } from "@/lib/theme";
 
+/** The Cadenza note, outlined until its tab is selected, like the others. */
+const CADENZA_TAB_ICON = {
+    default: require("../../../assets/images/tab-cadenza-outline.png"),
+    selected: require("../../../assets/images/tab-cadenza.png"),
+};
+
 const IOS_UNSELECTED_TAB_COLOR =
     Platform.OS === "ios"
         ? DynamicColorIOS({
@@ -110,12 +116,11 @@ export default function TabLayout() {
                 </NativeTabs.Trigger>
 
                 <NativeTabs.Trigger name="(cadenza)" {...TRIGGER_PROPS}>
+                    {/* tinted like the other tabs. Rendered from the
+                        cadenza-logo svgs by scripts/render-svg-png.swift */}
                     <NativeTabs.Trigger.Icon
-                        sf="music.note.list"
-                        md={{
-                            default: "music_note",
-                            selected: "music_note",
-                        }}
+                        src={CADENZA_TAB_ICON}
+                        renderingMode="template"
                     />
                     <NativeTabs.Trigger.Label>Cadenza</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>

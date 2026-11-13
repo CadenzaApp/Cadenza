@@ -3,14 +3,14 @@
 Cadenza owned playlists several people edit. The backend owns them; Apple Music only sees "Save a
 copy". Titles and art come from Apple Music by catalog id.
 
-| file                              | role                                                                                                                             |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| file                              | role                                                                                                                                                                                                                                             |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `SharedPlaylistsScreen.tsx`       | `SharedPlaylistsList`: the caller's playlists on `LibraryList`, the same list as Library > Queries: search, new playlist, enter code, play and shuffle. Library > Playlists shows it under Shared playlists; `/social/playlists` shows it alone. |
-| `SharedPlaylistScreen.tsx`        | `/shared-playlist/:id` on `TrackCollectionView`: play, add, remove, invite, rename, share to feed, save a copy, leave or delete. |
-| `SharedPlaylistReorderScreen.tsx` | `/shared-playlist/:id/reorder`: drag songs into a new order, on `ReorderableList`. Editors and the owner.                        |
-| `SharedPlaylistMembersScreen.tsx` | `/shared-playlist/:id/members`: roles, remove, invite, add friends.                                                              |
-| `use-playlist-tracks.ts`          | Entries as playable tracks, titles and art from Apple Music, each with its `entry:{entry_id}` id.                                |
-| `roles.ts`                        | Role labels and the roles an owner can give.                                                                                     |
+| `SharedPlaylistScreen.tsx`        | `/shared-playlist/:id` on `TrackCollectionView`: play, add, remove, invite, rename, share to feed, save a copy, leave or delete.                                                                                                                 |
+| `SharedPlaylistReorderScreen.tsx` | `/shared-playlist/:id/reorder`: drag songs into a new order, on `ReorderableList`. Editors and the owner.                                                                                                                                        |
+| `SharedPlaylistMembersScreen.tsx` | `/shared-playlist/:id/members`: roles, remove, invite, add friends.                                                                                                                                                                              |
+| `use-playlist-tracks.ts`          | Entries as playable tracks, titles and art from Apple Music, each with its `entry:{entry_id}` id.                                                                                                                                                |
+| `roles.ts`                        | Role labels and the roles an owner can give.                                                                                                                                                                                                     |
 
 Gotchas:
 

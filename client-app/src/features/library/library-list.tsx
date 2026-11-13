@@ -25,8 +25,8 @@ const ROW_ARTWORK_SIZE = 56;
 /**
  * A Library list of the user's own things, like saved queries or shared
  * playlists, as a screen's scroller. Top to bottom: `above` (a view switch),
- * search, Play and Shuffle when `actions` is set, New and Enter code when
- * `create` is set, then the rows. Only what the rows show differs.
+ * search, Play and Shuffle when `actions` is set, New (and Enter code with
+ * `create.joinWithCode`) when `create` is set, then the rows. Only what the rows show differs.
  */
 export function LibraryList<Item>({
     items,
@@ -51,8 +51,8 @@ export function LibraryList<Item>({
     above?: ReactNode;
     search: LibraryListSearch;
     placeholder: string;
-    /** The New pill's label and what it does. */
-    create?: { label: string; onPress: () => void };
+    /** The New pill's label and what it does, and whether Enter code joins it. */
+    create?: { label: string; onPress: () => void; joinWithCode?: boolean };
     actions?: LibraryListPlayActions;
 }) {
     const { listBottomInset } = useScreenOverlayInsets();
@@ -84,6 +84,7 @@ export function LibraryList<Item>({
                                     <NewOrJoinRow
                                         newLabel={create.label}
                                         onNew={create.onPress}
+                                        joinWithCode={create.joinWithCode}
                                     />
                                 ) : null
                             }

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800">
+  <!-- cadenza-logo.svg as an outline. The note is the stem and head as one
+       path, so no seam shows where they meet. Each stroke is clipped to its
+       own shape, so the outline sits inside the filled logo's edge. -->
+  <defs>
+    <path id="note" d="M206 48H286V533.914171A134 97 -20 1 1 206 454.776Z"/>
+    <path id="flag" transform="translate(11.012 0)" d="M296 48h56l136 135-58 58-134-134V48Z"/>
+    <clipPath id="note-clip"><use href="#note"/></clipPath>
+    <clipPath id="flag-clip"><use href="#flag"/></clipPath>
+  </defs>
+  <g transform="translate(137.709940 47.483446)" fill="none" stroke-width="48" stroke-linejoin="round">
+    <use href="#note" stroke="#c4a7e7" clip-path="url(#note-clip)"/>
+    <use href="#flag" stroke="#f6c177" clip-path="url(#flag-clip)"/>
+  </g>
+</svg>

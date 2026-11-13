@@ -1,16 +1,14 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import type { MusicItem } from "@apple-musickit";
 import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import type { SegmentOption } from "@/components/ui/segmented-control";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
-import { useTrackLookup } from "@/lib/musickit-hooks";
 import { useOpenScreen } from "@/lib/open-screen";
-import { usePlayAll } from "@/lib/play-all";
 import { describeQuery } from "@/lib/query-json";
+import type { QueryResultSong } from "@/lib/routes/queries";
 import {
     fetchSavedQuerySongs,
     useDeleteSavedQuery,
@@ -23,16 +21,18 @@ import { useAppTheme } from "@/lib/theme";
 import { LibraryList, LibraryListRow } from "./library-list";
 import { useLibraryListSearch } from "./library-list-header";
 import { useLibraryViewSwitch } from "./library-view-switch";
-import { concatUnique, mapInOrder } from "./play-queue";
+import { usePlayLists } from "./use-play-lists";
 
-/** Saved queries whose songs are read at once when Play queues them. */
-const QUERY_READS_AT_ONCE = 3;
-/**
- * The most songs Play queues across every query. A query can hold a thousand
- * songs from outside the library, and each of those costs a lookup.
- */
-const MAX_QUEUED_SONGS = 500;
 const NO_SAVED_QUERIES: SavedQuery[] = [];
+
+const readQuerySongs = (saved: SavedQuery) =>
+    fetchSavedQuerySongs(saved.saved_query_id);
+const songIdOfMatch = (song: QueryResultSong) => song.songId;
+/** The user's own songs from every query, then the rest. */
+const ownSongsFirst = (lists: readonly (readonly QueryResultSong[])[]) => [
+    ...lists.map((songs) => songs.filter((song) => song.certain)),
+    ...lists.map((songs) => songs.filter((song) => !song.certain)),
+];
 
 type QueriesView = "all" | "shared";
 
@@ -44,8 +44,7 @@ const VIEWS: readonly SegmentOption<QueriesView>[] = [
 /**
  * The Queries category: every query the user saved from a results screen,
  * favorites first, or with the switch at the top only the ones they shared on
- * their profile, where New query (to the Cadenza tab) and Enter code sit
- * under the search. A row opens the songs it holds, with the cover it was
+ * their profile, where New query (to the Cadenza tab) sits under the search. A row opens the songs it holds, with the cover it was
  * saved with. Search filters by name, here on the phone, since the whole list
  * is one small read. Play and Shuffle queue the songs every query on show
  * holds, the user's own songs first.
@@ -74,30 +73,12 @@ export function SavedQueriesView() {
         resetDeleteSavedQuery,
     } = useDeleteSavedQuery();
 
-    const lookupTracks = useTrackLookup();
-    const resolveQueue = useCallback(async (): Promise<MusicItem[]> => {
-        const matches = await mapInOrder(shown, QUERY_READS_AT_ONCE, (saved) =>
-            fetchSavedQuerySongs(saved.saved_query_id),
-        );
-        // the user's own songs from every query, then the rest
-        const songIds = concatUnique(
-            [
-                ...matches.map((songs) => songs.filter((song) => song.certain)),
-                ...matches.map((songs) =>
-                    songs.filter((song) => !song.certain),
-                ),
-            ],
-            (song) => song.songId,
-        )
-            .slice(0, MAX_QUEUED_SONGS)
-            .map((song) => song.songId);
-        const found = await lookupTracks(songIds);
-        return concatUnique(
-            [songIds.flatMap((songId) => found.get(songId) ?? [])],
-            (track) => track.id,
-        );
-    }, [lookupTracks, shown]);
-    const playAll = usePlayAll({ resolveQueue });
+    const playAll = usePlayLists({
+        items: shown,
+        read: readQuerySongs,
+        songIdOf: songIdOfMatch,
+        arrange: ownSongsFirst,
+    });
 
     async function confirmDelete() {
         if (!deleting) return;

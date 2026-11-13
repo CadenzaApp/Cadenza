@@ -80,11 +80,14 @@ type Props = {
     includeSuggestedTags: boolean;
     outerConnector: QueryConnector;
     onOuterConnectorChange: (value: QueryConnector) => void;
+    /** Drawn behind the query, centered between the heading and the palette. */
+    backdrop?: ReactNode;
 };
 const DEFAULT_PALETTE_HEIGHT = 268;
 
 export function QueryBuilder({
     headingOverlapHeight,
+    backdrop,
     resultsAction,
     historyAction,
     showVennDiagrams,
@@ -383,6 +386,14 @@ export function QueryBuilder({
                         visibleHeight={visiblePaletteHeight}
                         topInset={headingOverlapHeight}
                     >
+                        {backdrop ? (
+                            <WorkspaceCenter
+                                topInset={headingOverlapHeight}
+                                visibleHeight={visiblePaletteHeight}
+                            >
+                                {backdrop}
+                            </WorkspaceCenter>
+                        ) : null}
                         <ScreenScrollMarker>
                             <Animated.ScrollView
                                 {...scroll}
@@ -420,10 +431,14 @@ export function QueryBuilder({
                             </Animated.ScrollView>
                         </ScreenScrollMarker>
                         {conditions.length === 0 ? (
-                            <EmptyQueryHint
+                            <WorkspaceCenter
                                 topInset={headingOverlapHeight}
                                 visibleHeight={visiblePaletteHeight}
-                            />
+                            >
+                                <Text className="px-4 py-8 text-center text-sm text-muted-foreground">
+                                    Drag a tag here to start.
+                                </Text>
+                            </WorkspaceCenter>
                         ) : null}
                         <FloatingActions
                             historyAction={historyAction}
@@ -543,17 +558,20 @@ function QueryDropViewport({
 }
 
 /**
- * The empty query's prompt, centered in the space between the heading and the
- * palette. It sits over the workspace rather than in its scroll content, and
- * moves only by transform from the palette's live height. Tied to the scroll
- * padding, it showed a frame in the wrong spot each time the padding changed.
+ * A layer whose children sit centered in the space between the heading and
+ * the palette. It sits over the workspace rather than in its scroll content,
+ * and moves only by transform from the palette's live height. Tied to the
+ * scroll padding, it showed a frame in the wrong spot each time the padding
+ * changed. Holds the empty query's prompt and the backdrop behind the query.
  */
-function EmptyQueryHint({
+function WorkspaceCenter({
     topInset,
     visibleHeight,
+    children,
 }: {
     topInset: number;
     visibleHeight: SharedValue<number>;
+    children: ReactNode;
 }) {
     const style = useAnimatedStyle(() => ({
         transform: [
@@ -569,9 +587,7 @@ function EmptyQueryHint({
             className="absolute inset-0 items-center justify-center px-[18px]"
             style={style}
         >
-            <Text className="px-4 py-8 text-center text-sm text-muted-foreground">
-                Drag a tag here to start.
-            </Text>
+            {children}
         </Animated.View>
     );
 }

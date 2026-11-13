@@ -5,7 +5,7 @@ navigation. Tags are managed in Library. Queries run over the last synced music 
 
 ## Entry points
 
-- `CadenzaScreen.tsx`: tag reads, stable tag-colored nebula, wrapping query heading, header
+- `CadenzaScreen.tsx`: tag reads, stable tag-colored nebula with the Cadenza note blurred over it, wrapping query heading, header
   controls, result count, and results navigation.
 - `query-workspace.ts`: pure draft transitions and bounded history; `use-query-workspace.ts`
   binds them to React. `use-tag-placement.ts` owns pending placement and cancellation.

@@ -75,6 +75,14 @@ npm run lint       # expo lint
 npx tsc --noEmit   # typecheck
 ```
 
+The Cadenza tab icons are PNGs, since native tabs take no SVG. After changing
+`assets/images/cadenza-logo.svg` or `cadenza-logo-outline.svg`, render them again (macOS):
+
+```sh
+swift scripts/render-svg-png.swift assets/images/cadenza-logo.svg assets/images/tab-cadenza.png 26 "75 75 650 650"
+swift scripts/render-svg-png.swift assets/images/cadenza-logo-outline.svg assets/images/tab-cadenza-outline.png 26 "75 75 650 650"
+```
+
 ## Connects to
 
 - `backend-api` at whatever base url `src/lib/backend.ts` resolves to, with a Supabase JWT on

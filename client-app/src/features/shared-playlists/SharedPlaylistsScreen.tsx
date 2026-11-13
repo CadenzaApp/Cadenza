@@ -1,12 +1,5 @@
-import type { MusicItem } from "@apple-musickit";
 import { useNavigation, type Href } from "expo-router";
-import {
-    useCallback,
-    useLayoutEffect,
-    useMemo,
-    useState,
-    type ReactNode,
-} from "react";
+import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { View } from "react-native";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
@@ -15,10 +8,9 @@ import { GlassInput } from "@/components/ui/glass-input";
 import { Text } from "@/components/ui/text";
 import { LibraryList, LibraryListRow } from "@/features/library/library-list";
 import { useLibraryListSearch } from "@/features/library/library-list-header";
-import { concatUnique, mapInOrder } from "@/features/library/play-queue";
-import { useSongInfo, useTrackLookup } from "@/lib/musickit-hooks";
+import { usePlayLists } from "@/features/library/use-play-lists";
+import { useSongInfo } from "@/lib/musickit-hooks";
 import { useOpenScreen } from "@/lib/open-screen";
-import { usePlayAll } from "@/lib/play-all";
 import {
     fetchSharedPlaylistSongIds,
     useCreateSharedPlaylist,
@@ -29,11 +21,10 @@ import { isUsableArtworkUrl } from "@/lib/utils";
 
 import { roleLabel } from "./roles";
 
-/** Playlists whose songs are read at once when Play queues them. */
-const PLAYLIST_READS_AT_ONCE = 3;
-/** The most songs Play queues across every playlist. */
-const MAX_QUEUED_SONGS = 500;
 const NO_PLAYLISTS: SharedPlaylistSummary[] = [];
+const readPlaylistSongIds = (playlist: SharedPlaylistSummary) =>
+    fetchSharedPlaylistSongIds(playlist.playlist_id);
+const songIdOfId = (songId: string) => songId;
 
 /** `/social/playlists`: the caller's shared playlists on their own screen. */
 export function SharedPlaylistsScreen() {
@@ -84,24 +75,11 @@ export function SharedPlaylistsList({ header }: { header?: ReactNode }) {
         return map;
     }, [songInfo]);
 
-    const lookupTracks = useTrackLookup();
-    const resolveQueue = useCallback(async (): Promise<MusicItem[]> => {
-        const lists = await mapInOrder(
-            shown,
-            PLAYLIST_READS_AT_ONCE,
-            (playlist) => fetchSharedPlaylistSongIds(playlist.playlist_id),
-        );
-        const songIds = concatUnique(lists, (id) => id).slice(
-            0,
-            MAX_QUEUED_SONGS,
-        );
-        const found = await lookupTracks(songIds);
-        return concatUnique(
-            [songIds.flatMap((songId) => found.get(songId) ?? [])],
-            (track) => track.id,
-        );
-    }, [lookupTracks, shown]);
-    const playAll = usePlayAll({ resolveQueue });
+    const playAll = usePlayLists({
+        items: shown,
+        read: readPlaylistSongIds,
+        songIdOf: songIdOfId,
+    });
 
     return (
         <View className="flex-1">
@@ -134,6 +112,7 @@ export function SharedPlaylistsList({ header }: { header?: ReactNode }) {
                 create={{
                     label: "New playlist",
                     onPress: () => setCreating(true),
+                    joinWithCode: true,
                 }}
                 actions={{
                     onPlay: playAll.play,

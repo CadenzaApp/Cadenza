@@ -1,3 +1,4 @@
+import { CadenzaLogo } from "@/components/custom/cadenza-logo";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { GlassSurface } from "@/components/ui/glass-surface";
@@ -34,6 +35,7 @@ import {
     Platform,
     Pressable,
     StyleSheet,
+    useWindowDimensions,
     View,
 } from "react-native";
 import Animated, {
@@ -292,6 +294,14 @@ export function CadenzaScreen() {
             <View pointerEvents="none" className="absolute inset-0 opacity-50">
                 <NebulaBackdrop colors={nebula} />
             </View>
+            {mode === "advanced" ? (
+                <View
+                    pointerEvents="none"
+                    className="absolute inset-0 items-center justify-center"
+                >
+                    <BackdropLogo />
+                </View>
+            ) : null}
             {userTagsLoading ? (
                 <View className="flex-1 items-center justify-center">
                     <ActivityIndicator accessibilityLabel="Loading tags" />
@@ -422,6 +432,7 @@ export function CadenzaScreen() {
                     {mode === "simple" ? (
                         <QueryBuilder
                             headingOverlapHeight={headingHeight}
+                            backdrop={<BackdropLogo />}
                             resultsAction={resultsAction}
                             historyAction={historyAction}
                             pendingTag={activePendingTag}
@@ -471,6 +482,27 @@ export function CadenzaScreen() {
                 settings={settings}
                 onChange={setSetting}
                 suggestedRequired={suggestedRequired}
+            />
+        </View>
+    );
+}
+
+/** The note's width as a share of the screen's. */
+const BACKDROP_LOGO_SCALE = 0.75;
+/** Blur in the logo's units, where the note is 610 tall. */
+const BACKDROP_LOGO_BLUR = 14;
+
+/**
+ * The Cadenza note, large, soft, and faint, behind the workspace. The caller
+ * places it: the simple builder centers it on its drop zone.
+ */
+function BackdropLogo() {
+    const { width } = useWindowDimensions();
+    return (
+        <View className="opacity-20">
+            <CadenzaLogo
+                size={width * BACKDROP_LOGO_SCALE}
+                blur={BACKDROP_LOGO_BLUR}
             />
         </View>
     );
