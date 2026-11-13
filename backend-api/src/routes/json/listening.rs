@@ -89,6 +89,8 @@ pub struct FriendListening {
     /// The viewer may join without a code: that session, or with none, by
     /// making a listen along one (`POST /live-sessions/listen-along/{user_id}`).
     pub can_join: bool,
+    /// Everyone in their live session, them included. 1 with no session.
+    pub listener_count: i64,
 }
 
 impl FriendListening {
@@ -97,6 +99,7 @@ impl FriendListening {
             user_id: user.user_id,
             username: user.username,
             can_join: user.can_join,
+            listener_count: user.listener_count,
             now_playing: NowPlaying::at(user.now_playing, now),
         }
     }

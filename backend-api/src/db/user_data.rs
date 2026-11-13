@@ -86,6 +86,13 @@ pub fn user_data_counts() -> Vec<DataCount> {
             "saved_queries where user_id = $1",
         ),
         rows(
+            "shared_queries",
+            Library,
+            "Saved queries on your profile",
+            "count(*)",
+            "saved_queries where user_id = $1 and shared",
+        ),
+        rows(
             "tags",
             Tags,
             "Tags you made",
@@ -243,6 +250,20 @@ pub fn user_data_counts() -> Vec<DataCount> {
             "Songs you added to live sessions",
             "count(*)",
             "live_session_queue where added_by = $1",
+        ),
+        rows(
+            "live_session_suggestions",
+            SocialListening,
+            "Live session suggestions waiting or turned down",
+            "count(*)",
+            "live_session_queue where added_by = $1 and status in ('suggested', 'rejected')",
+        ),
+        rows(
+            "live_session_join_requests",
+            SocialListening,
+            "Times you asked to join a live session",
+            "count(*)",
+            "live_session_join_requests where user_id = $1",
         ),
         rows(
             "invite_codes",

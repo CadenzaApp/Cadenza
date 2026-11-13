@@ -80,6 +80,12 @@ pub struct SharedPlaylistsResponse {
     pub playlists: Vec<SharedPlaylistSummary>,
 }
 
+/// `GET /shared-playlists/users/{user_id}`. `playlists` is null when hidden.
+#[derive(Serialize)]
+pub struct ProfilePlaylistsResponse {
+    pub playlists: Option<Vec<SharedPlaylistSummary>>,
+}
+
 #[derive(Serialize)]
 pub struct SharedPlaylistMember {
     pub user_id: Uuid,

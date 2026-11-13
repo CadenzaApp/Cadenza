@@ -1,9 +1,9 @@
-//! Database tests for invites, shared playlists, live sessions, and now
-//! playing. Each runs inside one transaction that is rolled back, against two
-//! real accounts from `profile`, so the raw SQL is exercised without leaving
-//! anything behind. Ignored by default like the other database tests. One at a
-//! time, since they share the two accounts' rows and the session sweep test
-//! touches every session:
+//! Database tests for invites, shared playlists, live sessions, now playing,
+//! and what a profile shows. Each runs inside one transaction that is rolled
+//! back, against two real accounts from `profile`, so the raw SQL is exercised
+//! without leaving anything behind. Ignored by default like the other database
+//! tests. One at a time, since they share the two accounts' rows and the
+//! session sweep test touches every session:
 //!
 //! ```sh
 //! cargo test social_listening -- --ignored --test-threads=1
@@ -19,6 +19,7 @@ use crate::db::{
     invites::{InviteTargetRef, NewInvite, create_invite, redeem_invite},
     live_sessions::{self as sessions, NewQueueSong, PlaybackCommand},
     now_playing::{self, NowPlayingUpdate},
+    saved_queries,
     shared_playlists::{self as playlists, MemberRemoved, PlaylistRole},
 };
 use crate::err::CadenzaError;
@@ -52,6 +53,9 @@ fn song(id: &str) -> NewQueueSong {
         song_id: id.into(),
         title: format!("song {id}"),
         artist: Some("artist".into()),
+        album: None,
+        album_id: None,
+        artist_id: None,
         artwork_url: None,
         duration_ms: Some(180_000),
     }
@@ -390,6 +394,113 @@ async fn social_listening_host_leaving_hands_the_session_over() {
 
 #[tokio::test]
 #[ignore]
+async fn social_listening_host_makes_someone_else_host_and_stays() {
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id IN ($1, $2) AND ended_at IS NULL",
+        [host.into(), guest.into()],
+    ))
+    .await
+    .unwrap();
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Transfer",
+            default_role: SessionRole::Listener,
+            allow_join_without_code: true,
+            listen_along: false,
+            approve_joins: false,
+        },
+    )
+    .await
+    .unwrap();
+    sessions::join_session(&txn, guest, id, true).await.unwrap();
+    sessions::add_songs(&txn, host, id, &[song("20")], sessions::AddAt::End, None)
+        .await
+        .unwrap();
+
+    // a listener cannot make themselves host
+    assert!(
+        sessions::transfer_host(&txn, guest, id, guest)
+            .await
+            .is_err()
+    );
+
+    sessions::transfer_host(&txn, host, id, guest)
+        .await
+        .unwrap();
+    let as_guest = sessions::get_snapshot(&txn, guest, id).await.unwrap();
+    assert_eq!(as_guest.me, crate::services::live_sessions::Actor::Host);
+    assert_eq!(as_guest.current.as_ref().unwrap().song_id, "20");
+    // the old host is still in it, as a controller playing along
+    let as_old = sessions::get_snapshot(&txn, host, id).await.unwrap();
+    assert_eq!(
+        as_old.me,
+        crate::services::live_sessions::Actor::Member(SessionRole::Controller)
+    );
+    assert_eq!(as_old.my_listen_mode, ListenMode::Synced);
+
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_members_who_close_the_app_leave() {
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id IN ($1, $2) AND ended_at IS NULL",
+        [host.into(), guest.into()],
+    ))
+    .await
+    .unwrap();
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Away",
+            default_role: SessionRole::Listener,
+            allow_join_without_code: true,
+            listen_along: false,
+            approve_joins: false,
+        },
+    )
+    .await
+    .unwrap();
+    sessions::join_session(&txn, guest, id, true).await.unwrap();
+
+    // closed a moment ago: still in it
+    sessions::set_app_link(&txn, guest, sessions::AppLink::Closed)
+        .await
+        .unwrap();
+    sessions::remove_away_members(&txn).await.unwrap();
+    assert!(sessions::is_participant(&txn, id, guest).await.unwrap());
+
+    // closed over a minute ago: out, and the host stays
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_session_members SET away_since = now() - interval '2 minutes'
+         WHERE session_id = $1",
+        [id.into()],
+    ))
+    .await
+    .unwrap();
+    let gone = sessions::remove_away_members(&txn).await.unwrap();
+    let ours = gone.iter().find(|g| g.session_id == id).unwrap();
+    assert_eq!(ours.user_ids, vec![guest]);
+    assert!(!ours.ended);
+    assert!(!sessions::is_participant(&txn, id, guest).await.unwrap());
+    assert!(sessions::is_participant(&txn, id, host).await.unwrap());
+
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
 async fn social_listening_listen_along_has_its_own_audience() {
     let txn = scratch().await;
     let (host, guest) = two_users(&txn).await;
@@ -506,13 +617,18 @@ async fn social_listening_joining_someone_listening_makes_a_session() {
         .unwrap();
     assert!(answered.ended);
 
-    // again, let in this time; the last guest leaving ends it too
+    // again, let in this time, so it went live: the last guest leaving
+    // leaves it open for the host
     let second = sessions::join_listening(&txn, guest, host).await.unwrap();
     assert!(second.created);
     assert_ne!(second.session_id, first.session_id);
     sessions::answer_join_request(&txn, host, second.session_id, guest, true)
         .await
         .unwrap();
+    let let_in = sessions::get_snapshot(&txn, host, second.session_id)
+        .await
+        .unwrap();
+    assert!(let_in.session.listen_along && let_in.session.went_live);
     let again = sessions::join_listening(&txn, guest, host).await.unwrap();
     assert!(!again.created);
     assert_eq!(again.session_id, second.session_id);
@@ -520,7 +636,7 @@ async fn social_listening_joining_someone_listening_makes_a_session() {
         sessions::leave_session(&txn, guest, second.session_id)
             .await
             .unwrap(),
-        sessions::Left::Ended(_)
+        sessions::Left::Left(_)
     ));
 
     txn.rollback().await.unwrap();
@@ -807,7 +923,7 @@ async fn social_listening_back_repeat_and_stale_reports() {
     command(PlaybackCommand::Next).await.unwrap();
     assert_eq!(songs().await, ["32"]);
 
-    // near the start, back goes to the song before, and again
+    // back goes to the song before, and again
     command(PlaybackCommand::Previous).await.unwrap();
     assert_eq!(songs().await, ["31", "32"]);
     command(PlaybackCommand::Previous).await.unwrap();
@@ -816,7 +932,8 @@ async fn social_listening_back_repeat_and_stale_reports() {
     command(PlaybackCommand::Previous).await.unwrap();
     assert_eq!(songs().await, ["30", "31", "32"]);
 
-    // past the threshold, back restarts the song
+    // however far into the song, back is the song before: restarting is a
+    // seek, which the app sends itself
     command(PlaybackCommand::Next).await.unwrap();
     command(PlaybackCommand::Seek {
         position_ms: 60_000,
@@ -825,8 +942,10 @@ async fn social_listening_back_repeat_and_stale_reports() {
     .unwrap();
     command(PlaybackCommand::Previous).await.unwrap();
     let snap = sessions::get_snapshot(&txn, host, id).await.unwrap();
-    assert_eq!(snap.current.unwrap().song_id, "31");
-    assert!(snap.playback.position_ms < 4_000);
+    assert_eq!(snap.current.unwrap().song_id, "30");
+    assert_eq!(snap.playback.position_ms, 0);
+    // on to 31 again, for what follows
+    command(PlaybackCommand::Next).await.unwrap();
 
     // a report from before the latest command is only the host being there
     let entry = sessions::get_snapshot(&txn, host, id)
@@ -1020,6 +1139,99 @@ async fn social_listening_favorites_and_blocks() {
 
     relations::unblock_user(&txn, a, b).await.unwrap();
     assert!(!relations::blocked_either_way(&txn, a, b).await.unwrap());
+
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_profile_shows_what_privacy_allows() {
+    let txn = scratch().await;
+    let (owner, viewer) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "INSERT INTO privacy_settings (user_id, profile_playlists, profile_queries)
+         VALUES ($1, 'nobody', 'everyone')
+         ON CONFLICT (user_id) DO UPDATE
+         SET profile_playlists = 'nobody', profile_queries = 'everyone'",
+        [owner.into()],
+    ))
+    .await
+    .unwrap();
+    let row = txn
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO saved_queries (user_id, name, query)
+             VALUES ($1, 'profile test query', '{}'::jsonb) RETURNING saved_query_id",
+            [owner.into()],
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    let id: i64 = row.try_get("", "saved_query_id").unwrap();
+
+    // playlists hidden from others, never from the owner
+    assert!(
+        playlists::profile_playlists(&txn, viewer, owner)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        playlists::profile_playlists(&txn, owner, owner)
+            .await
+            .unwrap()
+            .is_some()
+    );
+
+    // a query not shared is neither listed nor readable by others
+    let listed = |rows: Option<Vec<crate::db::entity::saved_queries::Model>>| {
+        rows.unwrap().iter().any(|q| q.saved_query_id == id)
+    };
+    assert!(!listed(
+        saved_queries::profile_queries(&txn, viewer, owner)
+            .await
+            .unwrap()
+    ));
+    assert!(matches!(
+        saved_queries::get_viewable_saved_query(&txn, viewer, id).await,
+        Err(CadenzaError::NotFound)
+    ));
+
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE saved_queries SET shared = true WHERE saved_query_id = $1",
+        [id.into()],
+    ))
+    .await
+    .unwrap();
+    assert!(listed(
+        saved_queries::profile_queries(&txn, viewer, owner)
+            .await
+            .unwrap()
+    ));
+    saved_queries::get_viewable_saved_query(&txn, viewer, id)
+        .await
+        .unwrap();
+
+    // turned off, a shared query is hidden again
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE privacy_settings SET profile_queries = 'nobody' WHERE user_id = $1",
+        [owner.into()],
+    ))
+    .await
+    .unwrap();
+    assert!(
+        saved_queries::profile_queries(&txn, viewer, owner)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(matches!(
+        saved_queries::get_viewable_saved_query(&txn, viewer, id).await,
+        Err(CadenzaError::NotFound)
+    ));
 
     txn.rollback().await.unwrap();
 }

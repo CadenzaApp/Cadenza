@@ -270,6 +270,20 @@ pub async fn list_my_playlists(
     .await?)
 }
 
+/// `owner`'s shared playlists for their profile, most recently changed first,
+/// or `None` when their `profile_playlists` setting hides them from `viewer`.
+/// Listing one does not let `viewer` open it; that still needs membership.
+pub async fn profile_playlists(
+    db: &impl Db,
+    viewer: Uuid,
+    owner: Uuid,
+) -> Result<Option<Vec<PlaylistSummary>>, CadenzaError> {
+    if !can_see_field(db, viewer, owner, PrivacyField::ProfilePlaylists).await? {
+        return Ok(None);
+    }
+    list_my_playlists(db, owner).await.map(Some)
+}
+
 /// Makes a playlist owned by `owner_id`, with `song_ids` in it. Returns its id.
 pub async fn create_playlist(
     db: &impl Db,

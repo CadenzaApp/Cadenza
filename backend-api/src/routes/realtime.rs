@@ -39,7 +39,7 @@ use tokio::{
 use crate::{
     AppState,
     auth::SupabaseClaims,
-    db::live_sessions::{self, HostLink},
+    db::live_sessions::{self, AppLink},
     services::realtime::{
         Event, EventKind, SharedEventBus, SharedPresence, Topic, access::can_subscribe,
         publish_user,
@@ -114,8 +114,9 @@ async fn ws_handler(
         };
         if presence.disconnect(user_id) {
             publish_user(&bus, user_id, EventKind::Presence);
-            // a host who closed the app: their session ends in a minute
-            if let Err(err) = live_sessions::set_host_link(&db, user_id, link).await {
+            // a host who closed the app: their session ends in a minute, and a
+            // member leaves theirs
+            if let Err(err) = live_sessions::set_app_link(&db, user_id, link).await {
                 eprintln!("realtime: could not mark {user_id} away: {err}");
             }
         }
@@ -166,19 +167,19 @@ async fn run_socket(
     decoder: Decoder<SupabaseClaims>,
     bus: SharedEventBus,
     presence: SharedPresence,
-) -> Option<(Uuid, HostLink)> {
+) -> Option<(Uuid, AppLink)> {
     let Some((user_id, expires_at)) = authenticate(&mut socket, &decoder).await else {
         close(socket, "auth failed").await;
         return None;
     };
     if presence.connect(user_id) {
         publish_user(&bus, user_id, EventKind::Presence);
-        if let Err(err) = live_sessions::set_host_link(&db, user_id, HostLink::Back).await {
+        if let Err(err) = live_sessions::set_app_link(&db, user_id, AppLink::Back).await {
             eprintln!("realtime: could not mark {user_id} back: {err}");
         }
     }
     if !send(&mut socket, &ServerMessage::Ready { user_id }).await {
-        return Some((user_id, HostLink::Closed));
+        return Some((user_id, AppLink::Closed));
     }
 
     let until_expiry = (expires_at - Utc::now().timestamp()).max(0) as u64;
@@ -191,7 +192,7 @@ async fn run_socket(
     let idle = tokio::time::sleep(IDLE_TIMEOUT);
     tokio::pin!(idle);
     // how it ended: the phone closing it, unless it went quiet
-    let mut link = HostLink::Closed;
+    let mut link = AppLink::Closed;
 
     loop {
         tokio::select! {
@@ -236,7 +237,7 @@ async fn run_socket(
                 }
             }
             _ = &mut idle => {
-                link = HostLink::Quiet;
+                link = AppLink::Quiet;
                 break;
             }
             _ = &mut expiry => {
@@ -245,7 +246,7 @@ async fn run_socket(
                     task.abort();
                 }
                 // the client reconnects with a fresh token
-                return Some((user_id, HostLink::Quiet));
+                return Some((user_id, AppLink::Quiet));
             }
         }
     }

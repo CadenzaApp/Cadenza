@@ -332,7 +332,11 @@ four, from `PrivacyField::default_audience`, which must match the SQL defaults a
 `DEFAULT_PRIVACY_SETTINGS` in `client-app/src/lib/routes/privacy.ts`. A fifth, `listen_along`
 (`sql/listen_along.sql`), defaults to `nobody`, which means off. Otherwise the client opens a
 session whenever the user plays, marked `live_sessions.listen_along`, and joining it checks this
-audience instead of `session_join`.
+audience instead of `session_join`. Two more, `profile_playlists` and `profile_queries`
+(`sql/profile_sharing.sql`, default `friends`), say who sees a user's shared playlists and the
+saved queries they shared (`saved_queries.shared`) on their profile. Seeing a shared query also
+lets the viewer read its songs (`saved_queries::get_viewable_saved_query`); seeing a playlist does
+not let them open it.
 
 Every check goes through `audience.rs`. `everyone` is anyone, `friends` is a `complete`
 `friendships` row, `nobody` is no one, and the owner always sees their own. List reads use
@@ -368,8 +372,19 @@ transaction, so the database tests can run them inside one that rolls back.
   the host's realtime socket dropped (`host_away_since`, `sql/live_session_host_away.sql`) if the
   phone closed it (`host_closed_app`, the app swiped away; `sql/live_session_host_closed_app.sql`)
   or it went quiet while playing, or a host alone quiet for 30 minutes. The session
-  sweep (`services/session_sweep.rs`) writes those ends every 30 s with `end_timed_out`. When the host's app is gone it also deletes their `now_playing` row, which a closed app never clears, so they leave friends' Listening now. A listen along session ends once nobody but the host is
-  in it or waiting (`end_if_unused`).
+  sweep (`services/session_sweep.rs`) writes those ends every 30 s with `end_timed_out`. When the host's app is gone it also deletes their `now_playing` row, which a closed app never clears, so they leave friends' Listening now. A listen along session nobody was ever
+  let into ends once nobody is waiting either (`end_if_unused`). Once anyone was let in it went
+  live (`went_live`, any member row besides the host's), shows as live, and stays open for the
+  host when they leave.
+- Members have the same presence as the host: `live_session_members.away_since` and
+  `closed_app` (`sql/live_session_member_away.sql`), set by `set_app_link` from the realtime
+  socket. The sweep's `remove_away_members` takes out a member whose app closed a minute ago or
+  went quiet for 10 (`services::live_sessions::member_gone`, `AWAY_MEMBER_SQL`), the way leaving
+  does.
+- `transfer_host` makes a member host and keeps the caller in as a controller playing along. It
+  shares `make_host` with the hand over on leave.
+- Queue entries keep `album`, `album_id`, and `artist_id` (`sql/live_session_queue_album.sql`)
+  when the app sends them, so a play inside a session is logged with them for the rankings.
   Adding to an empty session anchors on the first song, at the host's `StartAt` when given.
   `command_seq` counts anchor moves the host's phone did not make (`AnchorBy::Command`), so the
   host follows those and ignores versions that only echo its own reports. A report that names an
@@ -387,7 +402,8 @@ transaction, so the database tests can run them inside one that rolls back.
   play along in), and `can_join` from the host's `session_join` audience and bans, or with no
   session from their `listen_along` audience. A friend in a session that shows as live is listed
   while it is open, paused or with no now playing row (then the session's current song). Nothing
-  writes `now_playing.live_session_id`.
+  writes `now_playing.live_session_id`. `listener_count` is everyone in that session still in it
+  and not banned, the friend included, or 1 with no session that shows as live.
 - `join_listening` makes a listen along session for someone playing, seeded from their
   `now_playing` row (song, position, up next), then joins it.
 

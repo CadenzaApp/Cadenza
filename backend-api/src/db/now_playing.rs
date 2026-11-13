@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::{
     audience::{PrivacyField, can_see_field, visible_friend_ids},
     entity::now_playing::{self, Column},
-    live_sessions::{HAS_GUESTS_SQL, OPEN_SESSION_SQL},
+    live_sessions::{OPEN_SESSION_SQL, WENT_LIVE_SQL},
 };
 use crate::err::CadenzaError;
 
@@ -74,6 +74,9 @@ pub struct ListeningUser {
     pub can_join: bool,
     /// In a live session that shows as live, so listed even while paused.
     pub in_live_session: bool,
+    /// Who is listening: everyone in that live session, them included, or 1
+    /// with no session.
+    pub listener_count: i64,
 }
 
 /// Whether `song_id` can be shared. A library id (`i.` prefix) means nothing on
@@ -226,6 +229,7 @@ struct ListeningRow {
     updated_at: DateTime<FixedOffset>,
     can_join: bool,
     shows_live: bool,
+    listener_count: i64,
 }
 
 /// `viewer`'s friends who are playing something now and let friends see it,
@@ -267,7 +271,9 @@ pub async fn friends_listening(
                 COALESCE(
                     ls.can_join,
                     COALESCE(op.listen_along, 'nobody') IN ('friends', 'everyone')
-                ) AS can_join
+                ) AS can_join,
+                CASE WHEN COALESCE(ls.shows_live, false) THEN ls.listener_count ELSE 1 END
+                    AS listener_count
          FROM unnest($1::uuid[]) AS f(user_id)
          LEFT JOIN now_playing np ON np.user_id = f.user_id
          LEFT JOIN profile p ON p.uid = f.user_id
@@ -294,7 +300,10 @@ pub async fn friends_listening(
                         )
                         ELSE false
                     END AS can_join,
-                    NOT s.listen_along OR {has_guests} AS shows_live
+                    NOT s.listen_along OR {went_live} AS shows_live,
+                    (SELECT COUNT(*) FROM live_session_members c
+                     WHERE c.session_id = s.session_id AND c.left_at IS NULL AND NOT c.banned
+                    ) AS listener_count
              FROM live_session_members m
              JOIN live_sessions s ON s.session_id = m.session_id
              LEFT JOIN privacy_settings hp ON hp.user_id = s.host_id
@@ -308,7 +317,7 @@ pub async fn friends_listening(
          WHERE np.is_playing OR COALESCE(ls.shows_live, false)
          ORDER BY COALESCE(np.updated_at, ls.position_at) DESC",
             open = *OPEN_SESSION_SQL,
-            has_guests = HAS_GUESTS_SQL,
+            went_live = WENT_LIVE_SQL,
         ),
         vec![ids.to_vec().into(), viewer.into()],
     ))
@@ -320,6 +329,7 @@ pub async fn friends_listening(
         .into_iter()
         .map(|row| ListeningUser {
             in_live_session: row.shows_live,
+            listener_count: row.listener_count,
             user_id: row.user_id,
             username: row.username,
             can_join: row.can_join,

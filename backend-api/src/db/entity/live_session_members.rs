@@ -16,6 +16,8 @@ pub struct Model {
     pub joined_at: DateTimeWithTimeZone,
     pub left_at: Option<DateTimeWithTimeZone>,
     pub banned: bool,
+    pub away_since: Option<DateTimeWithTimeZone>,
+    pub closed_app: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

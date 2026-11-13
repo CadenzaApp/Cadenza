@@ -43,6 +43,10 @@ pub struct PrivacySettings {
     /// Who can join the listener only session the phone opens whenever this
     /// user plays. `nobody` means listen along is off.
     pub listen_along: Audience,
+    /// Who sees the user's shared playlists on their profile.
+    pub profile_playlists: Audience,
+    /// Who sees the saved queries the user shared on their profile.
+    pub profile_queries: Audience,
 }
 
 impl From<privacy_settings::Model> for PrivacySettings {
@@ -53,6 +57,8 @@ impl From<privacy_settings::Model> for PrivacySettings {
             session_join: model.session_join.into(),
             playlist_add: model.playlist_add.into(),
             listen_along: model.listen_along.into(),
+            profile_playlists: model.profile_playlists.into(),
+            profile_queries: model.profile_queries.into(),
         }
     }
 }
@@ -65,6 +71,8 @@ pub struct PatchPrivacySettings {
     pub session_join: Option<Audience>,
     pub playlist_add: Option<Audience>,
     pub listen_along: Option<Audience>,
+    pub profile_playlists: Option<Audience>,
+    pub profile_queries: Option<Audience>,
 }
 
 impl From<PatchPrivacySettings> for PrivacyPatch {
@@ -75,6 +83,8 @@ impl From<PatchPrivacySettings> for PrivacyPatch {
             session_join: body.session_join.map(Into::into),
             playlist_add: body.playlist_add.map(Into::into),
             listen_along: body.listen_along.map(Into::into),
+            profile_playlists: body.profile_playlists.map(Into::into),
+            profile_queries: body.profile_queries.map(Into::into),
         }
     }
 }

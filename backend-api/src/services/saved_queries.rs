@@ -9,7 +9,7 @@ use sea_orm::{DatabaseConnection, prelude::Uuid};
 use crate::db::entity::saved_queries;
 use crate::db::queries::{Arrangement, QueryOptions, QuerySongs, query_reads_tags, run_query};
 use crate::db::saved_queries::{
-    SavedSong, append_saved_songs, get_saved_query, get_saved_songs, list_saved_queries,
+    SavedSong, append_saved_songs, get_saved_songs, get_viewable_saved_query, list_saved_queries,
     replace_saved_songs,
 };
 use crate::db::settings::get_settings;
@@ -59,16 +59,17 @@ pub async fn store_saved_songs(
     Ok(songs)
 }
 
-/// The songs one of the user's saved queries holds, in order. A query saved before songs
-/// were stored gets them stored now. `NotFound` when the user has none by that id.
+/// The songs a saved query `viewer` may read holds, in order: their own, or one shared on
+/// its owner's profile. A query saved before songs were stored gets them stored now, run as
+/// its owner. `NotFound` when there is none by that id `viewer` may read.
 pub async fn saved_songs(
     db: &DatabaseConnection,
-    user_id: Uuid,
+    viewer: Uuid,
     saved_query_id: i64,
 ) -> Result<Vec<SavedSong>, CadenzaError> {
-    let saved = get_saved_query(db, user_id, saved_query_id).await?;
+    let saved = get_viewable_saved_query(db, viewer, saved_query_id).await?;
     if saved.songs_stored_at.is_none() {
-        return store_saved_songs(db, user_id, &saved).await;
+        return store_saved_songs(db, saved.user_id, &saved).await;
     }
     get_saved_songs(db, saved_query_id).await
 }

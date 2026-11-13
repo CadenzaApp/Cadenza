@@ -30,16 +30,18 @@ use crate::db::entity::sea_orm_active_enums::{JoinRequestStatus, ListenMode};
 use crate::db::{Db, stmt};
 use crate::db::{
     audience::{PrivacyField, can_see_field},
-    entity::{live_sessions as sessions, now_playing as now_playing_row},
+    entity::{
+        live_session_members as members, live_sessions as sessions, now_playing as now_playing_row,
+    },
     invites::{InviteTargetRef, revoke_invites_for},
     notification::NotificationType,
     now_playing::{is_catalog_id, is_live, projected_position_ms, read_up_next},
 };
 use crate::err::CadenzaError;
 use crate::services::live_sessions::{
-    AWAY_TIMEOUT, Actor, Anchor, HOST_TIMEOUT, Liveness, PAUSED_TIMEOUT, Projected, REPORT_JUMP_MS,
-    RESTART_THRESHOLD_MS, RepeatMode, SessionAction, SessionEntryStatus, SessionRole, add_lands_as,
-    allowed, project, timed_out,
+    AWAY_TIMEOUT, Actor, Anchor, HOST_TIMEOUT, Liveness, MEMBER_QUIET_TIMEOUT, PAUSED_TIMEOUT,
+    Projected, REPORT_JUMP_MS, RepeatMode, SessionAction, SessionEntryStatus, SessionRole,
+    add_lands_as, allowed, project, timed_out,
 };
 use crate::services::notification::{NewNotification, push_notification};
 
@@ -75,6 +77,9 @@ pub struct SessionRow {
     pub repeat_mode: RepeatMode,
     /// Someone besides the host is in it, so a quiet host does not end it.
     pub has_guests: bool,
+    /// Someone besides the host has ever been let in. A listen along session
+    /// shows as live from then on, and stays open when they leave.
+    pub went_live: bool,
     /// When the host's app lost its realtime connection, if it has.
     pub host_away_since: Option<DateTime<FixedOffset>>,
     /// The phone closed that connection rather than letting it go quiet.
@@ -106,6 +111,13 @@ impl SessionRow {
     }
 }
 
+/// SQL for whether anyone besides the host was ever let into session `s`, left
+/// or not. See [`SessionRow::went_live`].
+pub const WENT_LIVE_SQL: &str = "EXISTS (
+     SELECT 1 FROM live_session_members g
+     WHERE g.session_id = s.session_id AND g.user_id <> s.host_id
+ )";
+
 /// SQL for whether session `s` has someone besides the host in it.
 pub const HAS_GUESTS_SQL: &str = "EXISTS (
      SELECT 1 FROM live_session_members g
@@ -120,7 +132,7 @@ static SESSION_COLUMNS: LazyLock<String> = LazyLock::new(|| {
      s.current_entry_id, s.is_playing, s.position_ms, s.position_at, s.version, s.command_seq,
      s.host_seen_at, s.created_at, s.ended_at, s.listen_along, s.approve_joins,
      s.shuffle, s.repeat_mode::text AS repeat_mode, {HAS_GUESTS_SQL} AS has_guests,
-     s.host_away_since, s.host_closed_app"
+     {WENT_LIVE_SQL} AS went_live, s.host_away_since, s.host_closed_app"
     )
 });
 
@@ -141,9 +153,9 @@ pub static OPEN_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// What happened to a host's realtime connection.
+/// What happened to a user's realtime connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HostLink {
+pub enum AppLink {
     /// Connected again.
     Back,
     /// The phone closed it, as when the app is swiped away.
@@ -154,39 +166,127 @@ pub enum HostLink {
 }
 
 /// Notes what happened to `user_id`'s realtime connection on every open
-/// session they host.
-pub async fn set_host_link(
+/// session they host, and on every session they are in as a member. The
+/// session sweep reads it: a host gone ends the session ([`end_timed_out`]),
+/// a member gone leaves it ([`remove_away_members`]).
+pub async fn set_app_link(
     db: &impl ConnectionTrait,
     user_id: Uuid,
-    link: HostLink,
+    link: AppLink,
 ) -> Result<(), CadenzaError> {
-    let away = link != HostLink::Back;
-    let closed = link == HostLink::Closed;
-    let away_since = if away {
-        Expr::current_timestamp()
-    } else {
-        Expr::value(Option::<DateTime<FixedOffset>>::None)
+    let away = link != AppLink::Back;
+    let closed = link == AppLink::Closed;
+    let away_since = || {
+        if away {
+            Expr::current_timestamp()
+        } else {
+            Expr::value(Option::<DateTime<FixedOffset>>::None)
+        }
     };
     sessions::Entity::update_many()
-        .col_expr(sessions::Column::HostAwaySince, away_since)
+        .col_expr(sessions::Column::HostAwaySince, away_since())
         .col_expr(sessions::Column::HostClosedApp, Expr::value(closed))
         .filter(sessions::Column::HostId.eq(user_id))
         .filter(sessions::Column::EndedAt.is_null())
         .exec(db)
         .await?;
+    members::Entity::update_many()
+        .col_expr(members::Column::AwaySince, away_since())
+        .col_expr(members::Column::ClosedApp, Expr::value(closed))
+        .filter(members::Column::UserId.eq(user_id))
+        .filter(members::Column::LeftAt.is_null())
+        .exec(db)
+        .await?;
     Ok(())
 }
 
-/// Marks every open session's host away, for startup: no socket outlives a
-/// restart, and a host who comes back clears it on connect.
-pub async fn mark_all_hosts_away(db: &impl ConnectionTrait) -> Result<(), CadenzaError> {
+/// Marks every open session's host, and every member, away, for startup: no
+/// socket outlives a restart, and whoever comes back clears it on connect.
+pub async fn mark_all_away(db: &impl ConnectionTrait) -> Result<(), CadenzaError> {
     sessions::Entity::update_many()
         .col_expr(sessions::Column::HostAwaySince, Expr::current_timestamp())
         .filter(sessions::Column::EndedAt.is_null())
         .filter(sessions::Column::HostAwaySince.is_null())
         .exec(db)
         .await?;
+    members::Entity::update_many()
+        .col_expr(members::Column::AwaySince, Expr::current_timestamp())
+        .filter(members::Column::LeftAt.is_null())
+        .filter(members::Column::AwaySince.is_null())
+        .exec(db)
+        .await?;
     Ok(())
+}
+
+/// SQL for whether member row `m` of session `s` left by their app, the same
+/// rule as `services::live_sessions::member_gone`. Never the host, whose app
+/// going away ends the session instead.
+pub static AWAY_MEMBER_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "m.user_id <> s.host_id AND m.left_at IS NULL AND NOT m.banned
+     AND m.away_since < now() - CASE WHEN m.closed_app
+         THEN interval '{away} seconds' ELSE interval '{quiet} seconds' END",
+        away = AWAY_TIMEOUT.num_seconds(),
+        quiet = MEMBER_QUIET_TIMEOUT.num_seconds(),
+    )
+});
+
+/// Members [`remove_away_members`] took out of one session.
+#[derive(Clone, Debug)]
+pub struct MembersGone {
+    pub session_id: Uuid,
+    pub user_ids: Vec<Uuid>,
+    /// The session's version after, or its final one when it ended.
+    pub version: i64,
+    /// Taking them out left a listen along session with nobody, so it ended.
+    pub ended: bool,
+}
+
+/// Takes every member whose app closed a minute ago, or went quiet for 10, out
+/// of their open session, the way leaving does. Returns them by session so
+/// the caller can tell the session and each of them.
+pub async fn remove_away_members(db: &impl Db) -> Result<Vec<MembersGone>, CadenzaError> {
+    let txn = db.begin().await?;
+    let rows = txn
+        .query_all_raw(stmt(
+            &format!(
+                "UPDATE live_session_members m SET left_at = now()
+                 FROM live_sessions s
+                 WHERE s.session_id = m.session_id AND s.ended_at IS NULL
+                   AND {away}
+                 RETURNING m.session_id, m.user_id",
+                away = *AWAY_MEMBER_SQL,
+            ),
+            vec![],
+        ))
+        .await?;
+    let mut by_session: Vec<(Uuid, Vec<Uuid>)> = Vec::new();
+    for row in rows {
+        let session_id: Uuid = row.try_get("", "session_id")?;
+        let user_id: Uuid = row.try_get("", "user_id")?;
+        match by_session.iter_mut().find(|(id, _)| *id == session_id) {
+            Some((_, users)) => users.push(user_id),
+            None => by_session.push((session_id, vec![user_id])),
+        }
+    }
+    let mut gone = Vec::with_capacity(by_session.len());
+    for (session_id, user_ids) in by_session {
+        let Some(session) = load_session(&txn, session_id, true).await? else {
+            continue;
+        };
+        let (version, ended) = match end_if_unused(&txn, &session).await? {
+            Some(version) => (version, true),
+            None => (bump(&txn, session_id).await?, false),
+        };
+        gone.push(MembersGone {
+            session_id,
+            user_ids,
+            version,
+            ended,
+        });
+    }
+    txn.commit().await?;
+    Ok(gone)
 }
 
 /// A session [`end_timed_out`] ended, and who was in it.
@@ -281,6 +381,9 @@ pub struct QueueEntry {
     pub song_id: String,
     pub title: String,
     pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_id: Option<String>,
+    pub artist_id: Option<String>,
     pub artwork_url: Option<String>,
     pub duration_ms: Option<i64>,
     pub position: i32,
@@ -298,6 +401,10 @@ pub struct NewQueueSong {
     pub song_id: String,
     pub title: String,
     pub artist: Option<String>,
+    /// Logged with a play, for the album ranking. Null when not known.
+    pub album: Option<String>,
+    pub album_id: Option<String>,
+    pub artist_id: Option<String>,
     pub artwork_url: Option<String>,
     pub duration_ms: Option<i64>,
 }
@@ -412,7 +519,9 @@ pub enum PlaybackCommand {
         position_ms: i64,
     },
     Next,
-    /// Back: restarts the song, or near its start goes to the last one played.
+    /// Back a song: the last one played, or with none, the start of this one.
+    /// Restarting the song is a `Seek` to 0; the app decides which back is,
+    /// from where it really is, since the projection can be off by seconds.
     Previous,
     Jump {
         entry_id: i64,
@@ -586,7 +695,8 @@ async fn entries_with_status<C: ConnectionTrait>(
     status: SessionEntryStatus,
 ) -> Result<Vec<QueueEntry>, CadenzaError> {
     Ok(QueueEntry::find_by_statement(stmt(
-        "SELECT q.entry_id, q.song_id, q.title, q.artist, q.artwork_url, q.duration_ms,
+        "SELECT q.entry_id, q.song_id, q.title, q.artist, q.album, q.album_id, q.artist_id,
+                q.artwork_url, q.duration_ms,
                 q.position, q.status::text AS status, q.added_by,
                 p.username AS added_by_username, q.added_at
          FROM live_session_queue q
@@ -1094,6 +1204,9 @@ pub async fn join_listening(
             song_id: playing.song_id.clone(),
             title: playing.title.clone(),
             artist: playing.artist.clone(),
+            album: playing.album.clone(),
+            album_id: None,
+            artist_id: None,
             artwork_url: playing.artwork_url.clone(),
             duration_ms: playing.duration_ms,
         })
@@ -1106,6 +1219,9 @@ pub async fn join_listening(
                         song_id,
                         title: song.title,
                         artist: song.artist,
+                        album: None,
+                        album_id: None,
+                        artist_id: None,
                         artwork_url: song.artwork_url,
                         duration_ms: None,
                     })
@@ -1143,7 +1259,7 @@ async fn add_member(
         "INSERT INTO live_session_members (session_id, user_id, role)
          VALUES ($1, $2, $3::session_role)
          ON CONFLICT (session_id, user_id)
-         DO UPDATE SET left_at = NULL, joined_at = now()",
+         DO UPDATE SET left_at = NULL, joined_at = now(), away_since = NULL, closed_app = false",
         vec![
             session.session_id.into(),
             user_id.into(),
@@ -1295,9 +1411,10 @@ pub struct Answered {
     pub ended: bool,
 }
 
-/// A listen along session is there for the people who joined it. Once nobody
-/// besides the host is in it or waiting to be, it ends and the host just
-/// listens again. Returns the final version when it ended.
+/// A listen along session nobody was ever let into, and nobody is waiting to
+/// join, ends, and the host just listens again. Once someone was let in it
+/// went live, and stays open for the host when they leave, until the host
+/// ends it or it runs its course. Returns the final version when it ended.
 async fn end_if_unused(
     txn: &DatabaseTransaction,
     session: &SessionRow,
@@ -1308,7 +1425,7 @@ async fn end_if_unused(
     let row = txn
         .query_one_raw(stmt(
             &format!(
-                "SELECT {HAS_GUESTS_SQL} OR EXISTS (
+                "SELECT {WENT_LIVE_SQL} OR EXISTS (
                      SELECT 1 FROM live_session_join_requests r
                      WHERE r.session_id = s.session_id AND r.status = 'pending'
                  ) AS used
@@ -1396,7 +1513,20 @@ async fn hand_over(
         return Ok(None);
     };
     let new_host: Uuid = row.try_get("", "user_id")?;
+    let version = make_host(txn, session, new_host, None).await?;
+    Ok(Some((version, new_host)))
+}
 
+/// Makes `new_host` the host. Playback is re-anchored where it is now, so the
+/// new host's phone picks up from there, and the new host always plays. The
+/// old host leaves, or with `old_host_stays` stays as a member with that role,
+/// playing along. Returns the new version.
+async fn make_host(
+    txn: &DatabaseTransaction,
+    session: &SessionRow,
+    new_host: Uuid,
+    old_host_stays: Option<SessionRole>,
+) -> Result<i64, CadenzaError> {
     let queued = queued_entries(txn, session.session_id).await?;
     let here = projected_playback(session, &queued, Utc::now());
     set_anchor(
@@ -1414,16 +1544,20 @@ async fn hand_over(
         vec![session.session_id.into(), new_host.into()],
     ))
     .await?;
-    // the new host always plays; the old one is gone
+    // the new host always plays; the old one is gone, or plays along
     txn.execute_raw(stmt(
         "UPDATE live_session_members SET
-             listen_mode = CASE WHEN user_id = $3 THEN 'synced'::listen_mode ELSE listen_mode END,
-             left_at = CASE WHEN user_id = $2 THEN now() ELSE left_at END
+             listen_mode = CASE WHEN user_id = $3 OR $4::session_role IS NOT NULL
+                 THEN 'synced'::listen_mode ELSE listen_mode END,
+             left_at = CASE WHEN user_id = $2 AND $4::session_role IS NULL
+                 THEN now() ELSE left_at END,
+             role = CASE WHEN user_id = $2 THEN COALESCE($4::session_role, role) ELSE role END
          WHERE session_id = $1 AND user_id IN ($2, $3)",
         vec![
             session.session_id.into(),
             session.host_id.into(),
             new_host.into(),
+            old_host_stays.into(),
         ],
     ))
     .await?;
@@ -1439,7 +1573,45 @@ async fn hand_over(
             renumber(txn, session.session_id).await?;
         }
     }
-    Ok(Some((bump(txn, session.session_id).await?, new_host)))
+    bump(txn, session.session_id).await
+}
+
+/// The host hands the session to `member_id` and stays in it as a controller,
+/// playing along, without it ending. Host only. `NotFound` when they are not
+/// in it, `InvalidRequestBody` when they host their own open session. Returns the new version.
+pub async fn transfer_host(
+    db: &impl Db,
+    user_id: Uuid,
+    session_id: Uuid,
+    member_id: Uuid,
+) -> Result<i64, CadenzaError> {
+    let txn = db.begin().await?;
+    let (session, _) = lock_for(&txn, session_id, user_id, SessionAction::Manage).await?;
+    if member_id == session.host_id {
+        return Err(CadenzaError::InvalidRequestBody(
+            "you already host this session".into(),
+        ));
+    }
+    let row = txn
+        .query_one_raw(stmt(
+            "SELECT EXISTS (
+                 SELECT 1 FROM live_sessions o
+                 WHERE o.host_id = m.user_id AND o.ended_at IS NULL
+             ) AS hosting
+             FROM live_session_members m
+             WHERE m.session_id = $1 AND m.user_id = $2 AND m.left_at IS NULL AND NOT m.banned",
+            vec![session_id.into(), member_id.into()],
+        ))
+        .await?
+        .ok_or(CadenzaError::NotFound)?;
+    if row.try_get::<bool>("", "hosting")? {
+        return Err(CadenzaError::InvalidRequestBody(
+            "they host their own session".into(),
+        ));
+    }
+    let version = make_host(&txn, &session, member_id, Some(SessionRole::Controller)).await?;
+    txn.commit().await?;
+    Ok(version)
 }
 
 async fn end_locked(txn: &DatabaseTransaction, session: &SessionRow) -> Result<i64, CadenzaError> {
@@ -1661,23 +1833,27 @@ pub async fn add_songs(
     for (offset, song) in songs.iter().enumerate() {
         let row = txn
             .query_one_raw(stmt(
-            "INSERT INTO live_session_queue
-                 (session_id, song_id, title, artist, artwork_url, duration_ms, position, status, added_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::session_entry_status, $9)
+                "INSERT INTO live_session_queue
+                 (session_id, song_id, title, artist, artwork_url, duration_ms, position, status,
+                  added_by, album, album_id, artist_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::session_entry_status, $9, $10, $11, $12)
              RETURNING entry_id",
-            vec![
-                session_id.into(),
-                song.song_id.clone().into(),
-                song.title.trim().to_owned().into(),
-                song.artist.clone().into(),
-                song.artwork_url.clone().into(),
-                song.duration_ms.filter(|ms| *ms > 0).into(),
-                (start + offset as i32).into(),
-                status.into(),
-                user_id.into(),
-            ],
-        ))
-        .await?
+                vec![
+                    session_id.into(),
+                    song.song_id.clone().into(),
+                    song.title.trim().to_owned().into(),
+                    song.artist.clone().into(),
+                    song.artwork_url.clone().into(),
+                    song.duration_ms.filter(|ms| *ms > 0).into(),
+                    (start + offset as i32).into(),
+                    status.into(),
+                    user_id.into(),
+                    song.album.clone().into(),
+                    song.album_id.clone().into(),
+                    song.artist_id.clone().into(),
+                ],
+            ))
+            .await?
             .ok_or(CadenzaError::NotFound)?;
         first_added.get_or_insert(row.try_get::<i64>("", "entry_id")?);
     }
@@ -1910,8 +2086,7 @@ pub async fn playback_command(
                 .await?
                 .map(|row| row.try_get::<i64>("", "entry_id"))
                 .transpose()?;
-            let restart = here.entry_id.is_some() && here.position_ms > RESTART_THRESHOLD_MS;
-            match last_played.filter(|_| !restart) {
+            match last_played {
                 Some(entry_id) => {
                     // back in the queue, ahead of what was current
                     txn.execute_raw(stmt(
@@ -2147,6 +2322,9 @@ mod tests {
             song_id: entry_id.to_string(),
             title: String::new(),
             artist: None,
+            album: None,
+            album_id: None,
+            artist_id: None,
             artwork_url: None,
             duration_ms,
             position: 0,
@@ -2180,6 +2358,7 @@ mod tests {
             shuffle: false,
             repeat_mode: RepeatMode::Off,
             has_guests: false,
+            went_live: false,
             host_away_since: None,
             host_closed_app: false,
         }

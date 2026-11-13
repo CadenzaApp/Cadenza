@@ -424,8 +424,10 @@ so the audience checks stay in the HTTP reads, and access is checked once per su
   socket in the background, so this is "has the app open". `GET /social/friends` reads it.
   A socket that sends nothing for 60 s is dropped (the client pings every 25 s). A user's last
   socket ending sets `host_away_since` on sessions they host, and `host_closed_app` when the phone
-  closed it rather than it going quiet; connecting clears both. That is how a swiped away app
-  ends its session a minute later, even though closing it paused the music first.
+  closed it rather than it going quiet, and the same `away_since` / `closed_app` on sessions they
+  are in as a member; connecting clears them. That is how a swiped away app ends its session a
+  minute later, even though closing it paused the music first, and how a member who swiped it
+  away leaves theirs.
 - `InMemoryBus` and `InMemoryPresence` work for one backend instance. A second instance
   needs a `PgNotifyBus` and a shared presence store behind the same `EventBus` and
   `Presence` traits; nothing else changes.

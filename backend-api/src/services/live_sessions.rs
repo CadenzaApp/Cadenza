@@ -104,9 +104,28 @@ pub fn timed_out(session: Liveness, now: DateTime<Utc>) -> bool {
     paused_too_long || closed || alone_and_quiet
 }
 
-/// Back past this far into a song restarts it instead of going to the one
-/// before. Matches the app's own player.
-pub const RESTART_THRESHOLD_MS: i64 = 4_000;
+/// A member whose app went quiet this long is taken out of the session. Longer
+/// than [`AWAY_TIMEOUT`], since a remote member's phone is frozen in the
+/// background between glances and comes back.
+pub const MEMBER_QUIET_TIMEOUT: Duration = Duration::minutes(10);
+
+/// Whether a member, not the host, has left by their app at `now`: closed a
+/// minute ago (swiped away), or quiet for [`MEMBER_QUIET_TIMEOUT`].
+/// `db::live_sessions::AWAY_MEMBER_SQL` is the same rule in SQL.
+pub fn member_gone(
+    away_since: Option<DateTime<Utc>>,
+    closed_app: bool,
+    now: DateTime<Utc>,
+) -> bool {
+    away_since.is_some_and(|away| {
+        let timeout = if closed_app {
+            AWAY_TIMEOUT
+        } else {
+            MEMBER_QUIET_TIMEOUT
+        };
+        now - away > timeout
+    })
+}
 
 /// A host report this far off the projection is a seek or restart on the
 /// phone, which everyone else follows. Matches the app's report threshold.
@@ -176,6 +195,16 @@ pub fn project(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn members_leave_a_minute_after_closing_or_ten_after_going_quiet() {
+        let now = Utc::now();
+        assert!(!member_gone(None, false, now));
+        let away = now - Duration::seconds(90);
+        assert!(member_gone(Some(away), true, now));
+        assert!(!member_gone(Some(away), false, now));
+        assert!(member_gone(Some(now - Duration::minutes(11)), false, now));
+    }
 
     fn anchor(is_playing: bool, position_ms: i64) -> (Anchor, DateTime<Utc>) {
         let at = Utc::now();

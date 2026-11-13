@@ -14,6 +14,8 @@ pub struct Model {
     pub playlist_add: Audience,
     pub updated_at: DateTimeWithTimeZone,
     pub listen_along: Audience,
+    pub profile_playlists: Audience,
+    pub profile_queries: Audience,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -11,6 +11,7 @@ use sea_orm::{
     TransactionTrait, prelude::Expr, prelude::Uuid, sea_query::OnConflict,
 };
 
+use crate::db::audience::{PrivacyField, can_see_field};
 use crate::db::entity::{saved_queries, saved_query_songs};
 use crate::err::CadenzaError;
 
@@ -37,7 +38,11 @@ pub struct SavedQueryPatch {
     pub name: Option<String>,
     pub favorite: Option<bool>,
     pub artwork_urls: Option<Vec<String>>,
+    pub shared: Option<bool>,
 }
+
+/// The most shared queries a profile shows.
+pub const MAX_PROFILE_QUERIES: u64 = 5;
 
 /// One song a saved query holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +108,53 @@ pub async fn get_saved_query(
         .ok_or(CadenzaError::NotFound)
 }
 
+/// A saved query `viewer` may read: one of their own, or one its owner shared on their
+/// profile when their `profile_queries` setting lets `viewer` see it. `NotFound`
+/// otherwise, so an id does not leak that it exists.
+pub async fn get_viewable_saved_query(
+    db: &impl ConnectionTrait,
+    viewer: Uuid,
+    saved_query_id: i64,
+) -> Result<saved_queries::Model, CadenzaError> {
+    let saved = saved_queries::Entity::find_by_id(saved_query_id)
+        .one(db)
+        .await?
+        .ok_or(CadenzaError::NotFound)?;
+    if saved.user_id == viewer {
+        return Ok(saved);
+    }
+    if saved.shared
+        && can_see_field(db, viewer, saved.user_id, PrivacyField::ProfileQueries).await?
+    {
+        return Ok(saved);
+    }
+    Err(CadenzaError::NotFound)
+}
+
+/// The queries `owner` shared on their profile, favorites first, then newest first, at
+/// most [`MAX_PROFILE_QUERIES`]. `None` when their `profile_queries` setting hides them
+/// from `viewer`.
+pub async fn profile_queries(
+    db: &impl ConnectionTrait,
+    viewer: Uuid,
+    owner: Uuid,
+) -> Result<Option<Vec<saved_queries::Model>>, CadenzaError> {
+    if !can_see_field(db, viewer, owner, PrivacyField::ProfileQueries).await? {
+        return Ok(None);
+    }
+    Ok(Some(
+        saved_queries::Entity::find()
+            .filter(saved_queries::Column::UserId.eq(owner))
+            .filter(saved_queries::Column::Shared.eq(true))
+            .order_by_desc(saved_queries::Column::Favorite)
+            .order_by_desc(saved_queries::Column::CreatedAt)
+            .order_by_desc(saved_queries::Column::SavedQueryId)
+            .limit(MAX_PROFILE_QUERIES)
+            .all(db)
+            .await?,
+    ))
+}
+
 /// Stores a query under a name, with no songs yet. `QueryNameAlreadyTaken` when the user
 /// already has one by that name.
 pub async fn create_saved_query(
@@ -121,6 +173,7 @@ pub async fn create_saved_query(
         favorite: Set(new.favorite),
         artwork_urls: Set(new.artwork_urls.map(artwork_json)),
         songs_stored_at: Set(None),
+        shared: NotSet,
     }
     .insert(db)
     .await?)
@@ -144,6 +197,9 @@ pub async fn update_saved_query(
     }
     if let Some(urls) = patch.artwork_urls {
         row.artwork_urls = Set(Some(artwork_json(urls)));
+    }
+    if let Some(shared) = patch.shared {
+        row.shared = Set(shared);
     }
     Ok(row.update(db).await?)
 }

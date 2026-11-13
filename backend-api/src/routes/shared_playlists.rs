@@ -20,7 +20,8 @@ use crate::{
         shared_playlist::{
             AddSharedPlaylistMember, AddSharedPlaylistSongs, CreateSharedPlaylist,
             CreatedSharedPlaylist, ExpectedVersion, MoveSharedPlaylistSong, PatchSharedPlaylist,
-            PlaylistVersion, SetSharedPlaylistRole, SharedPlaylistDetail, SharedPlaylistsResponse,
+            PlaylistVersion, ProfilePlaylistsResponse, SetSharedPlaylistRole, SharedPlaylistDetail,
+            SharedPlaylistsResponse,
         },
         vec_into,
     },
@@ -69,6 +70,24 @@ async fn list_handler(
     let rows = playlists::list_my_playlists(&db, claims.user_id).await?;
     Ok(Json(SharedPlaylistsResponse {
         playlists: vec_into(rows),
+    }))
+}
+
+/// One user's shared playlists for their profile, in the shape `GET /` lists, with
+/// `role` being theirs. `playlists` is null when their `profile_playlists` setting
+/// hides them from the caller. Opening one still needs membership or a code.
+///
+/// ```json
+/// { "playlists": [ { "playlist_id": 4, "name": "Road trip", "description": "", "owner": { "user_id": "...", "username": "ada" }, "role": "owner", "song_count": 31, "member_count": 3, "cover_song_ids": ["1440857781"], "version": 12, "updated_at": "2026-11-10T18:00:00Z" } ] }
+/// ```
+async fn user_playlists_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<ProfilePlaylistsResponse>, CadenzaError> {
+    let rows = playlists::profile_playlists(&db, claims.user_id, user_id).await?;
+    Ok(Json(ProfilePlaylistsResponse {
+        playlists: rows.map(vec_into),
     }))
 }
 
@@ -283,6 +302,7 @@ async fn invite_handler(
 pub fn get_shared_playlists_router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_handler).post(create_handler))
+        .route("/users/{user_id}", get(user_playlists_handler))
         .route(
             "/{id}",
             get(get_handler).patch(patch_handler).delete(delete_handler),

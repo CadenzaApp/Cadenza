@@ -23,6 +23,12 @@ pub struct Model {
     pub added_by: Option<Uuid>,
     pub added_at: DateTimeWithTimeZone,
     pub played_at: Option<DateTimeWithTimeZone>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub album: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub album_id: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub artist_id: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

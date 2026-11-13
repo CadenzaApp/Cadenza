@@ -1,6 +1,6 @@
 //! Who may see one part of a user's listening. The one audience check every
 //! social listening feature goes through: now playing, recent plays, live
-//! session joins, and shared playlist adds.
+//! session joins, shared playlist adds, and what a profile shows.
 //!
 //! `everyone` lets anyone in, `friends` needs a `complete` row in
 //! `friendships`, and `nobody` lets no one in. The owner always sees their own.
@@ -26,6 +26,10 @@ pub enum PrivacyField {
     PlaylistAdd,
     /// Joining a listen along session without a code.
     ListenAlong,
+    /// The user's shared playlists on their profile.
+    ProfilePlaylists,
+    /// The saved queries the user shared, on their profile.
+    ProfileQueries,
 }
 
 impl PrivacyField {
@@ -37,11 +41,14 @@ impl PrivacyField {
             Self::SessionJoin => "session_join",
             Self::PlaylistAdd => "playlist_add",
             Self::ListenAlong => "listen_along",
+            Self::ProfilePlaylists => "profile_playlists",
+            Self::ProfileQueries => "profile_queries",
         }
     }
 
     /// What a user with no row gets. Matches the column defaults in
-    /// `sql/social_privacy.sql` and `sql/listen_along.sql`.
+    /// `sql/social_privacy.sql`, `sql/listen_along.sql`, and
+    /// `sql/profile_sharing.sql`.
     pub fn default_audience(self) -> Audience {
         match self {
             Self::ListenAlong => Audience::Nobody,
@@ -57,6 +64,8 @@ impl PrivacyField {
             Self::SessionJoin => row.session_join.clone(),
             Self::PlaylistAdd => row.playlist_add.clone(),
             Self::ListenAlong => row.listen_along.clone(),
+            Self::ProfilePlaylists => row.profile_playlists.clone(),
+            Self::ProfileQueries => row.profile_queries.clone(),
         }
     }
 }

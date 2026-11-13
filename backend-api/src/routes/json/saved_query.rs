@@ -21,6 +21,8 @@ pub struct SavedQuery {
     pub created_at: DateTime<FixedOffset>,
     /// When its songs were last stored. Null until they first are.
     pub songs_stored_at: Option<DateTime<FixedOffset>>,
+    /// Shown on the user's profile.
+    pub shared: bool,
 }
 
 impl SavedQuery {
@@ -36,8 +38,36 @@ impl SavedQuery {
             song_count,
             created_at: model.created_at,
             songs_stored_at: model.songs_stored_at,
+            shared: model.shared,
         }
     }
+}
+
+/// A query shared on a profile, as another user sees it. Leaves out the query itself,
+/// whose tag ids only mean something to its owner.
+#[derive(Serialize)]
+pub struct ProfileQuery {
+    pub saved_query_id: i64,
+    pub name: String,
+    pub artwork_urls: Vec<String>,
+    pub song_count: i64,
+}
+
+impl ProfileQuery {
+    pub fn new(model: saved_queries::Model, song_count: i64) -> Self {
+        Self {
+            saved_query_id: model.saved_query_id,
+            artwork_urls: read_artwork_urls(model.artwork_urls.as_ref()),
+            name: model.name,
+            song_count,
+        }
+    }
+}
+
+/// The response of `GET /saved-queries/users/{user_id}`. `queries` is null when hidden.
+#[derive(Serialize)]
+pub struct ProfileQueriesResponse {
+    pub queries: Option<Vec<ProfileQuery>>,
 }
 
 /// The body of `POST /saved-queries`.
@@ -64,6 +94,8 @@ pub struct PatchSavedQueryBody {
     pub favorite: Option<bool>,
     #[serde(default)]
     pub artwork_urls: Option<Vec<String>>,
+    #[serde(default)]
+    pub shared: Option<bool>,
 }
 
 /// One song a saved query holds.

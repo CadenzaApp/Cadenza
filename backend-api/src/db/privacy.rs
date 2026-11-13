@@ -21,6 +21,8 @@ pub struct PrivacyPatch {
     pub session_join: Option<Audience>,
     pub playlist_add: Option<Audience>,
     pub listen_along: Option<Audience>,
+    pub profile_playlists: Option<Audience>,
+    pub profile_queries: Option<Audience>,
 }
 
 /// The settings a user with no row gets.
@@ -33,6 +35,8 @@ fn default_privacy(user_id: Uuid) -> privacy_settings::Model {
         playlist_add: PrivacyField::PlaylistAdd.default_audience(),
         updated_at: Utc::now().fixed_offset(),
         listen_along: PrivacyField::ListenAlong.default_audience(),
+        profile_playlists: PrivacyField::ProfilePlaylists.default_audience(),
+        profile_queries: PrivacyField::ProfileQueries.default_audience(),
     }
 }
 
@@ -69,6 +73,14 @@ pub async fn update_privacy(
         playlist_add: Set(patch.playlist_add.clone().unwrap_or(defaults.playlist_add)),
         updated_at: Set(Utc::now().fixed_offset()),
         listen_along: Set(patch.listen_along.clone().unwrap_or(defaults.listen_along)),
+        profile_playlists: Set(patch
+            .profile_playlists
+            .clone()
+            .unwrap_or(defaults.profile_playlists)),
+        profile_queries: Set(patch
+            .profile_queries
+            .clone()
+            .unwrap_or(defaults.profile_queries)),
     };
 
     let changed = changed_columns(&patch);
@@ -96,6 +108,8 @@ fn changed_columns(patch: &PrivacyPatch) -> Vec<Column> {
             Column::SessionJoin => patch.session_join.is_some(),
             Column::PlaylistAdd => patch.playlist_add.is_some(),
             Column::ListenAlong => patch.listen_along.is_some(),
+            Column::ProfilePlaylists => patch.profile_playlists.is_some(),
+            Column::ProfileQueries => patch.profile_queries.is_some(),
             Column::UpdatedAt => true,
             Column::UserId => false,
         })

@@ -48,6 +48,9 @@ pub struct LiveSessionEntry {
     pub song_id: String,
     pub title: String,
     pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_id: Option<String>,
+    pub artist_id: Option<String>,
     pub artwork_url: Option<String>,
     pub duration_ms: Option<i64>,
     pub status: SessionEntryStatus,
@@ -65,6 +68,9 @@ impl From<QueueEntry> for LiveSessionEntry {
             song_id: entry.song_id,
             title: entry.title,
             artist: entry.artist,
+            album: entry.album,
+            album_id: entry.album_id,
+            artist_id: entry.artist_id,
             artwork_url: entry.artwork_url,
             duration_ms: entry.duration_ms,
             status: entry.status,
@@ -118,6 +124,9 @@ pub struct LiveSessionSnapshot {
     pub allow_join_without_code: bool,
     /// Opened by listen along, and not turned into a regular session since.
     pub listen_along: bool,
+    /// Anyone besides the host was ever let in. A listen along session shows
+    /// as live from then on.
+    pub went_live: bool,
     pub approve_joins: bool,
     /// Waiting to be let in. Only the host sees them.
     pub join_requests: Vec<LiveSessionJoinRequest>,
@@ -184,6 +193,7 @@ impl From<SessionSnapshot> for LiveSessionSnapshot {
             default_role: session.default_role,
             allow_join_without_code: session.allow_join_without_code,
             listen_along: session.listen_along,
+            went_live: session.went_live,
             approve_joins: session.approve_joins,
             join_requests: snapshot
                 .join_requests
@@ -276,6 +286,12 @@ pub struct SetLiveSessionRole {
     pub role: SessionRole,
 }
 
+/// `POST /live-sessions/{id}/host` body: the member who hosts next.
+#[derive(Deserialize)]
+pub struct TransferHost {
+    pub user_id: Uuid,
+}
+
 #[derive(Deserialize)]
 pub struct SetListenMode {
     pub listen_mode: ListenMode,
@@ -286,6 +302,12 @@ pub struct QueueSong {
     pub song_id: String,
     pub title: String,
     pub artist: Option<String>,
+    #[serde(default)]
+    pub album: Option<String>,
+    #[serde(default)]
+    pub album_id: Option<String>,
+    #[serde(default)]
+    pub artist_id: Option<String>,
     pub artwork_url: Option<String>,
     pub duration_ms: Option<i64>,
 }
@@ -296,6 +318,9 @@ impl From<QueueSong> for NewQueueSong {
             song_id: song.song_id,
             title: song.title,
             artist: song.artist,
+            album: song.album,
+            album_id: song.album_id,
+            artist_id: song.artist_id,
             artwork_url: song.artwork_url,
             duration_ms: song.duration_ms,
         }

@@ -24,6 +24,7 @@ use crate::{
             AddToQueue, AnswerJoinRequest, JoinListeningResult, JoinResult, LiveSessionId,
             LiveSessionPlayback, LiveSessionSnapshot, PatchLiveSession, PlaybackBody,
             QueueEntryAction, SessionVersion, SetListenMode, SetLiveSessionRole, StartLiveSession,
+            TransferHost,
         },
     },
     services::{
@@ -328,6 +329,25 @@ async fn set_role_handler(
     Ok(changed(&bus, session_id, version))
 }
 
+/// Makes another member the host. The caller stays in it as a controller,
+/// playing along, and the session goes on. Host only. 404 when they are not in
+/// it, 422 when they host their own open session.
+///
+/// ```json
+/// { "version": 42, "ended": false }
+/// ```
+async fn transfer_host_handler(
+    State(db): State<DatabaseConnection>,
+    State(bus): State<SharedEventBus>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(session_id): Path<Uuid>,
+    Json(body): Json<TransferHost>,
+) -> Result<Json<SessionVersion>, CadenzaError> {
+    let version = sessions::transfer_host(&db, claims.user_id, session_id, body.user_id).await?;
+    publish_presence(&bus, &[claims.user_id, body.user_id]);
+    Ok(changed(&bus, session_id, version))
+}
+
 /// Removes a member for good. They cannot rejoin, even with a code. Host only.
 async fn kick_handler(
     State(db): State<DatabaseConnection>,
@@ -512,6 +532,7 @@ pub fn get_live_sessions_router() -> Router<AppState> {
         .route("/listen-along/{user_id}", post(join_listening_handler))
         .route("/{id}/join-requests/{user_id}", post(answer_join_handler))
         .route("/{id}/leave", post(leave_handler))
+        .route("/{id}/host", post(transfer_host_handler))
         .route(
             "/{id}/members/{user_id}",
             patch(set_role_handler).delete(kick_handler),

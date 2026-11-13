@@ -3,12 +3,15 @@ use crate::{
     auth::SupabaseClaims,
     db::saved_queries::{
         NewSavedQuery, SavedQueryPatch, count_songs, create_saved_query, delete_saved_query,
-        get_saved_query, list_saved_queries, update_saved_query,
+        get_saved_query, list_saved_queries, profile_queries, update_saved_query,
     },
     err::CadenzaError,
     routes::json::{
         query::Query,
-        saved_query::{NewSavedQueryBody, PatchSavedQueryBody, SavedQuery, SavedQuerySongs},
+        saved_query::{
+            NewSavedQueryBody, PatchSavedQueryBody, ProfileQueriesResponse, ProfileQuery,
+            SavedQuery, SavedQuerySongs,
+        },
         vec_into,
     },
     services::saved_queries::{saved_songs, store_saved_songs},
@@ -19,7 +22,7 @@ use axum::{
     routing::{get, post},
 };
 use axum_jwt_auth::Claims;
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, prelude::Uuid};
 use serde_json::Value;
 
 /// The longest name a saved query can have, in characters.
@@ -40,7 +43,8 @@ const MAX_NAME_CHARS: usize = 100;
 ///     "artwork_urls": ["https://..."],
 ///     "song_count": 42,
 ///     "created_at": "2026-11-08T18:00:00Z",
-///     "songs_stored_at": "2026-11-08T18:00:00Z"
+///     "songs_stored_at": "2026-11-08T18:00:00Z",
+///     "shared": false
 ///   }
 /// ]
 /// ```
@@ -60,6 +64,36 @@ async fn list_handler(
             })
             .collect(),
     ))
+}
+
+/// The queries one user shared on their profile, favorites first, then newest first, at
+/// most 5. `queries` is null when their `profile_queries` setting hides them from the
+/// caller. Each one's songs read through `GET /saved-queries/{id}/songs`.
+///
+/// ```json
+/// { "queries": [ { "saved_query_id": 3, "name": "Late night favorites", "artwork_urls": ["https://..."], "song_count": 42 } ] }
+/// ```
+async fn user_queries_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<ProfileQueriesResponse>, CadenzaError> {
+    let Some(shared) = profile_queries(&db, claims.user_id, user_id).await? else {
+        return Ok(Json(ProfileQueriesResponse { queries: None }));
+    };
+    let ids: Vec<i64> = shared.iter().map(|model| model.saved_query_id).collect();
+    let counts = count_songs(&db, &ids).await?;
+    Ok(Json(ProfileQueriesResponse {
+        queries: Some(
+            shared
+                .into_iter()
+                .map(|model| {
+                    let count = counts.get(&model.saved_query_id).copied().unwrap_or(0);
+                    ProfileQuery::new(model, count)
+                })
+                .collect(),
+        ),
+    }))
 }
 
 /// Saves a query by name, stores the songs it matches now, and returns it in the shape
@@ -94,7 +128,8 @@ async fn create_handler(
     with_songs_stored(&db, claims.user_id, saved).await
 }
 
-/// Changes a saved query's name, favorite, or cover, and returns it. A missing key is left
+/// Changes a saved query's name, favorite, cover, or whether it shows on the user's
+/// profile (`shared`), and returns it. A missing key is left
 /// alone. Same name rules as saving. `NotFound` when the user has none by that id.
 async fn patch_handler(
     State(db): State<DatabaseConnection>,
@@ -106,6 +141,7 @@ async fn patch_handler(
         name: body.name.as_deref().map(check_name).transpose()?,
         favorite: body.favorite,
         artwork_urls: body.artwork_urls,
+        shared: body.shared,
     };
     let saved = update_saved_query(&db, claims.user_id, saved_query_id, patch).await?;
     let count = count_songs(&db, &[saved_query_id])
@@ -128,9 +164,10 @@ async fn delete_handler(
 }
 
 /// Returns the songs a saved query holds, in order: what it matched when it was saved or
-/// last rerun, plus any added since by tagging when the caller has `auto_update_queries`
-/// on. `certain` is the same as on `/queries/results`. A query saved before songs were
-/// stored has them stored on this first read. `NotFound` when the user has none by that id.
+/// last rerun, plus any added since by tagging when its owner has `auto_update_queries`
+/// on. `certain` is the same as on `/queries/results`, for the owner. A query saved before
+/// songs were stored has them stored on this first read. Reads the caller's own, or one
+/// shared on its owner's profile that the caller may see. `NotFound` otherwise.
 ///
 /// ```json
 /// { "songs": [ { "song_id": "1440857781", "certain": true } ] }
@@ -189,6 +226,7 @@ fn check_name(name: &str) -> Result<String, CadenzaError> {
 pub fn get_saved_queries_router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_handler).post(create_handler))
+        .route("/users/{user_id}", get(user_queries_handler))
         .route(
             "/{saved_query_id}",
             axum::routing::patch(patch_handler).delete(delete_handler),
