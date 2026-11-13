@@ -27,8 +27,13 @@ const SHOWN_SONGS = 5;
  */
 export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     const { colors } = useAppTheme();
-    const { tracks, tracksLoading, isLoadingNextPage, resolveTracks } =
-        usePagedTracksForSongIds(songs.song_ids);
+    const {
+        tracks,
+        loadedCount,
+        tracksLoading,
+        isLoadingNextPage,
+        resolveTracks,
+    } = usePagedTracksForSongIds(songs.song_ids);
     const router = useRouter();
     const { playQueue, playNext, skipToNext, setShuffleMode } =
         usePlaybackCommands();
@@ -89,7 +94,10 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     const stillLoading =
         tracksLoading || (isLoadingNextPage && shown.length < expectedRows);
     const placeholderRows = stillLoading ? expectedRows - shown.length : 0;
-    const more = songs.total - (stillLoading ? expectedRows : shown.length);
+    // ids Apple could not turn into a track are dropped, not counted as more
+    const skipped = loadedCount - tracks.length;
+    const available = songs.total - skipped;
+    const more = available - (stillLoading ? expectedRows : shown.length);
 
     /**
      * Plays just the tapped song, queueing none of the card's others. With
@@ -170,7 +178,7 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
                 <Text className="flex-1 text-[13px] text-muted-foreground">
                     {more > 0
                         ? `${more.toLocaleString()}${songs.capped ? "+" : ""} more`
-                        : `${songs.total.toLocaleString()} ${songs.total === 1 ? "song" : "songs"}`}
+                        : `${available.toLocaleString()} ${available === 1 ? "song" : "songs"}`}
                 </Text>
                 {pending ? (
                     <ActivityIndicator
