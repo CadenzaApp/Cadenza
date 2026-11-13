@@ -174,7 +174,8 @@ existed, `tags.is_activity` among them, live only in Supabase.
 - `client-app/src/lib/api-actions.ts` is the client's only path in here. It attaches
   `Authorization: Bearer <supabase jwt>` to every call, and `client-app/src/lib/routes/` mirrors
   this crate's `src/routes/` one to one.
-- OpenAI's responses api, from `src/services/tag_generation/openai_tag_generator.rs`.
+- OpenAI's responses api, from `src/services/tag_generation/openai_tag_generator.rs` and
+  `src/services/assistant/model.rs`. Both share the endpoint and 429 parsing in `src/services/openai.rs`.
 
 ## Gotchas
 
