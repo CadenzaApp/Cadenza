@@ -12,7 +12,6 @@ import {
     View,
     type ColorValue,
 } from "react-native";
-import type { ReactNode } from "react";
 
 import { ReorderableList } from "@/components/custom/reorderable-list";
 import { GlassSurface } from "@/components/ui/glass-surface";
@@ -50,8 +49,6 @@ type MediaPlayerQueueProps = {
         fromUpcomingIndex: number,
         toUpcomingIndex: number,
     ) => void;
-    /** True while a finger is on a row's reorder handle. */
-    onHandleTouchChange?: (touching: boolean) => void;
 };
 
 /**
@@ -80,7 +77,6 @@ export function MediaPlayerQueue({
     onPlayUpcoming,
     onRemoveUpcoming,
     onMoveUpcoming,
-    onHandleTouchChange,
 }: MediaPlayerQueueProps) {
     const shuffleOn = shuffleMode !== ShuffleMode.Off;
     const repeatOn = repeatMode !== RepeatMode.Off;
@@ -131,17 +127,15 @@ export function MediaPlayerQueue({
                 itemHeight={QUEUE_ROW_HEIGHT}
                 keyExtractor={(item, index) => `${item.id}-${index}`}
                 onReorder={onMoveUpcoming}
-                onHandleTouchChange={onHandleTouchChange}
                 empty={
                     <Text className="py-8 text-center text-muted-foreground">
                         Nothing else is queued.
                     </Text>
                 }
-                renderItem={({ item, index, dragHandle }) => (
+                renderItem={({ item, index }) => (
                     <QueueRow
                         track={item}
                         textColor={textColor}
-                        dragHandle={dragHandle}
                         onPress={() => onPlayUpcoming(index)}
                         onRemove={() => onRemoveUpcoming(index)}
                     />
@@ -244,13 +238,11 @@ const styles = StyleSheet.create({
 function QueueRow({
     track,
     textColor,
-    dragHandle,
     onPress,
     onRemove,
 }: {
     track: MusicItem;
     textColor: ColorValue;
-    dragHandle: (handle: ReactNode) => ReactNode;
     onPress: () => void;
     onRemove: () => void;
 }) {
@@ -305,22 +297,12 @@ function QueueRow({
             >
                 <Ionicons name="close" size={20} color={textColor} />
             </Pressable>
-            {/* The handle drags straight away and wins over the sheet's drag to
-                dismiss. A long press anywhere else on the row drags too. The
-                target is the row's full height, wider than the glyph. */}
-            {dragHandle(
-                <View
-                    accessibilityLabel={`Reorder ${track.title}`}
-                    className="w-11 items-center justify-center"
-                    style={{ height: QUEUE_ROW_HEIGHT }}
-                >
-                    <Ionicons
-                        name="reorder-three"
-                        size={24}
-                        color={textColor}
-                    />
-                </View>,
-            )}
+            {/* Decoration. The whole row is the drag target, so a handle that
+                only worked when grabbed here would be a smaller target for no
+                reason. */}
+            <View className="w-6 items-center justify-center">
+                <Ionicons name="reorder-three" size={22} color={textColor} />
+            </View>
         </View>
     );
 }

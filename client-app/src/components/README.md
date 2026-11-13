@@ -90,13 +90,10 @@ chroma per mode, so dark or neon tags still read as a soft glow.
 `reorderable-list.tsx` is in `custom/` rather than `ui/` only because nothing else needs it yet.
 It knows nothing about songs: `data`, `itemHeight`, `renderItem`, and an `onReorder(from, to)`.
 Rows are absolutely positioned off `itemHeight` instead of measured, so dragging moves a
-transform and never triggers layout, and it scrolls itself near either edge. A drag starts two
-ways: a long press anywhere on the row (an up or down move before it lands fails the row, so the
-list scrolls), or the first movement inside the `dragHandle` that `renderItem` gets, which wins
-over a sheet's drag to dismiss. Each row's two gestures share one drag, and `dragOwner` keeps
-the one that lost from resetting it. Inside an Android sheet the list only scrolls where the host
-lets the sheet pass drags through (the player pager's `SheetScrollRegion`), and
-`onHandleTouchChange` lets the caller hold an iOS sheet still while a finger is on a handle. Do **not** reuse the query builder's
+transform and never triggers layout, and it scrolls itself near either edge. The drag starts on
+a long press, which leaves short drags to the scroll view. Inside an Android sheet the list only
+scrolls where the host lets the sheet pass drags through (the player pager's
+`SheetScrollRegion`). Do **not** reuse the query builder's
 drag code for a list: it caches drop-zone rects once at drag start, so it breaks under scroll.
 
 `detail-screen.tsx` exports `DetailScreen`, the header and safe-area shell for most routes that
