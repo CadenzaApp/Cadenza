@@ -1,0 +1,40 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyOtherParameterReads",
+      "Effect": "Deny",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath"
+      ],
+      "NotResource": [
+        "arn:aws:ssm:us-west-2:175220118767:parameter/cadenza/demo/api",
+        "arn:aws:ssm:us-west-2:175220118767:parameter/cadenza/demo/ml"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": "ssm:GetParameter",
+      "Resource": [
+        "arn:aws:ssm:us-west-2:175220118767:parameter/cadenza/demo/api",
+        "arn:aws:ssm:us-west-2:175220118767:parameter/cadenza/demo/ml"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+      ],
+      "Resource": "arn:aws:ecr:us-west-2:175220118767:repository/cadenza-backend"
+    }
+  ]
+}

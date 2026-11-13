@@ -97,6 +97,24 @@ that shape.
 | `METADATA_CRAWL_INTERVAL_SECS` | no | Seconds between passes when nothing wakes the crawl. Defaults to 60. A queued album does not wait for it: opening a song wakes the crawl. Zero and unparseable values fall back to the default. A pass Apple rate limited waits a fixed 300 seconds instead. |
 | `SOCIAL_FEED_URL` | no | Base url of the python embedding service (`POST /embedding`, `POST /posts/similarities`). Defaults to `http://localhost:3001`. A trailing slash is trimmed. `main.rs` starts that process on `127.0.0.1:3001`. The service has no auth, so this must stay on a private address. |
 
+The Python child also requires `HF_TOKEN` and `MODEL_REVISION`. For local use,
+set them in `ml-service/.env`; see [ml-service/README.md](ml-service/README.md).
+`MODEL_REVISION` is the model's full Hugging Face commit SHA, not this repo's Git SHA.
+The backend's `.env` file is optional when credentials are already present in
+the process environment, as they are in the deployment container.
+
+### Deployment
+
+[../deploy/README.md](../deploy/README.md) contains the local build commands and
+verification status. The ARM64 image keeps Rust and its Python child together.
+Rust is compiled at `/app/backend-api`, and Python's venv is installed at
+`/app/backend-api/ml-service/.venv`, matching the launcher's compiled path.
+CloudFront provides public HTTPS through a private VPC origin. Docker maps host
+port 80 directly to Axum port 3000; the EC2 security group allows only CloudFront.
+The combined health check tests `/test` and the model's `/openapi.json`; verify
+inference and database operations separately. A failed model child requires a
+whole-backend restart; health checks alone do not restart an unhealthy container.
+
 ### Database connections
 
 `main.rs::db_connect_options` caps the pool at `MAX_DB_CONNECTIONS`. That cap is the point of the

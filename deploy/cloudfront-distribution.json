@@ -1,0 +1,51 @@
+{
+  "CallerReference": "cadenza-demo-20261113-01",
+  "Comment": "Cadenza demo HTTPS; home-only viewer access and private EC2 origin",
+  "Enabled": true,
+  "Origins": {
+    "Quantity": 1,
+    "Items": [{
+      "Id": "cadenza-private-ec2",
+      "DomainName": "ip-172-31-39-41.us-west-2.compute.internal",
+      "VpcOriginConfig": {
+        "VpcOriginId": "vo_L2Rr93sW0VUGHV32abqyEu",
+        "OriginReadTimeout": 60,
+        "OriginKeepaliveTimeout": 5
+      }
+    }]
+  },
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "cadenza-private-ec2",
+    "ViewerProtocolPolicy": "https-only",
+    "AllowedMethods": {
+      "Quantity": 7,
+      "Items": ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
+      "CachedMethods": {"Quantity": 2, "Items": ["GET", "HEAD"]}
+    },
+    "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+    "OriginRequestPolicyId": "b689b0a8-53d0-40ab-baf2-68738e2966ac",
+    "Compress": true,
+    "FunctionAssociations": {
+      "Quantity": 1,
+      "Items": [{
+        "EventType": "viewer-request",
+        "FunctionARN": "arn:aws:cloudfront::175220118767:function/cadenza-demo-home-only"
+      }]
+    }
+  },
+  "CustomErrorResponses": {
+    "Quantity": 6,
+    "Items": [
+      {"ErrorCode": 403, "ErrorCachingMinTTL": 0},
+      {"ErrorCode": 404, "ErrorCachingMinTTL": 0},
+      {"ErrorCode": 500, "ErrorCachingMinTTL": 0},
+      {"ErrorCode": 502, "ErrorCachingMinTTL": 0},
+      {"ErrorCode": 503, "ErrorCachingMinTTL": 0},
+      {"ErrorCode": 504, "ErrorCachingMinTTL": 0}
+    ]
+  },
+  "ViewerCertificate": {"CloudFrontDefaultCertificate": true},
+  "PriceClass": "PriceClass_100",
+  "HttpVersion": "http2",
+  "IsIPV6Enabled": false
+}

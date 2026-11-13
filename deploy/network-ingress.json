@@ -1,0 +1,13 @@
+[
+  {
+    "IpProtocol": "tcp",
+    "FromPort": 80,
+    "ToPort": 80,
+    "UserIdGroupPairs": [
+      {
+        "GroupId": "sg-08b7eea10cfe45bc2",
+        "Description": "Private CloudFront VPC origin only"
+      }
+    ]
+  }
+]

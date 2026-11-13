@@ -1,0 +1,23 @@
+# Allow only the files the backend build needs.
+**
+!backend-api/
+!backend-api/Cargo.toml
+!backend-api/Cargo.lock
+!backend-api/src/
+!backend-api/src/**
+!backend-api/ml-service/
+!backend-api/ml-service/pyproject.toml
+!backend-api/ml-service/uv.lock
+!backend-api/ml-service/main.py
+# Defense in depth, including files underneath the source tree.
+**/.env
+**/.env.*
+**/.venv
+**/target
+**/node_modules
+**/__pycache__
+**/*.pem
+**/*.p8
+**/*.key
+**/*.p12
+**/*.pfx

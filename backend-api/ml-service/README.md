@@ -37,6 +37,20 @@ a second copy on that port while the api is running.
 | var | required | notes |
 | --- | --- | --- |
 | `HF_TOKEN` | yes | Hugging Face token for `google/embeddinggemma-300m`, which is gated. Read at import, so the process will not start without it. |
+| `MODEL_REVISION` | yes | Full Hugging Face model commit SHA. The current local snapshot is `57c266a740f537b4dc058e1b0cda161fd15afa75`; use the same revision for deployment and local vectors. This is separate from the app's Git commit. |
+
+Use [.env.example](.env.example) for the nonsecret revision; keep your token in
+the gitignored `.env`. Existing setups must add `MODEL_REVISION` before restarting.
+Accept the model's access terms in your own Hugging Face account.
+
+Linux resolves Torch from the explicit PyTorch CPU index. macOS keeps the normal
+PyPI build. After changing dependencies, run `uv lock --python 3.13`, then
+`uv sync --locked`. Do not replace the locked Torch installation with pip.
+
+The [deployment runbook](../../deploy/README.md) uses `HF_HOME=/cache/huggingface`
+and a persistent model volume. Prefetch that exact revision on EC2 with offline
+mode disabled before starting the backend. Normal deployment uses
+`HF_HUB_OFFLINE=1`; `HF_TOKEN` is still required by the loader in offline mode.
 
 First start downloads the model, so it is slow and needs a few hundred MB.
 

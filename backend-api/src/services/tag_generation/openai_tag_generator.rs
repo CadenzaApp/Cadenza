@@ -296,7 +296,8 @@ pub struct OpenAiTagGenerator {
 }
 impl OpenAiTagGenerator {
     pub fn new() -> Self {
-        dotenv().unwrap();
+        // Containers supply credentials through the environment without a .env file.
+        let _ = dotenv();
 
         Self {
             api_key: env::var("OPENAI_API_KEY").expect("error getting OPENAI_API_KEY env var"),

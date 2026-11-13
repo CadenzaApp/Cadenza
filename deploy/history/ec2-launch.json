@@ -1,0 +1,80 @@
+{
+  "ImageId": "ami-0bec25ae844865e7d",
+  "InstanceType": "t4g.small",
+  "MinCount": 1,
+  "MaxCount": 1,
+  "ClientToken": "cadenza-demo-51abf52623264f36ab8669c40898d4e4",
+  "IamInstanceProfile": {
+    "Arn": "arn:aws:iam::175220118767:instance-profile/cadenza-demo-ec2"
+  },
+  "CreditSpecification": {
+    "CpuCredits": "standard"
+  },
+  "BlockDeviceMappings": [
+    {
+      "DeviceName": "/dev/sda1",
+      "Ebs": {
+        "VolumeType": "gp3",
+        "VolumeSize": 16,
+        "Encrypted": true,
+        "DeleteOnTermination": true,
+        "Iops": 3000,
+        "Throughput": 125
+      }
+    }
+  ],
+  "NetworkInterfaces": [
+    {
+      "DeviceIndex": 0,
+      "SubnetId": "subnet-0faef6918b5869d19",
+      "Groups": [
+        "sg-0835bdc255c4f871e"
+      ],
+      "AssociatePublicIpAddress": true,
+      "DeleteOnTermination": true
+    }
+  ],
+  "MetadataOptions": {
+    "HttpTokens": "required",
+    "HttpEndpoint": "enabled",
+    "HttpPutResponseHopLimit": 1,
+    "HttpProtocolIpv6": "disabled",
+    "InstanceMetadataTags": "disabled"
+  },
+  "Monitoring": {
+    "Enabled": false
+  },
+  "InstanceInitiatedShutdownBehavior": "stop",
+  "TagSpecifications": [
+    {
+      "ResourceType": "instance",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "cadenza-demo"
+        },
+        {
+          "Key": "Project",
+          "Value": "Cadenza"
+        },
+        {
+          "Key": "Environment",
+          "Value": "demo"
+        }
+      ]
+    },
+    {
+      "ResourceType": "volume",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "cadenza-demo-root"
+        },
+        {
+          "Key": "Project",
+          "Value": "Cadenza"
+        }
+      ]
+    }
+  ]
+}

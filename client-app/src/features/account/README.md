@@ -23,7 +23,7 @@ glass, color slots, explicit filter, tag suggestions) go through `useUserSetting
 | `apple-music-copy.ts`           | The unlocks cards and the which-account line.                                                                                                                                                                                         |
 | `gated-feature.tsx`             | `GatedFeature`: its children when the music tier allows a feature, else the connect page in their place, connecting right there. Wrap a screen that needs the library or playlists in it rather than checking the connection by hand. |
 | `settings-ui.tsx`               | `SettingsSheet`, sections, rows, groups, tiles, explainer cards (`SettingsPoints`), plain accent icons, status dots, `SaveError`.                                                                                                     |
-| `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens `/reconnect-apple-music` once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`.                                                                                    |
+| `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens `/reconnect-apple-music` once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`.                                                                      |
 
 ## How it works
 

@@ -197,11 +197,7 @@ export function FriendsScreen() {
     );
 }
 
-function SearchSection({
-    onPress,
-}: {
-    onPress: (userId: string) => void;
-}) {
+function SearchSection({ onPress }: { onPress: (userId: string) => void }) {
     const { height: screenHeight } = useWindowDimensions();
     const [query, setQuery] = useState("");
     const [headerHeight, setHeaderHeight] = useState(0);

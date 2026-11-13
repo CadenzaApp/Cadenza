@@ -1,0 +1,48 @@
+{
+  "verified_at_utc": "2026-11-12T08:27:19.710899+00:00",
+  "origin": "User Mac on confirmed home internet; curl bypassed proxies",
+  "public_endpoint": "http://16.144.66.65",
+  "tests": [
+    {
+      "method": "GET",
+      "path": "/test",
+      "status": 200,
+      "body": "server is reachable"
+    },
+    {
+      "method": "GET",
+      "path": "/tags/activity",
+      "status": 401,
+      "expected": "Unauthorized without credentials"
+    }
+  ],
+  "test_response_headers_and_body": "HTTP/1.1 200 OK\nContent-Length: 19\nContent-Type: text/plain; charset=utf-8\nDate: Thu, 12 Nov 2026 08:27:19 GMT\nVia: 1.1 Caddy\n\nserver is reachable",
+  "instance_id": "i-08d25ed9caea17d6c",
+  "release_tag": "demo-002",
+  "image_reference": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:e029d73a3044ed1c4e492ea0b2395d0b93b27c0594811fa6212c57ca0ebfd2b4",
+  "host_checks": {
+    "host_runtime": {
+      "command_id": "090bbb0a-32e8-41f6-8cff-dc0443028746",
+      "status": "Success",
+      "nonsecret_output": "server is reachable\nHTTP 200\nEmbedding 1 succeeded; dimensions: 768; seconds: 0.798\nEmbedding 2 succeeded; dimensions: 768; seconds: 0.257\nEmbedding 3 succeeded; dimensions: 768; seconds: 0.243\n               total        used        free      shared  buff/cache   available\nMem:            1834        1159          89           1         746         675\nSwap:              0           0           0\nFilesystem      Size  Used Avail Use% Mounted on\n/dev/root        15G  5.8G  8.7G  41% /\nbackend: {\"image\": \"175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:e029d73a3044ed1c4e492ea0b2395d0b93b27c0594811fa6212c57ca0ebfd2b4\", \"status\": \"running\", \"restarts\": 0, \"oom\": false, \"health\": \"healthy\"}\ncaddy: {\"image\": \"caddy@sha256:9c1b76fb701c1f77383d3124d9f626e38bcf83bc1255ed47475d4f2420701d03\", \"status\": \"running\", \"restarts\": 0, \"oom\": false, \"health\": \"none\"}\nStartup resource samples: 1 minimum host memory available percent: 71.9 OOM delta: 0 swap-out page delta: 0\n"
+    },
+    "short_resource_check": {
+      "command_id": "a2792fb4-7303-42e9-8fd7-c0a1437388f5",
+      "status": "Success",
+      "nonsecret_output": "Embedding 1 succeeded; dimensions: 768; seconds: 0.449\nEmbedding 2 succeeded; dimensions: 768; seconds: 0.245\nEmbedding 3 succeeded; dimensions: 768; seconds: 0.248\nEmbedding 4 succeeded; dimensions: 768; seconds: 0.247\nEmbedding 5 succeeded; dimensions: 768; seconds: 0.259\n{\"samples\": 11, \"min_memory_available_percent\": 34.97, \"min_disk_free_percent\": 59.91, \"oom_delta\": 0, \"swap_out_delta\": 0, \"backend_healthy_all_samples\": true}\n"
+    }
+  },
+  "short_resource_metrics": {
+    "samples": 11,
+    "min_memory_available_percent": 34.97,
+    "min_disk_free_percent": 59.91,
+    "oom_delta": 0,
+    "swap_out_delta": 0,
+    "backend_healthy_all_samples": true
+  },
+  "resource_check_duration_seconds": 20,
+  "full_30_minute_rehearsal_complete": false,
+  "startup_peak_capture_complete": false,
+  "public_https_enabled": false,
+  "home_ipv4_cidr": "24.11.70.86/32"
+}

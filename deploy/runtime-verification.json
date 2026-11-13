@@ -1,0 +1,63 @@
+{
+  "verified_at_utc": "2026-11-13T01:47:20.915840+00:00",
+  "public_endpoint": "https://d1wj9jjqzhjpqq.cloudfront.net",
+  "instance_id": "i-08d25ed9caea17d6c",
+  "release_tag": "demo-002",
+  "image_reference": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:e029d73a3044ed1c4e492ea0b2395d0b93b27c0594811fa6212c57ca0ebfd2b4",
+  "architecture": "CloudFront HTTPS -> private EC2 host TCP 80 -> Docker mapping -> Axum TCP 3000; Rust starts Python on loopback 3001",
+  "caddy_removed": true,
+  "caddy_resources_removed": [
+    "container",
+    "pinned image",
+    "named data/config volumes",
+    "Caddyfile",
+    "proxy release settings",
+    "obsolete startup script"
+  ],
+  "deployed_file_sha256": {
+    "compose.yaml": "2f3e0587ac2625480240988dd949fd6107ecaa22dc894760b674c3ffc83fca3e",
+    "release.env": "1ed5e0db892548760bc90b36d67dd7ef4a5149f09e546120792ba70c4f3045f7",
+    "start-release.sh": "e5c7297b42ee655d497aa9ce7424218ba81bcc06a5d6ddb753f88236cc4ad6ca",
+    "rehearse-recovery.sh": "4e9830ac5d334548cd52fa6509692f3f09149b93d280d74c543f9a49f9f15335",
+    "prepare-host-release.sh": "a8fbb09b8f6d8570f048eb33d334a7cd901875ce0ac4e505a65c313d923fcacf"
+  },
+  "tests": [
+    {
+      "method": "GET",
+      "path": "/test",
+      "status": 200,
+      "body": "server is reachable",
+      "tls_verify_result": 0,
+      "no_caddy_via_header": true
+    },
+    {
+      "method": "GET",
+      "path": "/tags/activity",
+      "status": 401,
+      "expected": "Anonymous request rejected"
+    },
+    {
+      "method": "GET",
+      "path": "/test",
+      "source": "EC2 outside home network",
+      "status": 403,
+      "forged_forwarding_header_also_denied": true
+    }
+  ],
+  "combined_backend_health": "healthy",
+  "real_inference_verified": true,
+  "cloudfront_configuration_changed": false,
+  "security_group_changed": false,
+  "home_ipv4_cidr": "24.11.70.86/32",
+  "ram_usage_test_run": false,
+  "memory_savings_measured": false,
+  "previous_rehearsal_record": "history/runtime-verification.before-direct-axum.json",
+  "phone_flows_after_change": "Not re-run; prior operator results are in previous record. Backend image and client URL unchanged.",
+  "commands": {
+    "stage_and_outbound_mapping": "4ba78202-b00f-4432-b075-b59c344e03fe",
+    "apply": "e3a579dc-67cd-4209-9313-615c5a4e7301",
+    "cleanup": "1fae57f6-e941-4564-bd9a-d6216600e48d",
+    "home_restriction": "41244279-1362-4c4b-b9ee-51903389e555",
+    "file_proof": "1035ba73-6f99-4c21-a4cb-f52a2fe32109"
+  }
+}

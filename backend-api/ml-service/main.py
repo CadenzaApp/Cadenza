@@ -12,7 +12,11 @@ from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
 app = FastAPI()
-model = SentenceTransformer("google/embeddinggemma-300m", token=os.environ["HF_TOKEN"])
+model = SentenceTransformer(
+    "google/embeddinggemma-300m",
+    revision=os.environ["MODEL_REVISION"],
+    token=os.environ["HF_TOKEN"],
+)
 model.similarity_fn_name = "cosine"
 
 INTEREST_PREFIX = {

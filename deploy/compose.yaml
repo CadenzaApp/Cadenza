@@ -1,0 +1,44 @@
+name: cadenza
+x-logs: &logs
+  driver: json-file
+  options:
+    max-size: "5m"
+    max-file: "3"
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE}
+    platform: linux/arm64
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 90s
+    ports:
+      - "80:3000"
+    env_file:
+      - path: ./secrets/api.env
+        format: raw
+      - path: ./secrets/ml.env
+        format: raw
+    environment:
+      BIND_ADDR: 0.0.0.0:3000
+      SOCIAL_FEED_URL: http://127.0.0.1:3001
+      MODEL_REVISION: ${MODEL_REVISION:?Set MODEL_REVISION}
+      HF_HOME: /cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      DEFAULT_TAG_BACKFILL_ENABLED: "false"
+      METADATA_CRAWL_LIBRARY_BATCH_SIZE: "0"
+      METADATA_CRAWL_ALBUM_BATCH_SIZE: "2"
+      METADATA_CRAWL_INTERVAL_SECS: "60"
+    volumes:
+      - model_cache:/cache/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/test',timeout=3); urllib.request.urlopen('http://127.0.0.1:3001/openapi.json',timeout=3)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+    logging: *logs
+volumes:
+  model_cache:

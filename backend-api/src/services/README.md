@@ -357,8 +357,9 @@ are delayed, so a slow pass is followed by a full day of quiet.
 
 ## Gotchas
 
-- `OpenAiTagGenerator::new()` calls `dotenv().unwrap()` and then `expect`s `OPENAI_API_KEY`, so a
-  missing `.env` or key panics during server startup, not at first use.
+- `OpenAiTagGenerator::new()` optionally loads `.env`, then requires `OPENAI_API_KEY`.
+  A missing key panics during startup. Containers can supply the key directly in
+  the environment without creating a `.env` file.
 - `MAX_COMBINED_SONG_DESC_LENGTH` is 2000 bytes across the whole batch, not per song.
   `TagGenerationService::generate_tags` splits the batch into as many generator calls as it
   takes to stay under it, and truncates any single description longer than that on its own.

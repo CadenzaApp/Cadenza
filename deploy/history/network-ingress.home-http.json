@@ -1,0 +1,24 @@
+[
+  {
+    "IpProtocol": "tcp",
+    "FromPort": 80,
+    "ToPort": 80,
+    "IpRanges": [
+      {
+        "CidrIp": "24.11.70.86/32",
+        "Description": "Cadenza home testing only"
+      }
+    ]
+  },
+  {
+    "IpProtocol": "tcp",
+    "FromPort": 443,
+    "ToPort": 443,
+    "IpRanges": [
+      {
+        "CidrIp": "24.11.70.86/32",
+        "Description": "Cadenza home testing only"
+      }
+    ]
+  }
+]

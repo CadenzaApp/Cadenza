@@ -52,13 +52,13 @@ The rules, the cache key shape, and how to add an endpoint are in
 
 `client-app/.env`, gitignored. Expo inlines `EXPO_PUBLIC_*` at bundle time.
 
-| var                                    | notes                                                                                                               |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `EXPO_PUBLIC_BACKEND_API_URL`          | Backend base url, e.g. `http://192.168.1.25:3000`. Read only by `src/lib/tag-generation.ts`. See the gotcha below.  |
-| `EXPO_PUBLIC_MUSICKIT_DEVELOPER_TOKEN` | Apple Music developer token. Required for real playback.                                                            |
-| `EXPO_PUBLIC_MOCK_MUSICKIT`            | Set to `1` for fixture data and no audio, so you can work without an Apple Music subscription.                      |
-| `APPLE_BUNDLE_ID`                      | Overrides `ios.bundleIdentifier` in `app.config.js`. Defaults to `com.cadenza.cs4000`.                              |
-| `APPLE_TEAM_ID`                        | Overrides `ios.appleTeamId`. Leave unset and Xcode resolves the team from the signed-in account on first GUI build. |
+| var                                    | notes                                                                                                                    |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `EXPO_PUBLIC_BACKEND_API_URL`          | Backend base URL used by `src/lib/backend.ts`, including an HTTPS deployment URL. Falls back to `http://localhost:3000`. |
+| `EXPO_PUBLIC_MUSICKIT_DEVELOPER_TOKEN` | Apple Music developer token. Required for real playback.                                                                 |
+| `EXPO_PUBLIC_MOCK_MUSICKIT`            | Set to `1` for fixture data and no audio, so you can work without an Apple Music subscription.                           |
+| `APPLE_BUNDLE_ID`                      | Overrides `ios.bundleIdentifier` in `app.config.js`. Defaults to `com.cadenza.cs4000`.                                   |
+| `APPLE_TEAM_ID`                        | Overrides `ios.appleTeamId`. Leave unset and Xcode resolves the team from the signed-in account on first GUI build.      |
 
 Changing any `EXPO_PUBLIC_*` value needs a Metro restart with `--clear`. A hot reload will not
 pick up a new value, because they are inlined into the bundle. `APPLE_BUNDLE_ID` and
@@ -90,11 +90,9 @@ npx tsc --noEmit   # typecheck
   rebuild. The upstream JSI package includes our former cache and Swift-interface fixes.
 - `tsconfig.json` explicitly selects React Native's legacy type API while existing component
   libraries migrate to the strict API. TypeScript 6 loads Node and React types explicitly.
-- **Two different base urls.** `src/lib/backend.ts` hardcodes `http://localhost:3000` and is what
-  every SWR hook and the query builder use. `src/lib/tag-generation.ts` has its own resolver that
-  reads `EXPO_PUBLIC_BACKEND_API_URL` and falls back to the Expo host. On a physical device
-  `localhost` is the phone, not your Mac, so the hardcoded one cannot work there. Details in
-  [src/lib/README.md](src/lib/README.md).
+- `src/lib/backend.ts` reads `EXPO_PUBLIC_BACKEND_API_URL` for the API hooks and query builder.
+  On a physical device the localhost fallback is the phone, so set a reachable LAN or HTTPS
+  deployment URL before bundling. See [src/lib/README.md](src/lib/README.md).
 - The backend defaults to binding loopback. To reach it from a phone, set `BIND_ADDR=0.0.0.0:3000`
   in `backend-api/.env`.
 - `ios/` is prebuild output. Native changes go in `app.config.js` plugins or `modules/`, then

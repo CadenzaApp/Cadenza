@@ -1,0 +1,206 @@
+{
+  "verified_at_utc": "2026-11-13T01:06:33.837338+00:00",
+  "origin": "User Mac on confirmed home internet; curl bypassed proxies",
+  "public_endpoint": "https://d1wj9jjqzhjpqq.cloudfront.net",
+  "instance_id": "i-08d25ed9caea17d6c",
+  "release_tag": "demo-002",
+  "image_reference": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:e029d73a3044ed1c4e492ea0b2395d0b93b27c0594811fa6212c57ca0ebfd2b4",
+  "tests": [
+    {
+      "method": "GET",
+      "path": "/test",
+      "status": 200,
+      "body": "server is reachable",
+      "tls_verify_result": 0
+    },
+    {
+      "method": "GET",
+      "path": "/tags/activity",
+      "status": 401,
+      "expected": "Unauthorized without credentials"
+    },
+    {
+      "method": "POST",
+      "path": "/test",
+      "status": 405,
+      "expected": "GET-only route reached through CloudFront"
+    },
+    {
+      "method": "GET",
+      "scheme": "http",
+      "path": "/test",
+      "status": 403,
+      "expected": "HTTPS required"
+    },
+    {
+      "method": "GET",
+      "path": "/test",
+      "source": "EC2 outside home network",
+      "status": 403,
+      "body": "Home network access only.",
+      "forged_forwarding_header_also_denied": true
+    }
+  ],
+  "metrics": [
+    {
+      "capture": "startup-resources",
+      "samples": 33,
+      "duration_seconds": 66.214063,
+      "min_memory_available_percent": 37.13,
+      "min_disk_free_percent": 59.87,
+      "oom_delta": 0,
+      "swap_in_delta": 0,
+      "swap_out_delta": 0,
+      "backend_states": [
+        "healthy",
+        "starting",
+        "unhealthy"
+      ],
+      "max_backend_restarts": 0
+    },
+    {
+      "capture": "resume-steady-resources",
+      "samples": 67,
+      "duration_seconds": 330.000128,
+      "min_memory_available_percent": 33.98,
+      "min_disk_free_percent": 59.87,
+      "oom_delta": 0,
+      "swap_in_delta": 0,
+      "swap_out_delta": 0,
+      "backend_states": [
+        "healthy"
+      ],
+      "max_backend_restarts": 0
+    },
+    {
+      "inference_successes": 60,
+      "latency_median_seconds": 0.251,
+      "latency_max_seconds": 1.415
+    },
+    {
+      "capture": "recovery-resources",
+      "samples": 58,
+      "min_memory_available_percent": 36.05,
+      "oom_delta": 0,
+      "swap_out_delta": 0,
+      "observed_health": [
+        "healthy",
+        "starting",
+        "unhealthy"
+      ]
+    },
+    {
+      "name": "/cadenza-backend-1",
+      "status": "running",
+      "oom": false,
+      "restarts": 0,
+      "health": "healthy"
+    },
+    {
+      "name": "/cadenza-caddy-1",
+      "status": "running",
+      "oom": false,
+      "restarts": 0,
+      "health": "none"
+    }
+  ],
+  "host_commands": {
+    "resume": "10009e33-1a99-449a-84e9-a139a0e6860d",
+    "steady_inference": "e0441416-cd9e-4a26-ab9b-05a71bb7d815",
+    "recovery": "a195ee5f-c313-4eec-9322-ee890605019f",
+    "non_home_denial": "9c63c105-02ca-4769-90c3-8a2cef90f3d9",
+    "final_metrics": "23597d52-f278-40de-aa7a-f9dbe0d940ba"
+  },
+  "recovery_rehearsal_passed": true,
+  "recovery_initial_attempt": "Missing helper prevented model failure test; helper installed and rehearsal rerun successfully.",
+  "startup_capture_note": "Retained stopped container can report stale unhealthy state before Compose starts it; healthy throughout the steady capture.",
+  "full_30_minute_rehearsal_complete": false,
+  "phone_flows_verified": true,
+  "public_https_enabled": true,
+  "home_ipv4_cidr": "24.11.70.86/32",
+  "direct_public_ec2_web_ingress": false,
+  "certificate_provider": "CloudFront default AWS-managed certificate",
+  "origin_transport": "HTTP over CloudFront VPC origin; not public-internet HTTP",
+  "prior_http_record": "runtime-verification.home-http.json",
+  "phone_basic_flows": {
+    "reported_at_utc": "2026-11-13T01:11:09.075870+00:00",
+    "source": "Operator report from Metro development build on home Wi-Fi",
+    "sign_in": true,
+    "query_or_tags_read": true,
+    "social_feed_load": true
+  },
+  "phone_basic_flows_verified": true,
+  "full_steady_rehearsal": {
+    "status": "EndedEarly",
+    "command_id": "35537acd-57dc-4c85-9e67-1af93ad786da",
+    "duration_seconds": 1800,
+    "requests": 60,
+    "interval_seconds": 28,
+    "started_at_utc": "2026-11-13T01:12:24.468284+00:00",
+    "initial_cpu_credit_balance": {
+      "Timestamp": "2026-11-12T18:07:00-07:00",
+      "Minimum": 15.432274,
+      "Unit": "Count"
+    },
+    "last_checkpoint": {
+      "checked_at_utc": "2026-11-13T01:27:06.756270+00:00",
+      "run_status": "Cancelled",
+      "metrics": {
+        "elapsed_seconds": 885,
+        "samples": 89,
+        "inference_successes": 32,
+        "min_memory_available_percent": 32.59,
+        "current_memory_available_percent": 33.61,
+        "oom_delta": 0,
+        "swap_in_delta": 0,
+        "swap_out_delta": 0,
+        "unhealthy_samples": 0,
+        "max_restarts": 0,
+        "max_inference_seconds": 1.691,
+        "min_disk_free_percent": 59.69
+      }
+    },
+    "aws_command_status": "Cancelled",
+    "ended_at_utc": "2026-11-13T01:27:51.093785+00:00",
+    "reason": "Operator questioned the fixed 30-minute target; ended after sufficient initial single-user evidence.",
+    "observed_duration_seconds": 885,
+    "observed_inference_successes": 32,
+    "resource_capture_passed_for_current_testing": true,
+    "scheduled_inference_helper_stopped": true
+  },
+  "phone_functional_rehearsal": {
+    "reported_at_utc": "2026-11-13T01:20:41.609882+00:00",
+    "source": "Operator report: All done. No issues. Only thing I could not test was hitting the server from multiple devices.",
+    "tag_changes_and_query_results": "passed",
+    "listening_and_analytics": "passed",
+    "post_creation": "passed",
+    "interests_and_feed": "passed",
+    "like_unlike": "passed",
+    "relaunch_persistence": "passed",
+    "multi_device": "not tested",
+    "simultaneous_two_user_isolation": "not established by this report"
+  },
+  "realistic_model_input_checks": {
+    "command_id": "28ed3294-8600-4a15-90bf-0a89ec6fd91c",
+    "maximum_post_characters": 500,
+    "post_inference_seconds": 1.029,
+    "interest_batch_size": 8,
+    "interest_inference_seconds": 0.877,
+    "all_vectors_finite_768_dimensions": true
+  },
+  "resource_rehearsal_complete_for_current_testing": true,
+  "t4g_small_decision": "Retain for current testing. Phone flows and sampled resource headroom pass; simultaneous multi-device use and depleted CPU-credit performance remain unverified.",
+  "concurrent_model_check": {
+    "command_id": "c0c48530-3695-4176-83e4-76178053bd31",
+    "concurrent_requests": 2,
+    "all_vectors_valid": true,
+    "request_seconds": [
+      2.008,
+      1.05
+    ],
+    "backend_cgroup_memory_peak_bytes": 1250627584,
+    "scope": "Model request concurrency, not simultaneous authenticated devices."
+  },
+  "post_rehearsal_https_status": 200,
+  "post_rehearsal_tls_verify_result": 0
+}

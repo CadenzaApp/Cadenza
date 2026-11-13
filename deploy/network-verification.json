@@ -1,0 +1,25 @@
+{
+  "verified_at_utc": "2026-11-13T01:47:20.915840+00:00",
+  "instance_id": "i-08d25ed9caea17d6c",
+  "private_ipv4": "172.31.39.41",
+  "public_ipv4": "44.252.98.246",
+  "subnet_id": "subnet-0faef6918b5869d19",
+  "explicit_subnet_route_table_association": false,
+  "effective_main_route_table": "rtb-0470ec6cc44faa50c",
+  "default_route": {
+    "destination": "0.0.0.0/0",
+    "gateway": "igw-092a57cb09ca88208"
+  },
+  "ipv6_addresses": [],
+  "outbound_check": {
+    "bound_source_address": "172.31.39.41",
+    "service": "https://checkip.amazonaws.com",
+    "observed_public_ipv4": "44.252.98.246",
+    "command_id": "4ba78202-b00f-4432-b075-b59c344e03fe"
+  },
+  "conclusion": "Private IPv4 is the OS source address; current internet-gateway egress relies on the associated public IPv4 mapping. Removing the public IPv4 requires another outbound design, such as NAT. Private IPv4 alone is not publicly routable.",
+  "sources": [
+    "https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html",
+    "https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html"
+  ]
+}
