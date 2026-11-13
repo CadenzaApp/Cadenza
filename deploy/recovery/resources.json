@@ -7,10 +7,9 @@
   "backend_security_group": "sg-0357da20060cf0421",
   "launch_template": {
     "LaunchTemplateId": "lt-035cdeecd1b0da54e",
-    "LaunchTemplateName": "cadenza-demo-single",
-    "Version": "5"
+    "Version": "6"
   },
-  "bootstrap_sha256": "a4e792dca382d12a5585867d513812ca9e9fddb01f6f99be7dd7ce5734f5829a",
+  "bootstrap_sha256": "9284c9700debf2a2bb6f6d8b53b91b395d8b0bf61c205e4f1b90b8b14f9380ec",
   "health_path": "/health/ready",
   "health_interval_seconds": 10,
   "unhealthy_threshold": 3,
@@ -18,5 +17,8 @@
   "current_instance": "i-0cf4976fafc1d551d",
   "vpc_origin_id": "vo_JH7rsmwwoUdDRDRHxLal5R",
   "cutover_complete": true,
-  "notifications_topic": "arn:aws:sns:us-west-2:175220118767:cadenza-demo-instance-events"
+  "notifications_topic": "arn:aws:sns:us-west-2:175220118767:cadenza-demo-instance-events",
+  "active_release_manifest": "deploy/releases/git-d752f9154e8e-20261113090716.json",
+  "backend_image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:a788d2c0fa45157f5c383d23f9f66fa7c5e28b5410c2adf00742b8e1b32ef9db",
+  "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75"
 }

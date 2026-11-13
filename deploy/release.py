@@ -129,9 +129,17 @@ def main():
     with tempfile.TemporaryDirectory(prefix="cadenza-release-") as directory:
         candidate_path = Path(directory) / "candidate.env"
         candidate_path.write_text(candidate)
+        print(
+            "Activating the candidate on the single backend; this briefly interrupts service.",
+            flush=True,
+        )
         run([sys.executable, "deploy/recovery/update-release.py", str(candidate_path)])
         canonical.write_text(candidate)
         try:
+            print(
+                "Promoting the verified release into replacement configuration.",
+                flush=True,
+            )
             run([sys.executable, "deploy/recovery/provision.py"])
             viewer = subprocess.check_output(
                 [
@@ -182,6 +190,12 @@ def main():
         "launch_template": aws(
             "autoscaling", "describe-auto-scaling-groups", AutoScalingGroupNames=[GROUP]
         )["AutoScalingGroups"][0]["LaunchTemplate"],
+        "model_revision": dict(
+            line.split("=", 1)
+            for line in candidate.splitlines()
+            if line and not line.startswith("#")
+        )["MODEL_REVISION"],
+        "platform": "linux/arm64",
         "viewer_http_status": int(viewer),
         "warm_ami": None,
         "bootstrap_mode": "cold",
@@ -190,6 +204,14 @@ def main():
     directory = ROOT / "deploy/releases"
     directory.mkdir(exist_ok=True)
     (directory / (tag + ".json")).write_text(json.dumps(manifest, indent=2) + "\n")
+    resource_path = ROOT / "deploy/recovery/resources.json"
+    resources = json.loads(resource_path.read_text())
+    resources.update(
+        active_release_manifest="deploy/releases/" + tag + ".json",
+        backend_image=reference,
+        model_revision=manifest["model_revision"],
+    )
+    resource_path.write_text(json.dumps(resources, indent=2) + "\n")
     print(
         "\nRelease deployed: https://d1wj9jjqzhjpqq.cloudfront.net\nCommit the updated release settings, resource record and manifest.",
         flush=True,

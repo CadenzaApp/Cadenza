@@ -67,7 +67,8 @@ From a clean committed checkout with Python 3, AWS CLI login and Docker buildx:
 ./scripts/deploy-backend.sh
 ```
 
-Use `--help` or an optional `--tag`. The helper checks account/source, builds ARM64,
+Use `--help` or an optional `--tag`. The helper passed an end-to-end deployment from committed source. It checks
+account/source, builds ARM64,
 checks CPU model dependencies, publishes an immutable ECR digest, activates on the
 single host with rollback, and updates the launch template. It writes a release
 manifest and updated nonsecret settings for a follow-up commit. It currently uses

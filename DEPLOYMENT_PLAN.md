@@ -64,8 +64,8 @@ metadata contains environment secrets), secret files, logs, temporary registry
 authentication, and machine-specific state before capture. Keep model-cache and
 image layers only after checking that they contain no saved tokens. Ensure no
 application container auto-starts before fresh-secret retrieval and the single-
-backend gate. Use a clean non-serving builder that never handled application secrets. Deleting
-secret files from a used server is not reliable sanitization of old disk blocks.
+backend gate. Use a clean non-serving builder that never handled application
+secrets. Deleting secret files from a used server is not reliable sanitization of old disk blocks.
 Do not launch a second serving backend just to build an image.
 
 Pin the AMI ID alongside the backend digest, model revision and bootstrap version.
@@ -103,10 +103,10 @@ and start. If they do not match, fail clearly or use an explicit cold-bootstrap
 fallback; never silently run a stale cached release. Publish a new AMI when its
 baked inputs change, not merely because deployment was invoked again.
 
-The release helper can first wrap the existing container build/activation steps;
-AMI baking is a follow-up implementation in the same entry point. Until verified,
-report cold bootstrap plainly and do not claim AMI automation exists. No AMI has
-been created by the current recovery work.
+The developer release helper is implemented and has passed an actual build,
+publication, stop-first activation, ALB health verification and template promotion.
+It currently reports cold bootstrap. AMI baking is the next implementation within
+the same entry point; no prewarmed AMI has been created.
 
 ## Keep the application small
 

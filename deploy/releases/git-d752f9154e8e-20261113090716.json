@@ -1,0 +1,19 @@
+{
+  "source_commit": "d752f9154e8e65800119d0a8e33d3b2f35686107",
+  "tag": "git-d752f9154e8e-20261113090716",
+  "image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:a788d2c0fa45157f5c383d23f9f66fa7c5e28b5410c2adf00742b8e1b32ef9db",
+  "release_env_sha256": "894ea21e656af82a521922a80b5feb9c2ed267db119738ccde825db8757e8e85",
+  "launch_template": {
+    "LaunchTemplateId": "lt-035cdeecd1b0da54e",
+    "LaunchTemplateName": "cadenza-demo-single",
+    "Version": "6"
+  },
+  "viewer_http_status": 200,
+  "warm_ami": null,
+  "bootstrap_mode": "cold",
+  "verified_at_utc": "2026-11-13T09:08:51.881261+00:00",
+  "runtime_verification_command": "1594f4ce-f52f-4ef3-b958-e572fc169ecf",
+  "runtime_verification": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:a788d2c0fa45157f5c383d23f9f66fa7c5e28b5410c2adf00742b8e1b32ef9db health=healthy restarts=0 oom=false\nEmbedding 1 succeeded; dimensions: 768; seconds: 0.306\n",
+  "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+  "platform": "linux/arm64"
+}
