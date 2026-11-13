@@ -64,9 +64,9 @@ metadata contains environment secrets), secret files, logs, temporary registry
 authentication, and machine-specific state before capture. Keep model-cache and
 image layers only after checking that they contain no saved tokens. Ensure no
 application container auto-starts before fresh-secret retrieval and the single-
-backend gate. Use a controlled stopped/sanitized build with accepted downtime,
-or a non-serving image builder if the team later chooses that extra cost. Do not
-launch a second serving backend just to build an image.
+backend gate. Use a clean non-serving builder that never handled application secrets. Deleting
+secret files from a used server is not reliable sanitization of old disk blocks.
+Do not launch a second serving backend just to build an image.
 
 Pin the AMI ID alongside the backend digest, model revision and bootstrap version.
 A release change must either publish a compatible warm AMI or use the slower

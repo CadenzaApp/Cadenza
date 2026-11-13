@@ -82,6 +82,14 @@ def main():
             "import torch; from sentence_transformers import SentenceTransformer; assert torch.version.cuda is None",
         ]
     )
+    # --config uses a fresh registry config, so preserve Docker Desktop's endpoint.
+    docker_host = (
+        os.environ.get("DOCKER_HOST")
+        or subprocess.check_output(
+            ["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
+            text=True,
+        ).strip()
+    )
     password = subprocess.check_output(
         ["aws", "ecr", "get-login-password", "--profile", PROFILE, "--region", REGION],
         text=True,
@@ -102,7 +110,7 @@ def main():
             stdout=subprocess.DEVNULL,
         )
         run(["docker", "tag", local, remote])
-        run(["docker", "--config", config, "push", remote])
+        run(["docker", "--host", docker_host, "--config", config, "push", remote])
     image = aws(
         "ecr",
         "describe-images",
