@@ -1,0 +1,119 @@
+{
+  "sleep_audit": {
+    "disk_init": {
+      "killed_at_utc": "2026-11-13T18:01:44.970003+00:00",
+      "first_ready_api_at_utc": "2026-11-13T18:14:08.005030+00:00",
+      "sample_count": 744,
+      "maximum_sample_gap_seconds": 1.182
+    },
+    "drain30": {
+      "killed_at_utc": "2026-11-13T18:28:39.296526+00:00",
+      "first_ready_api_at_utc": "2026-11-13T18:38:50.707027+00:00",
+      "sample_count": 620,
+      "maximum_sample_gap_seconds": 1.453
+    }
+  },
+  "snapshot": {
+    "id": "snap-0dfb789b00d656fff",
+    "allocated_gib": 16,
+    "full_snapshot_size_bytes": 12425101312
+  },
+  "cpu_metrics": [
+    {
+      "host": "i-0915f97cb96d06110",
+      "metrics": {
+        "CPUCreditBalance": [
+          {
+            "Timestamp": "2026-11-13T11:35:00-07:00",
+            "Average": 0.8628785666666666,
+            "Minimum": 0.8628785666666666,
+            "Maximum": 0.8628785666666666,
+            "Unit": "Count"
+          },
+          {
+            "Timestamp": "2026-11-13T11:40:00-07:00",
+            "Average": 2.327818466666667,
+            "Minimum": 2.327818466666667,
+            "Maximum": 2.327818466666667,
+            "Unit": "Count"
+          }
+        ],
+        "CPUUtilization": [
+          {
+            "Timestamp": "2026-11-13T11:30:00-07:00",
+            "Average": 6.10386655199205,
+            "Minimum": 0.0098751453549219,
+            "Maximum": 10.867391159410626,
+            "Unit": "Percent"
+          },
+          {
+            "Timestamp": "2026-11-13T11:35:00-07:00",
+            "Average": 7.4496166437926945,
+            "Minimum": 2.2362031273467617,
+            "Maximum": 16.21837417036778,
+            "Unit": "Percent"
+          },
+          {
+            "Timestamp": "2026-11-13T11:40:00-07:00",
+            "Average": 1.356879176984869,
+            "Minimum": 1.1523623428027456,
+            "Maximum": 2.0737902889980844,
+            "Unit": "Percent"
+          }
+        ]
+      }
+    },
+    {
+      "host": "i-07f6d555d64040b04",
+      "metrics": {
+        "CPUCreditBalance": [
+          {
+            "Timestamp": "2026-11-13T11:02:00-07:00",
+            "Average": 0.7431285666666667,
+            "Minimum": 0.7431285666666667,
+            "Maximum": 0.7431285666666667,
+            "Unit": "Count"
+          },
+          {
+            "Timestamp": "2026-11-13T11:07:00-07:00",
+            "Average": 2.6591463833333333,
+            "Minimum": 2.6591463833333333,
+            "Maximum": 2.6591463833333333,
+            "Unit": "Count"
+          },
+          {
+            "Timestamp": "2026-11-13T11:12:00-07:00",
+            "Average": 4.064973083333333,
+            "Minimum": 4.064973083333333,
+            "Maximum": 4.064973083333333,
+            "Unit": "Count"
+          }
+        ],
+        "CPUUtilization": [
+          {
+            "Timestamp": "2026-11-13T11:02:00-07:00",
+            "Average": 1.6353262109302762,
+            "Minimum": 0.4668923312934585,
+            "Maximum": 3.4951618284951618,
+            "Unit": "Percent"
+          },
+          {
+            "Timestamp": "2026-11-13T11:07:00-07:00",
+            "Average": 5.532987497694343,
+            "Minimum": 0.5163826562057535,
+            "Maximum": 25.447706544171496,
+            "Unit": "Percent"
+          },
+          {
+            "Timestamp": "2026-11-13T11:12:00-07:00",
+            "Average": 1.7235692499190933,
+            "Minimum": 1.0672002668000666,
+            "Maximum": 3.292928956099838,
+            "Unit": "Percent"
+          }
+        ]
+      }
+    }
+  ],
+  "interpretation": "Completed experiments have continuous public probes. The later standalone watcher slept. Coarse CPU metrics show positive sampled credit balances and low average utilization; they do not establish credit exhaustion as the cause or rule out brief stalls."
+}

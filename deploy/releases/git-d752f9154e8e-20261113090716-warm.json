@@ -1,0 +1,22 @@
+{
+  "source_commit": "d752f9154e8e65800119d0a8e33d3b2f35686107",
+  "tag": "git-d752f9154e8e-20261113090716",
+  "image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:a788d2c0fa45157f5c383d23f9f66fa7c5e28b5410c2adf00742b8e1b32ef9db",
+  "release_env_sha256": "894ea21e656af82a521922a80b5feb9c2ed267db119738ccde825db8757e8e85",
+  "launch_template": {
+    "LaunchTemplateId": "lt-035cdeecd1b0da54e",
+    "Version": "8"
+  },
+  "viewer_http_status": 200,
+  "warm_ami": "ami-0c350d6774d1ec4c6",
+  "bootstrap_mode": "warm",
+  "verified_at_utc": "2026-11-13T17:52:21.381024+00:00",
+  "runtime_verification_command": "2e26a9f0-fb99-41b2-9093-002f9781875e",
+  "runtime_verification": "{\"instance_id\": \"i-07efdde5a577e4a3e\", \"observed_hosts\": [\"i-07efdde5a577e4a3e\"], \"verified_at_utc\": \"2026-11-13T17:46:58.636953+00:00\"}\n175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:a788d2c0fa45157f5c383d23f9f66fa7c5e28b5410c2adf00742b8e1b32ef9db health=healthy restarts=0 oom=false\nEmbedding 1 succeeded; dimensions: 768; seconds: 0.300\noff_home_https_status=403\n",
+  "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+  "platform": "linux/arm64",
+  "warm_ami_record": "deploy/ami/records/ami-0c350d6774d1ec4c6.json",
+  "bootstrap_sha256": "01ab946b7b4eba71a2ad816c8a2d187e7b9d11689485789bbb3a25e5e2c3029b",
+  "recovery_timing_record": "deploy/recovery/verification.warm_timing.json",
+  "previous_release_manifest": "deploy/releases/git-d752f9154e8e-20261113090716.json"
+}

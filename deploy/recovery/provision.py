@@ -5,9 +5,9 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
 import subprocess
 import tarfile
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GROUP = "cadenza-demo-single"
@@ -30,7 +30,7 @@ def aws(service, operation, **args):
     ]
     if args:
         cmd += ["--cli-input-json", json.dumps(args)]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode:
         raise RuntimeError(f"{service} {operation}: {result.stderr.strip()}")
     return json.loads(result.stdout) if result.stdout.strip() else {}
@@ -45,6 +45,45 @@ def allow(actions, resources):
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--warm-ami-manifest", type=Path)
+    args = parser.parse_args()
+    warm = (
+        json.loads(args.warm_ami_manifest.read_text())
+        if args.warm_ami_manifest
+        else None
+    )
+    if aws("sts", "get-caller-identity")["Account"] != ACCOUNT:
+        raise RuntimeError("AWS profile points to the wrong workload account")
+    if warm:
+        settings = dict(
+            line.split("=", 1)
+            for line in (ROOT / "deploy/release.env.example").read_text().splitlines()
+            if line and not line.startswith("#")
+        )
+        if not (
+            warm.get("validated")
+            and warm["backend_image"] == settings["BACKEND_IMAGE"]
+            and warm["model_revision"] == settings["MODEL_REVISION"]
+        ):
+            raise RuntimeError(
+                "Warm AMI validation does not match this image/model release"
+            )
+        found = aws(
+            "ec2", "describe-images", ImageIds=[warm["image_id"]], Owners=["self"]
+        )["Images"][0]
+        tags = {tag["Key"]: tag["Value"] for tag in found.get("Tags", [])}
+        if (
+            found["State"] != "available"
+            or found.get("Public")
+            or tags.get("CadenzaValidated") != "true"
+            or tags.get("CadenzaBakeKey") != warm["bake_key"]
+        ):
+            raise RuntimeError(
+                "Expected the private, available, validated AMI in the manifest"
+            )
     groups = aws(
         "autoscaling", "describe-auto-scaling-groups", AutoScalingGroupNames=[GROUP]
     )["AutoScalingGroups"]
@@ -131,8 +170,8 @@ def main():
         HealthCheckProtocol="HTTP",
         HealthCheckPort="traffic-port",
         HealthCheckPath="/health/ready",
-        HealthCheckIntervalSeconds=10,
-        HealthCheckTimeoutSeconds=5,
+        HealthCheckIntervalSeconds=5,
+        HealthCheckTimeoutSeconds=4,
         HealthyThresholdCount=2,
         UnhealthyThresholdCount=3,
         Matcher={"HttpCode": "200"},
@@ -159,7 +198,7 @@ def main():
         "elbv2",
         "modify-target-group-attributes",
         TargetGroupArn=target["TargetGroupArn"],
-        Attributes=[{"Key": "deregistration_delay.timeout_seconds", "Value": "120"}],
+        Attributes=[{"Key": "deregistration_delay.timeout_seconds", "Value": "30"}],
     )
     listeners = aws(
         "elbv2", "describe-listeners", LoadBalancerArn=lb["LoadBalancerArn"]
@@ -202,15 +241,18 @@ def main():
         "prepare-host-release.sh",
         "start-release.sh",
         "check-embedding.py",
+        "observe-startup.py",
         "install-host-tools.sh",
         "activate-release.sh",
+        "ami/read-startup-files.py",
+        "ami/prefetch-startup.py",
     ]
     bundle = io.BytesIO()
     with tarfile.open(fileobj=bundle, mode="w:gz") as archive:
         for name in files:
             content = (ROOT / "deploy" / name).read_bytes()
             item = tarfile.TarInfo(
-                "release.env" if name == "release.env.example" else name
+                "release.env" if name == "release.env.example" else Path(name).name
             )
             item.size = len(content)
             item.mode = 0o600
@@ -228,7 +270,11 @@ def main():
     )
     assert len(userdata.encode()) < 16384
     data = {
-        "ImageId": host["ImageId"],
+        "ImageId": warm["image_id"]
+        if warm
+        else json.loads((ROOT / "deploy/recovery/resources.json").read_text()).get(
+            "cold_base_ami", host["ImageId"]
+        ),
         "InstanceType": "t4g.medium",
         "IamInstanceProfile": {"Arn": host["IamInstanceProfile"]["Arn"]},
         "NetworkInterfaces": [
@@ -332,6 +378,9 @@ def main():
     )
     record = {
         "group": GROUP,
+        "warm_ami": warm,
+        "disk_initialization_enabled": False,
+        "draining_seconds": 30,
         "load_balancer_arn": lb["LoadBalancerArn"],
         "load_balancer_dns": lb["DNSName"],
         "target_group_arn": target["TargetGroupArn"],
@@ -340,7 +389,8 @@ def main():
         "launch_template": launch,
         "bootstrap_sha256": hashlib.sha256(bundle.getvalue()).hexdigest(),
         "health_path": "/health/ready",
-        "health_interval_seconds": 10,
+        "health_interval_seconds": 5,
+        "health_timeout_seconds": 4,
         "unhealthy_threshold": 3,
         "healthy_threshold": 2,
         "current_instance": host["InstanceId"],

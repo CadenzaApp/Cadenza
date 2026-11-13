@@ -3,6 +3,7 @@
 set -euo pipefail
 umask 077
 cd /opt/cadenza
+stage() { printf '{"stage":"%s","at_utc":"%s"}\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >> logs/boot-stages.jsonl; }
 if [ -f logs/start-release.log ]; then
     cp logs/start-release.log logs/start-release.previous.log
 fi
@@ -21,10 +22,17 @@ if [ -n "$previous_id" ] && [ "$(docker inspect --format '{{.State.Status}}' "$p
     baseline_restarts=$(docker inspect --format '{{.RestartCount}}' "$previous_id")
 fi
 echo "Starting Rust and its Python child." >&3
+stage docker_up_started
 docker compose --env-file release.env up -d backend
+stage docker_up_finished
 backend_id=$(docker compose --env-file release.env ps -q backend)
 if [ "$backend_id" != "$previous_id" ]; then
     baseline_restarts=0
+fi
+observer_pid=
+if [ -f observe-startup.py ]; then
+    docker exec -i "$backend_id" python - < observe-startup.py >> logs/boot-stages.jsonl 2> logs/startup-observer.log &
+    observer_pid=$!
 fi
 ready=false
 for attempt in $(seq 1 90); do
@@ -52,8 +60,15 @@ if [ "$ready" != true ]; then
     echo "Backend readiness timed out; stopped to preserve evidence." >&3
     exit 1
 fi
+stage docker_health_ready
+if [ -n "$observer_pid" ]; then
+    wait "$observer_pid" || echo 'Startup observer failed; readiness and inference checks remain authoritative.' >&3
+fi
+stage inference_check_started
 echo "Combined Rust/model health is healthy. Checking real inference." >&3
-docker compose --env-file release.env exec -T backend python - < check-embedding.py >&3
+docker compose --env-file release.env exec -T backend python - --timeout "${CADENZA_BOOTSTRAP_INFERENCE_TIMEOUT:-60}" < check-embedding.py >&3
+stage inference_check_finished
 echo "Testing direct Axum HTTP through the host port mapping." >&3
 curl --fail --silent --show-error --retry 12 --retry-delay 2 --retry-all-errors --max-time 15 -w '\nHTTP %{http_code}\n' http://127.0.0.1/test >&3
+stage http_test_passed
 echo "Backend is ready; external CloudFront HTTPS verification is next." >&3

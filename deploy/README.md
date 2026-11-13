@@ -3,19 +3,39 @@
 Local files for the [agent/human tutorial](../DEPLOYMENT_AGENT_HUMAN_TUTORIAL.md).
 Rust starts Python inside one ARM64 backend container. CloudFront handles HTTPS.
 Host port 80 maps directly to Axum port 3000; no reverse-proxy container runs.
-AWS commands below can be run by the human operator. The operator has also
-authorized the agent to use existing local CLI sessions for the reviewed SCP
-change and deployment inspection. The operator separately authorized creating the
-ECR repository and uploading demo-001 regardless of charges. Other billable
-resources require separate authorization. The operator subsequently approved the
-EC2 role/profile and the single t4g.small launch with encrypted 16 GiB gp3, one
-public IPv4, and home-only ingress. The operator then instructed the agent to
-complete actual server startup, including host tools, host-side secret retrieval,
-model preparation, the startup fix in demo-002, and curl verification. Secret
-values stay on EC2 and are not returned to chat.
+Secret values stay on EC2 and are not returned to the workstation.
 
-The operator subsequently authorized the 4 GiB upgrade, internal ALB, capacity-one
-ASG, failure rehearsals, and native email notifications.
+## Entry points and layout
+
+Developers normally need one command, from a clean committed checkout:
+
+```sh
+./scripts/deploy-backend.sh
+```
+
+It builds/publishes the ARM64 image, bakes or reuses a compatible private AMI,
+validates a fresh boot, activates the release and updates replacement settings.
+Plan roughly 20-40 minutes when a new AMI is required; this is an estimate,
+not a measured guarantee. The current backend serves during building/baking;
+final activation briefly interrupts service. Prerequisites and options:
+`./scripts/deploy-backend.sh --help`.
+
+| Location | Purpose |
+| --- | --- |
+| `release.py` | Workstation release orchestration behind the developer command |
+| Root shell/Python helpers and `compose.yaml` | EC2 installation, secrets, activation/rollback and startup checks |
+| `ami/` | Production AMI baking, sanitization, validation and targeted reads |
+| `recovery/` | ALB/ASG provisioning, release updates and optional outage rehearsals |
+| `recovery/resources.json` | Current infrastructure and active release references |
+| `releases/`, `ami/records/` | Release and validated AMI records |
+| `history/`, verification JSON/JSONL files | Historical evidence; not executable setup steps |
+| `iam/` | Instance access policies and historical account-policy changes |
+
+The small host helpers are bundled onto EC2 by the release tooling; developers
+do not run them individually. Completed experiment harnesses, the initial ALB
+cutover script and retired manual-recovery scripts have been removed. Historical
+records may refer to those retired tools. No infrastructure changes are needed
+for this source cleanup.
 
 ## Current deployment
 
@@ -25,8 +45,8 @@ ASG `cadenza-demo-single` has minimum/desired/maximum capacity one and ELB healt
 enabled. One t4g.medium (4 GiB), encrypted 16 GiB gp3, Standard CPU credits,
 IMDSv2 and the existing instance role serve Rust plus its local Python model.
 
-The ALB checks `/health/ready` every 10 seconds, timeout 5 seconds, three failures
-and two successes. Rust must respond and the local Python service must acknowledge
+The ALB checks `/health/ready` every 5 seconds, timeout 4 seconds, three failures
+and two successes. ALB connection draining is 30 seconds. Rust must respond and the local Python service must acknowledge
 its loaded model. Provider outages are excluded. These probes are not inference
 benchmarks or complete stall detection. ALB may fail open to its last unhealthy
 target; recovery includes downtime.
@@ -55,25 +75,90 @@ home-network HTTPS and off-home 403. `recovery/verification.rollback.json` recor
 known-bad candidate rejection and restoration of demo-004. Email subscription is
 confirmed; SNS delivery metrics verified native notifications were delivered.
 
+`recovery/verification.warm_timing.json` measures an unassisted warm-AMI replacement:
+607.56 seconds from killing Python to HTTPS readiness plus `/test` returning 200.
+The one-second probes observed a maximum 1.19-second sampling gap. Detailed checks
+are separate in `verification.warm_runtime.json`: cached startup path, fresh SSM
+identity/secrets, exclusivity, real inference, zero restarts/OOM, auth and home-only
+access. The initial attempt hit the old 60-second startup inference limit and is
+recorded separately as manually recovered. It is not an automatic-recovery result.
+This establishes current timing, not a demonstrated speedup over older runs that
+included verification. Model startup and initial snapshot reads remain slow.
+
+The read-only full-root-partition initialization experiment is recorded in
+`recovery/verification.disk_init_timing.json` and `recovery/verification.disk_init_boot.json`.
+It took 743.035 seconds overall: the scan alone took 553.453 seconds, followed by
+38.848 seconds of application startup/verification. The unsuccessful full-scan helper and deployment option were removed; evidence
+is retained.
+
+A subsequent control with 30-second ALB draining and no scan took 611.411 seconds
+(10m 11s), essentially the same as the earlier 607.56-second run. Its app startup
+and verification took 323.567 seconds, versus 38.848 after the full scan. Reading
+the entire partition accelerated later startup but cost more than it saved.
+Evidence: `recovery/verification.drain30_timing.json`, `verification.drain30_boot.json`
+and `verification.drain30_runtime.json`. Both new runs retain every HTTP probe in
+companion `.probes.jsonl` files. Maximum sampling gaps were 1.182 and 1.453 seconds.
+AWS detection/boot timing varied; these single runs do not establish an SLA or
+prove a speedup from reducing draining. Normal deployment keeps draining at 30
+seconds and uses targeted file reads.
+
+Targeted parallel reads are now the automatic warm-AMI startup path. The cold
+replacement rehearsal took 257.965 seconds (4m 18s). Bootstrap-to-public-response
+was 131.440 seconds, including prefetch, versus 372.941 for the no-scan control.
+AWS detection was also faster in this run; this is an observed result, not a
+recovery guarantee. Detailed timings and verification are in
+`recovery/verification.targeted_{timing,boot,runtime}.json`. Temporary AMI
+builder/validator instances were terminated. No paid initialization or CPU-credit
+billing changes were enabled.
+
 No Lambda recovery controller remains. Supabase schema was not changed. No RAM
 rehearsal was repeated. The original 2 GiB measurements and manual model recovery
 are preserved in Git/history; current capacity is 4 GiB.
 
 ## Developer releases
 
-From a clean committed checkout with Python 3, AWS CLI login and Docker buildx:
+Run one release at a time, from a clean committed checkout with Python 3.11+,
+AWS CLI login and Docker buildx:
 
 ```sh
 ./scripts/deploy-backend.sh
 ```
 
-Use `--help` or an optional `--tag`. The helper passed an end-to-end deployment from committed source. It checks
-account/source, builds ARM64,
-checks CPU model dependencies, publishes an immutable ECR digest, activates on the
-single host with rollback, and updates the launch template. It writes a release
-manifest and updated nonsecret settings for a follow-up commit. It currently uses
-cold bootstrap; automated sanitized AMI baking is planned in the same entry point,
-not yet implemented. There are no GitLab runners or formal CD jobs.
+Use `--help` or an optional `--tag`. The helper checks account/source, builds ARM64,
+checks CPU model dependencies, publishes an immutable ECR digest, bakes and
+independently validates a matching private AMI, activates on the single host with
+rollback, and promotes the launch template. Baking happens before app downtime.
+It writes a release manifest and updated nonsecret settings for a follow-up
+commit. There are no GitLab runners or formal CD jobs. On macOS the command
+prevents idle sleep for the release's lifetime. It also refreshes activation tools
+on the existing host, so scripts are not left at the version from its last boot.
+
+Baking uses temporary non-serving machines with model-only access, never database
+credentials. The model token travels through stdin, not container environment
+metadata or a file. The snapshot contains installed tools, image layers and model
+files, with no containers, app secrets or saved agent identity. A fresh validator
+checks inference with container networking disabled before promotion. Temporary
+machines are terminated on completion/failure; failed AMIs/snapshots are removed.
+A hard-killed workstation process can require manual cleanup of hosts tagged
+`CadenzaImageBuilder=true`.
+
+Warm AMIs are reused only when baked inputs match. Replacement still fetches fresh
+secrets and verifies the pinned image. A matching cache skips tool installation
+and model downloads; a mismatch falls back to cold preparation. A matching warm
+boot automatically starts targeted parallel reads of Python/runtime files, the
+model and backend executable, overlapping safe preparation. It waits before app
+startup. This uses existing EC2/EBS capabilities, not paid restore features or a
+new service. The read-only helper gets no app secrets and has no network. A
+240-second budget and fallback preserve normal verified startup if it fails.
+
+AMI baking hashes the prefetch inputs, checks the reader on the builder, and
+repeats offline prefetch plus finite 768-dimensional inference on a fresh validator.
+The release command handles creation, validation and template promotion; no manual
+AMI or cache-setup step is required. AMIs capture disk,
+not RAM, and first reads from snapshot-backed disks can be slow. No paid Fast
+Snapshot Restore is enabled. Successful AMIs/snapshots remain for rollback and
+incur storage charges; prune obsolete ones after checking launch-template and
+release references, keeping the active and one known-working previous release.
 
 The lower-level commands and maintenance limitations are described in
 [recovery/README.md](recovery/README.md). The update helper temporarily uses EC2
@@ -86,6 +171,9 @@ restore ELB health. Never publish an unverified candidate into replacement confi
 `/health/live` checks Rust HTTP; `/health/ready` also checks the loaded local model
 within two seconds. Docker uses readiness but does not itself restart an unhealthy
 running container. Native ASG replacement now provides that recovery path.
+First inference during fresh-host bootstrap has a 300-second check allowance for
+snapshot disk reads, before the launch hook admits traffic. Other inference checks
+default to 60 seconds; application request/provider timeouts are unchanged.
 SIGTERM stops new periodic work and drains accepted HTTP plus tracked work for
 120 seconds, then cancels it. Child/DB cleanup has a further 15-second bound;
 Docker allows 150 seconds. Business handler responses have a 50-second deadline;
@@ -98,8 +186,8 @@ starting Rust. There are no claim leases/schema changes or distributed caches.
 
 ## Planned follow-up
 
-The [current plan](../DEPLOYMENT_PLAN.md) adds sanitized warm AMIs to shorten cold
-start and integrate them into the developer release script. Public-access quotas,
+The [current plan](../DEPLOYMENT_PLAN.md) records warm-AMI recovery and the remaining
+public-access work. Public-access quotas,
 bounded queues/inputs, sanitized errors and authorization tests remain required
 before removing the home restriction. Private Prometheus/Grafana comes later;
 OpenTelemetry spans are optional follow-up. No monitoring stack is provisioned.
@@ -135,7 +223,7 @@ aws autoscaling update-auto-scaling-group --profile cadenza-project --region us-
 ```
 
 Keep the origin private. If home IPv4 changes, update/test the CloudFront viewer
-function; do not add public EC2 ingress. Model cache is recreated on replacement.
+function; do not add public EC2 ingress. Model cache comes from the validated AMI on replacement.
 
 ## Secrets and release identity
 
@@ -165,5 +253,13 @@ cargo test --locked --manifest-path backend-api/Cargo.toml lifecycle_
 
 The intentional failure observer is `recovery/verify-replacement.py`; it observes
 an already-triggered rehearsal and does not itself kill a process/instance. Do
-not use the retired manual-restart rehearsal while native ASG recovery is active.
+not manually restart a failing backend while a native ASG rehearsal is active.
 Historical fixed-duration 2 GiB RAM procedures are no longer deployment gates.
+
+Granular startup events are appended to `logs/boot-stages.jsonl`: Docker up,
+first observed Rust liveness, Python/model readiness, combined readiness,
+Docker health, inference check start/end, and direct HTTP verification. Local
+endpoint observation runs once per second; it does not execute inference. The
+model-only comparison under `ami/startup-comparison.json` separately measures
+imports, model construction, first encode and second encode with wall/CPU/I/O
+counters. Those isolated timings are not full backend recovery times.

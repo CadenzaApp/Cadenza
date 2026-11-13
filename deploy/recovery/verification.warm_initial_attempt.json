@@ -1,0 +1,114 @@
+{
+  "kind": "warm_model_failure",
+  "workstation_minus_http_date_seconds": 0.075,
+  "crash_host_ntp_synchronized": true,
+  "old_instance": "i-0cf4976fafc1d551d",
+  "warm_ami": "ami-0c350d6774d1ec4c6",
+  "launch_template": {
+    "LaunchTemplateId": "lt-035cdeecd1b0da54e",
+    "LaunchTemplateName": "cadenza-demo-single",
+    "Version": "7"
+  },
+  "poll_interval_seconds": 1,
+  "request_timeout_seconds": 2,
+  "transitions": [
+    {
+      "at_utc": "2026-11-13T17:30:08.272703+00:00",
+      "instances": [
+        {
+          "id": "i-0cf4976fafc1d551d",
+          "phase": "InService",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T17:32:16.764928+00:00",
+      "instances": [
+        {
+          "id": "i-0cf4976fafc1d551d",
+          "phase": "InService",
+          "health": "Unhealthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T17:32:27.445418+00:00",
+      "instances": [
+        {
+          "id": "i-0cf4976fafc1d551d",
+          "phase": "Terminating",
+          "health": "Unhealthy"
+        },
+        {
+          "id": "i-0e44e6aaed3f631e1",
+          "phase": "Pending:Wait",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T17:35:08.171408+00:00",
+      "instances": [
+        {
+          "id": "i-0e44e6aaed3f631e1",
+          "phase": "Pending:Wait",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T17:40:27.096824+00:00",
+      "instances": [
+        {
+          "id": "i-0e44e6aaed3f631e1",
+          "phase": "InService",
+          "health": "Healthy"
+        }
+      ]
+    }
+  ],
+  "crash_command": "3180eefe-df1b-411e-9534-478dfcac64cb",
+  "killed_at_utc": "2026-11-13T17:30:05.368570+00:00",
+  "new_instance": "i-0e44e6aaed3f631e1",
+  "first_failure_at_utc": "2026-11-13T17:30:06.288262+00:00",
+  "first_ready_api_at_utc": "2026-11-13T17:40:19.333749+00:00",
+  "http_status_changes": [
+    {
+      "at_utc": "2026-11-13T17:30:04.273665+00:00",
+      "ready": 200,
+      "api": 200
+    },
+    {
+      "at_utc": "2026-11-13T17:30:06.288262+00:00",
+      "ready": 503,
+      "api": 200
+    },
+    {
+      "at_utc": "2026-11-13T17:32:21.037065+00:00",
+      "ready": 503,
+      "api": 503
+    },
+    {
+      "at_utc": "2026-11-13T17:37:31.401113+00:00",
+      "ready": 0,
+      "api": 0
+    },
+    {
+      "at_utc": "2026-11-13T17:37:31.736810+00:00",
+      "ready": 503,
+      "api": 503
+    },
+    {
+      "at_utc": "2026-11-13T17:40:19.333749+00:00",
+      "ready": 200,
+      "api": 200
+    }
+  ],
+  "sample_count": 613,
+  "maximum_sample_gap_seconds": 9.169,
+  "unassisted": false,
+  "result": "Initial attempt required manual completion after the startup-only inference check timed out at 60 seconds. Do not use as an automatic-recovery performance result.",
+  "manual_recovery_command": "36b6d1e1-3a95-464c-aa8f-c17ead306cdd",
+  "observed_duration_with_manual_recovery_seconds": 613.965
+}

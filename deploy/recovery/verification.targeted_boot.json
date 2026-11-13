@@ -1,0 +1,102 @@
+{
+  "stages": [
+    {
+      "stage": "bootstrap_started",
+      "at_utc": "2026-11-13T19:48:49.526753475Z"
+    },
+    {
+      "stage": "docker_ready",
+      "at_utc": "2026-11-13T19:48:49.535007960Z"
+    },
+    {
+      "stage": "cache_checked",
+      "at_utc": "2026-11-13T19:48:57.266382971Z"
+    },
+    {
+      "stage": "targeted_prefetch_started",
+      "at_utc": "2026-11-13T19:48:57.266382216Z"
+    },
+    {
+      "stage": "secrets_and_image_ready",
+      "at_utc": "2026-11-13T19:49:17.886339031Z"
+    },
+    {
+      "stage": "exclusivity_passed",
+      "at_utc": "2026-11-13T19:49:20.262213641Z"
+    },
+    {
+      "stage": "targeted_prefetch_finished",
+      "at_utc": "2026-11-13T19:50:23.818515170Z"
+    },
+    {
+      "stage": "application_starting",
+      "at_utc": "2026-11-13T19:50:23.820440377Z"
+    },
+    {
+      "stage": "docker_up_started",
+      "at_utc": "2026-11-13T19:50:23.909305813Z"
+    },
+    {
+      "stage": "docker_up_finished",
+      "at_utc": "2026-11-13T19:50:25.586920680Z"
+    },
+    {
+      "stage": "rust_live",
+      "at_utc": "2026-11-13T19:50:28.139205+00:00",
+      "monotonic_seconds": 170.752382757,
+      "poll_interval_seconds": 1
+    },
+    {
+      "stage": "python_model_ready",
+      "at_utc": "2026-11-13T19:50:49.140608+00:00",
+      "monotonic_seconds": 191.753783666,
+      "poll_interval_seconds": 1
+    },
+    {
+      "stage": "combined_ready",
+      "at_utc": "2026-11-13T19:50:49.142186+00:00",
+      "monotonic_seconds": 191.755359809,
+      "poll_interval_seconds": 1
+    },
+    {
+      "stage": "docker_health_ready",
+      "at_utc": "2026-11-13T19:50:56.399410538Z"
+    },
+    {
+      "stage": "inference_check_started",
+      "at_utc": "2026-11-13T19:50:56.401112980Z"
+    },
+    {
+      "stage": "inference_check_finished",
+      "at_utc": "2026-11-13T19:50:57.245227582Z"
+    },
+    {
+      "stage": "http_test_passed",
+      "at_utc": "2026-11-13T19:50:57.256438959Z"
+    },
+    {
+      "stage": "application_verified",
+      "at_utc": "2026-11-13T19:50:57.258221597Z"
+    },
+    {
+      "stage": "lifecycle_completed",
+      "at_utc": "2026-11-13T19:50:58.536246954Z"
+    }
+  ],
+  "prefetch": [
+    {
+      "stage": "targeted_prefetch",
+      "seconds": 74.877,
+      "files": 27481,
+      "logical_bytes": 2405569454,
+      "input_blocks": 4864760
+    }
+  ],
+  "inference_summary": [
+    "Embedding 1 succeeded; dimensions: 768; seconds: 0.317"
+  ],
+  "error_marker_lines": 0,
+  "instance_id": "i-00d963ec5a0461258",
+  "ami": "ami-0379feb57685778c1",
+  "command": "b932d693-779c-4051-a3e5-4b702a0679de"
+}

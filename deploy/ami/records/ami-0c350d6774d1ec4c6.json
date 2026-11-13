@@ -1,0 +1,13 @@
+{
+  "image_id": "ami-0c350d6774d1ec4c6",
+  "bake_key": "c99ac656fd04e020296dfe98190328cf509281e823758e9ebc8caf6897ab8027",
+  "cold_base_ami": "ami-0bec25ae844865e7d",
+  "backend_image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:a788d2c0fa45157f5c383d23f9f66fa7c5e28b5410c2adf00742b8e1b32ef9db",
+  "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+  "validation_command": "bcb891d5-25ac-42a9-a1ab-2f2b647cb127",
+  "validation_result": "AMI validation passed: no containers/secrets; offline finite 768-dimensional inference",
+  "validated": true,
+  "builder_instance": "i-0b98d4c034aaf04af",
+  "validation_instance": "i-093927540c584a40b",
+  "validated_at_utc": "2026-11-13T17:29:29.312117+00:00"
+}

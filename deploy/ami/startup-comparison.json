@@ -1,0 +1,172 @@
+[
+  {
+    "mode": "baseline",
+    "total_seconds": 156.616,
+    "completed_at_utc": "2026-11-13T19:13:29.435643+00:00",
+    "stages": [
+      {
+        "stage": "imports",
+        "wall_seconds": 94.181,
+        "cpu_seconds": 19.046,
+        "major_faults_total": 1206,
+        "input_blocks_total": 574312
+      },
+      {
+        "stage": "model_load",
+        "wall_seconds": 19.006,
+        "cpu_seconds": 2.837,
+        "major_faults_total": 1486,
+        "input_blocks_total": 788504
+      },
+      {
+        "stage": "first_encode",
+        "wall_seconds": 26.404,
+        "cpu_seconds": 0.445,
+        "major_faults_total": 1619,
+        "input_blocks_total": 1524048
+      },
+      {
+        "stage": "second_encode",
+        "wall_seconds": 0.248,
+        "cpu_seconds": 0.248,
+        "major_faults_total": 1619,
+        "input_blocks_total": 1524048
+      }
+    ],
+    "instance_id": "i-00d92a1c5dfbf35f6",
+    "round": 1,
+    "ami": "ami-0c350d6774d1ec4c6",
+    "launched_at_utc": "2026-11-13T19:09:22.418079+00:00"
+  },
+  {
+    "mode": "targeted",
+    "total_seconds": 132.619,
+    "completed_at_utc": "2026-11-13T19:13:05.438382+00:00",
+    "stages": [
+      {
+        "stage": "targeted_prefetch",
+        "seconds": 93.981,
+        "files": 27477,
+        "logical_bytes": 2376779647,
+        "input_blocks": 4817512
+      },
+      {
+        "stage": "imports",
+        "wall_seconds": 17.664,
+        "cpu_seconds": 17.544,
+        "major_faults_total": 0,
+        "input_blocks_total": 376
+      },
+      {
+        "stage": "model_load",
+        "wall_seconds": 2.547,
+        "cpu_seconds": 2.549,
+        "major_faults_total": 1,
+        "input_blocks_total": 472
+      },
+      {
+        "stage": "first_encode",
+        "wall_seconds": 0.261,
+        "cpu_seconds": 0.261,
+        "major_faults_total": 1,
+        "input_blocks_total": 472
+      },
+      {
+        "stage": "second_encode",
+        "wall_seconds": 0.241,
+        "cpu_seconds": 0.241,
+        "major_faults_total": 1,
+        "input_blocks_total": 472
+      }
+    ],
+    "instance_id": "i-0b18fef47356cc6f2",
+    "round": 1,
+    "ami": "ami-0c350d6774d1ec4c6",
+    "launched_at_utc": "2026-11-13T19:09:22.418495+00:00"
+  },
+  {
+    "mode": "baseline",
+    "total_seconds": 171.375,
+    "completed_at_utc": "2026-11-13T19:17:31.916877+00:00",
+    "stages": [
+      {
+        "stage": "imports",
+        "wall_seconds": 92.603,
+        "cpu_seconds": 18.608,
+        "major_faults_total": 1206,
+        "input_blocks_total": 574312
+      },
+      {
+        "stage": "model_load",
+        "wall_seconds": 29.22,
+        "cpu_seconds": 2.992,
+        "major_faults_total": 1486,
+        "input_blocks_total": 788512
+      },
+      {
+        "stage": "first_encode",
+        "wall_seconds": 34.097,
+        "cpu_seconds": 0.443,
+        "major_faults_total": 1619,
+        "input_blocks_total": 1524056
+      },
+      {
+        "stage": "second_encode",
+        "wall_seconds": 0.247,
+        "cpu_seconds": 0.246,
+        "major_faults_total": 1619,
+        "input_blocks_total": 1524056
+      }
+    ],
+    "instance_id": "i-0e84aa15aef98f255",
+    "round": 2,
+    "ami": "ami-0c350d6774d1ec4c6",
+    "launched_at_utc": "2026-11-13T19:13:40.405038+00:00"
+  },
+  {
+    "mode": "targeted",
+    "total_seconds": 166.838,
+    "completed_at_utc": "2026-11-13T19:17:27.295828+00:00",
+    "stages": [
+      {
+        "stage": "targeted_prefetch",
+        "seconds": 129.986,
+        "files": 27477,
+        "logical_bytes": 2376779647,
+        "input_blocks": 4817512
+      },
+      {
+        "stage": "imports",
+        "wall_seconds": 17.558,
+        "cpu_seconds": 17.547,
+        "major_faults_total": 0,
+        "input_blocks_total": 376
+      },
+      {
+        "stage": "model_load",
+        "wall_seconds": 2.557,
+        "cpu_seconds": 2.562,
+        "major_faults_total": 1,
+        "input_blocks_total": 464
+      },
+      {
+        "stage": "first_encode",
+        "wall_seconds": 0.253,
+        "cpu_seconds": 0.253,
+        "major_faults_total": 1,
+        "input_blocks_total": 464
+      },
+      {
+        "stage": "second_encode",
+        "wall_seconds": 0.237,
+        "cpu_seconds": 0.237,
+        "major_faults_total": 1,
+        "input_blocks_total": 464
+      }
+    ],
+    "instance_id": "i-015fe33b3fa7bacc4",
+    "round": 2,
+    "ami": "ami-0c350d6774d1ec4c6",
+    "launched_at_utc": "2026-11-13T19:13:40.404810+00:00"
+  }
+]

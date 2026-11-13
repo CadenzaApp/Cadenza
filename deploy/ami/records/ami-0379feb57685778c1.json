@@ -1,0 +1,14 @@
+{
+  "image_id": "ami-0379feb57685778c1",
+  "builder_instance": "i-02a1eeaca5f4e7056",
+  "validation_instance": "i-0c5a4b77e88fc5ac9",
+  "validated_at_utc": "2026-11-13T19:44:55.210544+00:00",
+  "bake_key": "5aaf536ebe374b81617725368da3ff062e324fd185c9ce59e96d9f29ee073858",
+  "cold_base_ami": "ami-0bec25ae844865e7d",
+  "backend_image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:a788d2c0fa45157f5c383d23f9f66fa7c5e28b5410c2adf00742b8e1b32ef9db",
+  "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+  "validation_command": "bf6a4457-4ce5-4a8f-973e-d4d4b148e42e",
+  "validation_result": "{\"stage\": \"targeted_prefetch\", \"seconds\": 118.84, \"files\": 27481, \"logical_bytes\": 2405569454, \"input_blocks\": 4865312}\nAMI validation passed: no containers/secrets; offline finite 768-dimensional inference",
+  "validated": true,
+  "startup_prefetch": "targeted-python-model-v1"
+}

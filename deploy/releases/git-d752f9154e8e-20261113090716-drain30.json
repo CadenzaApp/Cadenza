@@ -1,0 +1,32 @@
+{
+  "source_commit": "d752f9154e8e65800119d0a8e33d3b2f35686107",
+  "tag": "git-d752f9154e8e-20261113090716",
+  "image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:a788d2c0fa45157f5c383d23f9f66fa7c5e28b5410c2adf00742b8e1b32ef9db",
+  "release_env_sha256": "894ea21e656af82a521922a80b5feb9c2ed267db119738ccde825db8757e8e85",
+  "launch_template": {
+    "LaunchTemplateId": "lt-035cdeecd1b0da54e",
+    "Version": "10"
+  },
+  "viewer_http_status": 200,
+  "warm_ami": "ami-0c350d6774d1ec4c6",
+  "bootstrap_mode": "warm",
+  "verified_at_utc": "2026-11-13T18:39:48.750476+00:00",
+  "runtime_verification_command": "5d163e49-f1c3-4251-a2f1-5cb8a38ed136",
+  "runtime_verification": "{\"instance_id\": \"i-0915f97cb96d06110\", \"observed_hosts\": [\"i-0915f97cb96d06110\"], \"verified_at_utc\": \"2026-11-13T18:33:22.590532+00:00\"}\n175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:a788d2c0fa45157f5c383d23f9f66fa7c5e28b5410c2adf00742b8e1b32ef9db health=healthy restarts=0 oom=false\nEmbedding 1 succeeded; dimensions: 768; seconds: 0.298\noff_home_https_status=403\n",
+  "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+  "platform": "linux/arm64",
+  "warm_ami_record": "deploy/ami/records/ami-0c350d6774d1ec4c6.json",
+  "bootstrap_sha256": "5b65e3a53a4637dc2d2ab718f7dbac49247015e6a30c38f8a860094d36a4ef7c",
+  "recovery_timing_record": "deploy/recovery/verification.drain30_timing.json",
+  "previous_release_manifest": "deploy/releases/git-d752f9154e8e-20261113090716-warm.json",
+  "boot_timing_record": "deploy/recovery/verification.drain30_boot.json",
+  "draining_seconds": 30,
+  "disk_initialization_enabled": false,
+  "health_probe_settings": {
+    "interval_seconds": 5,
+    "timeout_seconds": 4,
+    "unhealthy_threshold": 3,
+    "healthy_threshold": 2,
+    "updated_at_utc": "2026-11-13T18:52:14.493488+00:00"
+  }
+}

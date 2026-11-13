@@ -1,0 +1,118 @@
+{
+  "kind": "warm_model_failure",
+  "workstation_minus_http_date_seconds": 0.489,
+  "crash_host_ntp_synchronized": true,
+  "old_instance": "i-0e44e6aaed3f631e1",
+  "warm_ami": "ami-0c350d6774d1ec4c6",
+  "launch_template": {
+    "LaunchTemplateId": "lt-035cdeecd1b0da54e",
+    "LaunchTemplateName": "cadenza-demo-single",
+    "Version": "8"
+  },
+  "poll_interval_seconds": 1,
+  "request_timeout_seconds": 2,
+  "transitions": [
+    {
+      "at_utc": "2026-11-13T17:41:39.499060+00:00",
+      "instances": [
+        {
+          "id": "i-0e44e6aaed3f631e1",
+          "phase": "InService",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T17:44:20.278144+00:00",
+      "instances": [
+        {
+          "id": "i-0e44e6aaed3f631e1",
+          "phase": "InService",
+          "health": "Unhealthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T17:44:31.011870+00:00",
+      "instances": [
+        {
+          "id": "i-07efdde5a577e4a3e",
+          "phase": "Pending",
+          "health": "Healthy"
+        },
+        {
+          "id": "i-0e44e6aaed3f631e1",
+          "phase": "Terminating",
+          "health": "Unhealthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T17:44:41.653330+00:00",
+      "instances": [
+        {
+          "id": "i-07efdde5a577e4a3e",
+          "phase": "Pending:Wait",
+          "health": "Healthy"
+        },
+        {
+          "id": "i-0e44e6aaed3f631e1",
+          "phase": "Terminating",
+          "health": "Unhealthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T17:47:11.718506+00:00",
+      "instances": [
+        {
+          "id": "i-07efdde5a577e4a3e",
+          "phase": "Pending:Wait",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T17:51:50.264271+00:00",
+      "instances": [
+        {
+          "id": "i-07efdde5a577e4a3e",
+          "phase": "InService",
+          "health": "Healthy"
+        }
+      ]
+    }
+  ],
+  "crash_command": "cfdac18a-687a-4713-a347-d1369ccc1d40",
+  "killed_at_utc": "2026-11-13T17:41:36.681137+00:00",
+  "new_instance": "i-07efdde5a577e4a3e",
+  "first_failure_at_utc": "2026-11-13T17:41:36.697474+00:00",
+  "first_ready_api_at_utc": "2026-11-13T17:51:44.241133+00:00",
+  "crash_to_ready_api_seconds": 607.56,
+  "http_status_changes": [
+    {
+      "at_utc": "2026-11-13T17:41:35.691725+00:00",
+      "ready": 200,
+      "api": 200
+    },
+    {
+      "at_utc": "2026-11-13T17:41:36.697474+00:00",
+      "ready": 503,
+      "api": 200
+    },
+    {
+      "at_utc": "2026-11-13T17:44:27.440508+00:00",
+      "ready": 503,
+      "api": 503
+    },
+    {
+      "at_utc": "2026-11-13T17:51:44.241133+00:00",
+      "ready": 200,
+      "api": 200
+    }
+  ],
+  "sample_count": 613,
+  "maximum_sample_gap_seconds": 1.19,
+  "unassisted": true,
+  "post_recovery_verification_excluded": true
+}

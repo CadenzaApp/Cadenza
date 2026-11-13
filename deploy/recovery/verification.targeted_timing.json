@@ -1,0 +1,169 @@
+{
+  "kind": "warm_model_failure",
+  "workstation_minus_http_date_seconds": 0.772,
+  "crash_host_ntp_synchronized": true,
+  "old_instance": "i-0915f97cb96d06110",
+  "warm_ami": "ami-0379feb57685778c1",
+  "startup_prefetch": "targeted-python-model-v1",
+  "draining_seconds": 30,
+  "launch_template": {
+    "LaunchTemplateId": "lt-035cdeecd1b0da54e",
+    "LaunchTemplateName": "cadenza-demo-single",
+    "Version": "11"
+  },
+  "poll_interval_seconds": 1,
+  "request_timeout_seconds": 2,
+  "transitions": [
+    {
+      "at_utc": "2026-11-13T19:46:45.875707+00:00",
+      "instances": [
+        {
+          "id": "i-0915f97cb96d06110",
+          "phase": "InService",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T19:47:11.416224+00:00",
+      "instances": [
+        {
+          "id": "i-0915f97cb96d06110",
+          "phase": "InService",
+          "health": "Unhealthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T19:47:24.103334+00:00",
+      "instances": [
+        {
+          "id": "i-00d963ec5a0461258",
+          "phase": "Pending",
+          "health": "Healthy"
+        },
+        {
+          "id": "i-0915f97cb96d06110",
+          "phase": "Terminating",
+          "health": "Unhealthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T19:47:30.399078+00:00",
+      "instances": [
+        {
+          "id": "i-00d963ec5a0461258",
+          "phase": "Pending:Wait",
+          "health": "Healthy"
+        },
+        {
+          "id": "i-0915f97cb96d06110",
+          "phase": "Terminating",
+          "health": "Unhealthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T19:48:33.662985+00:00",
+      "instances": [
+        {
+          "id": "i-00d963ec5a0461258",
+          "phase": "Pending:Wait",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T19:51:01.572121+00:00",
+      "instances": [
+        {
+          "id": "i-00d963ec5a0461258",
+          "phase": "InService",
+          "health": "Healthy"
+        }
+      ]
+    }
+  ],
+  "alb_transitions": [
+    {
+      "at_utc": "2026-11-13T19:46:46.528412+00:00",
+      "targets": [
+        {
+          "id": "i-0915f97cb96d06110",
+          "state": "healthy",
+          "reason": null
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T19:46:59.147271+00:00",
+      "targets": [
+        {
+          "id": "i-0915f97cb96d06110",
+          "state": "unhealthy",
+          "reason": "Target.ResponseCodeMismatch"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T19:47:24.731162+00:00",
+      "targets": [
+        {
+          "id": "i-0915f97cb96d06110",
+          "state": "draining",
+          "reason": "Target.DeregistrationInProgress"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T19:47:56.434282+00:00",
+      "targets": []
+    },
+    {
+      "at_utc": "2026-11-13T19:51:02.190855+00:00",
+      "targets": [
+        {
+          "id": "i-00d963ec5a0461258",
+          "state": "healthy",
+          "reason": null
+        }
+      ]
+    }
+  ],
+  "health_interval_seconds": 5,
+  "probe_log": "deploy/recovery/verification.targeted_timing.probes.jsonl",
+  "crash_command": "c2d3e57e-d686-495e-9878-bffdaff12899",
+  "killed_at_utc": "2026-11-13T19:46:43.001617+00:00",
+  "new_instance": "i-00d963ec5a0461258",
+  "first_failure_at_utc": "2026-11-13T19:46:43.030846+00:00",
+  "first_ready_api_at_utc": "2026-11-13T19:51:00.966575+00:00",
+  "crash_to_ready_api_seconds": 257.965,
+  "http_status_changes": [
+    {
+      "at_utc": "2026-11-13T19:46:41.981766+00:00",
+      "ready": 200,
+      "api": 200
+    },
+    {
+      "at_utc": "2026-11-13T19:46:43.030846+00:00",
+      "ready": 503,
+      "api": 200
+    },
+    {
+      "at_utc": "2026-11-13T19:47:24.122145+00:00",
+      "ready": 503,
+      "api": 503
+    },
+    {
+      "at_utc": "2026-11-13T19:51:00.966575+00:00",
+      "ready": 200,
+      "api": 200
+    }
+  ],
+  "sample_count": 260,
+  "maximum_sample_gap_seconds": 1.284,
+  "timing_sampling_valid": true,
+  "unassisted_recovery": true,
+  "post_recovery_verification_excluded": true
+}

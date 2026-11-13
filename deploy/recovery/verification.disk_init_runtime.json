@@ -1,0 +1,115 @@
+{
+  "kind": "model_failure",
+  "started_at_utc": "2026-11-13T18:01:44.970003+00:00",
+  "completed_at_utc": "2026-11-13T18:15:07.915316+00:00",
+  "old_instance": "i-07efdde5a577e4a3e",
+  "new_instance": "i-07f6d555d64040b04",
+  "old_terminated": true,
+  "capacity": {
+    "minimum": 1,
+    "desired": 1,
+    "maximum": 1
+  },
+  "health_check_type": "ELB",
+  "transitions": [
+    {
+      "at": "2026-11-13T18:14:59.558788+00:00",
+      "instances": [
+        {
+          "id": "i-07f6d555d64040b04",
+          "phase": "InService",
+          "health": "Healthy"
+        }
+      ]
+    }
+  ],
+  "startup_gate": {
+    "instance_id": "i-07f6d555d64040b04",
+    "observed_hosts": [
+      "i-07f6d555d64040b04"
+    ],
+    "verified_at_utc": "2026-11-13T18:05:53.178813+00:00"
+  },
+  "runtime_command": "4f83e33b-5fa4-4158-b124-a6ddb2fa3900",
+  "runtime_summary": "{\"instance_id\": \"i-07f6d555d64040b04\", \"observed_hosts\": [\"i-07f6d555d64040b04\"], \"verified_at_utc\": \"2026-11-13T18:05:53.178813+00:00\"}\n175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:a788d2c0fa45157f5c383d23f9f66fa7c5e28b5410c2adf00742b8e1b32ef9db health=healthy restarts=0 oom=false\nEmbedding 1 succeeded; dimensions: 768; seconds: 0.300\noff_home_https_status=403\n",
+  "https_checks": [
+    {
+      "path": "/health/ready",
+      "status": 200
+    },
+    {
+      "path": "/health/live",
+      "status": 200
+    },
+    {
+      "path": "/test",
+      "status": 200
+    },
+    {
+      "path": "/tags/activity",
+      "status": 401
+    }
+  ],
+  "activities": [
+    {
+      "ActivityId": "9e868758-4d88-803e-e430-f9df55c28033",
+      "Description": "Launching a new EC2 instance: i-07f6d555d64040b04",
+      "Cause": "At 2026-11-13T18:02:35Z an instance was launched in response to an unhealthy instance needing to be replaced.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "d7968758-4d6c-c2ff-71dd-8d94298b22ed",
+      "Description": "Terminating EC2 instance: i-07efdde5a577e4a3e",
+      "Cause": "At 2026-11-13T18:02:35Z an instance was taken out of service in response to an ELB system health check failure.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "fdb68758-0afe-1c92-f26d-b341f7c1a41c",
+      "Description": "Launching a new EC2 instance: i-07efdde5a577e4a3e",
+      "Cause": "At 2026-11-13T17:44:25Z an instance was launched in response to an unhealthy instance needing to be replaced.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "75868758-0ae1-8cad-a4b8-88d6ca539631",
+      "Description": "Terminating EC2 instance: i-0e44e6aaed3f631e1",
+      "Cause": "At 2026-11-13T17:44:24Z an instance was taken out of service in response to an ELB system health check failure.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "c2a68757-de9c-860e-a776-06ceba7c80f9",
+      "Description": "Launching a new EC2 instance: i-0e44e6aaed3f631e1",
+      "Cause": "At 2026-11-13T17:32:18Z an instance was launched in response to an unhealthy instance needing to be replaced.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "41068757-de81-b730-3ca5-cd22a849034b",
+      "Description": "Terminating EC2 instance: i-0cf4976fafc1d551d",
+      "Cause": "At 2026-11-13T17:32:17Z an instance was taken out of service in response to an ELB system health check failure.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "fa468750-5f9c-11f0-e794-01dbfb0a789c",
+      "Description": "Launching a new EC2 instance: i-0cf4976fafc1d551d",
+      "Cause": "At 2026-11-13T08:48:16Z an instance was launched in response to an unhealthy instance needing to be replaced.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "01168750-5f7e-2c97-0ae7-ed54be4e8f52",
+      "Description": "Terminating EC2 instance: i-06db123dc1350430b",
+      "Cause": "At 2026-11-13T08:48:16Z an instance was taken out of service in response to an EC2 health check indicating it has been terminated or stopped.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "11368750-422f-b00f-e5e3-3a0172c02c23",
+      "Description": "Launching a new EC2 instance: i-06db123dc1350430b",
+      "Cause": "At 2026-11-13T08:40:15Z an instance was launched in response to an unhealthy instance needing to be replaced.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "edb68750-4217-b1ad-631e-145b0dd5b9d0",
+      "Description": "Terminating EC2 instance: i-08d25ed9caea17d6c",
+      "Cause": "At 2026-11-13T08:40:15Z an instance was taken out of service in response to an ELB system health check failure.",
+      "StatusCode": "Successful"
+    }
+  ]
+}

@@ -1,0 +1,106 @@
+{
+  "kind": "warm_model_failure",
+  "workstation_minus_http_date_seconds": 0.087,
+  "crash_host_ntp_synchronized": true,
+  "old_instance": "i-07f6d555d64040b04",
+  "warm_ami": "ami-0c350d6774d1ec4c6",
+  "launch_template": {
+    "LaunchTemplateId": "lt-035cdeecd1b0da54e",
+    "LaunchTemplateName": "cadenza-demo-single",
+    "Version": "10"
+  },
+  "poll_interval_seconds": 1,
+  "request_timeout_seconds": 2,
+  "transitions": [
+    {
+      "at_utc": "2026-11-13T18:28:42.085631+00:00",
+      "instances": [
+        {
+          "id": "i-07f6d555d64040b04",
+          "phase": "InService",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T18:30:38.476517+00:00",
+      "instances": [
+        {
+          "id": "i-07f6d555d64040b04",
+          "phase": "InService",
+          "health": "Unhealthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T18:30:49.054439+00:00",
+      "instances": [
+        {
+          "id": "i-07f6d555d64040b04",
+          "phase": "Terminating",
+          "health": "Unhealthy"
+        },
+        {
+          "id": "i-0915f97cb96d06110",
+          "phase": "Pending:Wait",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T18:31:41.975579+00:00",
+      "instances": [
+        {
+          "id": "i-0915f97cb96d06110",
+          "phase": "Pending:Wait",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at_utc": "2026-11-13T18:38:49.291175+00:00",
+      "instances": [
+        {
+          "id": "i-0915f97cb96d06110",
+          "phase": "InService",
+          "health": "Healthy"
+        }
+      ]
+    }
+  ],
+  "probe_log": "deploy/recovery/verification.drain30_timing.probes.jsonl",
+  "crash_command": "75097bbd-c762-40eb-bd80-aa89d31428ec",
+  "killed_at_utc": "2026-11-13T18:28:39.296526+00:00",
+  "new_instance": "i-0915f97cb96d06110",
+  "first_failure_at_utc": "2026-11-13T18:28:39.306725+00:00",
+  "first_ready_api_at_utc": "2026-11-13T18:38:50.707027+00:00",
+  "crash_to_ready_api_seconds": 611.411,
+  "http_status_changes": [
+    {
+      "at_utc": "2026-11-13T18:28:38.254396+00:00",
+      "ready": 200,
+      "api": 200
+    },
+    {
+      "at_utc": "2026-11-13T18:28:39.306725+00:00",
+      "ready": 503,
+      "api": 200
+    },
+    {
+      "at_utc": "2026-11-13T18:30:44.799453+00:00",
+      "ready": 503,
+      "api": 503
+    },
+    {
+      "at_utc": "2026-11-13T18:38:50.707027+00:00",
+      "ready": 200,
+      "api": 200
+    }
+  ],
+  "sample_count": 620,
+  "maximum_sample_gap_seconds": 1.453,
+  "unassisted": true,
+  "post_recovery_verification_excluded": true,
+  "draining_seconds": 30,
+  "disk_initialization_enabled": false
+}

@@ -1,0 +1,41 @@
+{
+  "instance_id": "i-0915f97cb96d06110",
+  "stages": [
+    {
+      "stage": "bootstrap_started",
+      "at_utc": "2026-11-13T18:32:37.765637045Z"
+    },
+    {
+      "stage": "docker_ready",
+      "at_utc": "2026-11-13T18:32:37.774508733Z"
+    },
+    {
+      "stage": "cache_checked",
+      "at_utc": "2026-11-13T18:32:47.380599889Z"
+    },
+    {
+      "stage": "secrets_and_image_ready",
+      "at_utc": "2026-11-13T18:33:19.956468059Z"
+    },
+    {
+      "stage": "exclusivity_passed",
+      "at_utc": "2026-11-13T18:33:22.598927687Z"
+    },
+    {
+      "stage": "application_starting",
+      "at_utc": "2026-11-13T18:33:22.600375556Z"
+    },
+    {
+      "stage": "application_verified",
+      "at_utc": "2026-11-13T18:38:46.167712789Z"
+    },
+    {
+      "stage": "lifecycle_completed",
+      "at_utc": "2026-11-13T18:38:47.510981877Z"
+    }
+  ],
+  "startup_summary": "Embedding 1 succeeded; dimensions: 768; seconds: 78.147\ndisk_scan=disabled",
+  "draining_seconds": 30,
+  "disk_initialization": false,
+  "command": "ac49e065-2f05-42b4-a685-88436fb4205b"
+}

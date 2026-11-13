@@ -16,6 +16,7 @@ def main():
         "--kind", choices=["model_failure", "host_failure"], required=True
     )
     parser.add_argument("--started-at", required=True)
+    parser.add_argument("--output", help="Optional result filename inside recovery/")
     args = parser.parse_args()
     resources = json.loads((ROOT / "deploy/recovery/resources.json").read_text())
     deadline = time.monotonic() + 2400
@@ -161,7 +162,7 @@ VERIFY"""
             for a in activities
         ],
     }
-    (ROOT / "deploy/recovery" / ("verification." + args.kind + ".json")).write_text(
+    (ROOT / "deploy/recovery" / (args.output or ("verification." + args.kind + ".json"))).write_text(
         json.dumps(record, indent=2) + "\n"
     )
     resources["current_instance"] = host

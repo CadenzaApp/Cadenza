@@ -25,7 +25,9 @@ docker --config "$registry_config" compose --env-file release.env pull
 rm -rf "$registry_config"
 trap - EXIT
 docker compose --env-file release.env config --quiet
-docker compose --env-file release.env run --rm --no-deps backend python -c 'import torch; assert torch.version.cuda is None; print("CPU-only Torch verified")'
+if [ "${CADENZA_WARM_START:-0}" != 1 ]; then
+    docker compose --env-file release.env run --rm --no-deps backend python -c 'import torch; assert torch.version.cuda is None; print("CPU-only Torch verified")'
+fi
 echo "Pinned images pulled; secret files remain private." >&3
 free -m >&3
 df -h / >&3

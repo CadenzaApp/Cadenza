@@ -1,0 +1,49 @@
+{
+  "kind": "warm_activation_observer_smoke",
+  "cold_start": false,
+  "command": "aed2fef9-4a65-4377-a5c0-6ba93d5bcaad",
+  "stages": [
+    {
+      "stage": "docker_up_started",
+      "at_utc": "2026-11-13T19:20:24.499710684Z"
+    },
+    {
+      "stage": "docker_up_finished",
+      "at_utc": "2026-11-13T19:20:24.786490601Z"
+    },
+    {
+      "stage": "rust_live",
+      "at_utc": "2026-11-13T19:20:26.372931+00:00",
+      "monotonic_seconds": 2966.987705526,
+      "poll_interval_seconds": 1
+    },
+    {
+      "stage": "python_model_ready",
+      "at_utc": "2026-11-13T19:20:47.375976+00:00",
+      "monotonic_seconds": 2987.990749051,
+      "poll_interval_seconds": 1
+    },
+    {
+      "stage": "combined_ready",
+      "at_utc": "2026-11-13T19:20:47.377026+00:00",
+      "monotonic_seconds": 2987.991797267,
+      "poll_interval_seconds": 1
+    },
+    {
+      "stage": "docker_health_ready",
+      "at_utc": "2026-11-13T19:20:55.510772552Z"
+    },
+    {
+      "stage": "inference_check_started",
+      "at_utc": "2026-11-13T19:20:55.512603033Z"
+    },
+    {
+      "stage": "inference_check_finished",
+      "at_utc": "2026-11-13T19:20:56.362893237Z"
+    },
+    {
+      "stage": "http_test_passed",
+      "at_utc": "2026-11-13T19:20:56.373315009Z"
+    }
+  ]
+}

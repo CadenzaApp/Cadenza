@@ -1,0 +1,49 @@
+{
+  "instance_id": "i-07f6d555d64040b04",
+  "stages": [
+    {
+      "stage": "bootstrap_started",
+      "at_utc": "2026-11-13T18:04:11.486523786Z"
+    },
+    {
+      "stage": "docker_ready",
+      "at_utc": "2026-11-13T18:04:11.496551515Z"
+    },
+    {
+      "stage": "disk_initialization_started",
+      "at_utc": "2026-11-13T18:04:11.499261727Z"
+    },
+    {
+      "stage": "cache_checked",
+      "at_utc": "2026-11-13T18:04:24.513605733Z"
+    },
+    {
+      "stage": "secrets_and_image_ready",
+      "at_utc": "2026-11-13T18:05:48.047795919Z"
+    },
+    {
+      "stage": "exclusivity_passed",
+      "at_utc": "2026-11-13T18:05:53.187618487Z"
+    },
+    {
+      "stage": "disk_initialization_finished",
+      "at_utc": "2026-11-13T18:13:24.952361643Z"
+    },
+    {
+      "stage": "application_starting",
+      "at_utc": "2026-11-13T18:13:24.954368703Z"
+    },
+    {
+      "stage": "application_verified",
+      "at_utc": "2026-11-13T18:14:03.802306313Z"
+    },
+    {
+      "stage": "lifecycle_completed",
+      "at_utc": "2026-11-13T18:14:04.871405946Z"
+    }
+  ],
+  "startup_summary": "Embedding 1 succeeded; dimensions: 768; seconds: 1.967",
+  "draining_seconds": 30,
+  "disk_initialization": "four parallel direct-read streams over the root partition",
+  "command": "e511ff8c-4be4-4f21-821a-7218a534d702"
+}

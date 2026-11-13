@@ -2,10 +2,12 @@
 
 import argparse
 import base64
-from pathlib import Path
+import io
+import tarfile
 import time
+from pathlib import Path
 
-from provision import aws, GROUP
+from provision import GROUP, ROOT, aws
 
 
 def main():
@@ -38,8 +40,27 @@ def main():
     )
     try:
         data = base64.b64encode(content.encode()).decode()
+        # Refresh host tooling from this release, rather than using stale bootstrap files.
+        bundle = io.BytesIO()
+        with tarfile.open(fileobj=bundle, mode="w:gz") as archive:
+            for name in [
+                "compose.yaml",
+                "fetch-secrets.py",
+                "prepare-host-release.sh",
+                "start-release.sh",
+                "check-embedding.py",
+                "observe-startup.py",
+                "activate-release.sh",
+            ]:
+                content_bytes = (ROOT / "deploy" / name).read_bytes()
+                item = tarfile.TarInfo(name)
+                item.size, item.mode = len(content_bytes), 0o600
+                archive.addfile(item, io.BytesIO(content_bytes))
+        tooling = base64.b64encode(bundle.getvalue()).decode()
         script = (
             "bash <<'RELEASE'\nset -euo pipefail\ncd /opt/cadenza\nprintf '%s' '"
+            + tooling
+            + "' | base64 -d | tar xz\nprintf '%s' '"
             + data
             + "' | base64 -d > releases/candidate.env\nbash activate-release.sh releases/candidate.env\nRELEASE"
         )
