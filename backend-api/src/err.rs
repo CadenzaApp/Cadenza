@@ -15,6 +15,7 @@ use crate::request_log::LoggedError;
 #[derive(Debug)]
 pub enum CadenzaError {
     ServiceUnavailable,
+    OperationTimeout,
     NotFound,
     SongNotInLibrary,
     SongAlreadyInLibrary,
@@ -53,6 +54,7 @@ impl CadenzaError {
     fn get_status(&self) -> u16 {
         match &self {
             Self::ServiceUnavailable => 503,
+            Self::OperationTimeout => 504,
             Self::NotFound => 404,
             Self::SongNotInLibrary => 404,
             Self::SongAlreadyInLibrary => 409,
@@ -76,6 +78,9 @@ impl CadenzaError {
     }
     fn get_json(&self) -> Value {
         match &self {
+            Self::OperationTimeout => {
+                json!({"error_type": "OperationTimeout", "message": "The operation took too long. Its outcome may be incomplete; check before retrying."})
+            }
             Self::ServiceUnavailable => json!({"error_type": "ServiceUnavailable"}),
             Self::NotFound => json!({
                 "error_type": "NotFound",

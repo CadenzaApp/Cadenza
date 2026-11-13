@@ -13,15 +13,25 @@ if [ "${CADENZA_PREFETCH_MODEL:-0}" = 1 ]; then
     echo "Prefetching the pinned model on the 2 GiB host." >&3
     docker compose --env-file release.env run --rm --no-deps -e HF_HUB_OFFLINE=0 backend python -c 'import os; from sentence_transformers import SentenceTransformer; SentenceTransformer("google/embeddinggemma-300m", revision=os.environ["MODEL_REVISION"], token=os.environ["HF_TOKEN"], device="cpu"); print("Pinned model cached")'
 fi
+# Snapshot an already-running container before activation. A stopped/new container
+# starts a new restart-policy observation period.
+previous_id=$(docker compose --env-file release.env ps --all -q backend)
+baseline_restarts=0
+if [ -n "$previous_id" ] && [ "$(docker inspect --format '{{.State.Status}}' "$previous_id")" = running ]; then
+    baseline_restarts=$(docker inspect --format '{{.RestartCount}}' "$previous_id")
+fi
 echo "Starting Rust and its Python child." >&3
 docker compose --env-file release.env up -d backend
 backend_id=$(docker compose --env-file release.env ps -q backend)
+if [ "$backend_id" != "$previous_id" ]; then
+    baseline_restarts=0
+fi
 ready=false
 for attempt in $(seq 1 90); do
     restarts=$(docker inspect --format '{{.RestartCount}}' "$backend_id")
     state=$(docker inspect --format '{{.State.Status}}' "$backend_id")
     health=$(docker inspect --format '{{.State.Health.Status}}' "$backend_id")
-    if [ "$restarts" -gt 0 ] || [ "$state" != running ]; then
+    if [ "$restarts" -gt "$baseline_restarts" ] || [ "$state" != running ]; then
         docker compose --env-file release.env stop backend
         echo "Backend exited or restarted during startup; stopped to preserve evidence." >&3
         exit 1

@@ -114,6 +114,20 @@ a second backend, including temporary rollout overlap. Application readiness and
 bounded shutdown are implemented; ALB/ASG integration and full host bootstrap are
 still pending. The plan contains the consolidated remaining-work checklist.
 
+## Prepared follow-up changes
+
+Source changes after demo-003 fix startup validation to compare new restarts with
+an activation baseline rather than reject all historical restarts. Isolated tests
+cover resumed, replaced, failed, and healthy containers without AWS access:
+`python3 -m unittest discover -s deploy -p test_start_release.py -v`.
+
+The backend source now limits business-handler responses to 50 seconds and total
+tag-generation calls to 40 seconds across chunks. The active demo-003 image does
+not include these changes yet. A timeout is not a guarantee that a mutation had no
+effect; detached work and already-sent provider requests have separate lifetimes.
+Whole-attempt ownership and cleanup remain pending. Build and verify a new pinned
+image before changing the active release record.
+
 ## Health and shutdown
 
 Compose checks `GET /health/ready`, which requires Rust HTTP and an acknowledgement

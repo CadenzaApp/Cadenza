@@ -13,6 +13,7 @@ nothing that comes back is persisted.
 | file | role |
 | --- | --- |
 | `src/main.rs` | Builds `AppState`, starts the python model process, spawns the background jobs, nests the routers, binds the listener. |
+| `src/operation_budget.rs` | HTTP response deadlines and shared async time-limit helper. |
 | `src/lifecycle.rs` | Local health probes, tracked background work, and bounded shutdown. |
 | `src/auth.rs` | `SupabaseClaims` and `new_jwt_decoder()`, which fetches Supabase's JWKS once at startup. |
 | `src/err.rs` | `CadenzaError` and its status code / JSON body mapping. |
@@ -122,6 +123,20 @@ ongoing Supabase, OpenAI, and Apple availability. `/health/live` only checks Rus
 HTTP responsiveness; `/test` remains a reachability check. Verify real inference
 and database operations separately. A failed model child requires a
 whole-backend restart; health checks alone do not restart an unhealthy container.
+
+### Request budgets
+
+Business handlers have a 50-second response deadline, leaving margin below the
+current 60-second CloudFront origin timeout. Timeout returns generic JSON 504
+`OperationTimeout`. Health routes have their own short checks and bypass this
+business-request deadline. Tag generation has a separate 40-second limit across
+all sequential chunks, rather than 60 seconds per chunk accumulating indefinitely.
+
+A timeout does not undo completed writes or cancel work already sent to a provider.
+Tracked detached follow-up work can outlive the requesting HTTP response, as with
+a disconnected client. Do not automatically retry a timed-out mutation without
+checking its outcome. Whole claim-attempt deadlines and stale-write protection
+remain part of the pending ownership work.
 
 ### Shutdown
 

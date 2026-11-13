@@ -56,6 +56,18 @@ impl TagGenerationService {
         song_descs: &[String],
         requested_tag_count: Option<usize>,
     ) -> Result<Vec<Vec<TagSpecs>>, CadenzaError> {
+        crate::operation_budget::within(
+            std::time::Duration::from_secs(40),
+            self.generate_tags_inner(song_descs, requested_tag_count),
+        )
+        .await?
+    }
+
+    async fn generate_tags_inner(
+        &self,
+        song_descs: &[String],
+        requested_tag_count: Option<usize>,
+    ) -> Result<Vec<Vec<TagSpecs>>, CadenzaError> {
         // use the default count when none is given, and never go over the max
         let requested_tag_count = requested_tag_count
             .unwrap_or(DEFAULT_REQUESTED_TAG_COUNT)

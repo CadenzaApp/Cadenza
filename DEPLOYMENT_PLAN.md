@@ -111,6 +111,12 @@ Phone -> CloudFront HTTPS -> private VPC origin -> internal ALB
 These apply even to a temporary second instance during an update.
 
 1. Replace global claim resets with ownership/leases and expired-claim recovery.
+   The [initial claim audit](deploy/CLAIM_OWNERSHIP_PLAN.md) records affected paths,
+   stale-write hazards, proposed recovery, and the isolated test/cutover checklist.
+   This remains design review; no lease schema or runtime change is deployed.
+   Queued default-tag and album enrichment may be discarded on shutdown; durable
+   replay is not required. Preserve accepted-request draining, owner-scoped claim
+   cleanup, and later on-demand eligibility without resetting another worker.
    `main.rs` clears shared tag-generation claims at startup; metadata workers also
    reset shared in-flight work. A new replica must not clear a live worker's claim.
    Coordinate background jobs with safe claims, a leader, or a dedicated worker;
@@ -310,3 +316,11 @@ Implementation references:
 [ASG health checks](https://docs.aws.amazon.com/autoscaling/ec2/userguide/health-checks-overview.html),
 [instance refresh](https://docs.aws.amazon.com/autoscaling/ec2/userguide/instance-refresh-overview.html),
 and [maintenance policy and warmup](https://docs.aws.amazon.com/autoscaling/ec2/userguide/instance-maintenance-policy-overview-and-considerations.html).
+
+## Independent deployment review
+
+The [deployment-wide review](deploy/DEPLOYMENT_REVIEW.md) covers the implemented
+branch and remaining roadmap. Follow its gates and revised implementation order.
+It proposes bounded attempts before renewable leases for best-effort enrichment;
+no ownership implementation has been selected or deployed. Public-access and
+multi-instance gates remain separate from current home-only development.

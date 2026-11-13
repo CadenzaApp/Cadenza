@@ -2,6 +2,7 @@ mod auth;
 mod db;
 mod err;
 mod lifecycle;
+mod operation_budget;
 mod request_log;
 mod routes;
 mod services;
@@ -171,6 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/analytics", get_analytics_router())
         .route("/test", axum::routing::get(async || "server is reachable"))
         .with_state(app_state)
+        .layer(middleware::from_fn(operation_budget::limit_request))
         .layer(middleware::from_fn_with_state(
             background_tasks.clone(),
             lifecycle::reject_while_draining,

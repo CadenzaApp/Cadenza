@@ -454,3 +454,8 @@ process acknowledges the loaded model within two seconds. Otherwise it returns
 return no provider, database, or secret details. They remain subject to deployment
 network access rules. During shutdown new business operations receive generic 503;
 accepted requests can finish within the shared 120-second grace period.
+
+Business handlers have a 50-second response deadline and can return 504 with
+`error_type: OperationTimeout`. A timed-out mutation may have completed writes;
+check its outcome before retrying. The deadline covers handler processing, not
+guaranteed cancellation of detached work or a request already sent upstream.
