@@ -106,7 +106,19 @@ export function useAssistantChat() {
 }
 
 function describeError(error: unknown) {
-    const details = getErrorDetails(error) as { error_type?: unknown };
+    const details = getErrorDetails(error) as {
+        error_type?: unknown;
+        retry_after_secs?: unknown;
+    };
+    if (details.error_type === "UserRateLimited") {
+        const minutes =
+            typeof details.retry_after_secs === "number"
+                ? Math.max(1, Math.ceil(details.retry_after_secs / 60))
+                : null;
+        return minutes
+            ? `You've sent a lot of messages. Try again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`
+            : "You've sent a lot of messages. Try again later.";
+    }
     if (details.error_type === "AssistantRateLimited") {
         return "The assistant is busy right now. Try again in a moment.";
     }

@@ -7,14 +7,16 @@ use crate::{
     auth::SupabaseClaims,
     err::CadenzaError,
     routes::json::assistant::{AssistantRequest, AssistantResponse},
-    services::assistant::{self, model::AssistantService},
+    services::assistant::AssistantService,
 };
 
 /// Answers the last message in a conversation with the assistant.
 ///
 /// The phone sends the whole conversation each time; nothing is stored. The
 /// assistant can call read-only tools (tags, queries, song metadata, top
-/// plays, listening totals) before it answers, up to 8 model calls.
+/// plays, listening totals) before it answers, up to 8 model calls. A user
+/// may send 20 messages per 10 minutes and 150 per day; past that it returns
+/// 429 `UserRateLimited` with `retry_after_secs`.
 ///
 /// Request JSON:
 /// ```json
@@ -46,7 +48,7 @@ async fn post_message_handler(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(body): Json<AssistantRequest>,
 ) -> Result<Json<AssistantResponse>, CadenzaError> {
-    let response = assistant::answer(&db, assistant_service.model(), claims.user_id, body).await?;
+    let response = assistant_service.answer(&db, claims.user_id, body).await?;
     Ok(Json(response))
 }
 

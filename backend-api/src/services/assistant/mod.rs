@@ -10,6 +10,8 @@ pub mod model;
 pub mod prompt;
 pub mod tools;
 
+use std::{sync::Arc, time::Duration};
+
 use chrono::Utc;
 use sea_orm::{DatabaseConnection, prelude::Uuid};
 use serde_json::{Value, json};
@@ -20,6 +22,7 @@ use crate::routes::json::assistant::{
     AssistantRequest, AssistantResponse, AssistantStep, ChatRole, SongsCard,
 };
 use crate::services::analytics::sanitize_timezone;
+use crate::services::rate_limit::{Limit, RateLimiter};
 
 use model::AssistantModel;
 use tools::{DbTools, ToolRunner, definitions, describe_activity_tags, describe_tags};
@@ -31,11 +34,55 @@ const MAX_HISTORY: usize = 30;
 /// The longest a single message may be, in characters.
 const MAX_MESSAGE_CHARS: usize = 4000;
 
+/// How many messages one user may send. Each can take up to [`MAX_STEPS`]
+/// model calls, so this is what keeps one account from running up the bill.
+const USER_LIMITS: [Limit; 2] = [
+    Limit {
+        max: 20,
+        window: Duration::from_secs(10 * 60),
+    },
+    Limit {
+        max: 150,
+        window: Duration::from_secs(24 * 60 * 60),
+    },
+];
+
 const OUT_OF_STEPS_REPLY: &str =
     "Sorry, I couldn't finish that one. Try asking in a simpler way, or one part at a time.";
 
+/// The assistant's model and how often each user may ask it, shared across
+/// requests.
+#[derive(Clone)]
+pub struct AssistantService {
+    model: Arc<dyn AssistantModel>,
+    limiter: Arc<RateLimiter<Uuid>>,
+}
+
+impl AssistantService {
+    pub fn new(model: impl AssistantModel + 'static) -> Self {
+        Self {
+            model: Arc::new(model),
+            limiter: Arc::new(RateLimiter::new(USER_LIMITS)),
+        }
+    }
+
+    /// Answers the last user message in `request` as `user_id`, or refuses
+    /// with [`CadenzaError::UserRateLimited`] once they have sent too many.
+    pub async fn answer(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        request: AssistantRequest,
+    ) -> Result<AssistantResponse, CadenzaError> {
+        self.limiter
+            .check(&user_id)
+            .map_err(|retry_after| CadenzaError::UserRateLimited { retry_after })?;
+        answer(db, self.model.as_ref(), user_id, request).await
+    }
+}
+
 /// Answers the last user message in `request` as `user_id`.
-pub async fn answer(
+async fn answer(
     db: &DatabaseConnection,
     model: &dyn AssistantModel,
     user_id: Uuid,

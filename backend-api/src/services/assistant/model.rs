@@ -1,7 +1,7 @@
 //! The model behind the assistant, behind a trait so the tool loop can be
 //! tested without calling OpenAI.
 
-use std::{env, sync::Arc, time::Duration};
+use std::{env, time::Duration};
 
 use reqwest::{Client, StatusCode};
 use sea_orm::prelude::async_trait::async_trait;
@@ -59,20 +59,6 @@ pub trait AssistantModel: Send + Sync {
         input: &[Value],
         tools: &[Value],
     ) -> Result<ModelTurn, CadenzaError>;
-}
-
-/// The assistant's model, shared across requests.
-#[derive(Clone)]
-pub struct AssistantService(Arc<dyn AssistantModel>);
-
-impl AssistantService {
-    pub fn new(model: impl AssistantModel + 'static) -> Self {
-        Self(Arc::new(model))
-    }
-
-    pub fn model(&self) -> &dyn AssistantModel {
-        self.0.as_ref()
-    }
 }
 
 /// The assistant on OpenAI's Responses API. Reads `OPENAI_API_KEY`, the same

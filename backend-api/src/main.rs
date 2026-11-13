@@ -24,7 +24,7 @@ use crate::{
         social::get_social_router, songs::get_songs_router, tags::get_tags_router,
     },
     services::{
-        assistant::model::{AssistantService, OpenAiAssistantModel},
+        assistant::{AssistantService, model::OpenAiAssistantModel},
         default_tags::{BackfillConfig, spawn_default_tag_backfill},
         metadata_tags::{MetadataCrawlConfig, MetadataCrawler, spawn_metadata_crawl},
         notification::spawn_notification_cleanup,

@@ -52,6 +52,11 @@ pub enum CadenzaError {
     AssistantRateLimited {
         retry_after: Option<Duration>,
     },
+    /// This user sent too many requests to a limited endpoint. Room opens
+    /// again after `retry_after`.
+    UserRateLimited {
+        retry_after: Duration,
+    },
 }
 
 impl CadenzaError {
@@ -78,6 +83,7 @@ impl CadenzaError {
             Self::InvalidRequestBody(_) => 422,
             Self::AssistantErr(_) => 502,
             Self::AssistantRateLimited { .. } => 429,
+            Self::UserRateLimited { .. } => 429,
         }
     }
     fn get_json(&self) -> Value {
@@ -173,6 +179,11 @@ impl CadenzaError {
                     ),
                     None => "the assistant is rate limited".to_owned(),
                 }
+            }),
+            Self::UserRateLimited { retry_after } => json!({
+                "error_type": "UserRateLimited",
+                "message": format!("too many requests, retry in {}s", retry_after.as_secs()),
+                "retry_after_secs": retry_after.as_secs(),
             }),
         }
     }
