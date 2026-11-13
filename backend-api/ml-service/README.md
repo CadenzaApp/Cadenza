@@ -20,7 +20,7 @@ uv sync
 
 `cargo run` in `backend-api/` starts this process on `127.0.0.1:3001`. The
 model loads after spawn, so a feed or post can 502 until the port is open.
-Stopping the api kills this process. Child stdout and stderr are copied onto
+Stopping the api drains its accepted work before killing and reaping this process. Child stdout and stderr are copied onto
 the api's output, each line prefixed with `[ml-service]`.
 
 To run it by hand, for example to watch the model load without the api:
@@ -58,6 +58,7 @@ First start downloads the model, so it is slow and needs a few hundred MB.
 
 | endpoint | body | returns |
 | --- | --- | --- |
+| `GET /health/ready` | none | `{"status":"ready"}` after the pinned model has loaded |
 | `POST /embedding` | `content` (a post), and/or `interests: [{name, itype}]` | `{embedding, interest_embeddings}`. `embedding` is omitted when `content` is. `itype` is `genre` or `artist` |
 | `POST /posts/similarities` | `user_vector: [float]`, `posts: [{post_id, embedding}]` | `{similarities: [{post_id, similarity}]}` |
 
@@ -74,3 +75,14 @@ ranking all happen there. This process only runs the model.
 ## Gotchas
 
 - The embedding model loads at import, once per process. Keep it a single worker.
+
+Inference runs on one dedicated worker thread. The HTTP event loop remains free
+to answer readiness during inference. Work stays serial even when a caller
+disconnects; no second model copy is loaded. Readiness does not run inference or
+check external services. Keep one server process.
+
+Offline lifecycle tests use a fake encoder and require no weights or credentials:
+
+```sh
+.venv/bin/python -m unittest discover -s . -p test_lifecycle.py -v
+```

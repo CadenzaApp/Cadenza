@@ -40,8 +40,24 @@ pub struct MlService {
 
 impl Drop for MlService {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if matches!(self.child.try_wait(), Ok(None)) {
+            let _ = self.child.kill();
+            let _ = self.child.try_wait();
+        }
+    }
+}
+
+impl MlService {
+    /// Reap the child after HTTP and tracked model requests have finished.
+    /// The caller bounds cleanup; Drop never blocks indefinitely on wait().
+    pub async fn shutdown(&mut self) -> std::io::Result<()> {
+        if self.child.try_wait()?.is_none() {
+            self.child.kill()?;
+            while self.child.try_wait()?.is_none() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -902,5 +918,24 @@ mod tests {
         assert!(memory.entries.contains_key(&(user, 1)));
         memory.forget(user, 1, 20);
         assert!(memory.entries.is_empty());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod lifecycle_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn lifecycle_child_shutdown_reaps_the_owned_process() {
+        let child = Command::new("sh")
+            .args(["-c", "exec sleep 60"])
+            .spawn()
+            .unwrap();
+        let mut service = MlService { child };
+        tokio::time::timeout(Duration::from_secs(2), service.shutdown())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(service.child.try_wait().unwrap().is_some());
     }
 }

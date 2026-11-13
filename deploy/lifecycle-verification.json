@@ -1,0 +1,49 @@
+{
+  "verified_at_utc": "2026-11-13T06:50:06.579366+00:00",
+  "image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:06c6a29fcaec7c904e2293b3787ce534b1bd12cf73f810e2e487c5f68fa2e54d",
+  "health": "healthy",
+  "restart_count": 0,
+  "oom_killed": false,
+  "sigterm_exit_code": 0,
+  "sigterm_stop_seconds": 1,
+  "cleanup_marker_verified": true,
+  "application_grace_seconds": 120,
+  "docker_stop_seconds": 150,
+  "model_checks": {
+    "model_embedding_dimensions": 768,
+    "readiness_probes_during_inference": 8,
+    "max_readiness_seconds": 0.121,
+    "self_similarity_verified": true
+  },
+  "https_checks": [
+    {
+      "path": "/health/live",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/health/ready",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/test",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/tags/activity",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "path": "/test",
+      "method": "POST",
+      "status": 405
+    }
+  ],
+  "ssm_command_id": "e242dd79-3a78-457d-b0da-1821f6fcfff0",
+  "test_scope": "Actual idle-container SIGTERM and restart on EC2; accepted/stuck HTTP and detached-work behavior covered by isolated Rust tests, not a production workload.",
+  "no_new_memory_rehearsal": true,
+  "home_allowlist_unchanged": "24.11.70.86/32"
+}

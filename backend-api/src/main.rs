@@ -1,6 +1,7 @@
 mod auth;
 mod db;
 mod err;
+mod lifecycle;
 mod request_log;
 mod routes;
 mod services;
@@ -35,6 +36,7 @@ use crate::{
 
 #[derive(Clone, FromRef)]
 struct AppState {
+    background_tasks: lifecycle::BackgroundTasks,
     db: DatabaseConnection,
     jwt_decoder: Decoder<SupabaseClaims>,
     tag_gen_service: TagGenerationService,
@@ -69,7 +71,7 @@ fn db_connect_options(db_url: String) -> ConnectOptions {
 const MAX_DB_CONNECTIONS: u32 = 10;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // load environment variables from .env file, needed for db connections
     dotenv().ok();
 
@@ -83,11 +85,14 @@ async fn main() {
     let jwt_decoder = new_jwt_decoder().await;
 
     // init tag generation service
-    let tag_gen_service = TagGenerationService::new(OpenAiTagGenerator::new());
+    let background_tasks = lifecycle::BackgroundTasks::default();
+    let tag_gen_service = TagGenerationService::new(OpenAiTagGenerator::new())
+        .with_background_tasks(background_tasks.clone());
 
-    let song_meta_service = SongMetadataService::new();
+    let song_meta_service =
+        SongMetadataService::new().with_background_tasks(background_tasks.clone());
 
-    let _ml_service = social_feed::spawn_ml_service();
+    let mut ml_service = social_feed::spawn_ml_service();
     let social_feed_service = SocialFeedService::new();
 
     // a claim a stopped server never settled would hide its song from generation forever
@@ -141,10 +146,11 @@ async fn main() {
 
     // drops notifications older than 30 days. the first pass runs at startup,
     // then once a day. notifications_created_at_idx is the index it walks
-    spawn_notification_cleanup(db.clone());
+    spawn_notification_cleanup(db.clone(), background_tasks.clone());
 
     let app_state = AppState {
-        db,
+        background_tasks: background_tasks.clone(),
+        db: db.clone(),
         jwt_decoder,
         tag_gen_service,
         song_meta_service,
@@ -165,6 +171,14 @@ async fn main() {
         .nest("/analytics", get_analytics_router())
         .route("/test", axum::routing::get(async || "server is reachable"))
         .with_state(app_state)
+        .layer(middleware::from_fn_with_state(
+            background_tasks.clone(),
+            lifecycle::reject_while_draining,
+        ))
+        .merge(lifecycle::health_router(
+            background_tasks.clone(),
+            "http://127.0.0.1:3001",
+        ))
         .layer(middleware::from_fn(request_log::log_request));
 
     // show time baby
@@ -176,8 +190,34 @@ async fn main() {
         .expect("BIND_ADDR must look like 0.0.0.0:3000");
     println!("Running on http://{}", addr);
 
-    axum_server::bind(addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let result = {
+        let handle = axum_server::Handle::new();
+        let server = axum_server::bind(addr)
+            .handle(handle.clone())
+            .serve(app.into_make_service());
+        tokio::pin!(server);
+        tokio::select! {
+            result = &mut server => {
+                background_tasks.begin_shutdown();
+                background_tasks.finish(tokio::time::Instant::now() + lifecycle::SHUTDOWN_GRACE).await;
+                result
+            },
+            _ = lifecycle::shutdown_signal() => {
+                println!("[shutdown] draining HTTP and background work for up to 120 seconds");
+                lifecycle::drain_server(server.as_mut(), handle, &background_tasks, lifecycle::SHUTDOWN_GRACE).await
+            },
+        }
+    };
+    // Cleanup is bounded separately and fits within Docker's 150-second stop allowance.
+    let cleanup = tokio::time::timeout(lifecycle::SHUTDOWN_CLEANUP, async {
+        background_tasks.wait_for_cancelled_tasks().await;
+        ml_service.shutdown().await?;
+        db.close().await?;
+        Ok::<(), Box<dyn std::error::Error>>(())
+    })
+    .await;
+    result?;
+    cleanup.map_err(|_| std::io::Error::other("shutdown cleanup deadline exceeded"))??;
+    println!("[shutdown] background work, model child, and database pool closed");
+    Ok(())
 }

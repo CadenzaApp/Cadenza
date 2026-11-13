@@ -14,6 +14,7 @@ use crate::request_log::LoggedError;
 
 #[derive(Debug)]
 pub enum CadenzaError {
+    ServiceUnavailable,
     NotFound,
     SongNotInLibrary,
     SongAlreadyInLibrary,
@@ -51,6 +52,7 @@ pub enum CadenzaError {
 impl CadenzaError {
     fn get_status(&self) -> u16 {
         match &self {
+            Self::ServiceUnavailable => 503,
             Self::NotFound => 404,
             Self::SongNotInLibrary => 404,
             Self::SongAlreadyInLibrary => 409,
@@ -74,6 +76,7 @@ impl CadenzaError {
     }
     fn get_json(&self) -> Value {
         match &self {
+            Self::ServiceUnavailable => json!({"error_type": "ServiceUnavailable"}),
             Self::NotFound => json!({
                 "error_type": "NotFound",
             }),

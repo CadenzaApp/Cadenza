@@ -125,11 +125,13 @@ These apply even to a temporary second instance during an update.
    currently allows 10 connections, while code documents a 15-connection session
    pooler budget. Verify the actual limit, reserve maintenance/migration capacity,
    and adjust per-replica pools or DB capacity before running two or more backends.
-4. Add instance-local readiness covering Rust, Python, and loaded model readiness.
-   Distinguish initial dependency validation from ongoing health/replacement signals.
-   Add graceful shutdown: stop claiming jobs, drain in-flight requests, shut down
-   the Python child, and close the DB pool before termination. Align ALB drain
-   delay, termination lifecycle hooks, and application timeouts.
+4. Local readiness and bounded shutdown are implemented in the application:
+   `/health/ready` checks Rust and the local loaded model; ongoing Supabase, OpenAI,
+   and Apple outages do not drive replacement. SIGTERM stops new periodic passes
+   and drains accepted HTTP plus tracked work for 120 seconds, then cancels
+   unfinished work. Child/pool cleanup is bounded by another 15 seconds; Docker
+   allows 150 seconds. Before fleet rollout, align ALB drain delay and termination
+   lifecycle hooks with these deadlines and verify the whole termination path.
 5. Make a fresh host self-provisioning. The current launch user data only enables
    SSM; later Docker/tool installation, release files, secrets, and model cache were
    prepared separately. A versioned launch template/AMI and idempotent bootstrap
@@ -276,7 +278,7 @@ and [OpenTelemetry traces and spans](https://opentelemetry.io/docs/concepts/sign
 | Release reproducibility | Record committed source and configuration for the next image; build/source/config identities agree; retain a known-working rollback release. demo-001 is broken and cannot serve as that rollback. |
 | Data protection | Confirm backup coverage, demo data/schema prerequisites, and rehearse restore without risking the live demo data. |
 | Public-access review | Resolve priorities in [PUBLIC_ACCESS_REVIEW.md](deploy/PUBLIC_ACCESS_REVIEW.md): request/cost quotas, bounded inputs and expensive work, sanitized errors, signup/JWT policy, DB role/RLS review, and two-account authorization tests. WAF and user-ID allowlisting remain options to evaluate, not assumed purchases. |
-| Multi-instance application work | Complete claim ownership, shared-state/caches, peak DB connection budgeting, readiness, and graceful shutdown before any overlapping rollout. |
+| Multi-instance application work | Local readiness and bounded shutdown are deployed and tested in demo-003. Complete claim ownership, shared-state/caches, peak DB connection budgeting, and ALB/ASG draining integration before any overlapping rollout. |
 | Reproducible infrastructure | Codify the launch template/bootstrap, ALB/target group, ASG, health/lifecycle settings, IAM/security groups, CloudFront origin migration, and release versioning. Validate with a fresh host; do not rely on this manually prepared instance. |
 | Automatic replacement | Simulate host loss and model/app failure; verify replacement, warmup, target registration, and recovery timing without a replacement storm. A lone instance still has a failure recovery gap. |
 | Availability-preserving updates | Rehearse successful and failed candidate rollouts, continuous traffic, draining, schema compatibility, and rollback while an old instance remains healthy. |

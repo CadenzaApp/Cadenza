@@ -35,7 +35,7 @@ use std::time::Duration;
 
 use sea_orm::DatabaseConnection;
 use tokio::sync::Notify;
-use tokio::time::{MissedTickBehavior, interval, sleep};
+use tokio::time::{MissedTickBehavior, interval};
 
 use crate::db::entity::metadata_song_tags_applied;
 use crate::db::metadata_tags::{
@@ -209,7 +209,7 @@ fn spawn_store_missing_artwork(
         return;
     }
 
-    tokio::spawn(async move {
+    song_meta_service.background_tasks().spawn(async move {
         if let Err(err) = store_missing_artwork(&db, &song_meta_service, &song_ids).await {
             eprintln!("{LOG_TAG} could not store artwork for listed songs: {err}");
         }
@@ -256,7 +256,7 @@ pub fn spawn_store_song_metadata(
         return;
     }
 
-    tokio::spawn(async move {
+    song_meta_service.background_tasks().spawn(async move {
         if let Err(err) = ensure_song_metadata_stored(&db, &song_meta_service, &song_ids).await {
             eprintln!("{LOG_TAG} could not store metadata for listed songs: {err}");
         }
@@ -517,22 +517,22 @@ async fn run_pass(
     let pass = {
         let (db, song_meta_service, config) =
             (db.clone(), song_meta_service.clone(), config.clone());
-        tokio::spawn(
-            async move { crawl_metadata(&db, &song_meta_service, &config, walk_library).await },
-        )
+        song_meta_service.background_tasks().spawn(async move {
+            crawl_metadata(&db, &song_meta_service, &config, walk_library).await
+        })
     };
 
     match pass.await {
-        Ok(Ok(pass)) if pass.did_work() => {
+        Ok(Some(Ok(pass))) if pass.did_work() => {
             println!(
                 "{LOG_TAG} stored {} library songs, and {} songs off {} albums",
                 pass.library_songs, pass.album_songs, pass.albums
             );
             PassOutcome::Worked
         }
-        Ok(Ok(_)) => PassOutcome::Idle,
-        Ok(Err(CadenzaError::SongMetadataRateLimited)) => PassOutcome::RateLimited,
-        Ok(Err(err)) => {
+        Ok(Some(Ok(_))) | Ok(None) => PassOutcome::Idle,
+        Ok(Some(Err(CadenzaError::SongMetadataRateLimited))) => PassOutcome::RateLimited,
+        Ok(Some(Err(err))) => {
             eprintln!("{LOG_TAG} pass failed: {err}");
             PassOutcome::Failed
         }
@@ -577,7 +577,8 @@ pub fn spawn_metadata_crawl(
 ) {
     let config = Arc::new(config);
 
-    tokio::spawn(async move {
+    let work = song_meta_service.background_tasks();
+    work.clone().spawn(async move {
         let mut ticker = interval(config.interval);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut hand_back_in_flight = true;
@@ -585,11 +586,16 @@ pub fn spawn_metadata_crawl(
         loop {
             // a tick walks the library on its first pass; a wake only crawls albums
             let mut walk_library = tokio::select! {
+                biased;
+                _ = work.cancelled() => return,
                 _ = ticker.tick() => true,
                 _ = crawler.wake.notified() => false,
             };
 
             loop {
+                if work.is_stopping() {
+                    return;
+                }
                 if hand_back_in_flight {
                     match reset_in_flight_albums(&db).await {
                         Ok(count) => {
@@ -600,17 +606,26 @@ pub fn spawn_metadata_crawl(
                         }
                         Err(err) => {
                             eprintln!("{LOG_TAG} could not hand back albums in flight: {err}");
-                            sleep(FAILURE_PAUSE).await;
+                            if !work.pause(FAILURE_PAUSE).await {
+                                return;
+                            }
                             break;
                         }
                     }
                 }
 
+                if work.is_stopping() {
+                    return;
+                }
                 let outcome = run_pass(&db, &song_meta_service, &config, walk_library).await;
                 walk_library = false;
 
                 match outcome {
-                    PassOutcome::Worked => sleep(DRAIN_PAUSE).await,
+                    PassOutcome::Worked => {
+                        if !work.pause(DRAIN_PAUSE).await {
+                            return;
+                        }
+                    }
                     PassOutcome::Idle => break,
                     PassOutcome::RateLimited => {
                         hand_back_in_flight = true;
@@ -618,12 +633,16 @@ pub fn spawn_metadata_crawl(
                             "{LOG_TAG} apple music is rate limiting. standing down for {}s",
                             RATE_LIMIT_BACKOFF.as_secs()
                         );
-                        sleep(RATE_LIMIT_BACKOFF).await;
+                        if !work.pause(RATE_LIMIT_BACKOFF).await {
+                            return;
+                        }
                         break;
                     }
                     PassOutcome::Failed => {
                         hand_back_in_flight = true;
-                        sleep(FAILURE_PAUSE).await;
+                        if !work.pause(FAILURE_PAUSE).await {
+                            return;
+                        }
                         break;
                     }
                 }

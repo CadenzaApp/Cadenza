@@ -119,12 +119,13 @@ pub async fn add_retagged_songs(
 
 /// [`add_retagged_songs`] on its own task, so a tag write never waits on it.
 pub fn spawn_add_retagged_songs(
+    work: crate::lifecycle::BackgroundTasks,
     db: DatabaseConnection,
     user_id: Uuid,
     song_ids: Vec<String>,
     tag_ids: Vec<i64>,
 ) {
-    tokio::spawn(async move {
+    work.spawn(async move {
         if let Err(err) = add_retagged_songs(&db, user_id, &song_ids, &tag_ids).await {
             eprintln!("{LOG_TAG} could not update saved queries after tagging: {err}");
         }

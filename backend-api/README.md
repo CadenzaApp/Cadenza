@@ -13,6 +13,7 @@ nothing that comes back is persisted.
 | file | role |
 | --- | --- |
 | `src/main.rs` | Builds `AppState`, starts the python model process, spawns the background jobs, nests the routers, binds the listener. |
+| `src/lifecycle.rs` | Local health probes, tracked background work, and bounded shutdown. |
 | `src/auth.rs` | `SupabaseClaims` and `new_jwt_decoder()`, which fetches Supabase's JWKS once at startup. |
 | `src/err.rs` | `CadenzaError` and its status code / JSON body mapping. |
 | `src/routes/` | HTTP handlers. See [src/routes/README.md](src/routes/README.md). |
@@ -27,8 +28,8 @@ nothing that comes back is persisted.
 `main.rs` loads `.env`, opens the db connection, builds the JWKS decoder, starts the python
 model process, constructs the tag generation service, and packs the request-facing pieces into
 `AppState`. It also spawns the background jobs, none of which is in `AppState` because
-nothing serving a request talks to them. The model child is held in `main` until the listener
-exits, then killed.
+nothing serving a request talks to them directly. A shared background-task tracker is in
+`AppState`. The model child stays alive through request draining and is then reaped.
 `AppState` derives `FromRef`, so a handler can extract just the piece it needs:
 
 ```rust
@@ -36,7 +37,7 @@ State(db): State<DatabaseConnection>
 State(tag_gen_service): State<TagGenerationService>
 ```
 
-Seven routers get nested, plus a health route:
+Resource routers get nested alongside health routes:
 
 ```
 /tags       get_tags_router()
@@ -46,7 +47,11 @@ Seven routers get nested, plus a health route:
 /social     get_social_router()
 /events     get_events_router()
 /analytics  get_analytics_router()
+/saved-queries get_saved_queries_router()
+/settings   get_settings_router()
 /test       returns "server is reachable"
+/health/live  returns {"status":"alive"}
+/health/ready returns {"status":"ready"} or 503
 ```
 
 `/social` is the feed, posts, likes, and interests. It calls the python service
@@ -111,9 +116,28 @@ Rust is compiled at `/app/backend-api`, and Python's venv is installed at
 `/app/backend-api/ml-service/.venv`, matching the launcher's compiled path.
 CloudFront provides public HTTPS through a private VPC origin. Docker maps host
 port 80 directly to Axum port 3000; the EC2 security group allows only CloudFront.
-The combined health check tests `/test` and the model's `/openapi.json`; verify
-inference and database operations separately. A failed model child requires a
+The combined health check uses `/health/ready`: Rust must respond and the local
+Python service must acknowledge its loaded model within two seconds. It excludes
+ongoing Supabase, OpenAI, and Apple availability. `/health/live` only checks Rust
+HTTP responsiveness; `/test` remains a reachability check. Verify real inference
+and database operations separately. A failed model child requires a
 whole-backend restart; health checks alone do not restart an unhealthy container.
+
+### Shutdown
+
+SIGTERM or Ctrl-C marks the application draining and stops periodic jobs from
+starting another pass. New operations on existing connections receive 503; accepted
+HTTP requests and tracked follow-up work share a 120-second deadline. Unfinished
+work is cancelled at that deadline. Model-child reaping and database-pool closure
+have another bounded 15 seconds; Docker allows 150 seconds before SIGKILL.
+Forced cancellation can leave claims for startup recovery, so overlapping replicas
+are still unsafe until claim ownership and pool budgeting are fixed.
+
+Targeted lifecycle tests need no database or real model:
+
+```sh
+cargo test --locked lifecycle_
+```
 
 ### Database connections
 

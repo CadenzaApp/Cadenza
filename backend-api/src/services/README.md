@@ -414,3 +414,13 @@ are delayed, so a slow pass is followed by a full day of quiet.
 
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
+
+## Work lifecycle
+
+The services share `lifecycle::BackgroundTasks` injected by `main.rs`. It tracks
+periodic passes and detached default-tag, metadata/artwork, and saved-query updates
+even if the requesting client disconnects. On shutdown idle waits stop immediately
+and periodic jobs stop starting passes. Accepted requests can still enqueue their
+follow-up work; all of it shares the HTTP 120-second deadline. After that deadline
+unfinished futures are cancelled. This does not make startup claim resets or
+process-local social-feed state safe for overlapping backends.

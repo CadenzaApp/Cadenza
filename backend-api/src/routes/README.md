@@ -444,3 +444,13 @@ See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
 
 All reads derive the user from the JWT. Limits default to 25 and cap at 100. Tag selection uses
 only that user's non-activity tags. The original analytics endpoints are unchanged.
+
+## Health and draining
+
+`GET /health/live` returns 200 `{"status":"alive"}` when Rust HTTP responds.
+`GET /health/ready` returns 200 `{"status":"ready"}` only when the local Python
+process acknowledges the loaded model within two seconds. Otherwise it returns
+503 with status `model_unavailable` or `draining`. These routes need no JWT and
+return no provider, database, or secret details. They remain subject to deployment
+network access rules. During shutdown new business operations receive generic 503;
+accepted requests can finish within the shared 120-second grace period.

@@ -59,9 +59,9 @@ Current nonsecret inputs agreed with the operator:
 - Disk candidate: encrypted 16 GiB gp3, subject to measurement and AMI minimum.
 - Public API hostname: d1wj9jjqzhjpqq.cloudfront.net, supplied by CloudFront.
 - Model revision: 57c266a740f537b4dc058e1b0cda161fd15afa75, the local cached snapshot.
-- Published image source base: ae49612e55302cbc8e236d94fb4f4a8554cc3c20 plus the
-  working-tree inputs in deploy/build-record.json. Record an exact source commit
-  before publishing the next release.
+- Published demo-003 source base: 9f25043df0b43e4a65f069c1900b64b0558cd405 plus
+  the readiness/shutdown working-tree inputs hashed in deploy/build-record.json.
+  Commit the source before the next frozen release.
 - No demo date needed. Deploy early for testing and iteration.
 
 The deployed client uses the HTTPS URL for this CloudFront hostname.
@@ -96,8 +96,10 @@ changes in the repository, preserving unrelated work:
 7. Update the backend/model READMEs to match the actual final configuration.
 
 Do not quietly expand this into a multi-instance deployment or an application
-rewrite. Graceful shutdown and automatic child recovery are separate enhancements;
-the staffed-demo workflow currently uses a whole-backend restart when Python fails.
+rewrite. The later readiness/shutdown step now provides local Rust/model readiness
+and a 120-second drain with a 150-second Docker stop allowance. See
+deploy/lifecycle-verification.json for the deployed demo-003 checks. Automatic
+child recovery remains separate; Python failure still needs a whole-backend restart.
 
 **Handoff:** real deployment files exist in the repository, with placeholders only
 for values the human must supply. Reference examples alone do not complete this step.

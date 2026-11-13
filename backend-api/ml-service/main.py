@@ -1,4 +1,6 @@
 import os
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
 
@@ -18,6 +20,7 @@ model = SentenceTransformer(
     token=os.environ["HF_TOKEN"],
 )
 model.similarity_fn_name = "cosine"
+model_work = ThreadPoolExecutor(max_workers=1, thread_name_prefix="model")
 
 INTEREST_PREFIX = {
     "genre": "the music genre ",
@@ -65,8 +68,19 @@ def _as_floats(vector: np.ndarray) -> list[float]:
     return [float(x) for x in np.asarray(vector).reshape(-1).tolist()]
 
 
+@app.get("/health/ready")
+async def ready() -> dict[str, str]:
+    """Import completes only after the pinned model has loaded."""
+    return {"status": "ready"}
+
+
 @app.post("/embedding")
 async def embed(body: EmbeddingBody) -> EmbeddingResponse:
+    # One worker keeps inference serial even if its HTTP caller disconnects.
+    return await asyncio.get_running_loop().run_in_executor(model_work, _embed, body)
+
+
+def _embed(body: EmbeddingBody) -> EmbeddingResponse:
     """Document embedding for a post, and query embeddings for interest names.
 
     Posts use `encode_document`. Interests use `encode_query` with the genre or
@@ -96,6 +110,10 @@ async def embed(body: EmbeddingBody) -> EmbeddingResponse:
 
 @app.post("/posts/similarities")
 async def similarity(body: SimilarityBody) -> SimilarityResponse:
+    return await asyncio.get_running_loop().run_in_executor(model_work, _similarity, body)
+
+
+def _similarity(body: SimilarityBody) -> SimilarityResponse:
     """Cosine similarity of each stored post vector to the user vector.
 
     The user vector is already the normalized weighted sum, computed by the

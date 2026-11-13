@@ -64,16 +64,33 @@ values stay on EC2 and are not returned to chat.
   The reviewed SCP exception, IAM role/profile, and two Standard SecureString
   parameters remain in place. Credentials stay on EC2; they are not returned to
   chat. The operator authorized resuming EC2 and selected the CloudFront path.
-- Branch `aws-deployment`, base source commit
-  `ae49612e55302cbc8e236d94fb4f4a8554cc3c20`. The published image was built from
-  that base plus working-tree changes, so the base alone does not reproduce it.
-  `build-record.json` records all 97 inputs as they were at build time. Use an
-  exact committed source version for the next frozen release.
-- Backend `demo-002` is pinned to
+- Backend `demo-003` is pinned to
+  `sha256:06c6a29fcaec7c904e2293b3787ce534b1bd12cf73f810e2e487c5f68fa2e54d`.
+  ECR reports 347402303 compressed bytes. It was built from source base
+  `9f25043df0b43e4a65f069c1900b64b0558cd405` plus the readiness/shutdown changes
+  in the working tree. `build-record.json` hashes the runtime build inputs; the
+  base commit alone does not reproduce the image. Commit this source before the
+  next frozen release. Model revision remains
+  `57c266a740f537b4dc058e1b0cda161fd15afa75`, cached on EBS.
+- `lifecycle-verification.json` records demo-003: healthy, no unexpected restarts
+  or OOM, real finite 768-dimensional inference and self-similarity, eight
+  successful readiness probes during inference (maximum 121 ms), and a real
+  idle-container SIGTERM with exit 0 in about one second. Application cleanup
+  confirmed tracked work, child reaping, and DB-pool closure. The backend was
+  restarted and external HTTPS returned 200 for both health routes and `/test`,
+  401 for anonymous `/tags/activity`, and 405 for POST `/test`. Seven isolated
+  Rust tests cover accepted HTTP/follow-up work, forced deadlines, and child
+  reaping; three fake-model Python tests cover responsive health and serialization.
+  The operator reports the phone smoke test works on this release; detailed
+  per-flow coverage was not recorded. A subsequent log review found 54 successful
+  application requests, no application errors, and no readiness failures after
+  model startup. No new RAM rehearsal was run. The earlier resource and phone results above are demo-002.
+- Known-working rollback: demo-002 at
   `sha256:e029d73a3044ed1c4e492ea0b2395d0b93b27c0594811fa6212c57ca0ebfd2b4`.
-  ECR reports 347325556 compressed bytes. Model revision is
-  `57c266a740f537b4dc058e1b0cda161fd15afa75`. The pinned model cache is on EBS.
-  demo-001 failed on a required physical `.env` file and is not a working rollback.
+  EC2 retains the matching prior Compose/release/start files under
+  `/opt/cadenza/releases/before-demo-003/`. Restore those together; the old image
+  does not have `/health/ready`. Its build record is in `history/`.
+  demo-001 failed on a required physical `.env` and is not a working rollback.
 - Budget preference: maximize Free Tier/credits. Operator reported $120 available;
   expiry lookup is deferred and no paid monthly cap was agreed. CloudFront uses
   pay-as-you-go, whose published free allowance includes 1 TB transfer out and
@@ -92,10 +109,32 @@ There is no load balancer or Auto Scaling group in the current deployment.
 The [deployment plan](../DEPLOYMENT_PLAN.md#planned-reliability-and-scaling-architecture)
 now records internal ALB plus ASG automatic replacement, later one-to-two scaling,
 and launch-before-terminate rollouts. This is documentation only. Shared claims,
-process-local state, DB pool budgeting, readiness, and graceful shutdown must be
-addressed before permitting a second backend, including temporary rollout overlap.
-The plan also contains the consolidated remaining-work checklist. No new resources
-or RAM test were started for this planning update.
+process-local state and peak DB pool budgeting must be addressed before permitting
+a second backend, including temporary rollout overlap. Application readiness and
+bounded shutdown are implemented; ALB/ASG integration and full host bootstrap are
+still pending. The plan contains the consolidated remaining-work checklist.
+
+## Health and shutdown
+
+Compose checks `GET /health/ready`, which requires Rust HTTP and an acknowledgement
+from the local loaded model within two seconds. `GET /health/live` checks only Rust
+HTTP. Ongoing Supabase, OpenAI, and Apple outages do not change readiness. A healthy
+probe is not proof of real inference or authenticated database operations.
+
+SIGTERM stops new periodic passes and drains accepted HTTP plus tracked detached
+work against one 120-second deadline. Remaining futures are cancelled, then the
+Python child is reaped and the DB pool closed with a 15-second cleanup bound.
+Compose allows 150 seconds before SIGKILL. New business requests on existing
+connections receive 503 while draining. Docker health alone does not replace or
+restart an unhealthy container. ALB deregistration and ASG lifecycle hooks still
+need to be wired and tested before overlapping instances are allowed.
+
+Local checks need no live database:
+
+```sh
+cargo test --locked --manifest-path backend-api/Cargo.toml lifecycle_
+backend-api/ml-service/.venv/bin/python -m unittest discover -s backend-api/ml-service -p test_lifecycle.py -v
+```
 
 ## Planned observability
 
@@ -199,9 +238,9 @@ docker buildx build --platform linux/arm64 \
   --build-arg UV_IMAGE="$CADENZA_UV_IMAGE" \
   --build-arg RUST_IMAGE="$CADENZA_RUST_IMAGE" \
   --build-arg PYTHON_IMAGE="$CADENZA_PYTHON_IMAGE" \
-  -f deploy/backend.Dockerfile -t cadenza-backend:demo-002 --load .
-docker image inspect cadenza-backend:demo-002 --format '{{.Os}}/{{.Architecture}}'
-docker run --rm --platform linux/arm64 --entrypoint python cadenza-backend:demo-002 \
+  -f deploy/backend.Dockerfile -t cadenza-backend:demo-003 --load .
+docker image inspect cadenza-backend:demo-003 --format '{{.Os}}/{{.Architecture}}'
+docker run --rm --platform linux/arm64 --entrypoint python cadenza-backend:demo-003 \
   -c 'import torch; assert torch.version.cuda is None; print("CPU-only Torch verified")'
 ```
 
@@ -281,10 +320,10 @@ After confirming the account, Oregon access, and repository, publish the image a
 ```sh
 export CADENZA_REGISTRY=175220118767.dkr.ecr.us-west-2.amazonaws.com
 aws ecr get-login-password --profile cadenza-project --region us-west-2 | docker login --username AWS --password-stdin "$CADENZA_REGISTRY"
-docker tag cadenza-backend:demo-002 "$CADENZA_REGISTRY/cadenza-backend:demo-002"
-docker push "$CADENZA_REGISTRY/cadenza-backend:demo-002"
+docker tag cadenza-backend:demo-003 "$CADENZA_REGISTRY/cadenza-backend:demo-003"
+docker push "$CADENZA_REGISTRY/cadenza-backend:demo-003"
 aws ecr describe-images --profile cadenza-project --region us-west-2 \
-  --repository-name cadenza-backend --image-ids imageTag=demo-002 \
+  --repository-name cadenza-backend --image-ids imageTag=demo-003 \
   --query 'imageDetails[0].imageDigest' --output text
 ```
 

@@ -61,14 +61,21 @@ pub async fn push_notification(
 /// A pass that fails is logged and the job carries on at the next day. Ticks
 /// are delayed rather than burst, so a pass that outruns the interval is
 /// followed by a full day of quiet.
-pub fn spawn_notification_cleanup(db: DatabaseConnection) {
+pub fn spawn_notification_cleanup(db: DatabaseConnection, work: crate::lifecycle::BackgroundTasks) {
     println!("{LOG_TAG}: on, deleting notifications older than 30 days once a day");
-    tokio::spawn(async move {
+    work.clone().spawn(async move {
         let mut ticker = interval(CLEANUP_INTERVAL);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         loop {
-            ticker.tick().await;
+            tokio::select! {
+                biased;
+                _ = work.cancelled() => break,
+                _ = ticker.tick() => {},
+            }
+            if work.is_stopping() {
+                break;
+            }
             match delete_old_notifications(&db).await {
                 Ok(0) => {}
                 Ok(count) => println!("{LOG_TAG} deleted {count} notifications older than 30 days"),
