@@ -44,12 +44,16 @@ removes insertion/removal fades. Movement below the threshold leaves native glas
 the patch. Scroll minimization remains UIKit-owned.
 
 Sort and Library Tags' plus action share `useBottomRowActionButton`. Their sources own their
-sheets; the host owns placement. Floating bottom glass always clips to its radius. Unclipped, it
+sheets; the host owns placement. The assistant button is always the row's rightmost
+control, whenever the row shows except under multiselect; a row action sits one slot to its
+left and both share the same lift, scale, and dock. Floating bottom glass always clips to its radius. Unclipped, it
 goes square on Android, and on iOS it paints dark rectangles whenever UIKit clips something above
 it, like the screen behind any sheet. Artwork and
 transport content have separate clipping.
 The control sits above expanded playback, follows native tuck,
-and centers above Search when tucked. In circle mode it shares the bottom row. Temporary chrome
+and stays centered over Search, expanded or tucked. Search's place is not readable from UIKit, so
+it comes from `SEARCH_TAB_CENTER_FROM_RIGHT` in `@/lib/screen-overlay-geometry` (a 62pt circle
+21pt in), which floating bubbles use too through `BOTTOM_ACTION_RIGHT_OFFSET`. In circle mode it shares the bottom row. Temporary chrome
 suppression hides it without mounting a local fallback. Controls enter and exit from the right.
 
 Multiselect registers content in the separate `bottom-selection-overlay.tsx` context to avoid
@@ -186,6 +190,14 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   thing either native player can do; see the queue section of the module README.
 - The queue list is `ReorderableList`, which positions rows off a fixed `QUEUE_ROW_HEIGHT`
   rather than measuring them. Change the row's height and that constant has to move with it.
+- The three-bar handle on a queue row drags at once and takes the touch from the sheet. On iOS,
+  `player-page.tsx` also sets the sheet's `gestureEnabled` to false while a finger is on a
+  handle, since UIKit's dismiss gesture can otherwise still win. Android sheets ignore
+  `gestureEnabled`; there the handle's gesture claims the touch before the sheet's slop.
+- On Android the queue only scrolls because the pager's `SheetScrollRegion` covers the pages
+  while it is open. `player-page.tsx` reports its queue view through `useReportQueueOpen`
+  (`queue-open.tsx`). With the artwork showing, the region shrinks again so pulling the artwork
+  down still closes the sheet.
 - The pager's selector gives its `GlassSurface` an explicit radius instead of leaning on the
   parent's `overflow: hidden`. Native glass shapes its lensing and specular edge from its own
   corners, so a clipped square reads as a flat fill. The glass also stays off the touch path

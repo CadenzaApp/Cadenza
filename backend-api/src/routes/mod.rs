@@ -1,6 +1,7 @@
 pub mod json;
 
 pub mod analytics;
+pub mod assistant;
 pub mod events;
 pub mod profile;
 pub mod queries;

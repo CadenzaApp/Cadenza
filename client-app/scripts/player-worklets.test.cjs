@@ -331,6 +331,8 @@ function fixture(collapsed = true) {
                 useShowsRootPlayerOverlay: () => false,
                 useBottomRowAction: () => r.action ?? null,
             };
+        if (name === "@/features/assistant/assistant-button")
+            return { AssistantRowButton: "AssistantRowButton" };
         if (name === "@/lib/bottom-selection-overlay")
             return { useBottomSelectionOverlay: () => null };
         if (name === "./media-player") return { MediaPlayer: "MediaPlayer" };
@@ -696,7 +698,7 @@ function find(node, predicate) {
         return node.map((child) => find(child, predicate)).find(Boolean);
     return predicate(node) ? node : find(node.props?.children, predicate);
 }
-test("the tucked action centers above Search and supports the Tags plus action", () => {
+test("the tucked assistant centers above Search with the Tags plus action to its left", () => {
     const r = fixture(false),
         m = r.mount();
     r.action = {
@@ -719,18 +721,52 @@ test("the tucked action centers above Search and supports the Tags plus action",
     for (const animation of r.animations)
         if (!animation.cancelled && !animation.completed)
             animation.owner.finish();
-    const style = r.styles.at(-1)();
+    const assistant = r.styles.at(-2)();
+    const plus = r.styles.at(-1)();
+    // the assistant is always the rightmost control, centered above Search,
+    // a 62pt circle 21pt in from the right edge
     assert.equal(
-        393 - 20 - 26 + style.transform[0].translateX,
-        393 - 20 - 8 - 20,
+        393 - 20 - 26 + assistant.transform[0].translateX,
+        393 - 21 - 62 / 2,
     );
-    assert.equal(style.transform[2].scale, 40 / 52);
+    assert.equal(assistant.transform[2].scale, 40 / 52);
+    // the row action is one tucked diameter and a gap to its left, same size
+    assert.equal(
+        plus.transform[0].translateX - assistant.transform[0].translateX,
+        -(40 + 8),
+    );
+    assert.equal(plus.transform[2].scale, 40 / 52);
     assert.equal(
         find(node, (item) => item.type === "GlassIconButton").props
             .accessibilityLabel,
         "Create a new tag",
     );
+    assert.ok(find(node, (item) => item.type === "AssistantRowButton"));
     assert.equal(m.progress.get(), 0);
+});
+test("the assistant takes the row's right end even with no row action", () => {
+    const r = fixture(false);
+    r.mount();
+    r.api.reportNativeFrame({ x: 90, y: 720, width: 218, height: 40 });
+    r.controller();
+    const root = r.render(hostFile, "MediaPlayerFallbackOverlay", [
+        { hidden: false, nativeAccessoryActive: true },
+    ]);
+    const row = find(root, (node) => node.type?.name === "MediaPlayerRow");
+    const node = r.component(row, "row");
+    node.props.ref.current = { measureInWindow: (fn) => fn(20, 0, 353, 760) };
+    node.props.onLayout();
+    r.flush();
+    r.tick();
+    for (const animation of r.animations)
+        if (!animation.cancelled && !animation.completed)
+            animation.owner.finish();
+    const assistant = r.styles.at(-2)();
+    assert.equal(
+        393 - 20 - 26 + assistant.transform[0].translateX,
+        393 - 21 - 62 / 2,
+    );
+    assert.ok(find(node, (item) => item.type === "AssistantRowButton"));
 });
 test("temporary hiding retains its foreground host", () => {
     const r = fixture();

@@ -85,7 +85,7 @@ that shape.
 | var | required | notes |
 | --- | --- | --- |
 | `DATABASE_URL` | yes | The Supabase **session-mode** pooler: `postgresql://postgres.PROJECT:PASSWORD@REGION.pooler.supabase.com:5432/postgres`. Panics at startup if missing. Use port 5432, not 6543; see Database connections below. |
-| `OPENAI_API_KEY` | yes | Read by `OpenAiTagGenerator::new()`, which panics at startup if missing, even if you never call tag suggestion. |
+| `OPENAI_API_KEY` | yes | Read by `OpenAiTagGenerator::new()` and `OpenAiAssistantModel::new()`, which panic at startup if missing, even if you never call tag suggestion or the assistant. |
 | `APPLE_MUSIC_DEVELOPER_TOKEN` | yes | A signed MusicKit developer token, used by `SongMetadataService` to read the song titles default tag generation runs on, and the metadata queries filter on. Read by `SongMetadataService::new()`, which panics at startup if missing. Apple caps the token at 6 months and nothing here refreshes it. |
 | `APPLE_MUSIC_STOREFRONT` | no | Two letter storefront for catalog lookups, e.g. `gb`. Defaults to `us`. A song not released in that storefront reads as missing. |
 | `BIND_ADDR` | no | Defaults to `127.0.0.1:3000`, which is loopback only. Set `0.0.0.0:3000` to accept connections from a phone or another machine on the LAN. Panics if it does not parse as `host:port`. |
@@ -174,7 +174,8 @@ existed, `tags.is_activity` among them, live only in Supabase.
 - `client-app/src/lib/api-actions.ts` is the client's only path in here. It attaches
   `Authorization: Bearer <supabase jwt>` to every call, and `client-app/src/lib/routes/` mirrors
   this crate's `src/routes/` one to one.
-- OpenAI's responses api, from `src/services/tag_generation/openai_tag_generator.rs`.
+- OpenAI's responses api, from `src/services/tag_generation/openai_tag_generator.rs` and
+  `src/services/assistant/model.rs`. Both share the endpoint and 429 parsing in `src/services/openai.rs`.
 
 ## Gotchas
 

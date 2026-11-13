@@ -1,7 +1,10 @@
 pub mod analytics;
+pub mod assistant;
 pub mod default_tags;
 pub mod metadata_tags;
 pub mod notification;
+pub mod openai;
+pub mod rate_limit;
 pub mod saved_queries;
 pub mod social_feed;
 pub mod song_metadata;
