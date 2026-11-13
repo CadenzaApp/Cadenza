@@ -20,6 +20,18 @@ heading, one sentence, and whatever way out exists (reconnect Apple Music, sign 
 error text never goes on screen: a native MusicKit rejection stringifies to a Swift stack trace
 and a backend rejection is a bare `{ error_type }`. The cause still reaches the console.
 
+`peek-carousel.tsx` exports `PeekCarousel`, the sideways shelf on Social and profiles: `visible`
+items whole and a peek of the next, snapping one at a time. An edge with more past it fades out
+through an alpha mask, so it works over any background. It bleeds past a `px-5` column.
+
+`swipe-to-delete.tsx` exports `SwipeToDelete`, Apple's swipe left to delete: the row slides over
+red with a white trash centered in what shows, a long pull deletes on release, a short one rests
+open with the trash to tap. The row paints its own background. Notifications use it.
+
+`bottom-sheet.tsx` exports `BottomSheet`, a sheet the app draws: full width, flush with the
+bottom, a set fraction of the screen tall, closed by the X, the backdrop, or a drag down on its
+top bar. Use it where a native sheet shorter than the screen would get iOS's inset card.
+
 ### ui/
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,

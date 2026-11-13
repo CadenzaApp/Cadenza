@@ -17,10 +17,10 @@ import {
     type ListRenderItem,
     type ViewToken,
 } from "react-native";
-import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import Animated from "react-native-reanimated";
 
 import { ListDivider } from "@/components/custom/list-divider";
+import { SwipeToDelete } from "@/components/custom/swipe-to-delete";
 import { Button } from "@/components/ui/button";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
@@ -59,6 +59,9 @@ const NOTIFICATION_ICON = {
     NotificationType,
     "chatbubble" | "person-add" | "radio"
 >;
+
+/** The list's side padding. Swipe rows run past it to the screen's edge. */
+const LIST_PADDING = 20;
 
 /**
  * Buttons while a received friend or session join request is unanswered,
@@ -309,10 +312,20 @@ export function NotificationsScreen() {
             if (item.kind === "notification") {
                 const notice = item.item;
                 return (
-                    <SwipeToDismiss
-                        onDismiss={() => void dismiss([notice.notif_id])}
+                    <SwipeToDelete
+                        accessibilityLabel="Dismiss"
+                        bleed={LIST_PADDING}
+                        onDelete={() => void dismiss([notice.notif_id])}
                     >
-                        <View className={item.nested ? "pl-6" : undefined}>
+                        <View
+                            className="bg-background"
+                            style={{
+                                paddingHorizontal: LIST_PADDING,
+                                // nested under its group
+                                paddingLeft:
+                                    LIST_PADDING + (item.nested ? 24 : 0),
+                            }}
+                        >
                             <NotificationRow
                                 item={notice}
                                 requestBusy={requestBusy}
@@ -320,23 +333,30 @@ export function NotificationsScreen() {
                                 onOpenPost={setOpenPostId}
                             />
                         </View>
-                    </SwipeToDismiss>
+                    </SwipeToDelete>
                 );
             }
             if (item.kind === "group") {
                 const { group } = item;
                 return (
-                    <SwipeToDismiss
-                        onDismiss={() =>
+                    <SwipeToDelete
+                        accessibilityLabel="Dismiss"
+                        bleed={LIST_PADDING}
+                        onDelete={() =>
                             void dismiss(group.items.map((n) => n.notif_id))
                         }
                     >
-                        <GroupRow
-                            group={group}
-                            expanded={item.expanded}
-                            onToggle={toggleGroup}
-                        />
-                    </SwipeToDismiss>
+                        <View
+                            className="bg-background"
+                            style={{ paddingHorizontal: LIST_PADDING }}
+                        >
+                            <GroupRow
+                                group={group}
+                                expanded={item.expanded}
+                                onToggle={toggleGroup}
+                            />
+                        </View>
+                    </SwipeToDelete>
                 );
             }
             if (item.kind === "status") {
@@ -368,7 +388,7 @@ export function NotificationsScreen() {
                     onEndReachedThreshold={1}
                     contentContainerStyle={[
                         {
-                            paddingHorizontal: 20,
+                            paddingHorizontal: LIST_PADDING,
                             paddingBottom: listBottomInset + 48,
                         },
                         scroll.contentContainerStyle,
@@ -432,39 +452,6 @@ function keyExtractor(row: NoticeRow) {
     if (row.kind === "notification") return String(row.item.notif_id);
     if (row.kind === "group") return `group:${row.group.items[0]!.notif_id}`;
     return row.kind;
-}
-
-/** Swiping left shows a delete button that dismisses the row. */
-function SwipeToDismiss({
-    onDismiss,
-    children,
-}: {
-    onDismiss: () => void;
-    children: React.ReactNode;
-}) {
-    const { destructive } = useAppTheme().colors;
-    return (
-        <ReanimatedSwipeable
-            friction={2}
-            rightThreshold={40}
-            overshootRight={false}
-            renderRightActions={(_progress, _translation, swipeable) => (
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Dismiss"
-                    onPress={() => {
-                        swipeable.close();
-                        onDismiss();
-                    }}
-                    className="w-20 items-center justify-center active:opacity-60"
-                >
-                    <Ionicons name="trash" size={22} color={destructive} />
-                </Pressable>
-            )}
-        >
-            <View className="bg-background">{children}</View>
-        </ReanimatedSwipeable>
-    );
 }
 
 /** A folded run of one type: who, what, how many. Tap to open or close. */
