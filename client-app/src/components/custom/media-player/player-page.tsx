@@ -1,10 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { RepeatMode, ShuffleMode } from "@apple-musickit";
-import type { Href } from "expo-router";
+import { useNavigation, type Href } from "expo-router";
 import { useIsFocused, useTheme } from "expo-router/react-navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
     Alert,
+    Platform,
     Image,
     Pressable,
     StyleSheet,
@@ -100,6 +101,18 @@ export function PlayerPage() {
     const { brand } = useAppTheme().colors;
     const openScreen = useOpenScreen();
     const focused = useIsFocused();
+    const navigation = useNavigation();
+    // While a finger is on a queue row's handle, the sheet holds still. iOS
+    // needs this: its sheet's dismiss gesture can still win the touch. Android
+    // ignores `gestureEnabled` on a sheet, and there the handle's gesture
+    // takes the touch from the sheet on its own.
+    const holdSheetForReorder = useCallback(
+        (touching: boolean) => {
+            if (Platform.OS !== "ios") return;
+            navigation.setOptions({ gestureEnabled: !touching });
+        },
+        [navigation],
+    );
     const insets = useSafeAreaInsets();
     const { width, height } = useWindowDimensions();
     const [view, setView] = useState<PlayerView>("artwork");
@@ -379,6 +392,7 @@ export function PlayerPage() {
                             queuePositionOf(to),
                         )
                     }
+                    onHandleTouchChange={holdSheetForReorder}
                 />
             ) : (
                 <>
