@@ -9,14 +9,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::err::CadenzaError;
-use crate::services::tag_generation::openai_tag_generator::{
-    OPENAI_RESPONSES_URL, rate_limit_wait,
-};
+use crate::services::openai::{OPENAI_HTTP_TIMEOUT_SECS, OPENAI_RESPONSES_URL, rate_limit_wait};
 
 /// The assistant's own model, separate from tag generation's, so either can
 /// change without the other.
 const ASSISTANT_MODEL: &str = "gpt-4o-mini";
-const OPENAI_HTTP_TIMEOUT_SECS: u64 = 60;
 
 /// One reply from the model: text, tool calls, or both.
 #[derive(Debug, Clone, Default, PartialEq)]
