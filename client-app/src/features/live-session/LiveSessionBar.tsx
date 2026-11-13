@@ -31,7 +31,8 @@ const LIST_MAX_HEIGHT = 420;
 
 /**
  * The now playing sheet's bottom bar in a live session, in place of the page
- * tabs: Requests, People, Add songs, and Share, as the caller's role allows.
+ * tabs: Requests (the host's), People, Add songs, and Share, as the caller's
+ * role allows.
  * The bar is only as wide as the buttons it has. Requests opens in a bottom
  * sheet. The host can make anyone else host from
  * People, and stays in as a controller. The queue itself is the player's own.
@@ -46,12 +47,12 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
         null,
     );
 
-    const myRequests = isHost
-        ? session.suggestions.length + session.join_requests.length
-        : session.suggestions.filter((entry) => entry.added_by === account?.id)
-              .length;
+    // only the host reviews requests
+    const canReview = session.can.review;
+    const requests = session.suggestions.length + session.join_requests.length;
     const canSuggest = session.can.suggest;
-    const buttonCount = 1 + (canSuggest ? 2 : 0) + (isHost ? 1 : 0);
+    const buttonCount =
+        1 + (canReview ? 1 : 0) + (canSuggest ? 1 : 0) + (isHost ? 1 : 0);
 
     function openProfile(userId: string) {
         openScreen(`/social/user/${userId}` as Href, { closing: "player" });
@@ -78,12 +79,12 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
     return (
         <>
             <PlayerBarShell itemCount={buttonCount}>
-                {canSuggest ? (
+                {canReview ? (
                     <PlayerBarButton
                         icon="hand-left-outline"
                         label="Requests"
-                        accessibilityLabel={`Requests, ${myRequests}`}
-                        badge={isHost ? myRequests : undefined}
+                        accessibilityLabel={`Requests, ${requests}`}
+                        badge={requests}
                         onPress={() => setOpen("requests")}
                     />
                 ) : null}

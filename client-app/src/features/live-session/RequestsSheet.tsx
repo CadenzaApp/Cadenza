@@ -1,9 +1,8 @@
 import type { ReactNode } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { ScrollView, View } from "react-native";
 
 import { BottomSheet } from "@/components/custom/bottom-sheet";
 import { Text } from "@/components/ui/text";
-import { useAccount } from "@/lib/account";
 import {
     useLiveSessionWrites,
     type LiveSession,
@@ -13,9 +12,9 @@ import { AnswerButtons, EntryRow, runSessionWrite } from "./session-parts";
 
 /**
  * A live session's Requests, in a sheet over the player, full width and flush
- * with the bottom: for the host, people waiting to join and songs suggested,
- * each let through with the green check or turned down with the red X.
- * Anyone else sees their own suggestions waiting, and can withdraw them.
+ * with the bottom: people waiting to join and songs suggested, each let
+ * through with the green check or turned down with the red X. Host only,
+ * since only the host reviews them.
  */
 export function RequestsSheet({
     session,
@@ -26,14 +25,9 @@ export function RequestsSheet({
     visible: boolean;
     onClose: () => void;
 }) {
-    const { account } = useAccount();
     const writes = useLiveSessionWrites(session.session_id);
-
-    const isHost = session.my_role === "host";
-    const suggestions = isHost
-        ? session.suggestions
-        : session.suggestions.filter((entry) => entry.added_by === account?.id);
-    const joins = isHost ? session.join_requests : [];
+    const suggestions = session.suggestions;
+    const joins = session.join_requests;
 
     return (
         <BottomSheet visible={visible} onClose={onClose} title="Requests">
@@ -82,14 +76,10 @@ export function RequestsSheet({
                     </Section>
                 ) : null}
 
-                <Section
-                    title={isHost ? "Suggested songs" : "Your suggestions"}
-                >
+                <Section title="Suggested songs">
                     {suggestions.length === 0 ? (
                         <Text className="px-4 py-6 text-center text-sm text-muted-foreground">
-                            {isHost
-                                ? "No suggestions waiting."
-                                : "You have no suggestions waiting."}
+                            No suggestions waiting.
                         </Text>
                     ) : (
                         suggestions.map((entry, index) => (
@@ -98,51 +88,30 @@ export function RequestsSheet({
                                 entry={entry}
                                 first={index === 0}
                                 trailing={
-                                    isHost ? (
-                                        <AnswerButtons
-                                            rejectLabel={`Reject ${entry.title} from ${entry.added_by_username ?? "someone"}`}
-                                            acceptLabel={`Approve ${entry.title} from ${entry.added_by_username ?? "someone"}`}
-                                            onReject={() =>
-                                                void runSessionWrite(
-                                                    () =>
-                                                        writes.reviewSuggestion(
-                                                            entry.entry_id,
-                                                            false,
-                                                        ),
-                                                    "Couldn't reject it.",
-                                                )
-                                            }
-                                            onAccept={() =>
-                                                void runSessionWrite(
-                                                    () =>
-                                                        writes.reviewSuggestion(
-                                                            entry.entry_id,
-                                                            true,
-                                                        ),
-                                                    "Couldn't approve it.",
-                                                )
-                                            }
-                                        />
-                                    ) : (
-                                        <Pressable
-                                            accessibilityRole="button"
-                                            accessibilityLabel={`Withdraw ${entry.title}`}
-                                            onPress={() =>
-                                                void runSessionWrite(
-                                                    () =>
-                                                        writes.removeEntry(
-                                                            entry.entry_id,
-                                                        ),
-                                                    "Couldn't withdraw it.",
-                                                )
-                                            }
-                                            className="active:opacity-60"
-                                        >
-                                            <Text className="text-sm text-muted-foreground">
-                                                Withdraw
-                                            </Text>
-                                        </Pressable>
-                                    )
+                                    <AnswerButtons
+                                        rejectLabel={`Reject ${entry.title} from ${entry.added_by_username ?? "someone"}`}
+                                        acceptLabel={`Approve ${entry.title} from ${entry.added_by_username ?? "someone"}`}
+                                        onReject={() =>
+                                            void runSessionWrite(
+                                                () =>
+                                                    writes.reviewSuggestion(
+                                                        entry.entry_id,
+                                                        false,
+                                                    ),
+                                                "Couldn't reject it.",
+                                            )
+                                        }
+                                        onAccept={() =>
+                                            void runSessionWrite(
+                                                () =>
+                                                    writes.reviewSuggestion(
+                                                        entry.entry_id,
+                                                        true,
+                                                    ),
+                                                "Couldn't approve it.",
+                                            )
+                                        }
+                                    />
                                 }
                             />
                         ))
