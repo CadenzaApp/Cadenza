@@ -15,6 +15,7 @@ use crate::db::{
     self,
     activity_tags::ActivityTag,
     entity::tags,
+    metadata_tags::SongRow,
     queries::{Arrangement, QueryMatch, QueryOptions, QuerySongs},
 };
 use crate::err::CadenzaError;
@@ -26,7 +27,7 @@ use crate::routes::json::{
 use crate::services::analytics::{Dimension, TimeWindow};
 
 /// The most songs a tool describes to the model. The rest are only counted.
-const MAX_SONGS_TO_MODEL: usize = 25;
+pub const MAX_SONGS_TO_MODEL: usize = 25;
 /// The most song ids the song card under an answer gets.
 pub const MAX_CARD_SONGS: usize = 100;
 /// The most of a tool call's arguments and output written to the server log.
@@ -152,6 +153,16 @@ fn label_for(name: &str) -> &'static str {
         "listening_summary" => "Checked your listening stats",
         _ => "Tried a tool",
     }
+}
+
+/// A song as the model sees it: id, title, and artist from its stored row.
+/// A song with no row still appears, by id.
+pub fn describe_song(song_id: &str, row: Option<&SongRow>) -> Value {
+    json!({
+        "song_id": song_id,
+        "title": row.map(|row| row.name.clone()),
+        "artist": row.and_then(|row| row.artist_name.clone()),
+    })
 }
 
 /// The user's own tags as the model sees them, in the prompt and from `list_tags`.
@@ -426,13 +437,10 @@ impl DbTools<'_> {
             let items: Vec<Value> = entries
                 .iter()
                 .map(|entry| {
-                    let row = rows.get(&entry.sample_song_id);
-                    json!({
-                        "song_id": entry.sample_song_id,
-                        "title": row.map(|row| row.name.clone()),
-                        "artist": row.and_then(|row| row.artist_name.clone()),
-                        "plays": entry.plays,
-                    })
+                    let mut described =
+                        describe_song(&entry.sample_song_id, rows.get(&entry.sample_song_id));
+                    described["plays"] = entry.plays.into();
+                    described
                 })
                 .collect();
             let mut outcome = ToolOutcome::ok(json!({ "items": items }), "");
@@ -480,13 +488,9 @@ impl DbTools<'_> {
         Ok(shown
             .iter()
             .map(|song| {
-                let row = rows.get(&song.song_id);
-                json!({
-                    "song_id": song.song_id,
-                    "title": row.map(|row| row.name.clone()),
-                    "artist": row.and_then(|row| row.artist_name.clone()),
-                    "yours": song.certain,
-                })
+                let mut described = describe_song(&song.song_id, rows.get(&song.song_id));
+                described["yours"] = song.certain.into();
+                described
             })
             .collect())
     }

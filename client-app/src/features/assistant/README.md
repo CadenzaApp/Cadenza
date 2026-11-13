@@ -26,6 +26,8 @@ Assistant section of [backend-api/src/services/README.md](../../../../backend-ap
   cached read, so it is not SWR.
 - A reply carries `steps` (shown as muted rows above the answer) and optional `songs`, which
   `SongResultsCard` resolves to tracks with `usePagedTracksForSongIds`.
+- Each assistant message goes back with its card's `song_ids`, so "those" or "the second one"
+  in a follow-up reaches the same songs.
 
 ## Gotchas
 

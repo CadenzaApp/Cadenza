@@ -3,7 +3,8 @@
 export type ChatRole = "user" | "assistant";
 
 export type AssistantRequest = {
-    messages: { role: ChatRole; content: string }[];
+    /** `song_ids` on an assistant message is its card, so a follow-up can mean "those songs". */
+    messages: { role: ChatRole; content: string; song_ids?: string[] }[];
     time_zone?: string;
     now?: string;
 };

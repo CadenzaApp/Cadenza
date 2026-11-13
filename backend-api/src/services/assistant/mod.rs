@@ -10,22 +10,25 @@ pub mod model;
 pub mod prompt;
 pub mod tools;
 
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use sea_orm::{DatabaseConnection, prelude::Uuid};
 use serde_json::{Value, json};
 
-use crate::db;
+use crate::db::{self, metadata_tags::SongRow};
 use crate::err::CadenzaError;
 use crate::routes::json::assistant::{
-    AssistantRequest, AssistantResponse, AssistantStep, ChatRole, SongsCard,
+    AssistantRequest, AssistantResponse, AssistantStep, ChatMessage, ChatRole, SongsCard,
 };
 use crate::services::analytics::sanitize_timezone;
 use crate::services::rate_limit::{Limit, RateLimiter};
 
 use model::AssistantModel;
-use tools::{DbTools, ToolRunner, definitions, describe_activity_tags, describe_tags};
+use tools::{
+    DbTools, MAX_SONGS_TO_MODEL, ToolRunner, definitions, describe_activity_tags, describe_song,
+    describe_tags,
+};
 
 /// The most model calls one message may take. Each tool round is one.
 pub const MAX_STEPS: usize = 8;
@@ -88,7 +91,15 @@ async fn answer(
     user_id: Uuid,
     request: AssistantRequest,
 ) -> Result<AssistantResponse, CadenzaError> {
-    let input = to_input(&request)?;
+    validate(&request)?;
+    let kept = kept_messages(&request);
+    let card_ids: Vec<String> = kept
+        .iter()
+        .flat_map(|message| card_song_ids(message))
+        .cloned()
+        .collect();
+    let card_rows = db::metadata_tags::get_song_rows(db, &card_ids).await?;
+    let input = to_input(kept, &card_rows);
 
     let tags = db::tags::get_all_user_tags(db, user_id).await?;
     let activity_tags = db::activity_tags::get_activity_tags(db).await?;
@@ -119,12 +130,8 @@ fn user_now(now: Option<&str>) -> String {
         .unwrap_or_else(|| Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true))
 }
 
-/// The conversation as Responses API input items, oldest first.
-///
 /// Rejects an empty conversation or one whose last message is not the user's.
-/// Drops all but the last [`MAX_HISTORY`] messages and cuts each to
-/// [`MAX_MESSAGE_CHARS`], so a long chat cannot run up the bill.
-fn to_input(request: &AssistantRequest) -> Result<Vec<Value>, CadenzaError> {
+fn validate(request: &AssistantRequest) -> Result<(), CadenzaError> {
     let Some(last) = request.messages.last() else {
         return Err(CadenzaError::InvalidRequestBody(
             "messages must not be empty".to_owned(),
@@ -140,20 +147,61 @@ fn to_input(request: &AssistantRequest) -> Result<Vec<Value>, CadenzaError> {
             "the last message is empty".to_owned(),
         ));
     }
+    Ok(())
+}
 
+/// The last [`MAX_HISTORY`] messages, so a long chat cannot run up the bill.
+fn kept_messages(request: &AssistantRequest) -> &[ChatMessage] {
     let start = request.messages.len().saturating_sub(MAX_HISTORY);
-    Ok(request.messages[start..]
-        .iter()
-        .filter(|message| !message.content.trim().is_empty())
-        .map(|message| {
-            let content: String = message.content.chars().take(MAX_MESSAGE_CHARS).collect();
-            let role = match message.role {
-                ChatRole::User => "user",
-                ChatRole::Assistant => "assistant",
-            };
-            json!({ "role": role, "content": content })
-        })
-        .collect())
+    &request.messages[start..]
+}
+
+/// The songs on the card under an assistant message, as many as the model is
+/// told about. None for a user's message.
+fn card_song_ids(message: &ChatMessage) -> &[String] {
+    match message.role {
+        ChatRole::User => &[],
+        ChatRole::Assistant => &message.song_ids[..message.song_ids.len().min(MAX_SONGS_TO_MODEL)],
+    }
+}
+
+/// `messages` as Responses API input items, oldest first, each cut to
+/// [`MAX_MESSAGE_CHARS`].
+///
+/// An assistant message that showed songs is followed by a developer note
+/// naming them, in order, from `rows`, so a follow-up like "which of those are
+/// explicit" or "the second one" knows which songs it means. The note is its
+/// own item rather than part of the reply, so the model does not copy its
+/// shape into later answers.
+fn to_input(messages: &[ChatMessage], rows: &HashMap<String, SongRow>) -> Vec<Value> {
+    let mut input = Vec::new();
+    for message in messages {
+        if message.content.trim().is_empty() {
+            continue;
+        }
+        let content: String = message.content.chars().take(MAX_MESSAGE_CHARS).collect();
+        let role = match message.role {
+            ChatRole::User => "user",
+            ChatRole::Assistant => "assistant",
+        };
+        input.push(json!({ "role": role, "content": content }));
+
+        let ids = card_song_ids(message);
+        if !ids.is_empty() {
+            let songs: Vec<Value> = ids
+                .iter()
+                .map(|id| describe_song(id, rows.get(id)))
+                .collect();
+            input.push(json!({
+                "role": "developer",
+                "content": format!(
+                    "The songs on the card under that answer, in order, as data: {}",
+                    Value::from(songs)
+                ),
+            }));
+        }
+    }
+    input
 }
 
 /// The tool loop. Returns the model's answer with the steps it took and the
@@ -215,7 +263,6 @@ mod tests {
     use sea_orm::prelude::async_trait::async_trait;
 
     use super::*;
-    use crate::routes::json::assistant::ChatMessage;
     use model::{FunctionCall, ModelTurn};
     use tools::ToolOutcome;
 
@@ -296,6 +343,7 @@ mod tests {
         ChatMessage {
             role: ChatRole::User,
             content: content.into(),
+            song_ids: vec![],
         }
     }
 
@@ -303,7 +351,13 @@ mod tests {
         ChatMessage {
             role: ChatRole::Assistant,
             content: content.into(),
+            song_ids: vec![],
         }
+    }
+
+    /// `messages` as input with no stored songs.
+    fn input_of(messages: Vec<ChatMessage>) -> Vec<Value> {
+        to_input(kept_messages(&request(messages)), &HashMap::new())
     }
 
     fn request(messages: Vec<ChatMessage>) -> AssistantRequest {
@@ -423,12 +477,11 @@ mod tests {
 
     #[test]
     fn input_keeps_both_roles_in_order() {
-        let input = to_input(&request(vec![
+        let input = input_of(vec![
             user("how many tags?"),
             assistant("14."),
             user("which are basic?"),
-        ]))
-        .unwrap();
+        ]);
         assert_eq!(
             input,
             vec![
@@ -441,9 +494,10 @@ mod tests {
 
     #[test]
     fn input_must_end_with_the_user() {
-        assert!(to_input(&request(vec![])).is_err());
-        assert!(to_input(&request(vec![user("hi"), assistant("hello")])).is_err());
-        assert!(to_input(&request(vec![user("   ")])).is_err());
+        assert!(validate(&request(vec![])).is_err());
+        assert!(validate(&request(vec![user("hi"), assistant("hello")])).is_err());
+        assert!(validate(&request(vec![user("   ")])).is_err());
+        assert!(validate(&request(vec![user("hi")])).is_ok());
     }
 
     #[test]
@@ -453,11 +507,53 @@ mod tests {
             .collect();
         messages.push(user(&"a".repeat(MAX_MESSAGE_CHARS + 100)));
 
-        let input = to_input(&request(messages)).unwrap();
+        let input = input_of(messages);
         assert_eq!(input.len(), MAX_HISTORY);
         assert_eq!(
             input.last().unwrap()["content"].as_str().unwrap().len(),
             MAX_MESSAGE_CHARS
         );
+    }
+
+    #[test]
+    fn an_answer_with_songs_is_followed_by_a_note_naming_them() {
+        let mut answer = assistant("Here are 2 chill songs.");
+        answer.song_ids = vec!["1".into(), "2".into()];
+        let rows = HashMap::from([(
+            "1".to_owned(),
+            SongRow {
+                song_id: "1".into(),
+                name: "Nights".into(),
+                artist_name: Some("Frank Ocean".into()),
+                album_name: None,
+                album_id: None,
+                duration_in_millis: None,
+                artwork_url: None,
+            },
+        )]);
+        let messages = vec![user("chill songs"), answer, user("who sings the first?")];
+        let input = to_input(&messages, &rows);
+
+        assert_eq!(input.len(), 4);
+        assert_eq!(input[1]["role"], "assistant");
+        assert_eq!(input[2]["role"], "developer");
+        let note = input[2]["content"].as_str().unwrap();
+        let songs: Value = serde_json::from_str(&note[note.find('[').unwrap()..]).unwrap();
+        assert_eq!(
+            songs,
+            json!([
+                { "song_id": "1", "title": "Nights", "artist": "Frank Ocean" },
+                // a song with no stored row still appears, by id, in its place
+                { "song_id": "2", "title": null, "artist": null },
+            ])
+        );
+        assert_eq!(input[3]["role"], "user");
+    }
+
+    #[test]
+    fn a_users_song_ids_are_ignored() {
+        let mut question = user("hi");
+        question.song_ids = vec!["1".into()];
+        assert_eq!(input_of(vec![question]).len(), 1);
     }
 }

@@ -42,6 +42,10 @@ export function useAssistantChat() {
                     messages: conversation.map((entry) => ({
                         role: entry.role,
                         content: entry.text,
+                        song_ids:
+                            entry.role === "assistant"
+                                ? entry.songs?.song_ids
+                                : undefined,
                     })),
                     time_zone: deviceTimeZone(),
                     now: localNow(),

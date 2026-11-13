@@ -23,6 +23,10 @@ pub struct AssistantRequest {
 pub struct ChatMessage {
     pub role: ChatRole,
     pub content: String,
+    /// For an assistant message, the song ids on the card under it, in order,
+    /// so a follow-up can mean "those songs". Ignored on a user's message.
+    #[serde(default)]
+    pub song_ids: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]

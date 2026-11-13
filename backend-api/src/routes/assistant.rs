@@ -12,7 +12,9 @@ use crate::{
 
 /// Answers the last message in a conversation with the assistant.
 ///
-/// The phone sends the whole conversation each time; nothing is stored. The
+/// The phone sends the whole conversation each time; nothing is stored. An
+/// assistant message carries the song ids on its card, so a follow-up can mean
+/// those songs. The
 /// assistant can call read-only tools (tags, queries, song metadata, top
 /// plays, listening totals) before it answers, up to 8 model calls. A user
 /// may send 20 messages per 10 minutes and 150 per day; past that it returns
@@ -22,7 +24,9 @@ use crate::{
 /// ```json
 /// {
 ///   "messages": [
-///     { "role": "user", "content": "how many tags do I have?" }
+///     { "role": "user", "content": "chill songs" },
+///     { "role": "assistant", "content": "Here are 84.", "song_ids": ["1440857781"] },
+///     { "role": "user", "content": "which of those are explicit?" }
 ///   ],
 ///   "time_zone": "America/Denver",
 ///   "now": "2026-11-11T17:53:00-07:00"
