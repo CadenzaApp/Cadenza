@@ -48,7 +48,7 @@ class InterestText(BaseModel):
 class EmbeddingBody(BaseModel):
     """One post's text, and/or interest names that still need a stored vector."""
 
-    content: str | None = Field(default=None, max_length=500)
+    content: str | None = Field(default=None, max_length=1024)
     interests: list[InterestText] = Field(default_factory=list, max_length=100)
 
 

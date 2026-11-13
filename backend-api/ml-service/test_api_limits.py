@@ -23,11 +23,17 @@ class ApiLimits(unittest.TestCase):
         self.client = TestClient(main.app)
 
     def test_oversized_inputs_are_rejected_before_inference(self):
-        for body in [{"content": "x" * 501}, {"interests": [{"name": "x", "itype": "artist"}] * 101},
+        for body in [{"content": "x" * 1025}, {"interests": [{"name": "x", "itype": "artist"}] * 101},
                      {"interests": [{"name": "x" * 201, "itype": "genre"}]}]:
             with patch.object(main.model_work, "run", new_callable=AsyncMock) as work:
                 self.assertEqual(self.client.post("/embedding", json=body).status_code, 422)
                 work.assert_not_called()
+
+    def test_valid_post_with_topic_prefix_fits_model_input(self):
+        content = "song: " + "s" * 200 + "; artist: " + "a" * 200 + "; " + "p" * 500
+        response = main.EmbeddingResponse(embedding=[0.0] * 768)
+        with patch.object(main.model_work, "run", new_callable=AsyncMock, return_value=response):
+            self.assertEqual(self.client.post("/embedding", json={"content": content}).status_code, 200)
 
     def test_busy_model_returns_503_without_breaking_readiness(self):
         with patch.object(main.model_work, "run", new_callable=AsyncMock, side_effect=main.ModelBusy()):
