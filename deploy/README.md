@@ -16,6 +16,17 @@ values stay on EC2 and are not returned to chat.
 
 ## Current release status
 
+Active release: **demo-004**, source commit
+`e7471ca7bcb939b2438028d55a929ecc7a11dc6c`, image digest
+`sha256:8f523f704114b1cb315f10176296c28d09fab10a54b549ed195ae3939e0f79e6`.
+`release-verification.demo-004.json` records healthy startup, real inference,
+zero restarts/OOM, HTTPS health/test 200 and anonymous protected-route 401.
+The release adds 50-second handler responses, a 40-second generation budget,
+and restart-baseline startup validation. No schema change or RAM rehearsal.
+Rollback demo-003 retains its matching release/start files under
+`/opt/cadenza/releases/before-demo-004/`; restore those together.
+
+
 - Public API: `https://d1wj9jjqzhjpqq.cloudfront.net`. CloudFront distribution
   `ED64SQL5BYVBQ` is Deployed. AWS supplies and renews the certificate for this
   hostname; no domain purchase or Elastic IP is needed.
@@ -64,7 +75,7 @@ values stay on EC2 and are not returned to chat.
   The reviewed SCP exception, IAM role/profile, and two Standard SecureString
   parameters remain in place. Credentials stay on EC2; they are not returned to
   chat. The operator authorized resuming EC2 and selected the CloudFront path.
-- Backend `demo-003` is pinned to
+- Prior release `demo-003` is pinned to
   `sha256:06c6a29fcaec7c904e2293b3787ce534b1bd12cf73f810e2e487c5f68fa2e54d`.
   ECR reports 347402303 compressed bytes. It was built from source base
   `9f25043df0b43e4a65f069c1900b64b0558cd405` plus the readiness/shutdown changes
@@ -114,19 +125,16 @@ a second backend, including temporary rollout overlap. Application readiness and
 bounded shutdown are implemented; ALB/ASG integration and full host bootstrap are
 still pending. The plan contains the consolidated remaining-work checklist.
 
-## Prepared follow-up changes
+## Startup and request budgets
 
-Source changes after demo-003 fix startup validation to compare new restarts with
-an activation baseline rather than reject all historical restarts. Isolated tests
-cover resumed, replaced, failed, and healthy containers without AWS access:
+Startup compares restart counts against the activation baseline rather than
+rejecting historical restarts. Its fake-Docker tests need no AWS or database:
 `python3 -m unittest discover -s deploy -p test_start_release.py -v`.
 
-The backend source now limits business-handler responses to 50 seconds and total
-tag-generation calls to 40 seconds across chunks. The active demo-003 image does
-not include these changes yet. A timeout is not a guarantee that a mutation had no
+Demo-004 limits business-handler responses to 50 seconds and tag generation to
+40 seconds across chunks. A timeout does not guarantee that a mutation had no
 effect; detached work and already-sent provider requests have separate lifetimes.
-Whole-attempt ownership and cleanup remain pending. Build and verify a new pinned
-image before changing the active release record.
+Whole-attempt ownership and cleanup remain pending.
 
 ## Health and shutdown
 

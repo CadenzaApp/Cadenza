@@ -117,7 +117,7 @@ Do not repeat a fixed-duration RAM rehearsal without a new question to answer.
 ## Follow-up implementation status
 
 Startup restart-baseline handling and HTTP/tag-generation budgets are implemented
-in source with isolated tests; deployment remains demo-003. HTTP handler timeout
+and deployed in demo-004 after focused local tests and EC2/HTTPS verification. HTTP handler timeout
 is 50 seconds, and generation across chunks is 40 seconds. These response/provider
 budgets do not finish the whole-attempt ownership requirement: detached tasks and
 database phases still need explicit lifetime/ownership handling in the next step.

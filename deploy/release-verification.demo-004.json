@@ -1,0 +1,30 @@
+{
+  "verified_at_utc": "2026-11-13T07:37:00.070548+00:00",
+  "ssm_command_id": "c77018dc-7f78-4741-ba35-7b7c7f9111e4",
+  "source_commit": "e7471ca7bcb939b2438028d55a929ecc7a11dc6c",
+  "image_digest": "sha256:8f523f704114b1cb315f10176296c28d09fab10a54b549ed195ae3939e0f79e6",
+  "healthy": true,
+  "unexpected_restarts": 0,
+  "oom_killed": false,
+  "embedding_dimensions": 768,
+  "https_checks": [
+    {
+      "path": "/health/ready",
+      "status": 200
+    },
+    {
+      "path": "/health/live",
+      "status": 200
+    },
+    {
+      "path": "/test",
+      "status": 200
+    },
+    {
+      "path": "/tags/activity",
+      "status": 401
+    }
+  ],
+  "timeout_tests": "Local loopback and stub tests; no intentionally slow production request",
+  "home_access_restriction_retained": true
+}
