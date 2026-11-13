@@ -1,0 +1,136 @@
+{
+  "kind": "host_failure",
+  "started_at_utc": "2026-11-13T08:47:33.059093+00:00",
+  "completed_at_utc": "2026-11-13T08:55:38.095857+00:00",
+  "old_instance": "i-06db123dc1350430b",
+  "new_instance": "i-0cf4976fafc1d551d",
+  "old_terminated": true,
+  "capacity": {
+    "minimum": 1,
+    "desired": 1,
+    "maximum": 1
+  },
+  "health_check_type": "ELB",
+  "transitions": [
+    {
+      "at": "2026-11-13T08:47:34.800088+00:00",
+      "instances": [
+        {
+          "id": "i-06db123dc1350430b",
+          "phase": "InService",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at": "2026-11-13T08:48:16.144299+00:00",
+      "instances": [
+        {
+          "id": "i-06db123dc1350430b",
+          "phase": "InService",
+          "health": "Unhealthy"
+        }
+      ]
+    },
+    {
+      "at": "2026-11-13T08:48:36.821992+00:00",
+      "instances": [
+        {
+          "id": "i-06db123dc1350430b",
+          "phase": "Terminating",
+          "health": "Unhealthy"
+        },
+        {
+          "id": "i-0cf4976fafc1d551d",
+          "phase": "Pending:Wait",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at": "2026-11-13T08:50:20.251874+00:00",
+      "instances": [
+        {
+          "id": "i-0cf4976fafc1d551d",
+          "phase": "Pending:Wait",
+          "health": "Healthy"
+        }
+      ]
+    },
+    {
+      "at": "2026-11-13T08:55:29.848213+00:00",
+      "instances": [
+        {
+          "id": "i-0cf4976fafc1d551d",
+          "phase": "InService",
+          "health": "Healthy"
+        }
+      ]
+    }
+  ],
+  "startup_gate": {
+    "instance_id": "i-0cf4976fafc1d551d",
+    "observed_hosts": [
+      "i-0cf4976fafc1d551d"
+    ],
+    "verified_at_utc": "2026-11-13T08:53:47.277985+00:00"
+  },
+  "runtime_command": "fa4f2e87-e730-49e6-924b-046c9135c1f5",
+  "runtime_summary": "{\"instance_id\": \"i-0cf4976fafc1d551d\", \"observed_hosts\": [\"i-0cf4976fafc1d551d\"], \"verified_at_utc\": \"2026-11-13T08:53:47.277985+00:00\"}\n175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:8f523f704114b1cb315f10176296c28d09fab10a54b549ed195ae3939e0f79e6 health=healthy restarts=0 oom=false\nEmbedding 1 succeeded; dimensions: 768; seconds: 0.303\noff_home_https_status=403\n",
+  "https_checks": [
+    {
+      "path": "/health/ready",
+      "status": 200
+    },
+    {
+      "path": "/health/live",
+      "status": 200
+    },
+    {
+      "path": "/test",
+      "status": 200
+    },
+    {
+      "path": "/tags/activity",
+      "status": 401
+    }
+  ],
+  "activities": [
+    {
+      "ActivityId": "fa468750-5f9c-11f0-e794-01dbfb0a789c",
+      "Description": "Launching a new EC2 instance: i-0cf4976fafc1d551d",
+      "Cause": "At 2026-11-13T08:48:16Z an instance was launched in response to an unhealthy instance needing to be replaced.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "01168750-5f7e-2c97-0ae7-ed54be4e8f52",
+      "Description": "Terminating EC2 instance: i-06db123dc1350430b",
+      "Cause": "At 2026-11-13T08:48:16Z an instance was taken out of service in response to an EC2 health check indicating it has been terminated or stopped.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "11368750-422f-b00f-e5e3-3a0172c02c23",
+      "Description": "Launching a new EC2 instance: i-06db123dc1350430b",
+      "Cause": "At 2026-11-13T08:40:15Z an instance was launched in response to an unhealthy instance needing to be replaced.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "edb68750-4217-b1ad-631e-145b0dd5b9d0",
+      "Description": "Terminating EC2 instance: i-08d25ed9caea17d6c",
+      "Cause": "At 2026-11-13T08:40:15Z an instance was taken out of service in response to an ELB system health check failure.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "51c68750-367a-ac18-9e1a-b55ead5f0908",
+      "Description": "Attaching an existing EC2 instance: i-08d25ed9caea17d6c",
+      "Cause": "At 2026-11-13T08:37:04Z an instance was added in response to user request. Keeping the capacity at the new 1.",
+      "StatusCode": "Successful"
+    },
+    {
+      "ActivityId": "59868750-0f29-f87f-ccca-3b48c76bc33a",
+      "Description": "Updating load balancers/target groups: Successful.  Status Reason: Added: arn:aws:elasticloadbalancing:us-west-2:175220118767:targetgroup/cadenza-demo-single/262d8543f8690c88 (Target Group).",
+      "Cause": "",
+      "StatusCode": "Successful"
+    }
+  ]
+}

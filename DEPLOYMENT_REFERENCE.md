@@ -1,9 +1,9 @@
 # Deployment files and technical reference
 
-> Current architecture: one t4g.medium (4 GiB), no load balancer or overlapping
-> rollout. Automatic replacement with downtime is planned. Use DEPLOYMENT_PLAN.md
-> and deploy/README.md for current decisions and operations; older sizing,
-> acceptance-test gates, and human-only workflow details below are historical.
+> Current architecture: one t4g.medium (4 GiB) behind an internal ALB, with a
+> capacity-one ASG for native replacement and no overlapping application rollout.
+> Use DEPLOYMENT_PLAN.md and deploy/README.md for current decisions and operations;
+> older sizing, manual-host procedures, and human-only workflows below are historical.
 
 > Current deployment uses CloudFront-managed public HTTPS with a home-only
 > viewer function and a private EC2 VPC origin. No domain purchase, Elastic IP,

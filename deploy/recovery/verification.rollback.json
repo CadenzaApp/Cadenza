@@ -1,0 +1,7 @@
+{
+  "verified_at_utc": "2026-11-13T08:32:38.927Z",
+  "command_id": "0afb9a29-0852-499f-8dd1-1665c2a7aa16",
+  "status": "Success",
+  "result": "Known-bad demo-001 rejected; demo-004 env/image restored and readiness independently verified",
+  "curated_output": "Candidate startup failed; previous release restored.\ncandidate_exit=1\n"
+}

@@ -22,12 +22,13 @@ Architectures: arm64
 Signed-By: /etc/apt/keyrings/docker.asc
 SOURCES
 apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+apt-get install -y docker-ce='5:29.9.3-1~ubuntu.24.04~noble' docker-ce-cli='5:29.9.3-1~ubuntu.24.04~noble' containerd.io='2.4.2-3~ubuntu.24.04~noble' docker-buildx-plugin='0.38.1-1~ubuntu.24.04~noble' docker-compose-plugin='5.7.1-1~ubuntu.24.04~noble'
 systemctl enable --now docker
 if ! command -v aws >/dev/null 2>&1; then
-    curl -fsSL https://awscli.amazonaws.com/v2/install.sh -o /tmp/cadenza-install-aws.sh
-    bash /tmp/cadenza-install-aws.sh --system
-    rm -f /tmp/cadenza-install-aws.sh
+    curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-aarch64-2.40.1.zip -o /tmp/cadenza-aws.zip
+    unzip -q /tmp/cadenza-aws.zip -d /tmp/cadenza-aws
+    /tmp/cadenza-aws/aws/install
+    rm -rf /tmp/cadenza-aws /tmp/cadenza-aws.zip
 fi
 /usr/local/bin/aws --version >&3
 docker --version >&3

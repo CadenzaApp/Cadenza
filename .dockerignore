@@ -21,3 +21,7 @@
 **/*.key
 **/*.p12
 **/*.pfx
+
+# Local archives and Finder metadata are not Rust build inputs.
+**/.DS_Store
+**/*.zip

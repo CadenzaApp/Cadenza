@@ -1,15 +1,17 @@
 {
   "VpcOriginEndpointConfig": {
-    "Name": "cadenza-demo-ec2",
-    "Arn": "arn:aws:ec2:us-west-2:175220118767:instance/i-08d25ed9caea17d6c",
+    "Name": "cadenza-demo-alb",
+    "Arn": "arn:aws:elasticloadbalancing:us-west-2:175220118767:loadbalancer/app/cadenza-demo-single/b1544cdee5ce2b1f",
     "HTTPPort": 80,
     "HTTPSPort": 443,
     "OriginProtocolPolicy": "http-only"
   },
   "Tags": {
     "Items": [
-      {"Key": "Project", "Value": "Cadenza"},
-      {"Key": "Environment", "Value": "demo"}
+      {
+        "Key": "Project",
+        "Value": "Cadenza"
+      }
     ]
   }
 }

@@ -2,3 +2,6 @@ secrets/
 release.env
 build.env
 *-resources.jsonl
+
+# Local pre-cutover API backup; prior configuration is already in Git history.
+history/cloudfront-before-alb.json

@@ -115,8 +115,9 @@ the process environment, as they are in the deployment container.
 verification status. The ARM64 image keeps Rust and its Python child together.
 Rust is compiled at `/app/backend-api`, and Python's venv is installed at
 `/app/backend-api/ml-service/.venv`, matching the launcher's compiled path.
-CloudFront provides public HTTPS through a private VPC origin. Docker maps host
-port 80 directly to Axum port 3000; the EC2 security group allows only CloudFront.
+CloudFront provides HTTPS through a private internal ALB origin. The ALB targets
+one ASG-managed backend and checks local Rust/model readiness every 10 seconds.
+Docker maps host port 80 to Axum port 3000; EC2 ingress permits only the ALB.
 The combined health check uses `/health/ready`: Rust must respond and the local
 Python service must acknowledge its loaded model within two seconds. It excludes
 ongoing Supabase, OpenAI, and Apple availability. `/health/live` only checks Rust
