@@ -1,5 +1,10 @@
 # Deploy Cadenza with an agent and a human operator
 
+> Current architecture: one t4g.medium (4 GiB), no load balancer or overlapping
+> rollout. Automatic replacement with downtime is planned. Use DEPLOYMENT_PLAN.md
+> and deploy/README.md for current decisions and operations; older sizing,
+> acceptance-test gates, and human-only workflow details below are historical.
+
 Use this version when an agent can edit and test the local repository but has no
 AWS CLI access. The human operates AWS and the EC2 server. Rust and Python stay
 together in one backend container. CloudFront terminates HTTPS and reaches Axum
@@ -55,7 +60,7 @@ Current nonsecret inputs agreed with the operator:
   before provisioning; the earlier $40/month estimate is not an approved budget.
   Available credits reported: $120. Expiry lookup is deferred at the operator's
   request and does not block preparation.
-- Start with ARM64 t4g.small; t4g.medium if memory tests fail.
+- Use one ARM64 t4g.medium (4 GiB); the team selected extra headroom.
 - Disk candidate: encrypted 16 GiB gp3, subject to measurement and AMI minimum.
 - Public API hostname: d1wj9jjqzhjpqq.cloudfront.net, supplied by CloudFront.
 - Model revision: 57c266a740f537b4dc058e1b0cda161fd15afa75, the local cached snapshot.

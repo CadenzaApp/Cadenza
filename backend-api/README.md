@@ -135,8 +135,8 @@ all sequential chunks, rather than 60 seconds per chunk accumulating indefinitel
 A timeout does not undo completed writes or cancel work already sent to a provider.
 Tracked detached follow-up work can outlive the requesting HTTP response, as with
 a disconnected client. Do not automatically retry a timed-out mutation without
-checking its outcome. Whole claim-attempt deadlines and stale-write protection
-remain part of the pending ownership work.
+checking its outcome. The single-instance deployment retains existing claim
+recovery; no claim-ownership schema change is planned.
 
 ### Shutdown
 
@@ -145,8 +145,8 @@ starting another pass. New operations on existing connections receive 503; accep
 HTTP requests and tracked follow-up work share a 120-second deadline. Unfinished
 work is cancelled at that deadline. Model-child reaping and database-pool closure
 have another bounded 15 seconds; Docker allows 150 seconds before SIGKILL.
-Forced cancellation can leave claims for startup recovery, so overlapping replicas
-are still unsafe until claim ownership and pool budgeting are fixed.
+Forced cancellation can leave claims for startup recovery. Run exactly one backend
+against this database; replacement must stop the old process before starting the new.
 
 Targeted lifecycle tests need no database or real model:
 

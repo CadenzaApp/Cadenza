@@ -1,5 +1,10 @@
 # Put Cadenza on EC2 for the demo
 
+> Current architecture: one t4g.medium (4 GiB), no load balancer or overlapping
+> rollout. Automatic replacement with downtime is planned. Use DEPLOYMENT_PLAN.md
+> and deploy/README.md for current decisions and operations; older sizing,
+> acceptance-test gates, and human-only workflow details below are historical.
+
 > Current deployment uses CloudFront-managed public HTTPS with a home-only
 > viewer function and a private EC2 VPC origin. No domain purchase, Elastic IP,
 > or direct public EC2 web ingress is required. Axum serves the origin directly. Use [deploy/README.md](deploy/README.md)

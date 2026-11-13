@@ -31,9 +31,9 @@ Rollback demo-003 retains its matching release/start files under
   `ED64SQL5BYVBQ` is Deployed. AWS supplies and renews the certificate for this
   hostname; no domain purchase or Elastic IP is needed.
 - EC2 `i-08d25ed9caea17d6c` is running in Oregon (`us-west-2a`). Both status checks
-  pass and SSM is Online. ARM64 `t4g.small`, encrypted 16 GiB gp3, Standard CPU
+  pass and SSM is Online. ARM64 `t4g.medium` (4 GiB), encrypted 16 GiB gp3, Standard CPU
   credits, IMDSv2, no SSH key, and the existing `cadenza-demo-ec2` role are retained.
-  Its current automatic public IPv4 is `44.252.98.246`, used for outbound internet
+  Its current automatic public IPv4 is `44.246.195.230`, used for outbound internet
   access. No public web ingress is allowed, including from home.
 - CloudFront VPC origin `vo_L2Rr93sW0VUGHV32abqyEu` reaches Axum through private host TCP 80, mapped to container port 3000.
   The EC2 security group allows that port only from AWS's service-managed
@@ -62,7 +62,7 @@ Rollback demo-003 retains its matching release/start files under
   remained available, with no OOM kills, swap activity, restarts, or unhealthy
   samples. The planned 30-minute capture was deliberately ended early, not failed.
   Two overlapping model requests and maximum-length post/interest checks also
-  passed. Keep t4g.small for current testing; broader load remains unverified.
+  passed on the former t4g.small test setup; broader load remains unverified.
 - The deliberate Python-child failure rehearsal passed: combined health became
   unhealthy, then a backend restart restored health, inference, and proxy HTTP.
   `rehearse-recovery.sh` automates this staffed rehearsal. It does not provide
@@ -114,16 +114,18 @@ record are preserved under `history/` for audit. They are not active deployment
 inputs. Keep the original/applied SCP files under `iam/` for review and recovery;
 those policy backups are intentional, not temporary files.
 
-## Planned reliability work
+## Single-instance reliability plan
 
-There is no load balancer or Auto Scaling group in the current deployment.
-The [deployment plan](../DEPLOYMENT_PLAN.md#planned-reliability-and-scaling-architecture)
-now records internal ALB plus ASG automatic replacement, later one-to-two scaling,
-and launch-before-terminate rollouts. This is documentation only. Shared claims,
-process-local state and peak DB pool budgeting must be addressed before permitting
-a second backend, including temporary rollout overlap. Application readiness and
-bounded shutdown are implemented; ALB/ASG integration and full host bootstrap are
-still pending. The plan contains the consolidated remaining-work checklist.
+The same instance was resized and resumed successfully; readiness, inference, and
+HTTPS evidence is recorded in `resize-verification.json`.
+
+The team selected one t4g.medium (4 GiB) with automatic replacement and accepted
+recovery/update downtime. No load balancer, scale-out, or overlapping rollout.
+The [current plan](../DEPLOYMENT_PLAN.md) supersedes earlier replica/ALB designs.
+The planned ASG has capacity one and no scaling policies. Full bootstrap,
+application health recovery, and reconnection of CloudFront to a replacement
+instance still need implementation. None is active yet. No claim schema change,
+lease system, distributed cache, or fleet DB budgeting is needed for this scope.
 
 ## Startup and request budgets
 
@@ -134,7 +136,8 @@ rejecting historical restarts. Its fake-Docker tests need no AWS or database:
 Demo-004 limits business-handler responses to 50 seconds and tag generation to
 40 seconds across chunks. A timeout does not guarantee that a mutation had no
 effect; detached work and already-sent provider requests have separate lifetimes.
-Whole-attempt ownership and cleanup remain pending.
+The multi-instance ownership proposal was dropped; existing single-process
+claim recovery is retained.
 
 ## Health and shutdown
 
@@ -148,8 +151,8 @@ work against one 120-second deadline. Remaining futures are cancelled, then the
 Python child is reaped and the DB pool closed with a 15-second cleanup bound.
 Compose allows 150 seconds before SIGKILL. New business requests on existing
 connections receive 503 while draining. Docker health alone does not replace or
-restart an unhealthy container. ALB deregistration and ASG lifecycle hooks still
-need to be wired and tested before overlapping instances are allowed.
+restart an unhealthy container. Single-instance automatic replacement remains
+planned; see the current plan for health reporting and CloudFront reconnection.
 
 Local checks need no live database:
 
@@ -160,14 +163,10 @@ backend-api/ml-service/.venv/bin/python -m unittest discover -s backend-api/ml-s
 
 ## Planned observability
 
-The [metrics and tracing plan](../DEPLOYMENT_PLAN.md#planned-metrics-and-tracing)
-starts with private Prometheus `/metrics`, per-operation duration histograms,
-per-instance target discovery, and a versioned Grafana latency dashboard showing
-fleet and instance p50/p95/p99. Later work adds OpenTelemetry request and child
-spans for compute, DB, local Python/model, and external API calls. Nothing is
-instrumented or provisioned yet. Metrics must be scraped per instance, not through
-the load balancer, and must not become a public API endpoint. Hosting, retention,
-and overhead need a budget decision before implementation.
+Keep private Prometheus operation histograms and a small Grafana latency dashboard
+as follow-up work. Fleet/replica discovery and rollout comparisons are removed.
+Choose modest hosting and retention; OpenTelemetry spans remain optional later
+work. Metrics must not be exposed through CloudFront. Nothing is provisioned yet.
 
 ## Client and HTTPS
 
@@ -193,7 +192,8 @@ is expected to save a modest amount of RAM; the model remains the main consumer.
 The public IPv4 remains for outbound access. The live route is
 `0.0.0.0/0 -> igw-092a57cb09ca88208`, with no NAT gateway route. A curl request
 explicitly bound to private IPv4 `172.31.39.41` was observed externally as
-`44.252.98.246`. The OS uses the private source address and the internet gateway
+`44.252.98.246` during the earlier network test. The current outbound public
+IPv4 after the resize is `44.246.195.230`. The OS uses the private source address and the internet gateway
 translates it using the associated public IPv4. Private addressing can support
 internet egress through a NAT device or another design, but the private address
 alone cannot provide public IPv4 access through the current route. References:
@@ -221,7 +221,8 @@ in the Metro build. Multi-device use was not tested. The roughly 15-minute
 resource capture is sufficient for continuing current development; 30 minutes
 was a conservative planning target, not a fixed requirement. Simultaneous
 authenticated devices and performance at depleted CPU credits remain unverified.
-Resize to t4g.medium only if memory/correctness evidence warrants it.
+The team now selects t4g.medium (4 GiB) for additional headroom. The old
+2 GiB results below remain historical; rerunning a long acceptance test is not required.
 
 ## Stop and resume
 
@@ -416,6 +417,10 @@ Verify public HTTPS and database-backed phone flows per the tutorial. The health
 check alone proves neither inference nor database readiness.
 
 ## Accept or reject the 2 GiB instance
+
+Historical 2 GiB evaluation procedure only. The team now uses t4g.medium (4 GiB).
+This section is not a deployment gate and need not be repeated after the resize.
+See `resize-verification.json` for the focused upgrade checks.
 
 The longer procedure below is the comprehensive rehearsal reference. The operator
 accepted a shorter initial capture for current development; see the results above.

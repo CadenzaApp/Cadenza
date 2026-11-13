@@ -1,0 +1,39 @@
+{
+  "verified_at_utc": "2026-11-13T08:11:25.097156+00:00",
+  "instance_id": "i-08d25ed9caea17d6c",
+  "instance_type": "t4g.medium",
+  "memory_mib": 4096,
+  "cpu_credits": "standard",
+  "public_ipv4": "44.246.195.230",
+  "private_ipv4": "172.31.39.41",
+  "release": "demo-004",
+  "resume_command_id": "bf5bff2c-0f34-487c-a13c-fd22e78b069e",
+  "healthy": true,
+  "embedding_dimensions": 768,
+  "unexpected_restarts": 0,
+  "oom_killed": false,
+  "https_checks": [
+    {
+      "path": "/health/ready",
+      "status": 200
+    },
+    {
+      "path": "/health/live",
+      "status": 200
+    },
+    {
+      "path": "/test",
+      "status": 200
+    },
+    {
+      "path": "/tags/activity",
+      "status": 401
+    }
+  ],
+  "schema_changes": false,
+  "automatic_replacement_deployed": false,
+  "ec2_status_checks": {
+    "Instance": "ok",
+    "System": "ok"
+  }
+}

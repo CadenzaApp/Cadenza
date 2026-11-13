@@ -422,10 +422,11 @@ periodic passes and detached default-tag, metadata/artwork, and saved-query upda
 even if the requesting client disconnects. On shutdown idle waits stop immediately
 and periodic jobs stop starting passes. Accepted requests can still enqueue their
 follow-up work; all of it shares the HTTP 120-second deadline. After that deadline
-unfinished futures are cancelled. This does not make startup claim resets or
-process-local social-feed state safe for overlapping backends.
+unfinished futures are cancelled. The deployment intentionally runs one backend;
+startup claim resets and process-local social state retain that assumption.
 
 Tag generation is limited to 40 seconds for the entire generator batch, including
 sequential chunks. Timeout returns `OperationTimeout`; the default-tag service
-handles it through its existing failed-attempt cleanup. This does not yet provide
-owner-scoped claims or bound every database phase of an enrichment attempt.
+handles it through its existing failed-attempt cleanup. This does not
+bound every database phase of an enrichment attempt. Cross-instance claim
+ownership is outside the single-instance deployment scope.
