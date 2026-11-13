@@ -48,6 +48,19 @@ export function updateConversation(
     listeners.forEach((listener) => listener());
 }
 
+/**
+ * Applies `change` only while the store still holds `accountId`'s
+ * conversation. For a reply that lands after an await: by then another account
+ * may have signed in, and its chat must not be replaced by this one.
+ */
+export function updateConversationIfCurrent(
+    accountId: string | null,
+    change: (current: ConversationState) => Partial<ConversationState>,
+) {
+    if (state.accountId !== accountId) return;
+    updateConversation(accountId, change);
+}
+
 /** Clears the conversation of `accountId`. */
 export function resetConversation(accountId: string | null) {
     state = { ...EMPTY, accountId };

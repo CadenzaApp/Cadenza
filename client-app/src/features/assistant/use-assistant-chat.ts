@@ -9,6 +9,7 @@ import {
     newEntryId,
     resetConversation,
     updateConversation,
+    updateConversationIfCurrent,
     useConversation,
 } from "./assistant-store";
 import type { AssistantRequest, AssistantResponse, ChatEntry } from "./types";
@@ -66,13 +67,13 @@ export function useAssistantChat() {
                               text: "I can't do that from here yet.",
                               steps: [],
                           };
-                updateConversation(accountId, (current) => ({
+                updateConversationIfCurrent(accountId, (current) => ({
                     entries: [...current.entries, reply],
                     sending: false,
                 }));
             } catch (caught) {
                 logHandledError("Assistant message failed", caught);
-                updateConversation(accountId, () => ({
+                updateConversationIfCurrent(accountId, () => ({
                     sending: false,
                     error: describeError(caught),
                 }));
