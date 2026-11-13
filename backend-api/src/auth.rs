@@ -26,6 +26,7 @@ pub async fn new_jwt_decoder() -> Arc<RemoteJwksDecoder> {
 
     let mut validation = Validation::new(Algorithm::ES256);
     validation.set_audience(&["authenticated"]);
+    validation.set_issuer(&[format!("https://{PROJECT_REF}.supabase.co/auth/v1")]);
 
     let decoder: Arc<RemoteJwksDecoder> = Arc::new(
         // Fetch JWT verification keys for this project from supabase. Cached so only happens once on server startup.

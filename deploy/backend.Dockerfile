@@ -18,7 +18,7 @@ WORKDIR /app/backend-api/ml-service
 COPY backend-api/ml-service/pyproject.toml backend-api/ml-service/uv.lock ./
 ENV UV_NO_CACHE=1
 RUN uv sync --locked --no-dev --no-install-project --python /usr/local/bin/python
-COPY backend-api/ml-service/main.py ./main.py
+COPY backend-api/ml-service/main.py backend-api/ml-service/model_queue.py ./
 COPY --from=build /app/backend-api/target/release/cadenza-backend-api /usr/local/bin/cadenza-api
 RUN mkdir -p /cache/huggingface && chown -R 10001:10001 /cache/huggingface
 ENV PATH="/app/backend-api/ml-service/.venv/bin:$PATH" PYTHONUNBUFFERED=1 HF_HOME=/cache/huggingface

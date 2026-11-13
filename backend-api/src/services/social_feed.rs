@@ -666,6 +666,9 @@ impl SocialFeedService {
             .await
             .map_err(|err| CadenzaError::SocialFeedErr(err.to_string()))?;
         let status = response.status();
+        if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+            return Err(CadenzaError::ServiceUnavailable);
+        }
         let bytes = response
             .bytes()
             .await

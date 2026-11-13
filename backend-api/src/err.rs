@@ -15,6 +15,7 @@ use crate::request_log::LoggedError;
 #[derive(Debug)]
 pub enum CadenzaError {
     ServiceUnavailable,
+    RateLimited,
     OperationTimeout,
     NotFound,
     SongNotInLibrary,
@@ -54,6 +55,7 @@ impl CadenzaError {
     fn get_status(&self) -> u16 {
         match &self {
             Self::ServiceUnavailable => 503,
+            Self::RateLimited => 429,
             Self::OperationTimeout => 504,
             Self::NotFound => 404,
             Self::SongNotInLibrary => 404,
@@ -80,6 +82,9 @@ impl CadenzaError {
         match &self {
             Self::OperationTimeout => {
                 json!({"error_type": "OperationTimeout", "message": "The operation took too long. Its outcome may be incomplete; check before retrying."})
+            }
+            Self::RateLimited => {
+                json!({"error_type": "RateLimited", "message": "Request limit reached; retry later."})
             }
             Self::ServiceUnavailable => json!({"error_type": "ServiceUnavailable"}),
             Self::NotFound => json!({
@@ -114,17 +119,17 @@ impl CadenzaError {
                 "error_type": "FriendshipAlreadyExists",
                 "message": "you are already friends"
             }),
-            Self::DatabaseError(msg) => json!({
+            Self::DatabaseError(_) => json!({
                 "error_type": "DatabaseError",
-                "message": msg
+                "message": "The service could not complete the request."
             }),
             Self::QueryFormatError(msg) => json!({
                 "error_type": "QueryFormatError",
                 "message": msg
             }),
-            Self::TagGenerationErr(msg) => json!({
+            Self::TagGenerationErr(_) => json!({
                 "error_type": "TagGenerationErr",
-                "message": msg
+                "message": "The service could not complete the request."
             }),
             Self::TagGenerationRateLimited { retry_after } => json!({
                 "error_type": "TagGenerationRateLimited",
@@ -136,9 +141,9 @@ impl CadenzaError {
                     None => "the tag generator is rate limited".to_owned(),
                 }
             }),
-            Self::SongMetadataErr(msg) => json!({
+            Self::SongMetadataErr(_) => json!({
                 "error_type": "SongMetadataErr",
-                "message": msg
+                "message": "The service could not complete the request."
             }),
             Self::SongMetadataRateLimited => json!({
                 "error_type": "SongMetadataRateLimited",
@@ -152,9 +157,9 @@ impl CadenzaError {
                 "error_type": "ActivityTagReadOnly",
                 "message": "activity tags are set by listening and cannot be changed by hand"
             }),
-            Self::SocialFeedErr(msg) => json!({
+            Self::SocialFeedErr(_) => json!({
                 "error_type": "SocialFeedErr",
-                "message": msg
+                "message": "The service could not complete the request."
             }),
             Self::InvalidRequestBody(msg) => json!({
                 "error_type": "InvalidRequestBody",
@@ -193,6 +198,11 @@ impl IntoResponse for CadenzaError {
             .header("Content-Type", "application/json")
             .body(body)
             .unwrap();
+        if matches!(self, Self::RateLimited) {
+            response
+                .headers_mut()
+                .insert("Retry-After", "60".parse().unwrap());
+        }
         // what the request log prints as the reason this request failed
         response
             .extensions_mut()
@@ -232,5 +242,33 @@ impl From<DbErr> for CadenzaError {
             }
         }
         Self::DatabaseError(db_err.to_string())
+    }
+}
+
+#[cfg(test)]
+mod public_error_tests {
+    use super::*;
+    #[tokio::test]
+    async fn upstream_details_do_not_reach_clients_or_request_logs() {
+        for error in [
+            CadenzaError::DatabaseError("credential_marker".into()),
+            CadenzaError::TagGenerationErr("credential_marker".into()),
+            CadenzaError::SongMetadataErr("credential_marker".into()),
+            CadenzaError::SocialFeedErr("credential_marker".into()),
+        ] {
+            let response = error.into_response();
+            assert!(
+                !response
+                    .extensions()
+                    .get::<LoggedError>()
+                    .unwrap()
+                    .0
+                    .contains("credential_marker")
+            );
+            let body = axum::body::to_bytes(response.into_body(), 4096)
+                .await
+                .unwrap();
+            assert!(!String::from_utf8_lossy(&body).contains("credential_marker"));
+        }
     }
 }

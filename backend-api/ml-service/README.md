@@ -86,3 +86,17 @@ Offline lifecycle tests use a fake encoder and require no weights or credentials
 ```sh
 .venv/bin/python -m unittest discover -s . -p test_lifecycle.py -v
 ```
+
+## Admission limits
+
+One worker performs model work, with at most eight more jobs waiting. A full
+queue returns 503 with Retry-After; health remains responsive. Requests wait at
+most 40 seconds. Cancelling a caller does not free a running worker's admission
+slot until the underlying job finishes. Submitted queued jobs also retain their slots until the executor completes them.
+Embedding input allows 500 content characters and 100 interests with names up
+to 200 characters. Similarity input allows up to 1000 posts and vectors up to
+768 finite values. No model or database is needed for the focused tests:
+
+```sh
+.venv/bin/python -m unittest discover -p 'test_*.py'
+```

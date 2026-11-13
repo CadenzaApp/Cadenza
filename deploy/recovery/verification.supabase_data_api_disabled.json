@@ -1,0 +1,85 @@
+{
+  "checked_at_utc": "2026-11-13T22:58:02.608893+00:00",
+  "checks": [
+    {
+      "path": "/rest/v1/user_songs?select=*&limit=0",
+      "status": 503,
+      "code": "PGRST002",
+      "message": "Could not query the database for the schema cache. Retrying."
+    },
+    {
+      "path": "/rest/v1/saved_queries?select=*&limit=0",
+      "status": 503,
+      "code": "PGRST002",
+      "message": "Could not query the database for the schema cache. Retrying."
+    },
+    {
+      "path": "/rest/v1/listening_events?select=*&limit=0",
+      "status": 503,
+      "code": "PGRST002",
+      "message": "Could not query the database for the schema cache. Retrying."
+    },
+    {
+      "path": "/rest/v1/notifications?select=*&limit=0",
+      "status": 503,
+      "code": "PGRST002",
+      "message": "Could not query the database for the schema cache. Retrying."
+    },
+    {
+      "path": "/auth/v1/settings",
+      "status": 200,
+      "disable_signup": false,
+      "email_enabled": true
+    },
+    {
+      "path": "/auth/v1/.well-known/jwks.json",
+      "status": 200,
+      "key_count": 1
+    }
+  ],
+  "application_rows_retrieved": false,
+  "data_modified": false,
+  "direct_postgres": {
+    "connected": true,
+    "role": "postgres",
+    "read_only": true,
+    "table_read_limit_zero": true
+  },
+  "backend_https": [
+    {
+      "path": "/health/ready",
+      "status": 403
+    },
+    {
+      "path": "/test",
+      "status": 403
+    },
+    {
+      "path": "/tags/activity",
+      "status": 403
+    }
+  ],
+  "postchecks_at_utc": "2026-11-13T22:58:19.591689+00:00",
+  "alb_targets": [
+    {
+      "instance": "i-00d963ec5a0461258",
+      "state": "healthy"
+    }
+  ],
+  "graphql_schema_only_probe": {
+    "status": 503,
+    "response": {
+      "code": "PGRST002",
+      "details": null,
+      "hint": null,
+      "message": "Could not query the database for the schema cache. Retrying."
+    }
+  },
+  "phone_authenticated_flow_verified": false,
+  "notes": [
+    "REST probes return 503/PGRST002 after Data API disabling, consistent with the documented no-exposed-schema implementation.",
+    "Auth settings and JWKS remain accessible; no signup/login mutations were attempted.",
+    "Workstation requests to CloudFront returned 403. ALB independently reports healthy; the home-IP restriction was not altered.",
+    "Direct PostgreSQL access tested separately in a read-only transaction; this is not an authenticated backend business-flow test."
+  ]
+}

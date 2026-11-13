@@ -98,6 +98,7 @@ fn get_tag_generation_req_body(song_descs: &[String], requested_tag_count: usize
 
     json!({
         "model": OPENAI_MODEL,
+        "max_output_tokens": 4096,
         "input": [
             {
                 "role": "developer",
@@ -328,6 +329,10 @@ impl TagGenerator for OpenAiTagGenerator {
             return Err("song descriptions are too long!".into());
         }
 
+        let _permit =
+            crate::admission::provider_call().map_err(|_| TagGenerationError::RateLimited {
+                retry_after: Some(Duration::from_secs(60)),
+            })?;
         let resp = self
             .http_client
             .post(OPENAI_RESPONSES_URL)

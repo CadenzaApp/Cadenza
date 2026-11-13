@@ -1,3 +1,4 @@
+mod admission;
 mod auth;
 mod db;
 mod err;
@@ -75,6 +76,7 @@ const MAX_DB_CONNECTIONS: u32 = 10;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // load environment variables from .env file, needed for db connections
     dotenv().ok();
+    admission::init();
 
     // get a db connection
     let db_url = env::var("DATABASE_URL").expect("error getting DATABASE_URL env var");
@@ -170,8 +172,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/social", get_social_router())
         .nest("/events", get_events_router())
         .nest("/analytics", get_analytics_router())
+        .route_layer(middleware::from_fn_with_state(
+            app_state.clone(),
+            admission::admit,
+        ))
         .route("/test", axum::routing::get(async || "server is reachable"))
         .with_state(app_state)
+        .layer(middleware::from_fn(admission::capacity))
         .layer(middleware::from_fn(operation_budget::limit_request))
         .layer(middleware::from_fn_with_state(
             background_tasks.clone(),

@@ -1,0 +1,239 @@
+{
+  "started_at_utc": "2026-11-13T23:10:08.302552+00:00",
+  "api": "https://d1wj9jjqzhjpqq.cloudfront.net",
+  "checks": [
+    {
+      "name": "backend reachable from this network",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "anonymous denied /profile",
+      "passed": true,
+      "status": 401
+    },
+    {
+      "name": "anonymous denied /tags",
+      "passed": true,
+      "status": 401
+    },
+    {
+      "name": "anonymous denied /saved-queries",
+      "passed": true,
+      "status": 401
+    },
+    {
+      "name": "anonymous denied /settings",
+      "passed": true,
+      "status": 401
+    },
+    {
+      "name": "account A sign-in",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "account B sign-in",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "accounts are distinct",
+      "passed": true,
+      "status": null
+    },
+    {
+      "name": "account 0 profile matches JWT subject",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "account 0 creates fixture tag",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "account 0 creates fixture query",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "account 1 profile matches JWT subject",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "account 1 creates fixture tag",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "account 1 creates fixture query",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "owner 0 reads fixture tag",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "other account cannot read tag 0",
+      "passed": true,
+      "status": 404
+    },
+    {
+      "name": "other account cannot rename tag 0",
+      "passed": true,
+      "status": 404
+    },
+    {
+      "name": "cross-account tag delete has valid response 0",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "owner tag 0 unchanged after attempted writes",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "owner 0 reads fixture query songs",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "other account denied query 0 GET /songs",
+      "passed": true,
+      "status": 404
+    },
+    {
+      "name": "other account denied query 0 PATCH ",
+      "passed": true,
+      "status": 404
+    },
+    {
+      "name": "other account denied query 0 POST /rerun",
+      "passed": true,
+      "status": 404
+    },
+    {
+      "name": "other account denied query 0 DELETE ",
+      "passed": true,
+      "status": 404
+    },
+    {
+      "name": "owner query 0 retained unchanged name",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "query 0 absent from other account list",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "owner 1 reads fixture tag",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "other account cannot read tag 1",
+      "passed": true,
+      "status": 404
+    },
+    {
+      "name": "other account cannot rename tag 1",
+      "passed": true,
+      "status": 404
+    },
+    {
+      "name": "cross-account tag delete has valid response 1",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "owner tag 1 unchanged after attempted writes",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "owner 1 reads fixture query songs",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "other account denied query 1 GET /songs",
+      "passed": true,
+      "status": 404
+    },
+    {
+      "name": "other account denied query 1 PATCH ",
+      "passed": true,
+      "status": 404
+    },
+    {
+      "name": "other account denied query 1 POST /rerun",
+      "passed": true,
+      "status": 404
+    },
+    {
+      "name": "other account denied query 1 DELETE ",
+      "passed": true,
+      "status": 404
+    },
+    {
+      "name": "owner query 1 retained unchanged name",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "query 1 absent from other account list",
+      "passed": true,
+      "status": 200
+    }
+  ],
+  "cleanup": [
+    {
+      "account": 1,
+      "kind": "saved_query",
+      "id": 18,
+      "passed": true,
+      "status": 200
+    },
+    {
+      "account": 1,
+      "kind": "tag",
+      "id": 2451,
+      "passed": true,
+      "status": 200
+    },
+    {
+      "account": 0,
+      "kind": "saved_query",
+      "id": 17,
+      "passed": true,
+      "status": 200
+    },
+    {
+      "account": 0,
+      "kind": "tag",
+      "id": 2450,
+      "passed": true,
+      "status": 200
+    }
+  ],
+  "completed": true,
+  "scope": "tags and saved-query ownership; profile identity; anonymous denial",
+  "not_tested": [
+    "social mutations/privacy",
+    "library writes",
+    "settings writes",
+    "all endpoints"
+  ],
+  "test_session_logout": [
+    204,
+    204
+  ],
+  "finished_at_utc": "2026-11-13T23:12:31.412175+00:00"
+}

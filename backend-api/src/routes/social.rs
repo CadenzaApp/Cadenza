@@ -94,8 +94,21 @@ async fn update_interests(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(body): Json<UpdateInterestsBody>,
 ) -> Result<Json<Value>, CadenzaError> {
+    if body.delta_scores.len() > 100 {
+        return Err(CadenzaError::InvalidRequestBody(
+            "at most 100 interests per update".into(),
+        ));
+    }
     let mut deltas = Vec::with_capacity(body.delta_scores.len());
     for score in body.delta_scores {
+        if score.name.trim().is_empty()
+            || score.name.chars().count() > 200
+            || !score.delta.is_finite()
+        {
+            return Err(CadenzaError::InvalidRequestBody(
+                "interest names must be 1-200 characters and deltas must be finite".into(),
+            ));
+        }
         if score.itype != "genre" && score.itype != "artist" {
             return Err(CadenzaError::InvalidRequestBody(
                 "itype must be genre or artist".into(),

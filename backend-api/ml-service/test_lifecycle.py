@@ -58,7 +58,7 @@ class ModelLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         self.model.release.set()
         await self.client.aclose()
-        self.module.model_work.shutdown(wait=True, cancel_futures=True)
+        self.module.model_work.executor.shutdown(wait=True, cancel_futures=True)
 
     async def test_health_responds_while_inference_is_busy(self):
         request = asyncio.create_task(self.client.post("/embedding", json={"content": "test"}))

@@ -24,6 +24,39 @@ nothing that comes back is persisted.
 | `sql/` | The DDL for tables added by hand, so a fresh database can be stood up. Not a migration runner; see Schema changes. |
 | `certs/readme.md` | Leftover self-signed cert steps. No longer needed, the server is plain HTTP. |
 
+## Public-access limits
+
+`admission.rs` bounds API work to 64 active requests before JWT verification.
+Health probes bypass admission. Authenticated users get 600 requests per minute;
+tag suggestions and default-tag fetches also consume a paid-request allowance.
+Fixed windows start with the first request, not midnight. All counters reset on
+restart/replacement. The user map expires inactive IDs after 24 hours and caps
+at 10,000 entries; it rejects new IDs rather than evicting active quotas.
+
+| Environment setting | Default |
+| --- | ---: |
+| `API_REQUESTS_PER_USER_MINUTE` | 600 |
+| `TAG_REQUESTS_PER_USER_MINUTE` | 30 |
+| `TAG_REQUESTS_PER_USER_DAY` | 1000 |
+| `TAG_PROVIDER_CALLS_PER_DAY` | 7000 |
+| `TAG_PROVIDER_CONCURRENCY` | 2 |
+
+Values must be positive integers no larger than 1,000,000. Change deployment
+values in `deploy/release.env.example` and restart through normal release tooling.
+The per-user paid allowance counts attempted endpoint requests, even on cache
+hits or validation failure. The global allowance counts actual attempted OpenAI
+calls, including chunks, failed calls and background jobs. Calls have a 4096
+output-token cap. These controls are not a durable dollar budget. Cancellation
+can release local HTTP concurrency before a remote provider finishes processing.
+Admission failures return 429 (quota) or 503 (capacity). Client error bodies and
+request-log reasons omit raw database/upstream messages.
+
+Interest updates allow at most 100 entries with nonblank names up to 200
+characters and finite deltas. Deserialized query trees allow 256 nodes and 16
+levels, including saved queries. Existing body, post and song-batch limits remain.
+See the ML README for inference admission. Signup remains unchanged; public
+exposure still requires account-isolation and Supabase permission review.
+
 ## How it works
 
 `main.rs` loads `.env`, opens the db connection, builds the JWKS decoder, starts the python

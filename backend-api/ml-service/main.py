@@ -1,6 +1,6 @@
 import os
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from model_queue import ModelBusy, ModelQueue
 
 from dotenv import load_dotenv
 
@@ -9,8 +9,9 @@ load_dotenv()
 from typing import Literal
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, FiniteFloat, field_validator
 from sentence_transformers import SentenceTransformer
 
 app = FastAPI()
@@ -20,7 +21,18 @@ model = SentenceTransformer(
     token=os.environ["HF_TOKEN"],
 )
 model.similarity_fn_name = "cosine"
-model_work = ThreadPoolExecutor(max_workers=1, thread_name_prefix="model")
+model_work = ModelQueue()
+
+
+@app.exception_handler(ModelBusy)
+async def model_busy(request: Request, exc: ModelBusy):
+    return JSONResponse(status_code=503, content={"detail": "Model busy; retry later"}, headers={"Retry-After": "5"})
+
+
+@app.exception_handler(asyncio.TimeoutError)
+async def model_timeout(request: Request, exc: asyncio.TimeoutError):
+    return JSONResponse(status_code=504, content={"detail": "Model operation timed out"})
+
 
 INTEREST_PREFIX = {
     "genre": "the music genre ",
@@ -29,15 +41,15 @@ INTEREST_PREFIX = {
 
 
 class InterestText(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=200)
     itype: Literal["genre", "artist"]
 
 
 class EmbeddingBody(BaseModel):
     """One post's text, and/or interest names that still need a stored vector."""
 
-    content: str | None = None
-    interests: list[InterestText] = Field(default_factory=list)
+    content: str | None = Field(default=None, max_length=500)
+    interests: list[InterestText] = Field(default_factory=list, max_length=100)
 
 
 class EmbeddingResponse(BaseModel):
@@ -47,12 +59,19 @@ class EmbeddingResponse(BaseModel):
 
 class SimilarityPost(BaseModel):
     post_id: int
-    embedding: list[float]
+    embedding: list[FiniteFloat] = Field(max_length=768)
 
 
 class SimilarityBody(BaseModel):
-    user_vector: list[float]
-    posts: list[SimilarityPost]
+    user_vector: list[FiniteFloat] = Field(max_length=768)
+    posts: list[SimilarityPost] = Field(max_length=1000)
+
+    @field_validator("user_vector")
+    @classmethod
+    def vector_size(cls, value):
+        if len(value) not in (0, 768):
+            raise ValueError("expected empty or 768-dimensional vector")
+        return value
 
 
 class PostSimilarity(BaseModel):
@@ -77,7 +96,7 @@ async def ready() -> dict[str, str]:
 @app.post("/embedding")
 async def embed(body: EmbeddingBody) -> EmbeddingResponse:
     # One worker keeps inference serial even if its HTTP caller disconnects.
-    return await asyncio.get_running_loop().run_in_executor(model_work, _embed, body)
+    return await model_work.run(_embed, body)
 
 
 def _embed(body: EmbeddingBody) -> EmbeddingResponse:
@@ -110,7 +129,7 @@ def _embed(body: EmbeddingBody) -> EmbeddingResponse:
 
 @app.post("/posts/similarities")
 async def similarity(body: SimilarityBody) -> SimilarityResponse:
-    return await asyncio.get_running_loop().run_in_executor(model_work, _similarity, body)
+    return await model_work.run(_similarity, body)
 
 
 def _similarity(body: SimilarityBody) -> SimilarityResponse:

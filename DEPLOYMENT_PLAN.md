@@ -271,9 +271,24 @@ No notification Lambda is needed. Resource identifiers and evidence live under
    rehearsal durations include verification and are not directly comparable.
    Targeted reads subsequently reduced measured recovery to 257.965 seconds;
    detailed cold-boot stages and limits are recorded above.
-3. Finish public-access protections: bounded model queues/inputs, generic client
-   errors, authenticated spend/request quotas, two-account authorization tests,
-   and signup/JWT/DB privilege review. Preserve private ingress and the home
+3. Public-access protections (local implementation started; not yet deployed):
+   Urgent live finding: 34 of 36 public tables lack RLS and both client roles
+   have CRUD grants. Anonymous zero-row REST reads succeed. Close the direct
+   Supabase path first, preferably by disabling the unused Data API in project
+   settings. The user disabled it; REST/GraphQL probes now fail closed while
+   Auth endpoints, direct PostgreSQL and ALB health pass. The user confirmed
+   mobile flows. The two-account tags/saved-query check passed all 38 assertions
+   with fixture cleanup and both local session logouts successful. Evidence is under
+   deploy/recovery/verification.supabase{_access,_data_api_disabled}.json. bounded model queues/inputs, generic client
+   errors, authenticated in-memory request/paid-operation quotas, two-account
+   authorization tests, and signup/JWT/DB privilege review. No database schema
+   changes for this work. Local limits now include 7000 actual provider calls per
+   24-hour window and environment-configurable thresholds. Direct Supabase
+   exposure has been investigated and Data API disabled. Selected ownership
+   paths passed; social mutations/privacy and library/settings writes remain
+   untested at runtime. Commit/release the hardening and smoke-test it before
+   broadening access. Quotas reset on process restart or instance replacement;
+   that tradeoff is accepted. Bound limiter memory and expire inactive entries. Preserve private ingress and the home
    restriction until explicitly opened. Focused development-DB tests are allowed
    with labeled records and cleanup; no separate DB is required.
 4. Confirm Supabase backup coverage, credential rotation and basic cost/health
@@ -281,7 +296,9 @@ No notification Lambda is needed. Resource identifiers and evidence live under
    capacity usage, before credits/free allowances; EC2/IPv4/EBS/ECR remain separate.
 5. Add private Prometheus operation histograms and a modest Grafana p50/p95/p99,
    traffic/error dashboard. Use bounded route labels and inexpensive retention;
-   fleet discovery is unnecessary. Decide how much history must survive replacement.
+   fleet discovery is unnecessary. Include provider call volume, quota refusals,
+   queue occupancy and configured limits; avoid per-user metric labels. Decide
+   how much history must survive replacement.
 6. Test realistic concurrent users on the one backend, prepare a standalone signed
    phone build when needed, then open access only on explicit instruction. OTel
    spans remain optional later work. Remove unused resources after the project.
