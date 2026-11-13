@@ -17,6 +17,7 @@ import {
 } from "@/lib/routes/saved-queries";
 import { useActivityTags, useUserTags } from "@/lib/routes/tags";
 import { useAppTheme } from "@/lib/theme";
+import { useRailActions } from "@/lib/use-rail-actions";
 
 import { LibraryList, LibraryListRow } from "./library-list";
 import { useLibraryListSearch } from "./library-list-header";
@@ -44,7 +45,7 @@ const VIEWS: readonly SegmentOption<QueriesView>[] = [
 /**
  * The Queries category: every query the user saved from a results screen,
  * favorites first, or with the switch at the top only the ones they shared on
- * their profile, where New query (to the Cadenza tab) sits under the search. A row opens the songs it holds, with the cover it was
+ * their profile. + in the rail goes to the Cadenza tab to make one. A row opens the songs it holds, with the cover it was
  * saved with. Search filters by name, here on the phone, since the whole list
  * is one small read. Play and Shuffle queue the songs every query on show
  * holds, the user's own songs first.
@@ -52,6 +53,17 @@ const VIEWS: readonly SegmentOption<QueriesView>[] = [
 export function SavedQueriesView() {
     const router = useRouter();
     const search = useLibraryListSearch();
+    const railActions = useMemo(
+        () => [
+            {
+                icon: "add" as const,
+                accessibilityLabel: "New query",
+                onPress: () => router.navigate("/cadenza"),
+            },
+        ],
+        [router],
+    );
+    useRailActions(railActions);
     const { view, viewSwitch } = useLibraryViewSwitch(VIEWS);
     const { savedQueries, savedQueriesLoading, savedQueriesErr } =
         useSavedQueries();
@@ -117,14 +129,6 @@ export function SavedQueriesView() {
                     above={viewSwitch}
                     search={search}
                     placeholder="Search Queries"
-                    create={
-                        view === "shared"
-                            ? {
-                                  label: "New query",
-                                  onPress: () => router.navigate("/cadenza"),
-                              }
-                            : undefined
-                    }
                     actions={{
                         onPlay: playAll.play,
                         onShuffle: playAll.shuffle,

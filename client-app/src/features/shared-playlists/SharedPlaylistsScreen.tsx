@@ -1,16 +1,14 @@
-import { useNavigation, type Href } from "expo-router";
+import { useNavigation, useRouter, type Href } from "expo-router";
 import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { View } from "react-native";
 
-import { ModalPopup } from "@/components/custom/modal-popup";
-import { GlassButton } from "@/components/ui/glass-button";
-import { GlassInput } from "@/components/ui/glass-input";
-import { Text } from "@/components/ui/text";
+import { NewPlaylistPopup } from "@/components/custom/new-playlist-popup";
 import { LibraryList, LibraryListRow } from "@/features/library/library-list";
 import { useLibraryListSearch } from "@/features/library/library-list-header";
 import { usePlayLists } from "@/features/library/use-play-lists";
 import { useSongInfo } from "@/lib/musickit-hooks";
 import { useOpenScreen } from "@/lib/open-screen";
+import { useRailActions } from "@/lib/use-rail-actions";
 import {
     fetchSharedPlaylistSongIds,
     useCreateSharedPlaylist,
@@ -48,6 +46,24 @@ export function SharedPlaylistsList({ header }: { header?: ReactNode }) {
     const { sharedPlaylists, sharedPlaylistsLoading, sharedPlaylistsErr } =
         useSharedPlaylists();
     const [creating, setCreating] = useState(false);
+    const { createSharedPlaylist } = useCreateSharedPlaylist();
+    const router = useRouter();
+    const railActions = useMemo(
+        () => [
+            {
+                icon: "add" as const,
+                accessibilityLabel: "New shared playlist",
+                onPress: () => setCreating(true),
+            },
+            {
+                icon: "keypad-outline" as const,
+                accessibilityLabel: "Enter a code",
+                onPress: () => router.push("/join" as Href),
+            },
+        ],
+        [router],
+    );
+    useRailActions(railActions);
     const shown = useMemo(() => {
         const all = sharedPlaylists ?? NO_PLAYLISTS;
         const term = search.term?.toLowerCase();
@@ -109,11 +125,6 @@ export function SharedPlaylistsList({ header }: { header?: ReactNode }) {
                 above={header}
                 search={search}
                 placeholder="Search Shared Playlists"
-                create={{
-                    label: "New playlist",
-                    onPress: () => setCreating(true),
-                    joinWithCode: true,
-                }}
                 actions={{
                     onPlay: playAll.play,
                     onShuffle: playAll.shuffle,
@@ -123,10 +134,14 @@ export function SharedPlaylistsList({ header }: { header?: ReactNode }) {
             />
             {creating ? (
                 <NewPlaylistPopup
+                    title="New shared playlist"
                     onClose={() => setCreating(false)}
-                    onCreated={(id) => {
+                    create={async (name) => {
+                        const { playlist_id } = await createSharedPlaylist({
+                            name,
+                        });
                         setCreating(false);
-                        openScreen(`/shared-playlist/${id}` as Href);
+                        openScreen(`/shared-playlist/${playlist_id}` as Href);
                     }}
                 />
             ) : null}
@@ -154,66 +169,5 @@ function PlaylistRow({
             accessibilityLabel={`${playlist.name}, ${songs}, ${roleLabel(playlist.role)}`}
             onPress={onPress}
         />
-    );
-}
-
-function NewPlaylistPopup({
-    onClose,
-    onCreated,
-}: {
-    onClose: () => void;
-    onCreated: (id: number) => void;
-}) {
-    const [name, setName] = useState("");
-    const [failed, setFailed] = useState(false);
-    const { createSharedPlaylist, createSharedPlaylistLoading } =
-        useCreateSharedPlaylist();
-    const trimmed = name.trim();
-
-    async function create() {
-        if (!trimmed || createSharedPlaylistLoading) return;
-        setFailed(false);
-        try {
-            const { playlist_id } = await createSharedPlaylist({
-                name: trimmed,
-            });
-            onCreated(playlist_id);
-        } catch {
-            setFailed(true);
-        }
-    }
-
-    return (
-        <ModalPopup
-            visible
-            keyboardAware
-            onClose={onClose}
-            title="New playlist"
-        >
-            <View className="gap-3 px-1 pb-1">
-                <GlassInput
-                    placeholder="Name"
-                    value={name}
-                    onChangeText={setName}
-                    maxLength={100}
-                    autoFocus
-                    returnKeyType="done"
-                    onSubmitEditing={() => void create()}
-                />
-                {failed ? (
-                    <Text className="text-sm text-destructive">
-                        Couldn&apos;t make the playlist. Try again.
-                    </Text>
-                ) : null}
-                <GlassButton
-                    disabled={!trimmed || createSharedPlaylistLoading}
-                    onPress={() => void create()}
-                >
-                    <Text className="font-semibold text-foreground">
-                        {createSharedPlaylistLoading ? "Creating..." : "Create"}
-                    </Text>
-                </GlassButton>
-            </View>
-        </ModalPopup>
     );
 }

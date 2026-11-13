@@ -7,7 +7,6 @@ import Animated from "react-native-reanimated";
 import { ArtworkMosaic } from "@/components/custom/artwork-mosaic";
 import { ErrorNotice } from "@/components/custom/error-notice";
 import { MusicListItemSkeleton } from "@/components/custom/music-list/music-list-item";
-import { NewOrJoinRow } from "@/components/custom/new-or-join-row";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
@@ -25,8 +24,8 @@ const ROW_ARTWORK_SIZE = 56;
 /**
  * A Library list of the user's own things, like saved queries or shared
  * playlists, as a screen's scroller. Top to bottom: `above` (a view switch),
- * search, Play and Shuffle when `actions` is set, New (and Enter code with
- * `create.joinWithCode`) when `create` is set, then the rows. Only what the rows show differs.
+ * search, Play and Shuffle when `actions` is set, then the rows. New and
+ * the like go in the top rail, through `useRailActions`. Only what the rows show differs.
  */
 export function LibraryList<Item>({
     items,
@@ -38,7 +37,6 @@ export function LibraryList<Item>({
     above,
     search,
     placeholder,
-    create,
     actions,
 }: {
     items: readonly Item[];
@@ -51,8 +49,6 @@ export function LibraryList<Item>({
     above?: ReactNode;
     search: LibraryListSearch;
     placeholder: string;
-    /** The New pill's label and what it does, and whether Enter code joins it. */
-    create?: { label: string; onPress: () => void; joinWithCode?: boolean };
     actions?: LibraryListPlayActions;
 }) {
     const { listBottomInset } = useScreenOverlayInsets();
@@ -79,15 +75,6 @@ export function LibraryList<Item>({
                         <LibraryListHeader
                             search={search}
                             placeholder={placeholder}
-                            below={
-                                create ? (
-                                    <NewOrJoinRow
-                                        newLabel={create.label}
-                                        onNew={create.onPress}
-                                        joinWithCode={create.joinWithCode}
-                                    />
-                                ) : null
-                            }
                             actions={actions}
                         />
                     </>
