@@ -13,15 +13,8 @@ import {
     useNativePlayerAccessoryEnabled,
     useBottomBarsHidden,
 } from "@/lib/screen-overlay";
-import { PALETTE } from "@/lib/theme";
+import { PALETTE, useAppTheme } from "@/lib/theme";
 
-const IOS_TAB_COLOR =
-    Platform.OS === "ios"
-        ? DynamicColorIOS({
-              light: PALETTE.light.foreground,
-              dark: PALETTE.dark.foreground,
-          })
-        : PALETTE.light.foreground;
 const IOS_UNSELECTED_TAB_COLOR =
     Platform.OS === "ios"
         ? DynamicColorIOS({
@@ -47,12 +40,14 @@ export default function TabLayout() {
     const { account } = useAccount();
     const { step } = useOnboarding();
     const { colors } = useTheme();
+    const { colors: palette } = useAppTheme();
     const hidden = useBottomBarsHidden();
     const nativePlayer = useNativePlayerAccessoryEnabled();
     const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
         null,
     );
-    const selectedColor = Platform.OS === "ios" ? IOS_TAB_COLOR : colors.text;
+    // the user's accent, the same in light and dark
+    const selectedColor = palette.brand;
     const unselectedColor =
         Platform.OS === "ios" ? IOS_UNSELECTED_TAB_COLOR : colors.text;
 
