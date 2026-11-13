@@ -24,7 +24,6 @@ import { PlayerPage } from "./player-page";
 import { usePlayerScope } from "./player-scope";
 import { TagsPage } from "./tags-page";
 import { PLAYER_TABS, type PlayerTab, usePlayerTabs } from "./player-tabs";
-import { QueueOpenContext } from "./queue-open";
 
 const TAB_BAR_HEIGHT = 72;
 const TAB_BAR_RADIUS = TAB_BAR_HEIGHT / 2;
@@ -59,8 +58,6 @@ export function PlayerPager() {
     const scrollRef = useRef<ScrollView>(null);
     const scrollX = useSharedValue(PLAYER_TABS.indexOf(selectedTab) * width);
     const [tabBarWidth, setTabBarWidth] = useState(0);
-    // the Player page's queue is a scroll view too, so it needs the region
-    const [queueOpen, setQueueOpen] = useState(false);
     const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<PlayerTab>>(
         () => new Set([selectedTab]),
     );
@@ -102,9 +99,7 @@ export function PlayerPager() {
     return (
         <View className="flex-1">
             <View className="flex-1">
-                <SheetScrollRegion
-                    active={selectedTab !== "player" || queueOpen}
-                />
+                <SheetScrollRegion active={selectedTab !== "player"} />
                 <Animated.ScrollView
                     ref={scrollRef}
                     horizontal
@@ -137,9 +132,7 @@ export function PlayerPager() {
                         />
                     </View>
                     <View style={{ width }}>
-                        <QueueOpenContext.Provider value={setQueueOpen}>
-                            <PlayerPage />
-                        </QueueOpenContext.Provider>
+                        <PlayerPage />
                     </View>
                     <View style={{ width }}>
                         <TagsPage
@@ -223,10 +216,9 @@ export function PlayerPager() {
  * the Tags page could not scroll at all.
  *
  * This empty scroll view is placed first so it is the one the sheet finds, and
- * it covers the pages while Discuss or Tags is selected, or while the Player
- * page shows its queue, so their own scroll views get the drag. On Player with
- * the artwork showing it shrinks to nothing, so pulling the artwork down still
- * drags the sheet closed. It is underneath the pager and takes no
+ * it covers the pages while Discuss or Tags is selected so their own scroll
+ * views get the drag. On Player it shrinks to nothing, so pulling the artwork
+ * down still drags the sheet closed. It is underneath the pager and takes no
  * touches; the sheet only measures its bounds. iOS needs none of this.
  */
 function SheetScrollRegion({ active }: { active: boolean }) {

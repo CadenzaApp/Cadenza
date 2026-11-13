@@ -21,11 +21,6 @@ import { MediaPlayerTrackHeading } from "./playback-details";
 
 /** Row height the reorderable list positions against. */
 const QUEUE_ROW_HEIGHT = 60;
-/**
- * The row's right end that drags on the first movement: the handle's 44
- * points (`w-11`) and the row's 4 point right padding (`pr-1`).
- */
-const QUEUE_HANDLE_STRIP = 44 + 4;
 /** Height of the two mode pills, and so their radius. */
 const MODE_PILL_HEIGHT = 44;
 /** What the on state inverts to: a solid white pill with a dark glyph. */
@@ -132,7 +127,6 @@ export function MediaPlayerQueue({
                 itemHeight={QUEUE_ROW_HEIGHT}
                 keyExtractor={(item, index) => `${item.id}-${index}`}
                 onReorder={onMoveUpcoming}
-                handleWidth={QUEUE_HANDLE_STRIP}
                 empty={
                     <Text className="py-8 text-center text-muted-foreground">
                         Nothing else is queued.
@@ -303,15 +297,11 @@ function QueueRow({
             >
                 <Ionicons name="close" size={20} color={textColor} />
             </Pressable>
-            {/* The list makes the strip this glyph sits in (the row's right
-                QUEUE_HANDLE_STRIP points) drag straight away. A long press
-                anywhere else on the row drags too. */}
-            <View
-                accessibilityLabel={`Reorder ${track.title}`}
-                className="w-11 items-center justify-center"
-                style={{ height: QUEUE_ROW_HEIGHT }}
-            >
-                <Ionicons name="reorder-three" size={24} color={textColor} />
+            {/* Decoration. The whole row is the drag target, so a handle that
+                only worked when grabbed here would be a smaller target for no
+                reason. */}
+            <View className="w-6 items-center justify-center">
+                <Ionicons name="reorder-three" size={22} color={textColor} />
             </View>
         </View>
     );

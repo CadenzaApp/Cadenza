@@ -90,14 +90,8 @@ chroma per mode, so dark or neon tags still read as a soft glow.
 `reorderable-list.tsx` is in `custom/` rather than `ui/` only because nothing else needs it yet.
 It knows nothing about songs: `data`, `itemHeight`, `renderItem`, and an `onReorder(from, to)`.
 Rows are absolutely positioned off `itemHeight` instead of measured, so dragging moves a
-transform and never triggers layout, and it scrolls itself near either edge. A drag starts two
-ways: a long press anywhere on the row, which leaves short drags to the scroll view, or the first
-movement inside a `handleWidth` strip at the row's right edge. Both are one exclusive gesture on
-the row's one detector, the strip's first; nesting a second detector for the handle let the two
-fight and the drag snap back. Touching the strip turns the list's scrolling off until the finger
-lifts. Inside an Android sheet the list only
-scrolls where the host lets the sheet pass drags through (the player pager's
-`SheetScrollRegion`). Do **not** reuse the query builder's
+transform and never triggers layout, and it scrolls itself near either edge. The drag starts on
+a long press, which leaves short drags to the scroll view. Do **not** reuse the query builder's
 drag code for a list: it caches drop-zone rects once at drag start, so it breaks under scroll.
 
 `detail-screen.tsx` exports `DetailScreen`, the header and safe-area shell for most routes that

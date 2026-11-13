@@ -190,13 +190,6 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   thing either native player can do; see the queue section of the module README.
 - The queue list is `ReorderableList`, which positions rows off a fixed `QUEUE_ROW_HEIGHT`
   rather than measuring them. Change the row's height and that constant has to move with it.
-- The right end of a queue row (`QUEUE_HANDLE_STRIP`, the three-bar handle and its padding)
-  drags on the first movement, however long it was held. A long press anywhere else on the row
-  drags too.
-- On Android the queue only scrolls because the pager's `SheetScrollRegion` covers the pages
-  while it is open. `player-page.tsx` reports its queue view through `useReportQueueOpen`
-  (`queue-open.tsx`). With the artwork showing, the region shrinks again so pulling the artwork
-  down still closes the sheet.
 - The pager's selector gives its `GlassSurface` an explicit radius instead of leaning on the
   parent's `overflow: hidden`. Native glass shapes its lensing and specular edge from its own
   corners, so a clipped square reads as a flat fill. The glass also stays off the touch path

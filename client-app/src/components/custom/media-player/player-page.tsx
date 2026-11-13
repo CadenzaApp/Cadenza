@@ -46,7 +46,6 @@ import {
     MediaPlayerProgress,
     MediaPlayerTrackHeading,
 } from "./playback-details";
-import { useReportQueueOpen } from "./queue-open";
 import { MediaPlayerQueue } from "./queue-view";
 import { MediaPlayerTransport } from "./transport-controls";
 
@@ -103,7 +102,6 @@ export function PlayerPage() {
     const insets = useSafeAreaInsets();
     const { width, height } = useWindowDimensions();
     const [view, setView] = useState<PlayerView>("artwork");
-    useReportQueueOpen(view === "queue");
     const [menuOpen, setMenuOpen] = useState(false);
     const [artworkView, setArtworkView] = useState<"menu" | "image" | null>(
         null,
