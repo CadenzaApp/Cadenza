@@ -10,20 +10,44 @@ from pathlib import Path
 from provision import GROUP, ROOT, aws
 
 
+def validate_candidate(content):
+    limits = {
+        "API_REQUESTS_PER_USER_MINUTE",
+        "TAG_REQUESTS_PER_USER_MINUTE",
+        "TAG_REQUESTS_PER_USER_DAY",
+        "TAG_PROVIDER_CALLS_PER_DAY",
+        "TAG_PROVIDER_CONCURRENCY",
+    }
+    seen = set()
+    for line in content.splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        name, separator, value = line.partition("=")
+        if (
+            not separator
+            or name in seen
+            or name not in limits | {"BACKEND_IMAGE", "MODEL_REVISION"}
+        ):
+            raise ValueError(
+                "Candidate must contain only nonsecret image, model and quota settings"
+            )
+        seen.add(name)
+        if name in limits and (
+            not value.isascii()
+            or not value.isdecimal()
+            or not 1 <= int(value) <= 1_000_000
+        ):
+            raise ValueError(f"{name} must be an integer between 1 and 1000000")
+    if not {"BACKEND_IMAGE", "MODEL_REVISION"} <= seen:
+        raise ValueError("Candidate requires image and model settings")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("candidate", type=Path)
     args = parser.parse_args()
     content = args.candidate.read_text()
-    for line in content.splitlines():
-        if (
-            line.strip()
-            and not line.startswith("#")
-            and line.split("=", 1)[0] not in ("BACKEND_IMAGE", "MODEL_REVISION")
-        ):
-            raise ValueError(
-                "Candidate must contain only nonsecret image and model settings"
-            )
+    validate_candidate(content)
     group = aws(
         "autoscaling", "describe-auto-scaling-groups", AutoScalingGroupNames=[GROUP]
     )["AutoScalingGroups"][0]
