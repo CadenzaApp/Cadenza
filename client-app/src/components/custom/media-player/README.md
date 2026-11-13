@@ -190,6 +190,14 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   thing either native player can do; see the queue section of the module README.
 - The queue list is `ReorderableList`, which positions rows off a fixed `QUEUE_ROW_HEIGHT`
   rather than measuring them. Change the row's height and that constant has to move with it.
+- The three-bar handle on a queue row drags at once and takes the touch from the sheet. On iOS,
+  `player-page.tsx` also sets the sheet's `gestureEnabled` to false while a finger is on a
+  handle, since UIKit's dismiss gesture can otherwise still win. Android sheets ignore
+  `gestureEnabled`; there the handle's gesture claims the touch before the sheet's slop.
+- On Android the queue only scrolls because the pager's `SheetScrollRegion` covers the pages
+  while it is open. `player-page.tsx` reports its queue view through `useReportQueueOpen`
+  (`queue-open.tsx`). With the artwork showing, the region shrinks again so pulling the artwork
+  down still closes the sheet.
 - The pager's selector gives its `GlassSurface` an explicit radius instead of leaning on the
   parent's `overflow: hidden`. Native glass shapes its lensing and specular edge from its own
   corners, so a clipped square reads as a flat fill. The glass also stays off the touch path
