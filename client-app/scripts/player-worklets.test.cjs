@@ -723,10 +723,11 @@ test("the tucked assistant centers above Search with the Tags plus action to its
             animation.owner.finish();
     const assistant = r.styles.at(-2)();
     const plus = r.styles.at(-1)();
-    // the assistant is always the rightmost control, centered above Search
+    // the assistant is always the rightmost control, centered above Search,
+    // a 62pt circle 21pt in from the right edge
     assert.equal(
         393 - 20 - 26 + assistant.transform[0].translateX,
-        393 - 20 - 8 - 20,
+        393 - 21 - 62 / 2,
     );
     assert.equal(assistant.transform[2].scale, 40 / 52);
     // the row action is one tucked diameter and a gap to its left, same size
@@ -763,7 +764,7 @@ test("the assistant takes the row's right end even with no row action", () => {
     const assistant = r.styles.at(-2)();
     assert.equal(
         393 - 20 - 26 + assistant.transform[0].translateX,
-        393 - 20 - 8 - 20,
+        393 - 21 - 62 / 2,
     );
     assert.ok(find(node, (item) => item.type === "AssistantRowButton"));
 });

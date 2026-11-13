@@ -21,6 +21,7 @@ import {
     PLAYER_SIDE_INSET,
     PLAYER_CONTROL_SIZE,
     PLAYER_ROW_GAP,
+    SEARCH_DOCK_X,
 } from "@/lib/screen-overlay-geometry";
 
 import { usePlaybackTrackState } from "@/lib/playback";
@@ -29,6 +30,7 @@ import { usePlayerPresentation } from "@/lib/player-presentation";
 import { useBottomSelectionOverlay } from "@/lib/bottom-selection-overlay";
 
 import {
+    GLASS_TAB_BAR,
     useBottomBarsHidden,
     usePlayerHostActive,
     useBottomRowAction,
@@ -189,18 +191,10 @@ function MediaPlayerRow({
             sortScale.set(
                 withSpring(diameter / PLAYER_CONTROL_SIZE, SORT_SPRING),
             );
-            // Anchor to the trailing native rail inset, not the accessory's
-            // content edge: UIKit adds padding outside that measured content.
-            const searchCenter =
-                windowWidth - PLAYER_SIDE_INSET - PLAYER_ROW_GAP - diameter / 2;
-            const restingCenter =
-                windowWidth - PLAYER_SIDE_INSET - PLAYER_CONTROL_SIZE / 2;
-            sortDockX.set(
-                withSpring(
-                    tucking ? searchCenter - restingCenter : 0,
-                    SORT_SPRING,
-                ),
-            );
+            // Search keeps its size and place whether the player is expanded
+            // or tucked, and the scale is about the button's center, so one
+            // shift centers it over Search in both
+            sortDockX.set(withSpring(SEARCH_DOCK_X, SORT_SPRING));
         },
     );
     useEffect(() => {
@@ -209,7 +203,9 @@ function MediaPlayerRow({
             nativeTargetY.set(restingY);
             nativePanelY.set(withSpring(restingY, SORT_SPRING));
             sortScale.set(withSpring(1, SORT_SPRING));
-            sortDockX.set(withSpring(0, SORT_SPRING));
+            sortDockX.set(
+                withSpring(GLASS_TAB_BAR ? SEARCH_DOCK_X : 0, SORT_SPRING),
+            );
         }
     }, [
         nativePlayer,

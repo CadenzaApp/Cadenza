@@ -29,7 +29,10 @@ import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useOpenScreen } from "@/lib/open-screen";
 import { useDefaultTags } from "@/lib/routes/tags";
-import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import {
+    BOTTOM_ACTION_RIGHT_OFFSET,
+    useScreenOverlayInsets,
+} from "@/lib/screen-overlay";
 import {
     OVERLAY_GAP,
     PLAYER_CONTROL_SIZE,
@@ -54,6 +57,18 @@ import {
 
 /** How long the palette takes to settle on a new height it did not drag to. */
 const HEIGHT_ANIMATION_MS = 250;
+
+/** The palette's own side padding, `px-5`. */
+const PALETTE_SIDE_PADDING = 20;
+/**
+ * Right padding that keeps the heading row clear of the assistant button,
+ * which floats `BOTTOM_ACTION_RIGHT_OFFSET` in from the screen's right edge.
+ */
+const ASSISTANT_CLEARANCE =
+    BOTTOM_ACTION_RIGHT_OFFSET +
+    PLAYER_CONTROL_SIZE +
+    PLAYER_ROW_GAP -
+    PALETTE_SIDE_PADDING;
 
 export function TagPalette({
     tags,
@@ -282,11 +297,7 @@ export function TagPalette({
                                 className="mb-3 flex-row items-center gap-3"
                                 style={
                                     clearAssistant
-                                        ? {
-                                              paddingRight:
-                                                  PLAYER_CONTROL_SIZE +
-                                                  PLAYER_ROW_GAP,
-                                          }
+                                        ? { paddingRight: ASSISTANT_CLEARANCE }
                                         : undefined
                                 }
                             >

@@ -34,8 +34,8 @@ Assistant section of [backend-api/src/services/README.md](../../../../backend-ap
 - The button lives in the shared bottom row, drawn by `media-player-host.tsx`, so it is on every
   screen inside the tabs while the bottom bars show, track or not. It is always the rightmost
   control: a row action (sort, the Tags plus) sits one slot to its left, and both share the
-  same lift, scale, and dock (above expanded playback, beside the circle, over Search when the
-  player tucks). It hides with the bars (keyboard, focused Search with nothing playing) and
+  same lift, scale, and dock (above expanded playback, beside the circle, centered over Search
+  on the iOS 26 glass tab bar, expanded or tucked). It hides with the bars (keyboard, focused Search with nothing playing) and
   under the multiselect toolbar.
 - Screens with their own bottom controls make room: the Cadenza tag palette pads its heading's
   right side while it is low, and the advanced builder lifts its results and history row one

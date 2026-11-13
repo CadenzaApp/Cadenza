@@ -51,7 +51,9 @@ goes square on Android, and on iOS it paints dark rectangles whenever UIKit clip
 it, like the screen behind any sheet. Artwork and
 transport content have separate clipping.
 The control sits above expanded playback, follows native tuck,
-and centers above Search when tucked. In circle mode it shares the bottom row. Temporary chrome
+and stays centered over Search, expanded or tucked. Search's place is not readable from UIKit, so
+it comes from `SEARCH_TAB_CENTER_FROM_RIGHT` in `@/lib/screen-overlay-geometry` (a 62pt circle
+21pt in), which floating bubbles use too through `BOTTOM_ACTION_RIGHT_OFFSET`. In circle mode it shares the bottom row. Temporary chrome
 suppression hides it without mounting a local fallback. Controls enter and exit from the right.
 
 Multiselect registers content in the separate `bottom-selection-overlay.tsx` context to avoid
