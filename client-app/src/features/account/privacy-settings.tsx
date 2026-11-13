@@ -56,6 +56,18 @@ const FIELDS: readonly {
         footnote:
             "Who can join you from Listening now. Joining starts a live session, which stays open until you end it.",
     },
+    {
+        field: "profile_playlists",
+        title: "Playlists on your profile",
+        footnote:
+            "Who sees your shared playlists on your profile. Opening one still needs an invite.",
+    },
+    {
+        field: "profile_queries",
+        title: "Queries on your profile",
+        footnote:
+            "Who sees the saved queries you share on your profile, and their songs.",
+    },
 ];
 
 /** Who sees your listening, then what Cadenza stores and what it does not. */

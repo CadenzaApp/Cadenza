@@ -2,6 +2,7 @@ import { router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { Alert } from "react-native";
 
+import { useAccount } from "@/lib/account";
 import { useRealtimeTopic } from "@/lib/realtime";
 import type { LiveSession } from "@/lib/routes/live-sessions";
 
@@ -9,11 +10,12 @@ import { takeAskedToJoin } from "./asked-to-join";
 
 /**
  * Tells a member what happened to their session: that the host let them in,
- * that it ended, or that the host left and handed it to someone else.
- * Whoever did it already knows, so the host ending it and the host handing it
- * over see nothing.
+ * that it ended, or that it has a new host, because the host left and handed
+ * it over or made someone else host and stayed. Whoever did it already knows,
+ * so the host ending it, handing it over, or making someone host sees nothing.
  */
 export function useSessionNotices(session: LiveSession | null) {
+    const { account } = useAccount();
     // the host before this snapshot, to tell a hand over from a refetch
     const lastHost = useRef<{
         sessionId: string;
@@ -43,17 +45,28 @@ export function useSessionNotices(session: LiveSession | null) {
         if (
             !before ||
             before.sessionId !== session.session_id ||
-            before.userId === host.user_id
+            before.userId === host.user_id ||
+            // the old host made someone else host, and knows
+            before.userId === account?.id
         ) {
             return;
         }
+        // still in it: made someone else host rather than leaving
+        const stayed = session.members.some(
+            (member) => member.user_id === before.userId,
+        );
+        const isNewHost = session.my_role === "host";
         Alert.alert(
             "New host",
-            session.my_role === "host"
-                ? `${before.username} left and made you the host. The music plays from this phone now.`
-                : `${before.username} left. ${host.username} is the host now.`,
+            stayed
+                ? isNewHost
+                    ? `${before.username} made you the host. The music plays from this phone now.`
+                    : `${before.username} made ${host.username} the host.`
+                : isNewHost
+                  ? `${before.username} left and made you the host. The music plays from this phone now.`
+                  : `${before.username} left. ${host.username} is the host now.`,
         );
-    }, [session]);
+    }, [account?.id, session]);
 
     // only a member still in it hears the end; leaving unsubscribes
     useRealtimeTopic(

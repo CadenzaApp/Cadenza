@@ -11,6 +11,7 @@ import {
 } from "./categories";
 import { LibraryArtists } from "./library-artists";
 import { LibraryCollections } from "./library-collections";
+import { LibraryPlaylists } from "./library-playlists";
 import { LibrarySongs } from "./library-songs";
 import { SavedQueriesView } from "./saved-queries-view";
 import { TagsView } from "./tags-view";
@@ -51,7 +52,7 @@ function CategoryBody({ category }: { category: LibraryCategory }) {
         case "album":
             return <LibraryCollections kind="album" playable />;
         case "playlist":
-            return <LibraryCollections kind="playlist" playable={false} />;
+            return <LibraryPlaylists />;
         case "artist":
             return <LibraryArtists />;
         case "query":

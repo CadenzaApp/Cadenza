@@ -117,6 +117,27 @@ export function hostTarget<T extends { song_id: string }>(
     return at >= 0 ? entries.slice(at) : [];
 }
 
+/**
+ * The song ids the host's phone should hold when nobody steered playback,
+ * for `reconcile`. Playing a session song, it is that song and what follows
+ * (`hostTarget`). Playing something the session does not have, like a
+ * library only song left out when the session was seeded, it is that song
+ * and then the session's own queue, so the session's songs still line up
+ * after it, show in the queue, and play next. Empty with nothing playing,
+ * which leaves the phone alone.
+ */
+export function hostQueueIds<T extends { song_id: string }>(
+    entries: readonly T[],
+    session: readonly T[],
+    playingSongId: string | null,
+): string[] {
+    if (playingSongId === null) return [];
+    const onSession = hostTarget(entries, playingSongId);
+    return onSession.length > 0
+        ? onSession.map((entry) => entry.song_id)
+        : [playingSongId, ...session.map((entry) => entry.song_id)];
+}
+
 /** Applies `ops` to a plain list, the same way the native queue will. */
 export function applyOps(local: LocalQueue, ops: readonly QueueOp[]): string[] {
     const items = [...local.songIds];

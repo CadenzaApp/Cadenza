@@ -55,6 +55,8 @@ const PRIVACY_ROWS: {
     session_join: { label: "Join your live sessions", show: audience },
     playlist_add: { label: "Add you to shared playlists", show: audience },
     listen_along: { label: "Listen along", show: audience },
+    profile_playlists: { label: "Playlists on your profile", show: audience },
+    profile_queries: { label: "Queries on your profile", show: audience },
 };
 
 function color(hex: string | null, unset: string): DataValue {

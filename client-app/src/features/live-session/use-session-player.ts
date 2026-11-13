@@ -21,8 +21,10 @@ import {
     type LiveSessionEntry,
 } from "@/lib/routes/live-sessions";
 
+import { takeLeavingForOwnMusic } from "./own-music";
 import {
-    hostTarget,
+    DRIFT_TOLERANCE_MS,
+    hostQueueIds,
     reconcile,
     shouldCorrectDrift,
     type QueueOp,
@@ -45,6 +47,9 @@ export function entryToTrack(entry: LiveSessionEntry): MusicItem {
         playbackType: PlaybackQueueType.Song,
         title: entry.title,
         artistName: entry.artist ?? undefined,
+        albumName: entry.album ?? undefined,
+        albumID: entry.album_id ?? undefined,
+        artistId: entry.artist_id ?? undefined,
         artworkUrl: entry.artwork_url ?? undefined,
         songDuration: entry.duration_ms ? entry.duration_ms / 1000 : undefined,
     };
@@ -97,17 +102,24 @@ export function sessionTarget(session: LiveSession): LiveSessionEntry[] {
  * putting played songs back in the queue.
  *
  * The host's phone goes where the session is only when someone steered it
- * (`command_seq` moved), or when it first picks up a session playing another
- * song. Any other version, like a join or a queue edit, only lines up the
- * songs after the one the phone plays. Otherwise the server's projection,
- * which lags the phone, would pause, rewind, or skip it.
+ * (`command_seq` went up; an older snapshot with a lower one never steers),
+ * or when it first picks up a session playing another song. Any other
+ * version, like a join or a queue edit, only lines up the songs after the one
+ * the phone plays, or after a song the session does not have, the session's
+ * whole queue (`hostQueueIds`). Otherwise the server's projection, which lags
+ * the phone, would pause, rewind, or skip it.
+ *
+ * Play state is set on the player directly, never by toggling a track: right
+ * after a queue replace the state read at the start still names the old song,
+ * and a toggle with it would start that song over the new one.
  *
  * The host's own player controls keep working: a skip or seek on the phone
  * shows up in the next report and the session follows. Each report carries the
  * last command the phone followed, so one sent before the phone caught up with
  * a command cannot undo it.
  *
- * A member leaving gets their old queue back, paused.
+ * A member leaving gets their old queue back, paused, unless they left to
+ * play something of their own (`own-music.ts`).
  */
 export function useSessionPlayer(
     session: LiveSession | null,
@@ -165,9 +177,12 @@ export function useSessionPlayer(
         if (!active && wasActive.current && savedQueue.current) {
             const saved = savedQueue.current;
             savedQueue.current = null;
+            // unless they left to play something else, which is playing now
+            const restore =
+                !takeLeavingForOwnMusic() && saved.tracks.length > 0;
             void (async () => {
                 try {
-                    if (saved.tracks.length > 0) {
+                    if (restore) {
                         await commands.playQueue({
                             tracks: saved.tracks,
                             startIndex: Math.max(0, saved.index),
@@ -199,8 +214,10 @@ export function useSessionPlayer(
         const seq = session.playback.command_seq;
         const last = followed.current;
         const sameSession = last?.sessionId === session.session_id;
-        // a command since the last version this phone followed
-        const commanded = sameSession && seq !== last.seq;
+        // a command since the last version this phone followed. only a higher
+        // seq is one: a lower one is an older snapshot, like a fetch that left
+        // before a guess, and following it would steer the phone back
+        const commanded = sameSession && seq > last.seq;
         // our own report, unless a command came in with it
         if (
             newVersion &&
@@ -226,16 +243,20 @@ export function useSessionPlayer(
             (sameSession
                 ? commanded
                 : target.length > 0 && phoneSong !== target[0].song_id);
+        // a lower seq is taken too, so a guess the server turned down does
+        // not hide the next real command
         followed.current = { sessionId: session.session_id, seq };
-        const queueTarget = steered
-            ? target
-            : hostTarget(
-                  [
-                      ...(session.current ? [session.current] : []),
-                      ...session.up_next,
-                  ],
-                  phoneSong,
-              );
+        // every entry the session has, which inserts look songs up in, and
+        // the ids the phone's queue should hold
+        const entries = [
+            ...(session.current ? [session.current] : []),
+            ...session.up_next,
+        ];
+        const queueIds = steered
+            ? target.map((entry) => entry.song_id)
+            : hostQueueIds(entries, target, phoneSong);
+        // set when the queue is replaced, which starts the new song playing
+        let replaced = false;
 
         void (async () => {
             try {
@@ -265,13 +286,13 @@ export function useSessionPlayer(
         }
 
         async function applyQueue() {
-            if (queueTarget.length === 0) return;
+            if (queueIds.length === 0) return;
             const ops = reconcile(
                 {
                     songIds: playback.queue.map(songIdOf),
                     index: playback.queueIndex,
                 },
-                queueTarget.map((entry) => entry.song_id),
+                queueIds,
             );
             for (const op of ops) await runOp(op);
         }
@@ -280,19 +301,20 @@ export function useSessionPlayer(
             switch (op.kind) {
                 case "replace":
                     await commands.playQueue({
-                        tracks: queueTarget.map(entryToTrack),
+                        tracks: target.map(entryToTrack),
                         startIndex: 0,
                         chosenStart: true,
                         source,
                     });
                     lastSeekAt.current = 0;
+                    replaced = true;
                     break;
                 case "move":
                     await commands.moveQueueItem(op.from, op.to);
                     break;
                 case "insert": {
                     const byId = new Map(
-                        queueTarget.map((entry) => [entry.song_id, entry]),
+                        entries.map((entry) => [entry.song_id, entry]),
                     );
                     const tracks = op.songIds
                         .map((id) => byId.get(id))
@@ -315,11 +337,25 @@ export function useSessionPlayer(
                 return;
             }
             const wantPlaying = session!.playback.is_playing;
-            if (wantPlaying !== playback.isPlaying && playback.activeTrack) {
-                await commands.togglePlayback(playback.activeTrack);
-            }
             const expected = playbackPositionMs(session!.playback, serverNow());
             const now = Date.now();
+            // `playback` was read before the queue was replaced, so it still
+            // describes the old song. the new queue starts playing from the
+            // top: pause it if the session is paused, and move it to where the
+            // session is
+            if (replaced) {
+                if (!wantPlaying) await Playback.pause();
+                if (expected > DRIFT_TOLERANCE_MS) {
+                    lastSeekAt.current = now;
+                    await commands.seekTo(expected / 1000);
+                }
+                return;
+            }
+            // straight to the player: a toggle with a track could start that
+            // track over whatever is playing
+            if (wantPlaying !== playback.isPlaying) {
+                await (wantPlaying ? Playback.play() : Playback.pause());
+            }
             // a command, like a seek or back, is followed at once; only drift
             // waits out the interval
             const sinceSeek = commanded

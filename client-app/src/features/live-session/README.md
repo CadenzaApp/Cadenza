@@ -15,11 +15,13 @@ allows. The backend owns the state; this feature plays it and shows it.
 | `use-seed-session.ts`         | Fills a new session with what the phone plays, starting where the phone is in the current song.                                                                             |
 | `use-live-badge.ts`           | The caller's session name and id, for the player's LIVE line.                                                                                                               |
 | `LiveButton.tsx`              | The player's live icon: asks to go live (with the settings form), or opens the session menu (settings, listen mode, hand over, leave, end).                                 |
-| `LiveSessionBar.tsx`          | The player sheet's bottom bar in a session: Requests, People, Add, Share.                                                                                                   |
+| `LiveSessionBar.tsx`          | The player sheet's bottom bar in a session: Requests, People, Add, Share, as the role allows, the bar only as wide as its buttons. People offers Make host.                 |
+| `RequestsSheet.tsx`           | Requests in a `BottomSheet` over the player: join requests and suggestions, each with a red X and a green check.                                                            |
 | `session-parts.tsx`           | Rows and helpers the two above share.                                                                                                                                       |
 | `LiveSessionScreen.tsx`       | `/live-session/:id`. Hands an open session to `/player`; says so for one that is over.                                                                                      |
 | `StartSessionScreen.tsx`      | `/live-session/new`, the Go live sheet, and `?edit=1` for settings. Starts a session, or turns a quiet listen along one regular. Has the Ask me first toggle.               |
 | `use-join-request-prompts.ts` | Asks the host in the app about each person waiting to join.                                                                                                                 |
+| `own-music.ts`                | Marks a leave made to play something else, so the old queue is not put back over it.                                                                                        |
 | `asked-to-join.ts`            | Sessions the caller asked to join, so being let in shows a "You're in".                                                                                                     |
 | `JoinScreen.tsx`              | `/join` and `/join/:code`. Redeems a code for a session or a shared playlist.                                                                                               |
 
@@ -65,7 +67,10 @@ The app's player buttons in a session, through `usePlaybackSink` in `@/lib/playb
   the session in its reports. A back that only restarts the song stays on the phone too.
 - On a member, synced or remote, everything goes to the session. Play, pause, skip, seek, back,
   and the modes are locked (`controlsLocked`) unless the role is controller.
-- Back is `previous`: past 4 s it restarts the song, otherwise it goes to the last song played.
+- Back follows the same rule as outside a session, decided on the phone: past 4 s it restarts the
+  song (the host seeks its own player, anyone else sends `seek` 0), otherwise it sends
+  `previous`, which always goes to the last song played. The server never re-decides from its
+  projection, which can be seconds off and turned early backs into restarts.
 - Playing a song plays it now for a controller or the host, queues it next for a queue editor,
   and suggests it for a suggester. A remote member's player shows the session too, and its
   buttons go to the session the same way.
@@ -92,9 +97,30 @@ Gotchas:
   audience, not the Live sessions one.
 - A listen along session nobody is in yet runs quietly: `showsAsLive` keeps the host's player
   out of live mode (no live bar, tag, or red progress). It ends on its own when the host says Not
-  now to the last request or the last guest leaves. Going live from the player turns it into a
+  now to the last request. Once anyone was let in it went live (`went_live`), and stays live for
+  the host after they leave. Going live from the player turns it into a
   regular session (`listen_along: false`).
 - Once anyone has joined, a session stays open, and on friends' Listening now row, until the host
   ends it or it runs its course on the server: paused 10 minutes, a minute after the host's app
   was closed (its realtime socket closed, or went quiet while playing), or a host alone in one quiet for 30. Members
   get the `ended` event and the Session ended notice.
+
+More:
+
+- The host's phone follows a command only when `command_seq` goes up, so a snapshot fetched
+  before a guess cannot steer it back. Play state goes straight to the player after a queue
+  replace, never through a toggle with the old song. A phone playing something the session does
+  not have still gets the session's songs queued after it (`hostQueueIds`).
+- A host whose phone does not play the session (no full playback) has no local queue, so its
+  skip, seek, and tap to play go to the session like a controller's (`useSessionSink`'s
+  `playsHere`).
+- What a phone that does not play the session shows also counts as that member's listening:
+  `useSessionView` feeds it to `usePlayRecorder`, credited to the session. Session songs carry
+  album and ids (`trackToSessionSong`, `entryToTrack`), so those plays reach the artist and album
+  rankings.
+- A member whose app was swiped away leaves after a minute, or after 10 quiet, the way a host's
+  session ends. The host can make anyone host from People and stays in as a controller.
+- One session at a time. In a session, Listening now's Join with code warns first, and a code
+  into another session leaves the current one (`JoinScreen`). A member who cannot control the
+  session and plays a song or a list is asked: add it to the session as the role allows, or leave
+  and play it here. Leaving that way skips putting their old queue back (`own-music.ts`).

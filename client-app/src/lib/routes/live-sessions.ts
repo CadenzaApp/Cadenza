@@ -37,6 +37,10 @@ export type LiveSessionEntry = {
     song_id: string;
     title: string;
     artist: string | null;
+    /** With the ids, logged with a play, for the artist and album rankings. */
+    album: string | null;
+    album_id: string | null;
+    artist_id: string | null;
     artwork_url: string | null;
     duration_ms: number | null;
     status: "suggested" | "queued" | "played" | "rejected";
@@ -75,6 +79,11 @@ export type LiveSession = {
     allow_join_without_code: boolean;
     /** Opened by listen along, and not made a regular session since. */
     listen_along: boolean;
+    /**
+     * Anyone besides the host was ever let in. A listen along session shows
+     * as live from then on, and stays open when they leave.
+     */
+    went_live: boolean;
     /** Someone joining without a code asks first. */
     approve_joins: boolean;
     /** Waiting to be let in. Only the host sees them. */
@@ -117,6 +126,9 @@ export type QueueSongBody = {
     song_id: string;
     title: string;
     artist: string | null;
+    album: string | null;
+    album_id: string | null;
+    artist_id: string | null;
     artwork_url: string | null;
     duration_ms: number | null;
 };
@@ -143,13 +155,16 @@ export type PlaybackBody =
 
 /**
  * Whether a session shows as live: any regular one, and a listen along one
- * once someone joins. A listen along session nobody joined runs quietly, so
- * just playing a song does not put the player in live mode.
+ * once anyone was let in, even after they left. A listen along session nobody
+ * joined runs quietly, so just playing a song does not put the player in live
+ * mode.
  */
 export function showsAsLive(
-    session: Pick<LiveSession, "listen_along" | "members">,
+    session: Pick<LiveSession, "listen_along" | "went_live" | "members">,
 ) {
-    return !session.listen_along || session.members.length > 1;
+    return (
+        !session.listen_along || session.went_live || session.members.length > 1
+    );
 }
 
 export const SESSION_ROLE_LABELS: Record<SessionRole, string> = {
@@ -473,6 +488,11 @@ export function useLiveSessionWrites(id: string) {
         { user_id: string; accept: boolean },
         SessionVersion
     >("POST", ({ user_id }) => `${base}/join-requests/${user_id}`, touched);
+    const host = useAPIMutation<{ user_id: string }, SessionVersion>(
+        "POST",
+        `${base}/host`,
+        touchedAndCurrent,
+    );
     const kick = useAPIMutation<{ user_id: string }, SessionVersion>(
         "DELETE",
         ({ user_id }) => `${base}/members/${user_id}`,
@@ -553,6 +573,12 @@ export function useLiveSessionWrites(id: string) {
                 (session) => ({ ...session, ...body }),
                 () => update.trigger(body),
             ),
+        /**
+         * Makes a member the host. The caller stays in as a controller,
+         * playing along. Waits for the server, since the new roles decide
+         * who plays.
+         */
+        transferHost: (user_id: string) => host.trigger({ user_id }),
         setMemberRole: (body: { user_id: string; role: SessionRole }) =>
             optimistic(
                 (session) =>

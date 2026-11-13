@@ -1,5 +1,6 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ReactNode } from "react";
-import { Image, Pressable, View } from "react-native";
+import { Alert, Image, Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
 import {
@@ -15,6 +16,66 @@ export const ROLE_CHOICES = (
 /** The API's error type, like `Forbidden`, or undefined. */
 export function errorType(error: unknown) {
     return (error as { error_type?: string } | null)?.error_type;
+}
+
+/** Runs a session write, and on failure says why in an alert. */
+export async function runSessionWrite(
+    action: () => Promise<unknown>,
+    failure: string,
+) {
+    try {
+        await action();
+    } catch (error) {
+        Alert.alert(
+            "Live session",
+            errorType(error) === "Forbidden"
+                ? "Your role does not allow that."
+                : failure,
+        );
+    }
+}
+
+const ANSWER_SIZE = 36;
+
+/**
+ * A red circle with an X and a green circle with a check, for turning
+ * something down or letting it through: a join request or a suggestion.
+ */
+export function AnswerButtons({
+    rejectLabel,
+    acceptLabel,
+    onReject,
+    onAccept,
+}: {
+    rejectLabel: string;
+    acceptLabel: string;
+    onReject: () => void;
+    onAccept: () => void;
+}) {
+    return (
+        <View className="flex-row gap-3">
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={rejectLabel}
+                hitSlop={6}
+                onPress={onReject}
+                className="items-center justify-center rounded-full bg-destructive active:opacity-70"
+                style={{ width: ANSWER_SIZE, height: ANSWER_SIZE }}
+            >
+                <Ionicons name="close" size={20} color="#ffffff" />
+            </Pressable>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={acceptLabel}
+                hitSlop={6}
+                onPress={onAccept}
+                className="items-center justify-center rounded-full bg-success active:opacity-70"
+                style={{ width: ANSWER_SIZE, height: ANSWER_SIZE }}
+            >
+                <Ionicons name="checkmark" size={20} color="#ffffff" />
+            </Pressable>
+        </View>
+    );
 }
 
 /** A session song: art, title, artist, who added it, and `trailing`. */

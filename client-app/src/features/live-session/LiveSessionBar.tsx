@@ -1,7 +1,6 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
 import type { Href } from "expo-router";
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, View } from "react-native";
+import { Alert, ScrollView, View } from "react-native";
 
 import { InviteCodePopup } from "@/components/custom/invite-code-popup";
 import {
@@ -10,8 +9,6 @@ import {
 } from "@/components/custom/media-player/player-bar";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { SongSearchSheet } from "@/components/custom/song-search-sheet";
-import { Button } from "@/components/ui/button";
-import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { useOpenScreen } from "@/lib/open-screen";
 import {
@@ -21,11 +18,11 @@ import {
     type LiveSessionMember,
     type SessionRole,
 } from "@/lib/routes/live-sessions";
-import { useAppTheme } from "@/lib/theme";
 
 import { MemberRow, RoleMenu } from "../social/MemberRow";
 import { sessionSongs } from "./session-commands";
-import { EntryRow, ROLE_CHOICES, errorType } from "./session-parts";
+import { RequestsSheet } from "./RequestsSheet";
+import { ROLE_CHOICES, runSessionWrite } from "./session-parts";
 
 type Open = "requests" | "people" | "add" | "share" | null;
 
@@ -35,11 +32,12 @@ const LIST_MAX_HEIGHT = 420;
 /**
  * The now playing sheet's bottom bar in a live session, in place of the page
  * tabs: Requests, People, Add songs, and Share, as the caller's role allows.
- * The queue itself is the player's own.
+ * The bar is only as wide as the buttons it has. Requests opens in a bottom
+ * sheet. The host can make anyone else host from
+ * People, and stays in as a controller. The queue itself is the player's own.
  */
 export function LiveSessionBar({ session }: { session: LiveSession }) {
     const { account } = useAccount();
-    const { colors } = useAppTheme();
     const openScreen = useOpenScreen();
     const writes = useLiveSessionWrites(session.session_id);
     const isHost = session.my_role === "host";
@@ -48,40 +46,44 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
         null,
     );
 
-    const requests = isHost
-        ? session.suggestions
-        : session.suggestions.filter((entry) => entry.added_by === account?.id);
-
-    async function run(action: () => Promise<unknown>, failure: string) {
-        try {
-            await action();
-        } catch (error) {
-            Alert.alert(
-                "Live session",
-                errorType(error) === "Forbidden"
-                    ? "Your role does not allow that."
-                    : failure,
-            );
-        }
-    }
+    const myRequests = isHost
+        ? session.suggestions.length + session.join_requests.length
+        : session.suggestions.filter((entry) => entry.added_by === account?.id)
+              .length;
+    const canSuggest = session.can.suggest;
+    const buttonCount = 1 + (canSuggest ? 2 : 0) + (isHost ? 1 : 0);
 
     function openProfile(userId: string) {
         openScreen(`/social/user/${userId}` as Href, { closing: "player" });
     }
 
+    function confirmMakeHost(member: LiveSessionMember) {
+        Alert.alert(
+            `Make ${member.username} host?`,
+            "Their phone plays the session from here. You stay in as a controller.",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Make host",
+                    onPress: () =>
+                        void runSessionWrite(
+                            () => writes.transferHost(member.user_id),
+                            "Couldn't make them host.",
+                        ),
+                },
+            ],
+        );
+    }
+
     return (
         <>
-            <PlayerBarShell>
-                {session.can.suggest ? (
+            <PlayerBarShell itemCount={buttonCount}>
+                {canSuggest ? (
                     <PlayerBarButton
                         icon="hand-left-outline"
                         label="Requests"
-                        accessibilityLabel={`Requests, ${requests.length}`}
-                        badge={
-                            isHost
-                                ? requests.length + session.join_requests.length
-                                : undefined
-                        }
+                        accessibilityLabel={`Requests, ${myRequests}`}
+                        badge={isHost ? myRequests : undefined}
                         onPress={() => setOpen("requests")}
                     />
                 ) : null}
@@ -91,7 +93,7 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                     accessibilityLabel={`People, ${session.members.length}`}
                     onPress={() => setOpen("people")}
                 />
-                {session.can.suggest ? (
+                {canSuggest ? (
                     <PlayerBarButton
                         icon="add-circle-outline"
                         label={session.can.edit_queue ? "Add" : "Suggest"}
@@ -108,162 +110,11 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                 ) : null}
             </PlayerBarShell>
 
-            <ModalPopup
+            <RequestsSheet
+                session={session}
                 visible={open === "requests"}
                 onClose={() => setOpen(null)}
-                title="Requests"
-            >
-                {session.join_requests.length > 0 ? (
-                    <View className="pb-2">
-                        <Text className="px-1 pb-1 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                            Want to join
-                        </Text>
-                        {session.join_requests.map((request) => (
-                            <View
-                                key={request.user_id}
-                                className="h-14 flex-row items-center gap-3 px-4"
-                            >
-                                <Text
-                                    className="min-w-0 flex-1 text-base font-medium text-foreground"
-                                    numberOfLines={1}
-                                >
-                                    {request.username}
-                                </Text>
-                                <Button
-                                    accessibilityLabel={`Don't let ${request.username} in`}
-                                    className="w-9 px-0"
-                                    size="sm"
-                                    variant="outline"
-                                    onPress={() =>
-                                        void run(
-                                            () =>
-                                                writes.answerJoinRequest(
-                                                    request.user_id,
-                                                    false,
-                                                ),
-                                            "Couldn't answer.",
-                                        )
-                                    }
-                                >
-                                    <Ionicons
-                                        name="close"
-                                        size={18}
-                                        color={colors.foreground}
-                                    />
-                                </Button>
-                                <Button
-                                    accessibilityLabel={`Let ${request.username} in`}
-                                    className="w-9 px-0"
-                                    size="sm"
-                                    onPress={() =>
-                                        void run(
-                                            () =>
-                                                writes.answerJoinRequest(
-                                                    request.user_id,
-                                                    true,
-                                                ),
-                                            "Couldn't let them in.",
-                                        )
-                                    }
-                                >
-                                    <Ionicons
-                                        name="checkmark"
-                                        size={18}
-                                        color={colors.primaryForeground}
-                                    />
-                                </Button>
-                            </View>
-                        ))}
-                    </View>
-                ) : null}
-                {requests.length === 0 ? (
-                    <Text className="py-4 text-center text-sm text-muted-foreground">
-                        {isHost
-                            ? "No suggestions waiting."
-                            : "You have no suggestions waiting."}
-                    </Text>
-                ) : (
-                    <ScrollView style={{ maxHeight: LIST_MAX_HEIGHT }}>
-                        {requests.map((entry, index) => (
-                            <EntryRow
-                                key={entry.entry_id}
-                                entry={entry}
-                                first={index === 0}
-                                trailing={
-                                    isHost ? (
-                                        <View className="flex-row gap-2">
-                                            <Button
-                                                accessibilityLabel={`Reject ${entry.title} from ${entry.added_by_username ?? "someone"}`}
-                                                className="w-9 px-0"
-                                                size="sm"
-                                                variant="outline"
-                                                onPress={() =>
-                                                    void run(
-                                                        () =>
-                                                            writes.reviewSuggestion(
-                                                                entry.entry_id,
-                                                                false,
-                                                            ),
-                                                        "Couldn't reject it.",
-                                                    )
-                                                }
-                                            >
-                                                <Ionicons
-                                                    name="close"
-                                                    size={18}
-                                                    color={colors.foreground}
-                                                />
-                                            </Button>
-                                            <Button
-                                                accessibilityLabel={`Approve ${entry.title} from ${entry.added_by_username ?? "someone"}`}
-                                                className="w-9 px-0"
-                                                size="sm"
-                                                onPress={() =>
-                                                    void run(
-                                                        () =>
-                                                            writes.reviewSuggestion(
-                                                                entry.entry_id,
-                                                                true,
-                                                            ),
-                                                        "Couldn't approve it.",
-                                                    )
-                                                }
-                                            >
-                                                <Ionicons
-                                                    name="checkmark"
-                                                    size={18}
-                                                    color={
-                                                        colors.primaryForeground
-                                                    }
-                                                />
-                                            </Button>
-                                        </View>
-                                    ) : (
-                                        <Pressable
-                                            accessibilityRole="button"
-                                            accessibilityLabel={`Withdraw ${entry.title}`}
-                                            onPress={() =>
-                                                void run(
-                                                    () =>
-                                                        writes.removeEntry(
-                                                            entry.entry_id,
-                                                        ),
-                                                    "Couldn't withdraw it.",
-                                                )
-                                            }
-                                            className="active:opacity-60"
-                                        >
-                                            <Text className="text-xs text-muted-foreground">
-                                                Withdraw
-                                            </Text>
-                                        </Pressable>
-                                    )
-                                }
-                            />
-                        ))}
-                    </ScrollView>
-                )}
-            </ModalPopup>
+            />
 
             <ModalPopup
                 visible={open === "people"}
@@ -316,8 +167,16 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                     roles={ROLE_CHOICES}
                     current={memberMenu.role}
                     removeLabel="Remove from session"
+                    extras={[
+                        {
+                            id: "make-host",
+                            label: "Make host",
+                            icon: "star-outline",
+                            onPress: () => confirmMakeHost(memberMenu),
+                        },
+                    ]}
                     onPick={(newRole) =>
-                        void run(
+                        void runSessionWrite(
                             () =>
                                 writes.setMemberRole({
                                     user_id: memberMenu.user_id,
@@ -328,7 +187,7 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                     }
                     onViewProfile={() => openProfile(memberMenu.user_id)}
                     onRemove={() =>
-                        void run(
+                        void runSessionWrite(
                             () => writes.kickMember(memberMenu.user_id),
                             "Couldn't remove them.",
                         )

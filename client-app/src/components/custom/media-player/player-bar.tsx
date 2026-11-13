@@ -4,9 +4,11 @@ import type { ComponentProps, ReactNode } from "react";
 import {
     Pressable,
     StyleSheet,
+    useWindowDimensions,
     View,
     type LayoutChangeEvent,
 } from "react-native";
+import Animated, { LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
@@ -16,28 +18,45 @@ export const PLAYER_BAR_HEIGHT = 72;
 export const PLAYER_BAR_RADIUS = PLAYER_BAR_HEIGHT / 2;
 /** Was 76%; the selector reads better with more room for three labels. */
 const PLAYER_BAR_WIDTH_PERCENT = 91;
+/** Room per button in a bar sized to its buttons. */
+const PLAYER_BAR_ITEM_WIDTH = 92;
+/** The shell's own side padding, `px-4`. */
+const SHELL_PADDING = 16;
+const RESIZE = LinearTransition.duration(220);
 
 /**
  * The glass bar at the bottom of the now playing sheet: the page tabs, or in
- * a live session the session's buttons.
+ * a live session the session's buttons. With `itemCount` it is only as wide as
+ * that many buttons need, up to the full bar, and grows or shrinks as the
+ * count changes, like a live session's buttons as a role changes.
  */
 export function PlayerBarShell({
     children,
     onLayout,
+    itemCount,
 }: {
     children: ReactNode;
     onLayout?: (event: LayoutChangeEvent) => void;
+    itemCount?: number;
 }) {
     const insets = useSafeAreaInsets();
+    const { width: screenWidth } = useWindowDimensions();
+    const fullWidth =
+        ((screenWidth - SHELL_PADDING * 2) * PLAYER_BAR_WIDTH_PERCENT) / 100;
+    const width =
+        itemCount === undefined
+            ? fullWidth
+            : Math.min(fullWidth, itemCount * PLAYER_BAR_ITEM_WIDTH);
     return (
         <View
             className="items-center px-4 pt-2"
             style={{ paddingBottom: Math.max(insets.bottom, 8) }}
         >
-            <View
+            <Animated.View
+                layout={RESIZE}
                 className="relative flex-row overflow-hidden border border-border"
                 style={{
-                    width: `${PLAYER_BAR_WIDTH_PERCENT}%`,
+                    width,
                     height: PLAYER_BAR_HEIGHT,
                     borderRadius: PLAYER_BAR_RADIUS,
                     borderCurve: "continuous",
@@ -62,7 +81,7 @@ export function PlayerBarShell({
                     />
                 </View>
                 {children}
-            </View>
+            </Animated.View>
         </View>
     );
 }

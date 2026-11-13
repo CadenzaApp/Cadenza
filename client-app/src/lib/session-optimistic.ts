@@ -19,9 +19,6 @@ import { playbackPositionMs } from "./session-playback.ts";
  * or a shuffle's new order, returns null and waits for it.
  */
 
-/** Back past this far restarts the song. Mirrors `RESTART_THRESHOLD_MS`. */
-const RESTART_THRESHOLD_MS = 4_000;
-
 let lastFakeId = 0;
 
 /** Whether an entry is a guess still waiting on its real id. */
@@ -167,11 +164,9 @@ export function playbackCommand(
         case "seek":
             return anchor({ position_ms: body.position_ms });
         case "previous":
-            // going back a song needs the last one played, which only the
-            // server has
-            return playback.entry_id !== null && position > RESTART_THRESHOLD_MS
-                ? anchor({ position_ms: 0 })
-                : null;
+            // back a song needs the last one played, which only the server
+            // has. a restart is sent as a seek to 0, which is guessed above
+            return null;
         case "next": {
             if (session.up_next.length === 0) return null;
             return startOn(

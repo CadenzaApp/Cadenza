@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation, useRouter, type Href } from "expo-router";
-import { useLayoutEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import Animated from "react-native-reanimated";
 
@@ -8,7 +8,6 @@ import { ArtworkMosaic } from "@/components/custom/artwork-mosaic";
 import { ErrorNotice } from "@/components/custom/error-notice";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { GlassButton } from "@/components/ui/glass-button";
-import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { GlassInput } from "@/components/ui/glass-input";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { GlassPill } from "@/components/ui/glass-pill";
@@ -28,12 +27,22 @@ import { isUsableArtworkUrl } from "@/lib/utils";
 
 import { roleLabel } from "./roles";
 
-/**
- * The caller's shared playlists: ones they own and ones they joined. New
- * playlist and Enter code sit in the header.
- */
+/** `/social/playlists`: the caller's shared playlists on their own screen. */
 export function SharedPlaylistsScreen() {
     const navigation = useNavigation();
+    useLayoutEffect(() => {
+        navigation.setOptions({ title: "Playlists" });
+    }, [navigation]);
+    return <SharedPlaylistsList />;
+}
+
+/**
+ * The caller's shared playlists, ones they own and ones they joined, as a
+ * screen's scroller. New playlist and Enter code sit above the list. `header`
+ * goes above everything, inside the scroller, like the Library's switch
+ * between its own playlists and these.
+ */
+export function SharedPlaylistsList({ header }: { header?: ReactNode }) {
     const router = useRouter();
     const { listBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll();
@@ -41,36 +50,6 @@ export function SharedPlaylistsScreen() {
     const { sharedPlaylists, sharedPlaylistsLoading, sharedPlaylistsErr } =
         useSharedPlaylists();
     const [creating, setCreating] = useState(false);
-
-    useLayoutEffect(() => {
-        navigation.setOptions({
-            title: "Playlists",
-            headerRight: () => (
-                <View className="flex-row items-center gap-2">
-                    <GlassIconButton
-                        accessibilityLabel="Join with a code"
-                        onPress={() => router.push("/join" as Href)}
-                    >
-                        <Ionicons
-                            name="keypad-outline"
-                            size={20}
-                            color={colors.foreground}
-                        />
-                    </GlassIconButton>
-                    <GlassIconButton
-                        accessibilityLabel="New shared playlist"
-                        onPress={() => setCreating(true)}
-                    >
-                        <Ionicons
-                            name="add"
-                            size={24}
-                            color={colors.foreground}
-                        />
-                    </GlassIconButton>
-                </View>
-            ),
-        });
-    }, [navigation, router, colors.foreground]);
 
     // one lookup for every cover, not one per row
     const coverIds = useMemo(
@@ -138,26 +117,42 @@ export function SharedPlaylistsScreen() {
         );
     } else {
         body = (
-            <GlassPanel>
-                {sharedPlaylists.map((playlist, index) => (
-                    <View key={playlist.playlist_id}>
-                        {index > 0 ? (
-                            <View className="ml-[84px] h-px bg-border" />
-                        ) : null}
-                        <PlaylistRow
-                            playlist={playlist}
-                            artworkUrls={playlist.cover_song_ids
-                                .map((id) => artworkById.get(id))
-                                .filter((url): url is string => Boolean(url))}
-                            onPress={() =>
-                                router.push(
-                                    `/social/playlist/${playlist.playlist_id}` as Href,
-                                )
-                            }
-                        />
-                    </View>
-                ))}
-            </GlassPanel>
+            <View className="gap-3">
+                <View className="flex-row gap-2">
+                    <GlassPill
+                        icon="add"
+                        label="New playlist"
+                        onPress={() => setCreating(true)}
+                    />
+                    <GlassPill
+                        icon="keypad-outline"
+                        label="Enter code"
+                        onPress={() => router.push("/join" as Href)}
+                    />
+                </View>
+                <GlassPanel>
+                    {sharedPlaylists.map((playlist, index) => (
+                        <View key={playlist.playlist_id}>
+                            {index > 0 ? (
+                                <View className="ml-[84px] h-px bg-border" />
+                            ) : null}
+                            <PlaylistRow
+                                playlist={playlist}
+                                artworkUrls={playlist.cover_song_ids
+                                    .map((id) => artworkById.get(id))
+                                    .filter((url): url is string =>
+                                        Boolean(url),
+                                    )}
+                                onPress={() =>
+                                    router.push(
+                                        `/social/playlist/${playlist.playlist_id}` as Href,
+                                    )
+                                }
+                            />
+                        </View>
+                    ))}
+                </GlassPanel>
+            </View>
         );
     }
 
@@ -177,6 +172,7 @@ export function SharedPlaylistsScreen() {
                     ]}
                     showsVerticalScrollIndicator={false}
                 >
+                    {header ? <View className="mb-3">{header}</View> : null}
                     {body}
                 </Animated.ScrollView>
             </ScreenScrollMarker>

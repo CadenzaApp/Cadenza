@@ -7,6 +7,7 @@ import Animated from "react-native-reanimated";
 
 import { ArtworkMosaic } from "@/components/custom/artwork-mosaic";
 import { ErrorNotice } from "@/components/custom/error-notice";
+import type { SegmentOption } from "@/components/ui/segmented-control";
 import { MusicListItemSkeleton } from "@/components/custom/music-list/music-list-item";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { Text } from "@/components/ui/text";
@@ -27,6 +28,7 @@ import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useAppTheme } from "@/lib/theme";
 
 import { LibraryListHeader, useLibraryListSearch } from "./library-list-header";
+import { useLibraryViewSwitch } from "./library-view-switch";
 import { concatUnique, mapInOrder } from "./play-queue";
 
 const SKELETON_ROW_COUNT = 6;
@@ -40,24 +42,35 @@ const ROW_ARTWORK_SIZE = 56;
 const MAX_QUEUED_SONGS = 500;
 const NO_SAVED_QUERIES: SavedQuery[] = [];
 
+type QueriesView = "all" | "shared";
+
+const VIEWS: readonly SegmentOption<QueriesView>[] = [
+    { value: "all", label: "Your queries" },
+    { value: "shared", label: "Shared queries" },
+];
+
 /**
  * The Queries category: every query the user saved from a results screen,
- * favorites first. A row opens the songs it holds, with the cover it was
+ * favorites first, or with the switch at the top only the ones they shared on
+ * their profile. A row opens the songs it holds, with the cover it was
  * saved with. Search filters by name, here on the phone, since the whole list
  * is one small read. Play and Shuffle queue the songs every query on show
  * holds, the user's own songs first.
  */
 export function SavedQueriesView() {
     const search = useLibraryListSearch();
+    const { view, viewSwitch } = useLibraryViewSwitch(VIEWS);
     const { savedQueries, savedQueriesLoading, savedQueriesErr } =
         useSavedQueries();
     const shown = useMemo(() => {
-        const all = savedQueries ?? NO_SAVED_QUERIES;
+        const all = (savedQueries ?? NO_SAVED_QUERIES).filter(
+            (saved) => view === "all" || saved.shared,
+        );
         const term = search.term?.toLowerCase();
         return term
             ? all.filter((saved) => saved.name.toLowerCase().includes(term))
             : all;
-    }, [savedQueries, search.term]);
+    }, [savedQueries, search.term, view]);
     const tagNames = useTagNames();
     const [deleting, setDeleting] = useState<SavedQuery | null>(null);
     const {
@@ -116,19 +129,24 @@ export function SavedQueriesView() {
                     emptyLabel={
                         search.term
                             ? "No saved queries match."
-                            : "No saved queries yet. Save one from a query's results."
+                            : view === "shared"
+                              ? "No shared queries yet. Share one from its ... menu."
+                              : "No saved queries yet. Save one from a query's results."
                     }
                     header={
-                        <LibraryListHeader
-                            search={search}
-                            placeholder="Search Queries"
-                            actions={{
-                                onPlay: playAll.play,
-                                onShuffle: playAll.shuffle,
-                                disabled: shown.length === 0,
-                                pending: playAll.pending,
-                            }}
-                        />
+                        <>
+                            <View className="px-5 pb-2">{viewSwitch}</View>
+                            <LibraryListHeader
+                                search={search}
+                                placeholder="Search Queries"
+                                actions={{
+                                    onPlay: playAll.play,
+                                    onShuffle: playAll.shuffle,
+                                    disabled: shown.length === 0,
+                                    pending: playAll.pending,
+                                }}
+                            />
+                        </>
                     }
                 />
             </View>

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
     applyOps,
+    hostQueueIds,
     hostTarget,
     reconcile,
     shouldCorrectDrift,
@@ -104,4 +105,22 @@ test("the host's queue starts on the song its phone plays", () => {
     ]);
     assert.deepEqual(hostTarget(entries, "x"), []);
     assert.deepEqual(hostTarget(entries, null), []);
+});
+
+test("the host's phone holds the session's songs after one it does not have", () => {
+    const entries = [{ song_id: "a" }, { song_id: "b" }, { song_id: "c" }];
+    // on a session song: that song and what follows
+    assert.deepEqual(hostQueueIds(entries, entries, "b"), ["b", "c"]);
+    // on a song the session left out: it, then the whole session
+    assert.deepEqual(hostQueueIds(entries, entries, "i.lib"), [
+        "i.lib",
+        "a",
+        "b",
+        "c",
+    ]);
+    assert.deepEqual(hostQueueIds(entries, entries, null), []);
+    // and reconcile only adds after it, never replacing what plays
+    const local = { songIds: ["i.lib"], index: 0 };
+    const ops = reconcile(local, hostQueueIds(entries, entries, "i.lib"));
+    assert.deepEqual(applyOps(local, ops), ["i.lib", "a", "b", "c"]);
 });

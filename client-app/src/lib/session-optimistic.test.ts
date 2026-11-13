@@ -18,6 +18,9 @@ const entry = (entry_id: number, status = "queued"): LiveSessionEntry => ({
     song_id: `song-${entry_id}`,
     title: `Song ${entry_id}`,
     artist: null,
+    album: null,
+    album_id: null,
+    artist_id: null,
     artwork_url: null,
     duration_ms: 200_000,
     status: status as LiveSessionEntry["status"],
@@ -56,6 +59,9 @@ const song = {
     song_id: "x",
     title: "X",
     artist: null,
+    album: null,
+    album_id: null,
+    artist_id: null,
     artwork_url: null,
     duration_ms: null,
 };
@@ -112,13 +118,8 @@ test("next and jump advance; back near the start waits on the server", () => {
     assert.equal(jumped.current!.entry_id, 4);
     assert.deepEqual(ids(jumped.up_next), []);
 
-    // 10 s in, so back restarts
-    const back = playbackCommand(session(), { kind: "previous" }, NOW)!;
-    assert.equal(back.playback.position_ms, 0);
-    const early = session({
-        playback: { ...session().playback, as_of: "2026-11-12T00:00:09Z" },
-    });
-    assert.equal(playbackCommand(early, { kind: "previous" }, NOW), null);
+    // back a song waits for the server, which knows what played before
+    assert.equal(playbackCommand(session(), { kind: "previous" }, NOW), null);
 });
 
 test("pause holds the position it reached", () => {

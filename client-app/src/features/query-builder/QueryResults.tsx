@@ -68,11 +68,13 @@ type Props = {
 /** The query menu's writes. Each rejects with the backend's error. */
 export type QueryResultsActions = {
     /** Null until the query is saved. */
-    saved: { favorite: boolean } | null;
+    saved: { favorite: boolean; shared: boolean } | null;
     /** Saves the query under a name, favorited or not. */
     save: (name: string, favorite: boolean) => Promise<void>;
     /** Only called once saved. */
     setFavorite: (favorite: boolean) => Promise<void>;
+    /** Only called once saved. Shows it on the user's profile, or stops. */
+    setShared: (shared: boolean) => Promise<void>;
     /** Only called once saved. Replaces its songs with what it matches now. */
     rerun: () => Promise<void>;
 };
@@ -101,6 +103,7 @@ export default function QueryResults({
     // favorite on an unsaved query saves it first, favorited
     const [saveAsFavorite, setSaveAsFavorite] = useState(false);
     const [favoriteBusy, setFavoriteBusy] = useState(false);
+    const [sharedBusy, setSharedBusy] = useState(false);
     const [rerunning, setRerunning] = useState(false);
     const [saveName, setSaveName] = useState("");
     const [saving, setSaving] = useState(false);
@@ -186,6 +189,19 @@ export default function QueryResults({
             Alert.alert("Couldn't Update Favorite", "Please try again.");
         } finally {
             setFavoriteBusy(false);
+        }
+    }
+
+    async function toggleShared() {
+        if (!actions?.saved || sharedBusy) return;
+        setSharedBusy(true);
+        try {
+            await actions.setShared(!actions.saved.shared);
+        } catch (sharedErr) {
+            console.error("Unable to share the query.", sharedErr);
+            Alert.alert("Couldn't Update Profile", "Please try again.");
+        } finally {
+            setSharedBusy(false);
         }
     }
 
@@ -278,8 +294,13 @@ export default function QueryResults({
                     saved={actions.saved !== null}
                     favorite={actions.saved?.favorite ?? false}
                     favoriteBusy={favoriteBusy}
+                    shared={actions.saved?.shared ?? false}
+                    sharedBusy={sharedBusy}
                     resolveTracks={resolvePlayQueue}
                     onToggleFavorite={() => void toggleFavorite()}
+                    onToggleShared={
+                        actions.saved ? () => void toggleShared() : undefined
+                    }
                     onSave={() => openSaveDialog(false)}
                     onRerun={() => void rerun()}
                     onClose={() => setMenuOpen(false)}

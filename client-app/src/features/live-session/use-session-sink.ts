@@ -9,14 +9,18 @@ import {
     type PlaybackQueue,
     type PlaybackSink,
 } from "@/lib/playback";
+import { invalidateAPIData } from "@/lib/api-actions";
 import {
     MAX_SESSION_ADD,
     useLiveSessionWrites,
     type LiveSession,
     type QueueSongBody,
 } from "@/lib/routes/live-sessions";
+import { serverNow } from "@/lib/realtime";
+import { playbackPositionMs } from "@/lib/session-playback";
 import { RESTART_THRESHOLD_SECONDS } from "@/lib/transport";
 
+import { clearLeavingForOwnMusic, markLeavingForOwnMusic } from "./own-music";
 import {
     sessionSongs,
     upcomingEntryAt,
@@ -41,18 +45,27 @@ function sessionRepeat(mode: RepeatMode) {
  * session instead of the local player, so every play, queue, and skip button
  * in the app works on the session.
  *
- * On the host, queue changes, back, shuffle, and repeat go to the session,
- * since only the session knows what played before. Play, pause, skip, and seek
- * stay local: the phone is the speaker, and its reports carry them to the
- * session. On a member, synced or
- * remote, everything goes to the session, and play, pause, skip, seek, and
- * the modes are locked unless their role allows them.
+ * On a host whose phone plays the session (`playsHere`), queue changes,
+ * back, shuffle, and repeat go to the session, since only the session knows
+ * what played before. Play, pause, skip, and seek stay local: the phone is
+ * the speaker, and its reports carry them to the session. A host whose phone
+ * does not play it (no full playback) has nothing local to skip in, so
+ * everything goes to the session, as for a controller. On a member, synced
+ * or remote, everything goes to the session, and play, pause, skip, seek,
+ * and the modes are locked unless their role allows them.
  *
  * Songs land as the caller's role allows: played now by a controller, queued
  * by a queue editor, suggested by a suggester. Library only songs are left
  * out, since nobody else could play them.
+ *
+ * Playing something (a song, or a list from a song) as a member who cannot
+ * control the session would be playing outside it, so it asks first: add it
+ * to the session as the role allows, or leave the session and play it here.
  */
-export function useSessionSink(session: LiveSession | null) {
+export function useSessionSink(
+    session: LiveSession | null,
+    playsHere: boolean,
+) {
     const playback = usePlayback();
     const local = useLocalPlaybackCommands();
     const writes = useLiveSessionWrites(session?.session_id ?? "none");
@@ -67,10 +80,11 @@ export function useSessionSink(session: LiveSession | null) {
     // permissions follow the role, so the role keys the sink
     const role = session?.my_role ?? null;
     const permissions = session?.can;
+    // the phone is the speaker only on a host that plays it
+    const hostSpeaker = role === "host" && playsHere;
     const sink = useMemo<PlaybackSink | null>(() => {
         if (role === null || !permissions) return null;
         const can = permissions;
-        const isHost = role === "host";
 
         async function run(what: string, write: () => Promise<unknown>) {
             try {
@@ -172,10 +186,75 @@ export function useSessionSink(session: LiveSession | null) {
             body,
         ) => latest.current.writes.sendPlayback(body);
 
+        /** Leaves the session, then plays on the phone with `playOwn`. */
+        async function leaveAndPlay(playOwn: () => Promise<void>) {
+            markLeavingForOwnMusic();
+            try {
+                await latest.current.writes.leaveSession();
+                // gone before anything plays, so the session player lets go
+                await invalidateAPIData([{ path: "/live-sessions/current" }]);
+            } catch (error) {
+                clearLeavingForOwnMusic();
+                console.warn("Could not leave the live session:", error);
+                tell("Live session", "Couldn't leave the session.");
+                return;
+            }
+            await playOwn();
+        }
+
+        /**
+         * For a member who cannot control the session: playing `tracks`
+         * would be outside it, so this asks whether to add them to the
+         * session instead, or leave it and play them.
+         */
+        function offerOwnMusic(
+            tracks: readonly MusicItem[],
+            playOwn: () => Promise<void>,
+        ) {
+            const name = latest.current.session?.name ?? "the live session";
+            const instead = can.edit_queue
+                ? "Add to session"
+                : can.suggest
+                  ? "Suggest it"
+                  : null;
+            Alert.alert(
+                "Leave your live session?",
+                `Playing this yourself takes you out of ${name}.`,
+                [
+                    { text: "Cancel", style: "cancel" },
+                    ...(instead
+                        ? [
+                              {
+                                  text: instead,
+                                  onPress: () => void add(tracks, "next"),
+                              },
+                          ]
+                        : []),
+                    {
+                        text: "Leave and play",
+                        style: "destructive" as const,
+                        onPress: () => void leaveAndPlay(playOwn),
+                    },
+                ],
+            );
+        }
+
         const sessionCommands: PlaybackSink = {
             ...queueCommands,
-            skipToPrevious: () =>
-                control("go back", () => send({ kind: "previous" })),
+            // the same rule as outside a session: a few seconds in, back
+            // restarts the song, else it goes to the song before. decided
+            // here, from where the session is, and sent as one or the other
+            skipToPrevious: () => {
+                const live = latest.current.session;
+                const at = live
+                    ? playbackPositionMs(live.playback, serverNow())
+                    : 0;
+                return at > RESTART_THRESHOLD_SECONDS * 1000
+                    ? control("restart the song", () =>
+                          send({ kind: "seek", position_ms: 0 }),
+                      )
+                    : control("go back", () => send({ kind: "previous" }));
+            },
             setShuffleMode: (mode) =>
                 control("change shuffle", () =>
                     send({ kind: "shuffle", on: mode !== ShuffleMode.Off }),
@@ -186,7 +265,7 @@ export function useSessionSink(session: LiveSession | null) {
                 ),
         };
 
-        if (isHost) {
+        if (hostSpeaker) {
             return {
                 ...sessionCommands,
                 // a restart is quicker on the phone, and its report tells
@@ -198,7 +277,11 @@ export function useSessionSink(session: LiveSession | null) {
                     ) {
                         await local.seekTo(0);
                     } else {
-                        await sessionCommands.skipToPrevious!();
+                        // the phone's own position decided it, so straight
+                        // to the song before
+                        await control("go back", () =>
+                            send({ kind: "previous" }),
+                        );
                     }
                 },
                 // a new song would replace the phone's queue, so it goes
@@ -216,6 +299,17 @@ export function useSessionSink(session: LiveSession | null) {
         return {
             ...sessionCommands,
             controlsLocked: !canControl,
+            // a controller plays it in the session; anyone else is asked
+            playQueue: async (queue) => {
+                if (canControl) {
+                    await sessionCommands.playQueue!(queue);
+                    return;
+                }
+                offerOwnMusic(
+                    queue.tracks.slice(Math.max(0, queue.startIndex ?? 0)),
+                    () => local.playQueue(queue),
+                );
+            },
             playQueueItem: async (index) => {
                 const found = entryAt(index);
                 if (!found) return;
@@ -223,10 +317,14 @@ export function useSessionSink(session: LiveSession | null) {
                     send({ kind: "jump", entry_id: found.entry.entry_id }),
                 );
             },
-            togglePlayback: async (track) => {
+            togglePlayback: async (track, source) => {
                 const { session, playback } = latest.current;
                 if (playback.activeTrackId !== track.id) {
-                    await add([track], "now");
+                    if (canControl) await add([track], "now");
+                    else
+                        offerOwnMusic([track], () =>
+                            local.togglePlayback(track, source),
+                        );
                     return;
                 }
                 const playing = session?.playback.is_playing ?? false;
@@ -245,7 +343,7 @@ export function useSessionSink(session: LiveSession | null) {
         };
         // the commands read everything else from `latest` at call time
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [local, role, session?.session_id]);
+    }, [hostSpeaker, local, role, session?.session_id]);
 
     usePlaybackSink(sink);
 }

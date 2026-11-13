@@ -43,6 +43,8 @@ export type FriendListening = {
      * made for them by joining.
      */
     can_join: boolean;
+    /** Everyone in their live session, them included. 1 with no session. */
+    listener_count: number;
 };
 
 /** One counted play. The title comes from Apple Music by `song_id`. */

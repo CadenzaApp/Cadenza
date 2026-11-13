@@ -1,3 +1,4 @@
+import { useAccount } from "../account";
 import { useAPIData, useAPIMutation } from "../api-actions";
 import { useRealtimeTopic } from "../realtime";
 import type { CreateInviteBody, Invite } from "./invites";
@@ -67,9 +68,11 @@ const LIST = { path: "/shared-playlists" };
 const detail = (id: number) => ({ path: `/shared-playlists/${id}` });
 
 /** The caller's shared playlists, most recently changed first. */
-export function useSharedPlaylists() {
+export function useSharedPlaylists(enabled = true) {
     const x = useAPIData<{ playlists: SharedPlaylistSummary[] }>(
         "/shared-playlists",
+        undefined,
+        { enabled },
     );
     return {
         sharedPlaylists: x.data?.playlists,
@@ -77,6 +80,34 @@ export function useSharedPlaylists() {
         sharedPlaylistsErr: x.error,
         reloadSharedPlaylists: x.mutate,
     };
+}
+
+/**
+ * A user's shared playlists for their profile, most recently changed first.
+ * `null` when their privacy setting hides them. The signed-in user's own are
+ * their list, so a change there shows here without another read. Listing one
+ * does not let the viewer open it; that still needs membership or a code.
+ */
+export function useProfilePlaylists(userId: string) {
+    const { account } = useAccount();
+    const own = account?.id === userId;
+    const mine = useSharedPlaylists(own);
+    const theirs = useAPIData<{ playlists: SharedPlaylistSummary[] | null }>(
+        `/shared-playlists/users/${userId}`,
+        undefined,
+        { enabled: !own },
+    );
+    return own
+        ? {
+              profilePlaylists: mine.sharedPlaylists,
+              profilePlaylistsLoading: mine.sharedPlaylistsLoading,
+              profilePlaylistsErr: mine.sharedPlaylistsErr,
+          }
+        : {
+              profilePlaylists: theirs.data?.playlists,
+              profilePlaylistsLoading: theirs.isLoading,
+              profilePlaylistsErr: theirs.error,
+          };
 }
 
 /**

@@ -11,6 +11,9 @@ import {
     INVITE_CODE_LENGTH,
     useRedeemInvite,
 } from "@/lib/routes/invites";
+import { useLiveSessionWrites } from "@/lib/routes/live-sessions";
+
+import { useCurrentLiveSession } from "./use-current-session";
 
 /** One line for each way a redeem can fail. */
 function failureMessage(error: unknown): string {
@@ -32,11 +35,17 @@ function failureMessage(error: unknown): string {
 /**
  * Enter an invite code for a live session or a shared playlist. With
  * `initialCode`, from a `cadenza://join/CODE` link, it redeems straight away.
- * A session opens in its sheet; a playlist opens on the Social tab.
+ * A session opens in its sheet; a playlist opens on the Social tab. A code
+ * into another session takes the caller out of the one they were in, which
+ * Listening now's Join with code warned about.
  */
 export function JoinScreen({ initialCode }: { initialCode?: string }) {
     const router = useRouter();
     const { redeemInvite, redeemInviteLoading } = useRedeemInvite();
+    const current = useCurrentLiveSession();
+    const { leaveSession } = useLiveSessionWrites(
+        current?.session_id ?? "none",
+    );
     const [code, setCode] = useState(() => cleanInviteCode(initialCode ?? ""));
     const [error, setError] = useState<string | null>(null);
     const autoTried = useRef(false);
@@ -44,8 +53,16 @@ export function JoinScreen({ initialCode }: { initialCode?: string }) {
     const complete = code.length === INVITE_CODE_LENGTH;
 
     /** Where a redeemed code goes: a session's sheet, or the playlist. */
-    function open(target: { kind: string; id: string }) {
+    async function open(target: { kind: string; id: string }) {
         if (target.kind === "live_session") {
+            // one session at a time: the new one, not the old one too
+            if (current && current.session_id !== target.id) {
+                try {
+                    await leaveSession();
+                } catch (error) {
+                    console.warn("Could not leave the last session:", error);
+                }
+            }
             router.replace("/player");
         } else {
             router.back();
@@ -56,7 +73,7 @@ export function JoinScreen({ initialCode }: { initialCode?: string }) {
     async function join(value = code) {
         if (value.length !== INVITE_CODE_LENGTH || redeemInviteLoading) return;
         try {
-            open(await redeemInvite({ code: value }));
+            await open(await redeemInvite({ code: value }));
         } catch (failure) {
             setError(failureMessage(failure));
         }
@@ -70,7 +87,7 @@ export function JoinScreen({ initialCode }: { initialCode?: string }) {
         if (cleaned.length !== INVITE_CODE_LENGTH) return;
         void (async () => {
             try {
-                open(await redeemInvite({ code: cleaned }));
+                await open(await redeemInvite({ code: cleaned }));
             } catch (failure) {
                 setError(failureMessage(failure));
             }

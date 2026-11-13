@@ -36,7 +36,7 @@ Apple Music connect sheet in `@/features/onboarding` adds a red nebula.
 
 The display name is `profile.username` from `useProfile`, with the email local part while it
 loads. Username and bio are edited only in account details. Your public page is read only; its
-Edit button (reached from the Social tab's Me button or View public profile) opens account details.
+Edit button (reached from the Social tab's My profile card or View public profile) opens account details.
 
 Sync now calls `useAppleMusicSync().syncNow` from `@/lib/song-init`. It joins the startup sync if
 one is running, then refreshes every library read. "Last synced" is per device and account.

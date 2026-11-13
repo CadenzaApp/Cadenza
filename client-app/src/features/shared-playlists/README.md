@@ -5,7 +5,7 @@ copy". Titles and art come from Apple Music by catalog id.
 
 | file                              | role                                                                                                                             |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `SharedPlaylistsScreen.tsx`       | `/social/playlists`: the caller's playlists, new playlist, enter code.                                                           |
+| `SharedPlaylistsScreen.tsx`       | `SharedPlaylistsList`: the caller's playlists, new playlist, enter code. Library > Playlists shows it under Shared playlists; `/social/playlists` shows it alone. |
 | `SharedPlaylistScreen.tsx`        | `/social/playlist/:id` on `TrackCollectionView`: play, add, remove, invite, rename, share to feed, save a copy, leave or delete. |
 | `SharedPlaylistReorderScreen.tsx` | `/social/playlist/:id/reorder`: drag songs into a new order, on `ReorderableList`. Editors and the owner.                        |
 | `SharedPlaylistMembersScreen.tsx` | `/social/playlist/:id/members`: roles, remove, invite, add friends.                                                              |

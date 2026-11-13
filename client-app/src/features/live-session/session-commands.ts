@@ -15,6 +15,9 @@ export function trackToSessionSong(track: MusicItem): QueueSongBody | null {
         song_id: songId,
         title: track.title,
         artist: track.artistName ?? null,
+        album: track.albumName ?? null,
+        album_id: track.albumID ?? null,
+        artist_id: track.artistId ?? null,
         artwork_url: track.artworkUrl ?? null,
         duration_ms: track.songDuration
             ? Math.round(track.songDuration * 1000)

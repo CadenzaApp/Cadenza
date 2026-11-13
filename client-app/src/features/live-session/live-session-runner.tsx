@@ -23,7 +23,7 @@ export function LiveSessionRunner() {
     const session = useCurrentLiveSession();
     const here = playsHere(session, fullPlayback);
     useSessionPlayer(session, fullPlayback);
-    useSessionSink(session);
+    useSessionSink(session, here);
     useSessionView(session, session !== null && !here);
     // a phone playing the session keeps following it with the app closed
     useRealtimeInBackground(here);

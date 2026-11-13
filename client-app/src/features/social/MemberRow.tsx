@@ -12,8 +12,9 @@ import { useAppTheme } from "@/lib/theme";
 import { initialsFromUsername } from "./format";
 
 /**
- * An initials circle. There are no profile photos. The rim is a faint tint
- * of the text color, so it shows on glass and on the page alike.
+ * An initials circle. There are no profile photos. The rim is the theme's
+ * border color; the theme colors are CSS variables, which take no `/NN`
+ * opacity, so a tinted rim would come out near black.
  */
 export function Initials({
     username,
@@ -27,15 +28,23 @@ export function Initials({
 }) {
     // a quarter of the avatar, never smaller than its rim can ring
     const dot = Math.max(10, Math.round(size / 4));
+    const fontSize = Math.max(9, Math.round(size * 0.4));
     return (
         <View style={{ width: size, height: size }}>
             <View
-                className="flex-1 items-center justify-center rounded-full border border-foreground/20 bg-muted"
+                className="flex-1 items-center justify-center rounded-full border border-border bg-muted"
                 importantForAccessibility="no-hide-descendants"
             >
                 <Text
                     className="font-semibold text-foreground"
-                    style={{ fontSize: Math.max(9, size * 0.32) }}
+                    // the line as tall as the letter, so it sits in the middle
+                    // of a circle smaller than the default line height
+                    style={{
+                        fontSize,
+                        lineHeight: fontSize,
+                        textAlign: "center",
+                        includeFontPadding: false,
+                    }}
                 >
                     {initialsFromUsername(username)}
                 </Text>
@@ -134,6 +143,14 @@ export function MemberRow({
 /** A role a member can be set to, as the role menu lists it. */
 export type RoleChoice<T extends string> = { value: T; label: string };
 
+/** Something else the menu offers, between the roles and View profile. */
+export type RoleMenuExtra = {
+    id: string;
+    label: string;
+    icon: IoniconName;
+    onPress: () => void;
+};
+
 /**
  * Pick a member's role, view them, or remove them. Shared by playlist members
  * and session people.
@@ -147,11 +164,13 @@ export function RoleMenu<T extends string>({
     onViewProfile,
     onRemove,
     onClose,
+    extras = [],
 }: {
     username: string;
     roles: readonly RoleChoice<T>[];
     current: T;
     removeLabel: string;
+    extras?: readonly RoleMenuExtra[];
     onPick: (role: T) => void;
     onViewProfile: () => void;
     onRemove: () => void;
@@ -194,6 +213,18 @@ export function RoleMenu<T extends string>({
                 />
             ))}
             <View className="my-1 h-px bg-border" />
+            {extras.map((extra) => (
+                <MusicListActionButton
+                    key={extra.id}
+                    action={action(
+                        extra.id,
+                        extra.label,
+                        extra.onPress,
+                        extra.icon,
+                    )}
+                    target={null}
+                />
+            ))}
             <MusicListActionButton
                 action={action(
                     "view-profile",

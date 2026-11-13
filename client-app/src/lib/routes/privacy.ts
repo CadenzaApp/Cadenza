@@ -18,6 +18,10 @@ export type PrivacySettings = {
      * `nobody` means listen along is off.
      */
     listen_along: Audience;
+    /** Shared playlists on the profile. */
+    profile_playlists: Audience;
+    /** Saved queries shared on the profile. */
+    profile_queries: Audience;
 };
 
 /** What the backend returns for a user who never changed one. */
@@ -27,6 +31,8 @@ export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
     session_join: "friends",
     playlist_add: "friends",
     listen_along: "nobody",
+    profile_playlists: "friends",
+    profile_queries: "friends",
 };
 
 /**
