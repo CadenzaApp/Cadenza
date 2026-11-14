@@ -134,5 +134,16 @@
       "path": "/auth/v1/settings",
       "status": 200
     }
-  ]
+  ],
+  "phone_smoke": {
+    "passed": true,
+    "reported_by": "user",
+    "recorded_at_utc": "2026-11-14T00:00:51.255361+00:00",
+    "flows": [
+      "tags/saved queries",
+      "tag suggestion",
+      "social feed or topic-linked post"
+    ],
+    "note": "User confirmed the grouped smoke-check prompt; exact social alternative was not specified."
+  }
 }

@@ -289,8 +289,8 @@ No notification Lambda is needed. Resource identifiers and evidence live under
    untested at runtime. Source e55a356 is deployed with validated AMI
    ami-0eb1717b4664bc627 and launch-template version 12. A real inference burst
    admitted nine jobs and rejected nine with 503; readiness stayed 200 for all
-   71 samples. Automated checks passed; await the post-release phone smoke check
-   before broadening access. Quotas reset on process restart or instance replacement;
+   71 samples. Automated checks passed and the user confirmed the post-release
+   phone smoke flows. Home-only access remains until explicitly opened. Quotas reset on process restart or instance replacement;
    that tradeoff is accepted. Bound limiter memory and expire inactive entries. Preserve private ingress and the home
    restriction until explicitly opened. Focused development-DB tests are allowed
    with labeled records and cleanup; no separate DB is required.

@@ -19,5 +19,6 @@
   "previous_release_manifest": "deploy/releases/git-d752f9154e8e-20261113090716-targeted.json",
   "activation_note": "Resumed validated image after correcting candidate quota-setting guard; backend source and Dockerfile unchanged.",
   "hardening_verification": "deploy/recovery/verification.hardening_release.json",
-  "phone_smoke_verified": false
+  "phone_smoke_verified": true,
+  "phone_smoke_recorded_at_utc": "2026-11-14T00:00:51.255361+00:00"
 }

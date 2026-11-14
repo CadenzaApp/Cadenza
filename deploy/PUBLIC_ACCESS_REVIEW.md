@@ -256,7 +256,9 @@ those five bounded settings. The validated image was resumed through normal
 activation/provisioning commands without rebuilding unchanged app code.
 Release CLI now prevalidates candidate settings before image building/baking.
 
-Phone smoke confirmation after this release is pending. Previous two-account
+The user confirmed the grouped post-release phone smoke prompt: tags/saved
+queries, tag suggestion, and social feed or a topic-linked post work. The exact
+social alternative was not specified. Previous two-account
 results apply to the earlier deployment; they are not a full endpoint audit.
 Home-only access and disabled Supabase Data API are preserved. Earlier pending
 implementation notes above are historical and superseded by this deployment.
