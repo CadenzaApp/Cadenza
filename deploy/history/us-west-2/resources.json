@@ -1,0 +1,43 @@
+{
+  "group": "cadenza-demo-single",
+  "load_balancer_arn": "arn:aws:elasticloadbalancing:us-west-2:175220118767:loadbalancer/app/cadenza-demo-single/b1544cdee5ce2b1f",
+  "load_balancer_dns": "internal-cadenza-demo-single-48094245.us-west-2.elb.amazonaws.com",
+  "target_group_arn": "arn:aws:elasticloadbalancing:us-west-2:175220118767:targetgroup/cadenza-demo-single/262d8543f8690c88",
+  "alb_security_group": "sg-055fa04c8af35a99a",
+  "backend_security_group": "sg-0357da20060cf0421",
+  "launch_template": {
+    "LaunchTemplateId": "lt-035cdeecd1b0da54e",
+    "Version": "12"
+  },
+  "bootstrap_sha256": "2b4834bd891179c00595556f9a95e903df24b392bca317cd37906a036ba5a902",
+  "health_path": "/health/ready",
+  "health_interval_seconds": 5,
+  "unhealthy_threshold": 3,
+  "healthy_threshold": 2,
+  "current_instance": "i-00d963ec5a0461258",
+  "vpc_origin_id": "vo_JH7rsmwwoUdDRDRHxLal5R",
+  "cutover_complete": true,
+  "notifications_topic": "arn:aws:sns:us-west-2:175220118767:cadenza-demo-instance-events",
+  "active_release_manifest": "deploy/releases/git-e55a35654e24-20261113233036.json",
+  "backend_image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:8c114c88f756a462d0efc6aabcf9ddc3d5f833847803fd0a98ef9378ca832b61",
+  "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+  "cold_base_ami": "ami-0bec25ae844865e7d",
+  "warm_ami": {
+    "image_id": "ami-0eb1717b4664bc627",
+    "builder_instance": "i-0a982b915d6e5cd89",
+    "validation_instance": "i-093bbfa0b915c8f31",
+    "validated_at_utc": "2026-11-13T23:53:46.684773+00:00",
+    "bake_key": "80a1ca24da46b649f05892ab08c20ca9e406f8a319eeb4f2544dd89258bd85a3",
+    "cold_base_ami": "ami-0bec25ae844865e7d",
+    "backend_image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:8c114c88f756a462d0efc6aabcf9ddc3d5f833847803fd0a98ef9378ca832b61",
+    "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+    "validation_command": "8c48ef92-7c98-42a3-9b21-a621f0bf78a2",
+    "validation_result": "{\"stage\": \"targeted_prefetch\", \"seconds\": 147.52, \"files\": 27481, \"logical_bytes\": 2405766940, \"input_blocks\": 4865096}\nAMI validation passed: no containers/secrets; offline finite 768-dimensional inference",
+    "validated": true,
+    "startup_prefetch": "targeted-python-model-v1"
+  },
+  "disk_initialization_enabled": false,
+  "draining_seconds": 30,
+  "health_timeout_seconds": 4,
+  "previous_recovery_timing_record": "deploy/recovery/verification.targeted_timing.json"
+}

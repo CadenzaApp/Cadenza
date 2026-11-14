@@ -2,6 +2,7 @@
 # Fresh hosts prepare their image/cache, then start only after old hosts are gone.
 set -euo pipefail
 cd /opt/cadenza
+region=$(python3 -c 'from pathlib import Path; v=dict(l.split("=",1) for l in Path("release.env").read_text().splitlines() if l and not l.startswith("#")); print(v["BACKEND_IMAGE"].split(".")[3])')
 stage() { printf '{"stage":"%s","at_utc":"%s"}\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >> logs/boot-stages.jsonl; }
 stage bootstrap_started
 prefetch_pid=
@@ -49,7 +50,7 @@ token=$(curl --fail --silent --max-time 5 -X PUT -H 'X-aws-ec2-metadata-token-tt
 self=$(curl --fail --silent --max-time 5 -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/instance-id)
 exclusive=false
 for attempt in $(seq 1 120); do
-    aws ec2 describe-instances --region us-west-2 --filters Name=tag:CadenzaBackend,Values=demo Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down --query 'Reservations[].Instances[].InstanceId' --output json > /run/cadenza-backend-hosts.json
+    aws ec2 describe-instances --region "$region" --filters Name=tag:CadenzaBackend,Values=demo Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down --query 'Reservations[].Instances[].InstanceId' --output json > /run/cadenza-backend-hosts.json
     if python3 - "$self" <<'CHECK'
 import json,sys
 raise SystemExit(0 if set(json.load(open('/run/cadenza-backend-hosts.json'))) == {sys.argv[1]} else 1)
@@ -71,6 +72,6 @@ fi
 stage application_starting
 CADENZA_BOOTSTRAP_INFERENCE_TIMEOUT=300 bash start-release.sh
 stage application_verified
-aws autoscaling complete-lifecycle-action --region us-west-2 --auto-scaling-group-name cadenza-demo-single --lifecycle-hook-name cadenza-ready --instance-id "$self" --lifecycle-action-result CONTINUE
+aws autoscaling complete-lifecycle-action --region "$region" --auto-scaling-group-name cadenza-demo-single --lifecycle-hook-name cadenza-ready --instance-id "$self" --lifecycle-action-result CONTINUE
 stage lifecycle_completed
 touch bootstrap.ready

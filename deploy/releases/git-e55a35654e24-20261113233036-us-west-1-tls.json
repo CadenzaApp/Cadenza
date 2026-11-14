@@ -1,0 +1,30 @@
+{
+  "source_commit": "e55a35654e243f816f1d29fa08a27787d74786a4",
+  "tag": "git-e55a35654e24-20261113233036",
+  "image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:8c114c88f756a462d0efc6aabcf9ddc3d5f833847803fd0a98ef9378ca832b61",
+  "release_env_sha256": "a780ee631c5d0e6938c087b88e08a17b53c17706c65c83ab28db6c06925050c2",
+  "launch_template": {
+    "LaunchTemplateId": "lt-0369d766012c4ef99",
+    "Version": "2"
+  },
+  "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+  "platform": "linux/arm64",
+  "viewer_http_status": 200,
+  "warm_ami": "ami-04040be0fc1e6cf6d",
+  "warm_ami_record": "deploy/ami/records/ami-04040be0fc1e6cf6d.json",
+  "bootstrap_mode": "warm",
+  "startup_prefetch": "targeted-python-model-v1",
+  "verified_at_utc": "2026-11-14T01:28:36.751073+00:00",
+  "previous_release_manifest": "deploy/releases/git-e55a35654e24-20261113233036.json",
+  "region": "us-west-1",
+  "database_tls": "verify-full",
+  "migration_verification": "deploy/recovery/verification.region_migration.json",
+  "credential_verification": "deploy/recovery/verification.credentials.json",
+  "phone_smoke_verified": true,
+  "phone_smoke_recorded_at_utc": "2026-11-14T01:39:53.062930+00:00",
+  "phone_smoke_scope": [
+    "sign-in",
+    "tags/saved queries",
+    "social feed"
+  ]
+}

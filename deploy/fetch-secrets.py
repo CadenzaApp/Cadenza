@@ -2,10 +2,9 @@
 
 import json
 import os
-from pathlib import Path
 import subprocess
 import tempfile
-
+from pathlib import Path
 
 GROUPS = {
     "api": ("DATABASE_URL", "OPENAI_API_KEY", "APPLE_MUSIC_DEVELOPER_TOKEN"),
@@ -13,20 +12,33 @@ GROUPS = {
 }
 
 
-def fetch_group(group: str, keys: tuple[str, ...]) -> str:
+def fetch_group(group: str, keys: tuple[str, ...], region: str) -> str:
     # Capture stderr too: callers should inspect IAM and parameter names rather
     # than copy potentially sensitive CLI output into chat.
     try:
         result = subprocess.run(
             [
-                "aws", "ssm", "get-parameter", "--region", "us-west-2",
-                "--name", f"/cadenza/demo/{group}", "--with-decryption",
-                "--query", "Parameter.Value", "--output", "text",
+                "aws",
+                "ssm",
+                "get-parameter",
+                "--region",
+                region,
+                "--name",
+                f"/cadenza/demo/{group}",
+                "--with-decryption",
+                "--query",
+                "Parameter.Value",
+                "--output",
+                "text",
             ],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         )
     except subprocess.CalledProcessError:
-        raise ValueError(f"SSM retrieval failed for {group}; check region, IAM, and parameter name") from None
+        raise ValueError(
+            f"SSM retrieval failed for {group}; check region, IAM, and parameter name"
+        ) from None
     try:
         values = json.loads(result.stdout)
     except json.JSONDecodeError:
@@ -51,13 +63,23 @@ def main() -> None:
     directory.chmod(0o700)
     try:
         # Validate both responses before replacing either deployed file.
-        payloads = {group: fetch_group(group, keys) for group, keys in GROUPS.items()}
+        settings = dict(
+            line.split("=", 1)
+            for line in Path("/opt/cadenza/release.env").read_text().splitlines()
+            if line and not line.startswith("#")
+        )
+        region = settings["BACKEND_IMAGE"].split(".")[3]
+        payloads = {
+            group: fetch_group(group, keys, region) for group, keys in GROUPS.items()
+        }
     except (ValueError, FileNotFoundError) as error:
         raise SystemExit(str(error)) from None
     for group, payload in payloads.items():
         temporary = None
         try:
-            with tempfile.NamedTemporaryFile(mode="w", dir=directory, delete=False) as stream:
+            with tempfile.NamedTemporaryFile(
+                mode="w", dir=directory, delete=False
+            ) as stream:
                 temporary = Path(stream.name)
                 stream.write(payload)
                 stream.flush()

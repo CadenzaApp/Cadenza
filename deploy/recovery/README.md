@@ -9,7 +9,8 @@ connection draining is 30 seconds; application shutdown still has its separate
 120-second deadline and Docker allows 150 seconds.
 
 `provision.py` creates/updates the ALB, security groups, target group, pinned launch
-template and bootstrap permissions. `resources.json` records their identifiers.
+template and bootstrap permissions. Regional settings come from
+`../aws-config.json` (currently us-west-1); `resources.json` records identifiers.
 It does not attach a host or switch CloudFront; those are deliberate cutover steps.
 No Lambda controller or periodic polling service is used. ALB spans two AZs;
 the single application host stays in its existing AZ, On-Demand t4g.medium.

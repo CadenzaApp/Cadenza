@@ -21,6 +21,7 @@ cloud-init clean --logs --machine-id
 # No containers remain to auto-start; only tools, image layers and model cache persist.
 token=$(curl --fail --silent --max-time 5 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token)
 self=$(curl --fail --silent --max-time 5 -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/instance-id)
-aws ec2 create-tags --region us-west-2 --resources "$self" --tags Key=CadenzaBakeClean,Value=true >/dev/null
+region=$(curl --fail --silent --max-time 5 -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/placement/region)
+aws ec2 create-tags --region "$region" --resources "$self" --tags Key=CadenzaBakeClean,Value=true >/dev/null
 sync
 shutdown -h now

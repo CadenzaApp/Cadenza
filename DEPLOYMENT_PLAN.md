@@ -7,7 +7,7 @@ Phone -> CloudFront HTTPS -> internal ALB -> one t4g.medium -> Axum + local Pyth
                                                        -> Supabase / Apple / OpenAI
 ```
 
-Use Oregon (us-west-2), one On-Demand ARM64 t4g.medium (4 GiB), encrypted 16 GiB
+Use Northern California (us-west-1), one On-Demand ARM64 t4g.medium (4 GiB), encrypted 16 GiB
 gp3 and Standard CPU credits. Supabase holds data/auth. CloudFront retains its
 provided HTTPS hostname and home-IP restriction. The internal ALB spans two
 subnets but has one application target. EC2 keeps a public IPv4 for outbound
@@ -139,7 +139,7 @@ The audit and existing CPU metrics are in
    initialization as a separate cost/performance choice. The snapshot contains
    12,425,101,312 bytes (about 11.6 GiB), despite a 16 GiB volume. At 100 or 300
    MiB/s, initialization arithmetic is about 119 or 40 seconds respectively;
-   these are not predictions for total recovery. Verify Oregon per-GiB pricing
+   these are not predictions for total recovery. Verify current-region per-GiB pricing
    before selecting a rate. Do not enable continuously billed Fast Snapshot Restore
    or change CPU-credit billing mode without an explicit design/cost decision.
 5. Completed a cold replacement rehearsal for targeted reads, recording
@@ -286,17 +286,20 @@ No notification Lambda is needed. Resource identifiers and evidence live under
    24-hour window and environment-configurable thresholds. Direct Supabase
    exposure has been investigated and Data API disabled. Selected ownership
    paths passed; social mutations/privacy and library/settings writes remain
-   untested at runtime. Source e55a356 is deployed with validated AMI
-   ami-0eb1717b4664bc627 and launch-template version 12. A real inference burst
+   untested at runtime. Source e55a356 is deployed in us-west-1 with validated AMI
+   ami-04040be0fc1e6cf6d and launch-template version 2. A real inference burst
    admitted nine jobs and rejected nine with 503; readiness stayed 200 for all
    71 samples. Automated checks passed and the user confirmed the post-release
    phone smoke flows. Home-only access remains until explicitly opened. Quotas reset on process restart or instance replacement;
    that tradeoff is accepted. Bound limiter memory and expire inactive entries. Preserve private ingress and the home
    restriction until explicitly opened. Focused development-DB tests are allowed
    with labeled records and cleanup; no separate DB is required.
-4. Confirm Supabase backup coverage, credential rotation and basic cost/health
-   visibility. ALB Oregon base cost is $0.0225/hour (about $16.43/730 hours) plus
-   capacity usage, before credits/free allowances; EC2/IPv4/EBS/ECR remain separate.
+4. Backups are deferred at user request. Credential review and verified database TLS are complete.
+   The live app requires verify-full with the public Supabase CA and hostname
+   validation; negative certificate/hostname checks passed. Rotation procedure is documented in deploy/README.md.
+   Review provider key scopes/spending controls and basic cost/health visibility.
+   ALB hourly and capacity charges apply before credits/free allowances;
+   EC2/IPv4/EBS/ECR remain separate.
 5. Add private Prometheus operation histograms and a modest Grafana p50/p95/p99,
    traffic/error dashboard. Use bounded route labels and inexpensive retention;
    fleet discovery is unnecessary. Include provider call volume, quota refusals,
@@ -314,3 +317,13 @@ Sources: [ASG ELB health integration](https://docs.aws.amazon.com/autoscaling/ec
 [ALB health settings and fail-open behavior](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html),
 [ASG lifecycle hooks](https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html),
 [ALB pricing](https://aws.amazon.com/elasticloadbalancing/pricing/).
+
+## Regional migration completed (2026-11-13)
+
+The AWS backend moved from us-west-2 to us-west-1. Supabase and the CloudFront
+hostname did not change. The new region has fresh Standard SecureString
+parameters, regional runtime/builder roles, a validated warm AMI, ALB/ASG and
+confirmed SNS subscription. Home-only viewers and private origin rules remain.
+The old serving instance was terminated before the new application started.
+Migration evidence: deploy/recovery/verification.region_migration.json. Earlier
+recovery measurements above were taken in Oregon, not a new-region benchmark.

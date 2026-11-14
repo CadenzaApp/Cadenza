@@ -1,0 +1,8 @@
+{
+  "original_policy_id": "p-iqll9p29",
+  "companion_policy_id": "p-rwtu81vj",
+  "target": "r-gws9",
+  "workload_account": "175220118767",
+  "added_region": "us-west-1",
+  "old_region_retained": true
+}

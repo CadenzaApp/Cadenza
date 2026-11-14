@@ -11,9 +11,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GROUP = "cadenza-demo-single"
-REGION = "us-west-2"
-ACCOUNT = "175220118767"
-PROFILE = os.environ.get("CADENZA_AWS_PROFILE", "cadenza-project")
+SETTINGS = json.loads((ROOT / "deploy/aws-config.json").read_text())
+REGION = SETTINGS["region"]
+ACCOUNT = SETTINGS["account"]
+PROFILE = os.environ.get("CADENZA_AWS_PROFILE", SETTINGS["profile"])
 
 
 def aws(service, operation, **args):
@@ -94,7 +95,7 @@ def main():
         )
     current = next(
         (m["InstanceId"] for m in members if m["LifecycleState"] == "InService"),
-        "i-08d25ed9caea17d6c",
+        SETTINGS["seed_instance"],
     )
     host = aws("ec2", "describe-instances", InstanceIds=[current])["Reservations"][0][
         "Instances"
@@ -126,7 +127,10 @@ def main():
 
     alb_sg = security_group("cadenza-demo-alb", "CloudFront private origin to ALB")
     backend_sg = security_group("cadenza-demo-backend", "ALB to the single backend")
-    for group, source in [(alb_sg, "sg-08b7eea10cfe45bc2"), (backend_sg, alb_sg)]:
+    for group, source in [
+        (alb_sg, SETTINGS["cloudfront_security_group"]),
+        (backend_sg, alb_sg),
+    ]:
         try:
             aws(
                 "ec2",
@@ -137,7 +141,11 @@ def main():
                         "IpProtocol": "tcp",
                         "FromPort": 80,
                         "ToPort": 80,
-                        "UserIdGroupPairs": [{"GroupId": source}],
+                        **(
+                            {"PrefixListIds": [{"PrefixListId": source}]}
+                            if source.startswith("pl-")
+                            else {"UserIdGroupPairs": [{"GroupId": source}]}
+                        ),
                     }
                 ],
             )
@@ -157,7 +165,7 @@ def main():
             Scheme="internal",
             Type="application",
             IpAddressType="ipv4",
-            Subnets=[host["SubnetId"], "subnet-07e4e4e1bfd614cf2"],
+            Subnets=[host["SubnetId"], SETTINGS["second_alb_subnet"]],
             SecurityGroups=[alb_sg],
             Tags=[{"Key": "Project", "Value": "Cadenza"}],
         )["LoadBalancers"][0]
@@ -236,6 +244,7 @@ def main():
     files = [
         "ec2-bootstrap.sh",
         "compose.yaml",
+        "certs/supabase-root.cer",
         "release.env.example",
         "fetch-secrets.py",
         "prepare-host-release.sh",
@@ -255,7 +264,7 @@ def main():
                 "release.env" if name == "release.env.example" else Path(name).name
             )
             item.size = len(content)
-            item.mode = 0o600
+            item.mode = 0o644 if name.endswith(".cer") else 0o600
             archive.addfile(item, io.BytesIO(content))
         content = (ROOT / "deploy/recovery/bootstrap-start.sh").read_bytes()
         item = tarfile.TarInfo("bootstrap-start.sh")
@@ -314,19 +323,31 @@ def main():
             }
         ],
     }
-    version = aws(
+    templates = aws(
         "ec2",
-        "create-launch-template-version",
-        LaunchTemplateName=GROUP,
-        LaunchTemplateData=data,
-    )["LaunchTemplateVersion"]
-    launch = {
-        "LaunchTemplateId": version["LaunchTemplateId"],
-        "Version": str(version["VersionNumber"]),
-    }
-    aws(
-        "autoscaling",
-        "update-auto-scaling-group",
+        "describe-launch-templates",
+        Filters=[{"Name": "launch-template-name", "Values": [GROUP]}],
+    )["LaunchTemplates"]
+    if templates:
+        version = aws(
+            "ec2",
+            "create-launch-template-version",
+            LaunchTemplateName=GROUP,
+            LaunchTemplateData=data,
+        )["LaunchTemplateVersion"]
+        launch = {
+            "LaunchTemplateId": version["LaunchTemplateId"],
+            "Version": str(version["VersionNumber"]),
+        }
+    else:
+        template = aws(
+            "ec2",
+            "create-launch-template",
+            LaunchTemplateName=GROUP,
+            LaunchTemplateData=data,
+        )["LaunchTemplate"]
+        launch = {"LaunchTemplateId": template["LaunchTemplateId"], "Version": "1"}
+    settings = dict(
         AutoScalingGroupName=GROUP,
         LaunchTemplate=launch,
         HealthCheckType="ELB",
@@ -335,6 +356,35 @@ def main():
             "MinHealthyPercentage": 0,
             "MaxHealthyPercentage": 100,
         },
+    )
+    if groups:
+        aws("autoscaling", "update-auto-scaling-group", **settings)
+    else:
+        # Provision a destination without starting a second application backend.
+        aws(
+            "autoscaling",
+            "create-auto-scaling-group",
+            **settings,
+            MinSize=0,
+            MaxSize=1,
+            DesiredCapacity=0,
+            VPCZoneIdentifier=host["SubnetId"],
+            Tags=[{"Key": "Project", "Value": "Cadenza", "PropagateAtLaunch": True}],
+        )
+        aws(
+            "autoscaling",
+            "suspend-processes",
+            AutoScalingGroupName=GROUP,
+            ScalingProcesses=["AZRebalance"],
+        )
+    aws(
+        "autoscaling",
+        "put-lifecycle-hook",
+        AutoScalingGroupName=GROUP,
+        LifecycleHookName="cadenza-ready",
+        LifecycleTransition="autoscaling:EC2_INSTANCE_LAUNCHING",
+        HeartbeatTimeout=3600,
+        DefaultResult="ABANDON",
     )
     aws(
         "ec2",
@@ -351,7 +401,7 @@ def main():
     aws(
         "iam",
         "put-role-policy",
-        RoleName="cadenza-demo-ec2",
+        RoleName=SETTINGS["runtime_role"],
         PolicyName="single-host-bootstrap",
         PolicyDocument=policy(
             [
@@ -378,6 +428,8 @@ def main():
     )
     record = {
         "group": GROUP,
+        "region": REGION,
+        "notifications_topic": topic,
         "warm_ami": warm,
         "disk_initialization_enabled": False,
         "draining_seconds": 30,

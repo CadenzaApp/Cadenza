@@ -39,6 +39,11 @@ for this source cleanup.
 
 ## Current deployment
 
+AWS resources run in Northern California (us-west-1). Regional settings are in
+`aws-config.json`; CLI authentication still uses us-east-2. Supabase was not moved.
+The previous Oregon serving resources are retired; rollback images, parameters
+and metadata remain under their original region and `history/us-west-2/`.
+
 The API remains `https://d1wj9jjqzhjpqq.cloudfront.net`. CloudFront distribution
 `ED64SQL5BYVBQ` now uses an internal ALB private origin, not a fixed EC2 origin.
 ASG `cadenza-demo-single` has minimum/desired/maximum capacity one and ELB health
@@ -62,7 +67,7 @@ Resource IDs, the current instance and launch template are recorded in
 changes instance ID, private/public IP and root/model-cache disk. Earlier launch,
 network and build records are historical snapshots, not current host selectors.
 Authenticate profile `cadenza-project` through us-east-2 and target resources in
-us-west-2. `CADENZA_AWS_PROFILE` can select another authorized developer profile.
+us-west-1. `CADENZA_AWS_PROFILE` can select another authorized developer profile.
 
 The deployed hardening settings are in `release.env.example`: in-memory user
 request/tag quotas and a 7000-call global provider window, with two concurrent
@@ -73,6 +78,9 @@ API is disabled; Auth and direct Postgres remain enabled. Home-only access stays
 in place. Candidate settings are validated before a release builds its image.
 
 ## Verified recovery
+
+The measurements in this section were taken in Oregon before migration. They
+are historical evidence, not measured us-west-1 recovery guarantees.
 
 `recovery/verification.model_failure.json` records Python being stopped while Rust
 remained available, native ALB/ASG replacement, and a fresh successful bootstrap.
@@ -195,12 +203,12 @@ starting Rust. There are no claim leases/schema changes or distributed caches.
 ## Planned follow-up
 
 The [current plan](../DEPLOYMENT_PLAN.md) records warm-AMI recovery and the remaining
-public-access work. Public-access quotas,
-bounded queues/inputs, sanitized errors and authorization tests remain required
-before removing the home restriction. Private Prometheus/Grafana comes later;
+public-access work. Quotas, bounded queues/inputs and sanitized errors are
+deployed; selected account-ownership tests passed. Broader authorization coverage
+and provider-key scopes remain follow-ups. Private Prometheus/Grafana comes later;
 OpenTelemetry spans are optional follow-up. No monitoring stack is provisioned.
-ALB base cost is $0.0225/hour in Oregon plus usage; existing EC2, IPv4, EBS, ECR and
-snapshot charges are separate from credits/free allowances.
+ALB hourly/usage charges and EC2, IPv4, EBS, ECR and snapshot charges are
+separate from credits/free allowances. Retained rollback snapshots still cost storage.
 
 ## Client and HTTPS
 
@@ -220,13 +228,13 @@ retaining ALB/ECR/other storage charges. Resume by setting minimum/desired to on
 bootstrap and registration restore the same CloudFront URL.
 
 ```sh
-aws autoscaling update-auto-scaling-group --profile cadenza-project --region us-west-2 \
+aws autoscaling update-auto-scaling-group --profile cadenza-project --region us-west-1 \
   --auto-scaling-group-name cadenza-demo-single --health-check-type EC2
 # Gracefully stop the discovered backend through SSM, then:
-aws autoscaling update-auto-scaling-group --profile cadenza-project --region us-west-2 \
+aws autoscaling update-auto-scaling-group --profile cadenza-project --region us-west-1 \
   --auto-scaling-group-name cadenza-demo-single --min-size 0 --desired-capacity 0 --health-check-type ELB
 # Resume later:
-aws autoscaling update-auto-scaling-group --profile cadenza-project --region us-west-2 \
+aws autoscaling update-auto-scaling-group --profile cadenza-project --region us-west-1 \
   --auto-scaling-group-name cadenza-demo-single --min-size 1 --desired-capacity 1
 ```
 
@@ -271,3 +279,41 @@ endpoint observation runs once per second; it does not execute inference. The
 model-only comparison under `ami/startup-comparison.json` separately measures
 imports, model construction, first encode and second encode with wall/CPU/I/O
 counters. Those isolated timings are not full backend recovery times.
+
+## Credential rotation
+
+Secret parameters remain Standard SecureString text containing JSON. Only edit
+values in the AWS console or a local protected workflow; never put them in Git,
+CLI arguments, release manifests, screenshots or logs. AWS account operators
+with parameter-read/decryption privileges can read them. Root and Docker admins
+on the live host can inspect the container environment.
+
+For OpenAI/Hugging Face, create a replacement credential with only the needed
+project/model permissions, update the appropriate SSM parameter, reactivate the
+same release to fetch fresh values, verify the affected operation, then revoke
+the old credential. Use provider spending restrictions where available. Runtime
+request quotas reset and do not replace provider-side controls. For Apple Music,
+generate a replacement developer token server-side, update SSM and reactivate;
+keep its signing private key outside the app/repository and track token expiry.
+
+Database-password rotation needs a coordinated short maintenance window because
+the old password may stop working immediately. Change the password at Supabase,
+update DATABASE_URL in the API parameter (URL-encode credentials), reactivate,
+and verify a real database-backed API request. Shared-pooler credential updates
+can take time to propagate. Do not assume rolling back the container rolls back
+secrets: activation fetches the current SSM values. Parameter history may retain
+old values; access to history is sensitive too.
+
+Database connections require `sslmode=verify-full` and
+`sslrootcert=/etc/ssl/certs/cadenza-supabase-root.crt` in DATABASE_URL.
+The public Supabase CA is versioned in `certs/supabase-root.cer`, bundled by
+activation/bootstrap and mounted read-only for the non-root app. It expires
+April 26, 2031; replace it through the same release workflow when Supabase
+rotates its CA. Never substitute a private key or disable verification.
+Preparation rejects missing/relaxed TLS settings before stopping the app.
+A fresh read-only connection and wrong-CA/wrong-hostname rejection were tested;
+the deployed SQLx app also passed startup with these settings. Evidence:
+`recovery/verification.database_tls.json` and `verification.credentials.json`.
+
+Restricting the backend DB role and removing API secrets from the ML child's
+inherited environment remain follow-up measures to reduce compromise impact.

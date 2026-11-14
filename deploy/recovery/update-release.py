@@ -76,6 +76,7 @@ def main():
         with tarfile.open(fileobj=bundle, mode="w:gz") as archive:
             for name in [
                 "compose.yaml",
+                "certs/supabase-root.cer",
                 "fetch-secrets.py",
                 "prepare-host-release.sh",
                 "start-release.sh",
@@ -84,8 +85,11 @@ def main():
                 "activate-release.sh",
             ]:
                 content_bytes = (ROOT / "deploy" / name).read_bytes()
-                item = tarfile.TarInfo(name)
-                item.size, item.mode = len(content_bytes), 0o600
+                item = tarfile.TarInfo(Path(name).name)
+                item.size, item.mode = (
+                    len(content_bytes),
+                    (0o644 if name.endswith(".cer") else 0o600),
+                )
                 archive.addfile(item, io.BytesIO(content_bytes))
         tooling = base64.b64encode(bundle.getvalue()).decode()
         script = (

@@ -1,3 +1,7 @@
+> Current operations: use [deploy/README.md](deploy/README.md) and
+> [DEPLOYMENT_PLAN.md](DEPLOYMENT_PLAN.md). The live AWS region is us-west-1;
+> older regional IDs and manual setup steps below are historical reference.
+
 # Deploy Cadenza with an agent and a human operator
 
 > Current architecture: one t4g.medium (4 GiB) behind an internal ALB, with a

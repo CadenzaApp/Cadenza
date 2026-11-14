@@ -10,16 +10,25 @@ echo "Retrieving deployment secrets on EC2." >&3
 python3 fetch-secrets.py
 python3 - <<'VALIDATE'
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 values=dict(line.split("=",1) for line in Path("secrets/api.env").read_text().splitlines())
 url=urlsplit(values["DATABASE_URL"])
 if url.scheme not in ("postgres", "postgresql") or url.port != 5432:
     raise SystemExit("DATABASE_URL must use the PostgreSQL session pooler on port 5432")
+query=parse_qs(url.query)
+if query.get("sslmode") != ["verify-full"] or query.get("sslrootcert") != ["/etc/ssl/certs/cadenza-supabase-root.crt"]:
+    raise SystemExit("DATABASE_URL must use verify-full and the deployed CA certificate")
+if not Path("supabase-root.cer").is_file():
+    raise SystemExit("Missing public database CA certificate")
 print("Secret files validated without displaying values")
 VALIDATE
+# This public CA must be readable by the non-root container user.
+chmod 644 supabase-root.cer
 registry_config=$(mktemp -d /run/cadenza-ecr.XXXXXX)
 trap 'rm -rf "$registry_config"' EXIT
-aws ecr get-login-password --region us-west-2 | docker --config "$registry_config" login --username AWS --password-stdin 175220118767.dkr.ecr.us-west-2.amazonaws.com
+registry=$(python3 -c 'from pathlib import Path; v=dict(l.split("=",1) for l in Path("release.env").read_text().splitlines() if l and not l.startswith("#")); print(v["BACKEND_IMAGE"].split("/")[0])')
+region=$(printf '%s' "$registry" | cut -d. -f4)
+aws ecr get-login-password --region "$region" | docker --config "$registry_config" login --username AWS --password-stdin "$registry"
 echo "Pulling the pinned backend image." >&3
 docker --config "$registry_config" compose --env-file release.env pull
 rm -rf "$registry_config"

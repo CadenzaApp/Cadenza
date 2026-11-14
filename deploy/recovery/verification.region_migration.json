@@ -1,0 +1,80 @@
+{
+  "started_at_utc": "2026-11-14T01:17:10.004103+00:00",
+  "source_region": "us-west-2",
+  "target_region": "us-west-1",
+  "events": [
+    {
+      "name": "non_serving_seed_terminated",
+      "at_utc": "2026-11-14T01:17:34.719029+00:00",
+      "instance": "i-0d59593454326c725"
+    },
+    {
+      "name": "source_scale_down_requested",
+      "at_utc": "2026-11-14T01:17:36.299657+00:00",
+      "instance": "i-00d963ec5a0461258"
+    },
+    {
+      "name": "source_backend_gracefully_stopped",
+      "at_utc": "2026-11-14T01:18:18.773310+00:00",
+      "command": "3c948e8f-3acb-43bd-b46c-c341f24bcc38"
+    },
+    {
+      "name": "source_instance_terminated",
+      "at_utc": "2026-11-14T01:18:44.735173+00:00",
+      "instance": "i-00d963ec5a0461258"
+    },
+    {
+      "name": "destination_launch_requested",
+      "at_utc": "2026-11-14T01:18:45.580125+00:00"
+    },
+    {
+      "name": "destination_ready",
+      "at_utc": "2026-11-14T01:22:30.460582+00:00",
+      "instance": "i-0c6219640e98e9b35"
+    },
+    {
+      "name": "cloudfront_origin_cutover_requested",
+      "at_utc": "2026-11-14T01:22:31.980875+00:00"
+    },
+    {
+      "name": "cloudfront_origin_deployed",
+      "at_utc": "2026-11-14T01:23:08.180241+00:00"
+    },
+    {
+      "name": "viewer_probe",
+      "at_utc": "2026-11-14T01:23:08.391672+00:00",
+      "path": "/health/ready",
+      "status": 200
+    },
+    {
+      "name": "viewer_probe",
+      "at_utc": "2026-11-14T01:23:08.487794+00:00",
+      "path": "/test",
+      "status": 200
+    },
+    {
+      "name": "migration_cutover_complete",
+      "at_utc": "2026-11-14T01:23:08.488974+00:00"
+    }
+  ],
+  "completed": true,
+  "new_instance": "i-0c6219640e98e9b35",
+  "old_instance": "i-00d963ec5a0461258",
+  "source_cleanup": {
+    "old_instance_terminated": true,
+    "old_alb_deleted": true,
+    "old_target_group_deleted": true,
+    "old_vpc_origin_deleted": true,
+    "source_asg_desired": 0,
+    "rollback_artifacts_retained": true,
+    "verified_at_utc": "2026-11-14T01:35:36.819165+00:00"
+  },
+  "runtime_verification": "deploy/recovery/verification.us-west-1-runtime.json",
+  "phone_smoke_verified": true,
+  "phone_smoke_recorded_at_utc": "2026-11-14T01:39:53.062930+00:00",
+  "phone_smoke_scope": [
+    "sign-in",
+    "tags/saved queries",
+    "social feed"
+  ]
+}

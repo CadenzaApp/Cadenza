@@ -38,6 +38,7 @@ services:
       METADATA_CRAWL_INTERVAL_SECS: "60"
     volumes:
       - model_cache:/cache/huggingface
+      - ./supabase-root.cer:/etc/ssl/certs/cadenza-supabase-root.crt:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health/ready',timeout=5)"]
       interval: 30s

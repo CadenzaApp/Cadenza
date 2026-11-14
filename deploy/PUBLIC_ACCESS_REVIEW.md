@@ -262,3 +262,54 @@ social alternative was not specified. Previous two-account
 results apply to the earlier deployment; they are not a full endpoint audit.
 Home-only access and disabled Supabase Data API are preserved. Earlier pending
 implementation notes above are historical and superseded by this deployment.
+
+## Credential review (2026-11-13 local date)
+
+Live evidence in recovery/verification.credentials.json: both parameters are
+Standard SecureString encrypted under aws/ssm; current runtime IAM reads only
+the two application parameters and builder IAM only the ML parameter. On EC2,
+secret files are root-owned 0600 and directories 0700. No secret environment
+values are baked into the image; runtime is unprivileged UID 10001 with no Docker
+socket mount. The container could not reach the IMDS token endpoint. Exact live
+secret strings were absent from the last 5000 sampled container log lines and
+private log files up to 20 MB. This does not establish absence of partial or
+historical leaks. Selected tracked-file/history pattern scans found no
+application credentials; README/vendor matches were reviewed as false positives.
+Apple developer token has about 148 days left. Rotation steps are in deploy/README.md.
+
+Pre-public fix: the deployed DATABASE_URL has no explicit SSL mode and PGSSLMODE
+is unset. SQLx's default prefer mode permits non-TLS fallback. Require TLS and
+verify the connection; preferably use verify-full with CA/hostname validation.
+No claim was made that the current session was observed unencrypted.
+
+Follow-ups: narrow postgres/BYPASSRLS application privileges; avoid inheriting
+DATABASE_URL/OpenAI/Apple credentials into the ML child; verify provider key
+scopes and spending controls. Root/Docker/authorized AWS operators remain able
+to access runtime credentials. No provider rotations or project settings were
+performed during this investigation. Backups are deferred by explicit user choice.
+
+Public beta means opening CloudFront viewers while retaining private ALB/EC2
+origin rules. Do not expose the instance's HTTP IPv4 endpoint directly. After
+TLS enforcement, a limited beta is reasonable with accepted in-memory quota
+resets, partial endpoint-isolation coverage and monitoring still pending. This
+is not a claim of comprehensive production security. Keep the existing viewer
+restriction until the user explicitly requests opening it.
+
+Sources: https://docs.rs/sqlx-postgres/latest/sqlx_postgres/enum.PgSslMode.html
+and https://supabase.com/docs/guides/database/connecting-to-postgres.
+
+## TLS fix and migration completed (2026-11-13 local date)
+
+The unspecified database TLS mode noted above is superseded. The live backend
+in us-west-1 requires verify-full and a read-only mounted public Supabase CA.
+A fresh authenticated read-only connection succeeded; wrong CA and hostname
+checks failed. SQLx startup and real local inference also passed on the new
+host. Host preparation rejects weaker/missing TLS configuration. Certificate
+deployment is part of normal AMI/bootstrap and release tooling.
+
+The same immutable app image was copied to us-west-1. CloudFront HTTPS readiness
+and API checks passed after origin propagation. Home-only access remains; the
+Supabase database was not migrated or changed. The new regional notification
+subscription is confirmed. Current evidence is in verification.credentials.json,
+verification.database_tls.json and verification.region_migration.json under
+recovery/. Historical Oregon image/template IDs above are not current selectors.

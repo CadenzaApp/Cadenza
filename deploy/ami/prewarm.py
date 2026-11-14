@@ -18,8 +18,9 @@ def output(args):
 
 
 registry = image.split("/")[0]
+region = registry.split(".")[3]
 with tempfile.TemporaryDirectory(dir="/run", prefix="cadenza-ecr-") as config:
-    password = output(["aws", "ecr", "get-login-password", "--region", "us-west-2"])
+    password = output(["aws", "ecr", "get-login-password", "--region", region])
     run(
         [
             "docker",
@@ -43,7 +44,7 @@ values = json.loads(
             "ssm",
             "get-parameter",
             "--region",
-            "us-west-2",
+            region,
             "--name",
             "/cadenza/demo/ml",
             "--with-decryption",

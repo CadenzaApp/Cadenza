@@ -1,0 +1,11 @@
+{
+  "checked_at_utc": "2026-11-14T01:01:21.574821+00:00",
+  "mode": "verify-full",
+  "client": "libpq/psycopg preflight; production SQLx startup checked separately",
+  "verified_fresh_read_only_connection": true,
+  "wrong_ca_rejected": true,
+  "wrong_hostname_rejected": true,
+  "ca_der_sha256": "807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa",
+  "production_sqlx_startup_passed": true,
+  "production_instance": "i-0c6219640e98e9b35"
+}

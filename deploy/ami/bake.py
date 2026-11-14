@@ -12,9 +12,9 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "recovery"))
-from provision import ACCOUNT, GROUP, REGION, ROOT, allow, aws, policy
+from provision import ACCOUNT, GROUP, REGION, ROOT, SETTINGS, allow, aws, policy
 
-ROLE = "cadenza-demo-image-builder"
+ROLE = SETTINGS["builder_role"]
 
 
 def wait(description, condition, seconds=1800):
@@ -136,14 +136,17 @@ def ensure(image, revision):
         raise RuntimeError("AWS profile points to the wrong workload account")
     resources = ROOT / "deploy/recovery/resources.json"
     r = json.loads(resources.read_text())
-    members = aws(
+    groups = aws(
         "autoscaling", "describe-auto-scaling-groups", AutoScalingGroupNames=[GROUP]
-    )["AutoScalingGroups"][0]["Instances"]
+    )["AutoScalingGroups"]
+    members = groups[0]["Instances"] if groups else []
     current = next(
         (m["InstanceId"] for m in members if m["LifecycleState"] == "InService"), None
     )
     if current is None:
-        raise RuntimeError("Wait for an InService backend before baking a release")
+        if groups and members:
+            raise RuntimeError("Wait for replacement to finish before baking")
+        current = SETTINGS["seed_instance"]
     host = aws("ec2", "describe-instances", InstanceIds=[current])["Reservations"][0][
         "Instances"
     ][0]

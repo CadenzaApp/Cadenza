@@ -1,0 +1,10 @@
+{
+  "region": "us-west-1",
+  "account": "175220118767",
+  "profile": "cadenza-project",
+  "seed_instance": "i-0d59593454326c725",
+  "cloudfront_security_group": "sg-04e2a34ad0ffbef93",
+  "second_alb_subnet": "subnet-025233d5874b60c44",
+  "runtime_role": "cadenza-demo-ec2-us-west-1",
+  "builder_role": "cadenza-demo-image-builder-us-west-1"
+}
