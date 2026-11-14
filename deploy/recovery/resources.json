@@ -40,5 +40,7 @@
   "vpc_origin_id": "vo_4e2OiDgjFp7B3aZsG2PDY9",
   "cutover_complete": true,
   "active_release_manifest": "deploy/releases/git-e55a35654e24-20261113233036-us-west-1-tls.json",
-  "runtime_verification": "deploy/recovery/verification.us-west-1-runtime.json"
+  "runtime_verification": "deploy/recovery/verification.us-west-1-runtime.json",
+  "viewer_access": "public",
+  "public_access_verification": "deploy/recovery/verification.public_access.json"
 }

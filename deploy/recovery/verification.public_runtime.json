@@ -1,0 +1,93 @@
+{
+  "checked_at_utc": "2026-11-14T01:42:24.133983+00:00",
+  "region": "us-west-1",
+  "asg_single_healthy": true,
+  "alb_target_healthy": true,
+  "viewer_functions": {
+    "Quantity": 0
+  },
+  "cache_policy": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+  "origin_request_policy": "b689b0a8-53d0-40ab-baf2-68738e2966ac",
+  "instance_type": "t4g.medium",
+  "metadata_options": {
+    "State": "applied",
+    "HttpTokens": "required",
+    "HttpPutResponseHopLimit": 1,
+    "HttpEndpoint": "enabled",
+    "HttpProtocolIpv6": "disabled",
+    "InstanceMetadataTags": "disabled"
+  },
+  "instance_profile": "arn:aws:iam::175220118767:instance-profile/cadenza-demo-ec2-us-west-1",
+  "disk": {
+    "Size": 16,
+    "VolumeType": "gp3",
+    "Encrypted": true
+  },
+  "email_confirmed": true,
+  "ingress": [
+    {
+      "group": "sg-0c0e41338d7abd62a",
+      "permissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 80,
+          "ToPort": 80,
+          "UserIdGroupPairs": [
+            {
+              "UserId": "175220118767",
+              "GroupId": "sg-04e2a34ad0ffbef93"
+            }
+          ],
+          "IpRanges": [],
+          "Ipv6Ranges": [],
+          "PrefixListIds": []
+        }
+      ]
+    },
+    {
+      "group": "sg-070f29b06229a834b",
+      "permissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 80,
+          "ToPort": 80,
+          "UserIdGroupPairs": [
+            {
+              "UserId": "175220118767",
+              "GroupId": "sg-0c0e41338d7abd62a"
+            }
+          ],
+          "IpRanges": [],
+          "Ipv6Ranges": [],
+          "PrefixListIds": []
+        }
+      ]
+    }
+  ],
+  "temporary_hosts": [
+    {
+      "id": "i-0006b6e15c6688756",
+      "state": "terminated"
+    },
+    {
+      "id": "i-08b3709c5e266801e",
+      "state": "terminated"
+    },
+    {
+      "id": "i-0d59593454326c725",
+      "state": "terminated"
+    }
+  ],
+  "off_home_viewer_status": 200,
+  "workstation_probes": {
+    "/health/ready": 200,
+    "/test": 200,
+    "/profile": 401
+  },
+  "off_home_anonymous_profile_status": 401,
+  "supabase_data_api_probe": {
+    "status": 503,
+    "code": "PGRST002",
+    "rows_retrieved": false
+  }
+}

@@ -9,7 +9,7 @@ Phone -> CloudFront HTTPS -> internal ALB -> one t4g.medium -> Axum + local Pyth
 
 Use Northern California (us-west-1), one On-Demand ARM64 t4g.medium (4 GiB), encrypted 16 GiB
 gp3 and Standard CPU credits. Supabase holds data/auth. CloudFront retains its
-provided HTTPS hostname and home-IP restriction. The internal ALB spans two
+provided HTTPS hostname with public viewer access. The internal ALB spans two
 subnets but has one application target. EC2 keeps a public IPv4 for outbound
 access; there is no direct public API ingress or NAT gateway.
 
@@ -290,9 +290,10 @@ No notification Lambda is needed. Resource identifiers and evidence live under
    ami-04040be0fc1e6cf6d and launch-template version 2. A real inference burst
    admitted nine jobs and rejected nine with 503; readiness stayed 200 for all
    71 samples. Automated checks passed and the user confirmed the post-release
-   phone smoke flows. Home-only access remains until explicitly opened. Quotas reset on process restart or instance replacement;
-   that tradeoff is accepted. Bound limiter memory and expire inactive entries. Preserve private ingress and the home
-   restriction until explicitly opened. Focused development-DB tests are allowed
+   phone smoke flows. Public CloudFront viewers were explicitly approved and opened.
+   Quotas reset on process restart or instance replacement;
+   that tradeoff is accepted. Bound limiter memory and expire inactive entries.
+   Preserve private ALB/EC2 ingress. Focused development-DB tests are allowed
    with labeled records and cleanup; no separate DB is required.
 4. Backups are deferred at user request. Credential review and verified database TLS are complete.
    The live app requires verify-full with the public Supabase CA and hostname
@@ -305,9 +306,10 @@ No notification Lambda is needed. Resource identifiers and evidence live under
    fleet discovery is unnecessary. Include provider call volume, quota refusals,
    queue occupancy and configured limits; avoid per-user metric labels. Decide
    how much history must survive replacement.
-6. Test realistic concurrent users on the one backend, prepare a standalone signed
-   phone build when needed, then open access only on explicit instruction. OTel
-   spans remain optional later work. Remove unused resources after the project.
+6. Public CloudFront access opened at the user's explicit request before Grafana
+   work. The concurrent-user test is skipped by user choice. Prepare a standalone
+   signed phone build when needed. OTel spans remain optional later work. Remove
+   unused resources after the project.
 
 The earlier deployment review is retained in Git history. Its multi-instance and
 custom-controller designs are superseded. Current runbook/evidence take precedence
@@ -327,3 +329,13 @@ confirmed SNS subscription. Home-only viewers and private origin rules remain.
 The old serving instance was terminated before the new application started.
 Migration evidence: deploy/recovery/verification.region_migration.json. Earlier
 recovery measurements above were taken in Oregon, not a new-region benchmark.
+
+## Public access enabled (2026-11-13)
+
+The home-IP viewer function is detached from CloudFront. HTTPS, disabled caching,
+Authorization forwarding, private ALB/EC2 ingress, app authentication/quotas and
+verified database TLS remain. The previous function/config is retained for
+rollback. Evidence: deploy/recovery/verification.public_access.json and
+verification.public_runtime.json. No new application build or DB schema change
+was needed. Provider scope/spending review and private Prometheus/Grafana remain
+follow-ups, rather than prerequisites imposed on this public opening.

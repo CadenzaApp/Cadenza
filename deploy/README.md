@@ -58,8 +58,9 @@ target; recovery includes downtime.
 
 Networking is CloudFront managed security group -> ALB port 80 -> backend port 80
 -> Axum container port 3000. EC2 and ALB have no public API ingress. Each backend
-retains a public IPv4 for outbound access. CloudFront still permits only home
-viewer `24.11.70.86`; caching remains disabled and Authorization is forwarded.
+retains a public IPv4 for outbound access. CloudFront accepts public HTTPS
+viewers; caching remains disabled and Authorization is forwarded. Protected API
+routes still require Supabase authentication.
 The hostname/certificate and client configuration are unchanged.
 
 Resource IDs, the current instance and launch template are recorded in
@@ -74,8 +75,10 @@ request/tag quotas and a 7000-call global provider window, with two concurrent
 local provider calls. Counters reset on restart. The model queue admits nine
 jobs total and rejects excess work while health stays responsive. See
 `recovery/verification.hardening_release.json` for deployed checks. Supabase Data
-API is disabled; Auth and direct Postgres remain enabled. Home-only access stays
-in place. Candidate settings are validated before a release builds its image.
+API is disabled; Auth and direct Postgres remain enabled. Public access was
+verified from outside the home network; see `recovery/verification.public_access.json`
+and `verification.public_runtime.json`. Candidate settings are validated before
+a release builds its image.
 
 ## Verified recovery
 
@@ -213,8 +216,8 @@ separate from credits/free allowances. Retained rollback snapshots still cost st
 ## Client and HTTPS
 
 The Metro/dev build continues using `https://d1wj9jjqzhjpqq.cloudfront.net`; no URL
-or native rebuild is needed for the ALB migration. Keep phones on the approved
-home Wi-Fi. CloudFront terminates viewer TLS and connects privately to ALB port
+or native rebuild is needed. Phones can use cellular or other networks.
+CloudFront terminates viewer TLS and connects privately to ALB port
 80. ALB forwards to host 80 / container 3000. There is no Caddy process, certificate
 volume or reverse-proxy container. No domain purchase is required.
 
@@ -238,8 +241,12 @@ aws autoscaling update-auto-scaling-group --profile cadenza-project --region us-
   --auto-scaling-group-name cadenza-demo-single --min-size 1 --desired-capacity 1
 ```
 
-Keep the origin private. If home IPv4 changes, update/test the CloudFront viewer
-function; do not add public EC2 ingress. Model cache comes from the validated AMI on replacement.
+Keep the origin private; do not add public EC2 ingress. The former home-only
+viewer function is detached and retained for rollback. To restrict viewers again,
+use the function association in `history/cloudfront-before-public.json`, applying
+it to a freshly fetched distribution config with its current ETag. Preserve all
+other current settings. Do not blindly restore an old complete distribution.
+Model cache comes from the validated AMI on replacement.
 
 ## Secrets and release identity
 

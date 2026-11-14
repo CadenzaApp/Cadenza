@@ -1,0 +1,13 @@
+{
+  "requested_at_utc": "2026-11-14T01:41:55.487395+00:00",
+  "distribution": "ED64SQL5BYVBQ",
+  "url": "https://d1wj9jjqzhjpqq.cloudfront.net",
+  "removed_viewer_function": "arn:aws:cloudfront::175220118767:function/cadenza-demo-home-only",
+  "changed_config_path": "DefaultCacheBehavior.FunctionAssociations",
+  "origin_and_other_settings_unchanged": true,
+  "status": "Deployed",
+  "rollback_config": "deploy/history/cloudfront-before-public.json",
+  "deployed_at_utc": "2026-11-14T01:41:56.332327+00:00",
+  "runtime_verification": "deploy/recovery/verification.public_runtime.json",
+  "verified": true
+}

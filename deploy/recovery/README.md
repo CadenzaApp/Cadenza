@@ -1,5 +1,10 @@
 # One-backend replacement
 
+CloudFront accepts public HTTPS viewers; ALB and EC2 ingress remain private.
+`resources.json` records `viewer_access=public`, which release/recovery checks
+use to require successful off-home access. Earlier off-home 403 evidence predates
+public opening.
+
 One internal ALB is CloudFront's stable private origin. Its instance target group
 checks `/health/ready` every 5 seconds, timeout 4 seconds, three failures to mark
 unhealthy and two successes to recover. Rust checks the loaded local Python model;
@@ -69,7 +74,8 @@ base AMI stays pinned in resources; do not change it to a baked application AMI.
 Never bake a live host or allow cached containers to auto-start before the gate.
 
 `rehearse-warm-recovery.py` deliberately kills the Python child on the live backend.
-Run only for a staffed, authorized outage rehearsal from home. It records the
+Run only for a staffed, authorized outage rehearsal from a network that can
+reach the API. It records the
 remote crash timestamp, HTTPS readiness plus `/test` probes, and the first
 responding replacement. Probe cadence is one second with two-second timeouts;
 clock/date checks guard gross clock skew. Detailed post-recovery checks run

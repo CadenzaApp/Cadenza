@@ -108,7 +108,8 @@ VERIFY"""
     assert gate["observed_hosts"] == [host]
     assert "health=healthy restarts=0 oom=false" in output
     assert "dimensions: 768" in output
-    assert "off_home_https_status=403" in output
+    expected_viewer_status = 200 if resources.get("viewer_access") == "public" else 403
+    assert f"off_home_https_status={expected_viewer_status}" in output
     checks = []
     for path, expected in [
         ("health/ready", 200),

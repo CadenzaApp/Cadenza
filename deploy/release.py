@@ -195,7 +195,10 @@ def main():
                 ],
                 text=True,
             )
-            if viewer == "403":
+            if (
+                viewer == "403"
+                and json.loads(before_resources).get("viewer_access") != "public"
+            ):
                 print(
                     "Viewer check is restricted to the home allowlist; private startup/inference and ALB health checks passed."
                 )

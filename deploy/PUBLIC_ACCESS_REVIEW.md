@@ -313,3 +313,16 @@ Supabase database was not migrated or changed. The new regional notification
 subscription is confirmed. Current evidence is in verification.credentials.json,
 verification.database_tls.json and verification.region_migration.json under
 recovery/. Historical Oregon image/template IDs above are not current selectors.
+
+## Public viewers enabled (2026-11-13 local date)
+
+The user explicitly requested public access before Grafana and waived the
+concurrent-user test. Only CloudFront's home-IP function association was removed.
+Private ALB/EC2 ingress, HTTPS-only viewers, disabled caching and Authorization
+forwarding remain. Backend auth, quotas, bounded queues, verified database TLS
+and the disabled Supabase Data API are unchanged. Earlier instructions above
+to retain home-only access are superseded by this explicit approval.
+
+Evidence: recovery/verification.public_access.json and verification.public_runtime.json.
+Provider permission/spending review, broader endpoint isolation coverage and
+monitoring remain follow-ups. This opening does not imply those checks were done.

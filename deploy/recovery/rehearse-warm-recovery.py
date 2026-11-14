@@ -72,7 +72,7 @@ def main():
     ):
         raise RuntimeError("Live launch template does not match the release record")
     if probe("/health/ready") != 200 or probe("/test") != 200:
-        raise RuntimeError("Run from the allowed home network while the API is healthy")
+        raise RuntimeError("Run from a permitted network while the API is healthy")
     began = time.time()
     headers = subprocess.check_output(
         [
