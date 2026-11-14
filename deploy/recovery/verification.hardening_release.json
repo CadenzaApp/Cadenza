@@ -1,0 +1,138 @@
+{
+  "config": {
+    "API_REQUESTS_PER_USER_MINUTE": "600",
+    "TAG_REQUESTS_PER_USER_MINUTE": "30",
+    "TAG_REQUESTS_PER_USER_DAY": "1000",
+    "TAG_PROVIDER_CALLS_PER_DAY": "7000",
+    "TAG_PROVIDER_CONCURRENCY": "2"
+  },
+  "ready_before": 200,
+  "anonymous_tags": 401,
+  "invalid_jwt_tags": 401,
+  "oversized_embedding": 422,
+  "topic_context_embedding": 200,
+  "burst_statuses": {
+    "200": 9,
+    "503": 9
+  },
+  "readiness_during_burst": [
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200
+  ],
+  "ready_after": 200,
+  "passed": true,
+  "instance": "i-00d963ec5a0461258",
+  "ssm_command": "e305e928-66d8-454f-924f-0f7bc3065bb0",
+  "checked_at_utc": "2026-11-13T23:57:48.319357+00:00",
+  "asg": {
+    "MinSize": 1,
+    "DesiredCapacity": 1,
+    "MaxSize": 1,
+    "HealthCheckType": "ELB",
+    "LaunchTemplate": {
+      "LaunchTemplateId": "lt-035cdeecd1b0da54e",
+      "LaunchTemplateName": "cadenza-demo-single",
+      "Version": "12"
+    }
+  },
+  "alb_targets": [
+    {
+      "Target": {
+        "Id": "i-00d963ec5a0461258",
+        "Port": 80
+      },
+      "HealthCheckPort": "80",
+      "TargetHealth": {
+        "State": "healthy"
+      },
+      "AdministrativeOverride": {
+        "State": "no_override",
+        "Reason": "AdministrativeOverride.NoOverride",
+        "Description": "No override is currently active on target"
+      }
+    }
+  ],
+  "temporary_builders_remaining": [],
+  "replacement_ami": "ami-0eb1717b4664bc627",
+  "runtime_summary": "image=175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:8c114c88f756a462d0efc6aabcf9ddc3d5f833847803fd0a98ef9378ca832b61 health=healthy restarts=0 oom=false\noff_home_https_status=403",
+  "runtime_command": "e4454c62-f424-4308-afed-541d4c5a5317",
+  "supabase_checks": [
+    {
+      "path": "/rest/v1/user_songs?select=*&limit=0",
+      "status": 503
+    },
+    {
+      "path": "/auth/v1/settings",
+      "status": 200
+    }
+  ]
+}

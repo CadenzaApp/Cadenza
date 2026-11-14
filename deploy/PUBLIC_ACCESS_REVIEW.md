@@ -234,3 +234,29 @@ writes and the complete endpoint set. The hardening changes are still local;
 this run does not establish that the new quotas/queue limits are deployed.
 Next release step: commit/deploy the hardening, then verify normal mobile flows
 and bounded overload behavior while preserving the home restriction.
+
+## Hardening deployed (2026-11-13)
+
+Backend source e55a35654e243f816f1d29fa08a27787d74786a4 is deployed as image
+sha256:8c114c88f756a462d0efc6aabcf9ddc3d5f833847803fd0a98ef9378ca832b61.
+ASG replacement uses validated AMI ami-0eb1717b4664bc627, template version 12.
+Live checks: anonymous/invalid JWT requests 401, oversized model input 422,
+valid topic-context inference 200, and all five effective quota settings correct.
+An 18-request model burst admitted nine and returned nine busy 503 responses;
+all 71 concurrent readiness samples returned 200. No paid provider calls were
+used for these automated checks. Container healthy, zero restarts/OOM; off-home
+CloudFront request 403; all temporary image builders/validators terminated.
+Evidence: recovery/verification.hardening_release.json.
+
+The first image was stopped before activation to allow the topic prefix in model
+input (1024 characters internally; public posts remain capped at 500). The
+corrected AMI passed fresh offline inference. Activation then safely rejected
+new quota configuration keys; the candidate validator now explicitly permits
+those five bounded settings. The validated image was resumed through normal
+activation/provisioning commands without rebuilding unchanged app code.
+Release CLI now prevalidates candidate settings before image building/baking.
+
+Phone smoke confirmation after this release is pending. Previous two-account
+results apply to the earlier deployment; they are not a full endpoint audit.
+Home-only access and disabled Supabase Data API are preserved. Earlier pending
+implementation notes above are historical and superseded by this deployment.

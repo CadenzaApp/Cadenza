@@ -7,9 +7,9 @@
   "backend_security_group": "sg-0357da20060cf0421",
   "launch_template": {
     "LaunchTemplateId": "lt-035cdeecd1b0da54e",
-    "Version": "11"
+    "Version": "12"
   },
-  "bootstrap_sha256": "2ea58f4ccdc4fd796a2348814d6a58067de48c3e1c77335ff64f30a23e221937",
+  "bootstrap_sha256": "2b4834bd891179c00595556f9a95e903df24b392bca317cd37906a036ba5a902",
   "health_path": "/health/ready",
   "health_interval_seconds": 5,
   "unhealthy_threshold": 3,
@@ -18,26 +18,26 @@
   "vpc_origin_id": "vo_JH7rsmwwoUdDRDRHxLal5R",
   "cutover_complete": true,
   "notifications_topic": "arn:aws:sns:us-west-2:175220118767:cadenza-demo-instance-events",
-  "active_release_manifest": "deploy/releases/git-d752f9154e8e-20261113090716-targeted.json",
-  "backend_image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:a788d2c0fa45157f5c383d23f9f66fa7c5e28b5410c2adf00742b8e1b32ef9db",
+  "active_release_manifest": "deploy/releases/git-e55a35654e24-20261113233036.json",
+  "backend_image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:8c114c88f756a462d0efc6aabcf9ddc3d5f833847803fd0a98ef9378ca832b61",
   "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
   "cold_base_ami": "ami-0bec25ae844865e7d",
   "warm_ami": {
-    "image_id": "ami-0379feb57685778c1",
-    "builder_instance": "i-02a1eeaca5f4e7056",
-    "validation_instance": "i-0c5a4b77e88fc5ac9",
-    "validated_at_utc": "2026-11-13T19:44:55.210544+00:00",
-    "bake_key": "5aaf536ebe374b81617725368da3ff062e324fd185c9ce59e96d9f29ee073858",
+    "image_id": "ami-0eb1717b4664bc627",
+    "builder_instance": "i-0a982b915d6e5cd89",
+    "validation_instance": "i-093bbfa0b915c8f31",
+    "validated_at_utc": "2026-11-13T23:53:46.684773+00:00",
+    "bake_key": "80a1ca24da46b649f05892ab08c20ca9e406f8a319eeb4f2544dd89258bd85a3",
     "cold_base_ami": "ami-0bec25ae844865e7d",
-    "backend_image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:a788d2c0fa45157f5c383d23f9f66fa7c5e28b5410c2adf00742b8e1b32ef9db",
+    "backend_image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:8c114c88f756a462d0efc6aabcf9ddc3d5f833847803fd0a98ef9378ca832b61",
     "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
-    "validation_command": "bf6a4457-4ce5-4a8f-973e-d4d4b148e42e",
-    "validation_result": "{\"stage\": \"targeted_prefetch\", \"seconds\": 118.84, \"files\": 27481, \"logical_bytes\": 2405569454, \"input_blocks\": 4865312}\nAMI validation passed: no containers/secrets; offline finite 768-dimensional inference",
+    "validation_command": "8c48ef92-7c98-42a3-9b21-a621f0bf78a2",
+    "validation_result": "{\"stage\": \"targeted_prefetch\", \"seconds\": 147.52, \"files\": 27481, \"logical_bytes\": 2405766940, \"input_blocks\": 4865096}\nAMI validation passed: no containers/secrets; offline finite 768-dimensional inference",
     "validated": true,
     "startup_prefetch": "targeted-python-model-v1"
   },
-  "recovery_timing_record": "deploy/recovery/verification.targeted_timing.json",
   "disk_initialization_enabled": false,
   "draining_seconds": 30,
-  "health_timeout_seconds": 4
+  "health_timeout_seconds": 4,
+  "previous_recovery_timing_record": "deploy/recovery/verification.targeted_timing.json"
 }

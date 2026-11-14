@@ -45,9 +45,16 @@ def validate_candidate(content):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("candidate", type=Path)
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="Validate settings without contacting AWS",
+    )
     args = parser.parse_args()
     content = args.candidate.read_text()
     validate_candidate(content)
+    if args.validate_only:
+        return
     group = aws(
         "autoscaling", "describe-auto-scaling-groups", AutoScalingGroupNames=[GROUP]
     )["AutoScalingGroups"][0]

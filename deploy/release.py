@@ -45,6 +45,14 @@ def main():
         raise RuntimeError(
             "Commit or clean working-tree changes before cutting a release."
         )
+    run(
+        [
+            sys.executable,
+            "deploy/recovery/update-release.py",
+            "deploy/release.env.example",
+            "--validate-only",
+        ]
+    )
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     if aws("sts", "get-caller-identity")["Account"] != ACCOUNT:
         raise RuntimeError("AWS profile points to the wrong workload account")

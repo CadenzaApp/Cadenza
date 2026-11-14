@@ -271,7 +271,7 @@ No notification Lambda is needed. Resource identifiers and evidence live under
    rehearsal durations include verification and are not directly comparable.
    Targeted reads subsequently reduced measured recovery to 257.965 seconds;
    detailed cold-boot stages and limits are recorded above.
-3. Public-access protections (local implementation started; not yet deployed):
+3. Public-access protections (hardening deployed; broader review remains):
    Urgent live finding: 34 of 36 public tables lack RLS and both client roles
    have CRUD grants. Anonymous zero-row REST reads succeed. Close the direct
    Supabase path first, preferably by disabling the unused Data API in project
@@ -282,12 +282,15 @@ No notification Lambda is needed. Resource identifiers and evidence live under
    deploy/recovery/verification.supabase{_access,_data_api_disabled}.json. bounded model queues/inputs, generic client
    errors, authenticated in-memory request/paid-operation quotas, two-account
    authorization tests, and signup/JWT/DB privilege review. No database schema
-   changes for this work. Local limits now include 7000 actual provider calls per
+   changes for this work. Deployed limits include 7000 actual provider calls per
    24-hour window and environment-configurable thresholds. Direct Supabase
    exposure has been investigated and Data API disabled. Selected ownership
    paths passed; social mutations/privacy and library/settings writes remain
-   untested at runtime. Commit/release the hardening and smoke-test it before
-   broadening access. Quotas reset on process restart or instance replacement;
+   untested at runtime. Source e55a356 is deployed with validated AMI
+   ami-0eb1717b4664bc627 and launch-template version 12. A real inference burst
+   admitted nine jobs and rejected nine with 503; readiness stayed 200 for all
+   71 samples. Automated checks passed; await the post-release phone smoke check
+   before broadening access. Quotas reset on process restart or instance replacement;
    that tradeoff is accepted. Bound limiter memory and expire inactive entries. Preserve private ingress and the home
    restriction until explicitly opened. Focused development-DB tests are allowed
    with labeled records and cleanup; no separate DB is required.

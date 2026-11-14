@@ -1,0 +1,23 @@
+{
+  "source_commit": "e55a35654e243f816f1d29fa08a27787d74786a4",
+  "deployment_tooling_commit": "4390af8a3a538eae447b6017301d8e6ebbec4e32",
+  "tag": "git-e55a35654e24-20261113233036",
+  "image": "175220118767.dkr.ecr.us-west-2.amazonaws.com/cadenza-backend@sha256:8c114c88f756a462d0efc6aabcf9ddc3d5f833847803fd0a98ef9378ca832b61",
+  "release_env_sha256": "4933266dc6d98ba64872806022e5bfd4835ffa0041c23f86ba80449e52c28feb",
+  "launch_template": {
+    "LaunchTemplateId": "lt-035cdeecd1b0da54e",
+    "Version": "12"
+  },
+  "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+  "platform": "linux/arm64",
+  "viewer_http_status": 200,
+  "warm_ami": "ami-0eb1717b4664bc627",
+  "warm_ami_record": "deploy/ami/records/ami-0eb1717b4664bc627.json",
+  "bootstrap_mode": "warm",
+  "startup_prefetch": "targeted-python-model-v1",
+  "verified_at_utc": "2026-11-13T23:57:16.498189+00:00",
+  "previous_release_manifest": "deploy/releases/git-d752f9154e8e-20261113090716-targeted.json",
+  "activation_note": "Resumed validated image after correcting candidate quota-setting guard; backend source and Dockerfile unchanged.",
+  "hardening_verification": "deploy/recovery/verification.hardening_release.json",
+  "phone_smoke_verified": false
+}

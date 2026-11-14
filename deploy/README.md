@@ -64,6 +64,14 @@ network and build records are historical snapshots, not current host selectors.
 Authenticate profile `cadenza-project` through us-east-2 and target resources in
 us-west-2. `CADENZA_AWS_PROFILE` can select another authorized developer profile.
 
+The deployed hardening settings are in `release.env.example`: in-memory user
+request/tag quotas and a 7000-call global provider window, with two concurrent
+local provider calls. Counters reset on restart. The model queue admits nine
+jobs total and rejects excess work while health stays responsive. See
+`recovery/verification.hardening_release.json` for deployed checks. Supabase Data
+API is disabled; Auth and direct Postgres remain enabled. Home-only access stays
+in place. Candidate settings are validated before a release builds its image.
+
 ## Verified recovery
 
 `recovery/verification.model_failure.json` records Python being stopped while Rust
