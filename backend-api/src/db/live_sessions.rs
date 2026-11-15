@@ -1992,7 +1992,7 @@ pub async fn move_entry(
         .iter()
         .map(|entry| entry.entry_id)
         .collect();
-    let mut order = moved_order(&ids, entry_id, to).ok_or(CadenzaError::NotFound)?;
+    let mut order = moved_order(&ids, &entry_id, to).ok_or(CadenzaError::NotFound)?;
     // the current song keeps the front
     if let Some(current) = session.current_entry_id {
         order.insert(0, current);

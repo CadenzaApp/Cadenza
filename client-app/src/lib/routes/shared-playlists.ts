@@ -39,7 +39,6 @@ export type SharedPlaylistMember = {
 
 /** One song. Its title and art come from Apple Music by `song_id`. */
 export type SharedPlaylistEntry = {
-    entry_id: number;
     song_id: string;
     position: number;
     added_by: string | null;
@@ -195,15 +194,19 @@ export function useSharedPlaylistWrites(id: number) {
         { song_ids: string[]; position?: number; expected_version?: number },
         PlaylistVersion
     >("POST", `${base}/songs`, touched);
-    const removeSong = useAPIMutation<{ entry_id: number }, PlaylistVersion>(
+    const removeSong = useAPIMutation<{ song_id: string }, PlaylistVersion>(
         "DELETE",
-        ({ entry_id }) => `${base}/songs/${entry_id}`,
+        ({ song_id }) => `${base}/songs/${encodeURIComponent(song_id)}`,
         touched,
     );
     const moveSong = useAPIMutation<
-        { entry_id: number; position: number },
+        { song_id: string; position: number },
         PlaylistVersion
-    >("PATCH", ({ entry_id }) => `${base}/songs/${entry_id}`, touched);
+    >(
+        "PATCH",
+        ({ song_id }) => `${base}/songs/${encodeURIComponent(song_id)}`,
+        touched,
+    );
     const addMember = useAPIMutation<
         { user_id: string; role: "viewer" | "editor" },
         PlaylistVersion

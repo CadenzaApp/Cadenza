@@ -34,7 +34,7 @@ import { useCreatePost } from "@/lib/routes/social";
 import { CreatePostDialog } from "../social/CreatePostDialog";
 import { Initials } from "../social/MemberRow";
 import { SharedPlaylistPostCard } from "../social/SharedPlaylistPostCard";
-import { entryIdOf, usePlaylistTracks } from "./use-playlist-tracks";
+import { usePlaylistTracks } from "./use-playlist-tracks";
 
 /** Diameter of the floating back button, matching other collections. */
 const HERO_BUTTON_SIZE = 52;
@@ -128,10 +128,10 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
     );
 
     const entryFor = useCallback(
-        (track: MusicItem): SharedPlaylistEntry | undefined => {
-            const id = entryIdOf(track);
-            return entries.find((entry) => entry.entry_id === id);
-        },
+        (track: MusicItem): SharedPlaylistEntry | undefined =>
+            entries.find(
+                (entry) => entry.song_id === (track.catalogId ?? track.id),
+            ),
         [entries],
     );
 
@@ -154,7 +154,7 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
                     const entry = entryFor(track);
                     if (!entry) return;
                     void write(
-                        () => writes.removeSong({ entry_id: entry.entry_id }),
+                        () => writes.removeSong({ song_id: entry.song_id }),
                         "Couldn't remove that song.",
                     );
                 },
@@ -229,6 +229,8 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
         );
     }
 
+    const members = playlist?.members ?? [];
+    const owner = members.find((member) => member.role === "owner");
     const options: TrackCollectionOption[] = [
         {
             id: "shared-options",
@@ -237,8 +239,6 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
             onPress: () => setOptionsOpen(true),
         },
     ];
-    const members = playlist?.members ?? [];
-    const owner = members.find((member) => member.role === "owner");
 
     return (
         <View className="flex-1">
@@ -270,9 +270,9 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
                 trackMenuActions={trackMenuActions}
                 options={options}
                 backControl={<FloatingBackButton size={HERO_BUTTON_SIZE} />}
-                header={
+                belowActions={
                     playlist ? (
-                        <View className="flex-row items-center justify-center gap-3 px-6 pb-3">
+                        <View className="mt-4 flex-row items-center justify-center gap-3">
                             <Pressable
                                 accessibilityRole="button"
                                 accessibilityLabel={`${members.length} members`}

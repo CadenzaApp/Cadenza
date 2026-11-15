@@ -118,7 +118,7 @@ async fn create_handler(
 /// 404 for anyone who is not a member.
 ///
 /// ```json
-/// { "playlist_id": 4, "owner_id": "...", "name": "Road trip", "description": "", "version": 12, "my_role": "editor", "members": [ { "user_id": "...", "username": "ada", "role": "owner", "joined_at": "..." } ], "entries": [ { "entry_id": 90, "song_id": "1440857781", "position": 0, "added_by": "...", "added_at": "..." } ], "created_at": "...", "updated_at": "..." }
+/// { "playlist_id": 4, "owner_id": "...", "name": "Road trip", "description": "", "version": 12, "my_role": "editor", "members": [ { "user_id": "...", "username": "ada", "role": "owner", "joined_at": "..." } ], "entries": [ { "song_id": "1440857781", "position": 0, "added_by": "...", "added_at": "..." } ], "created_at": "...", "updated_at": "..." }
 /// ```
 async fn get_handler(
     State(db): State<DatabaseConnection>,
@@ -169,7 +169,8 @@ async fn delete_handler(
     Ok(deleted(&bus, playlist_id))
 }
 
-/// Adds catalog songs at `position`, or the end. Editor or owner.
+/// Adds catalog songs at `position`, or the end. A song already in the playlist
+/// stays where it is. Editor or owner.
 async fn add_songs_handler(
     State(db): State<DatabaseConnection>,
     State(bus): State<SharedEventBus>,
@@ -191,38 +192,38 @@ async fn add_songs_handler(
     Ok(changed(&bus, playlist_id, version))
 }
 
-/// Removes one entry. Editor or owner.
+/// Removes one song. Editor or owner.
 async fn remove_song_handler(
     State(db): State<DatabaseConnection>,
     State(bus): State<SharedEventBus>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
-    Path((playlist_id, entry_id)): Path<(i64, i64)>,
+    Path((playlist_id, song_id)): Path<(i64, String)>,
     Query(query): Query<ExpectedVersion>,
 ) -> Result<Json<PlaylistVersion>, CadenzaError> {
-    let version = playlists::remove_entry(
+    let version = playlists::remove_song(
         &db,
         claims.user_id,
         playlist_id,
-        entry_id,
+        &song_id,
         query.expected_version,
     )
     .await?;
     Ok(changed(&bus, playlist_id, version))
 }
 
-/// Moves one entry to `position`. Editor or owner.
+/// Moves one song to `position`. Editor or owner.
 async fn move_song_handler(
     State(db): State<DatabaseConnection>,
     State(bus): State<SharedEventBus>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
-    Path((playlist_id, entry_id)): Path<(i64, i64)>,
+    Path((playlist_id, song_id)): Path<(i64, String)>,
     Json(body): Json<MoveSharedPlaylistSong>,
 ) -> Result<Json<PlaylistVersion>, CadenzaError> {
-    let version = playlists::move_entry(
+    let version = playlists::move_song(
         &db,
         claims.user_id,
         playlist_id,
-        entry_id,
+        &song_id,
         body.position,
         body.expected_version,
     )
@@ -309,7 +310,7 @@ pub fn get_shared_playlists_router() -> Router<AppState> {
         )
         .route("/{id}/songs", post(add_songs_handler))
         .route(
-            "/{id}/songs/{entry_id}",
+            "/{id}/songs/{song_id}",
             delete(remove_song_handler).patch(move_song_handler),
         )
         .route("/{id}/members", post(add_member_handler))

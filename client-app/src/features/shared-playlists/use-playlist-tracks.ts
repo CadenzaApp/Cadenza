@@ -4,20 +4,10 @@ import { useMemo } from "react";
 import { useSongInfo } from "@/lib/musickit-hooks";
 import type { SharedPlaylistEntry } from "@/lib/routes/shared-playlists";
 
-/** A row id that names its entry, since one song can be in twice. */
-export function entryTrackId(entryId: number) {
-    return `entry:${entryId}`;
-}
-
-export function entryIdOf(track: MusicItem): number | null {
-    const match = /^entry:(\d+)$/.exec(track.id);
-    return match ? Number(match[1]) : null;
-}
-
 /**
- * A shared playlist's entries as playable tracks, in order, titles and art
- * from Apple Music. Each track's id is its entry's, through `entryTrackId`.
- * An entry Apple Music cannot describe is left out.
+ * A shared playlist's songs as playable tracks, in order, titles and art from
+ * Apple Music. The track id is the catalog song id. A song Apple Music cannot
+ * describe is left out.
  */
 export function usePlaylistTracks(entries: readonly SharedPlaylistEntry[]) {
     const songIds = useMemo(() => entries.map((e) => e.song_id), [entries]);
@@ -34,7 +24,7 @@ export function usePlaylistTracks(entries: readonly SharedPlaylistEntry[]) {
             return [
                 {
                     ...song,
-                    id: entryTrackId(entry.entry_id),
+                    id: entry.song_id,
                     catalogId: entry.song_id,
                     playbackId: song.playbackId ?? entry.song_id,
                 },

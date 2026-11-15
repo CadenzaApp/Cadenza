@@ -95,8 +95,8 @@ async fn social_listening_shared_playlist_flow() {
         Err(CadenzaError::VersionConflict { .. })
     ));
 
-    let first = detail.entries[0].entry_id;
-    playlists::move_entry(&txn, owner, id, first, 2, None)
+    let first = detail.entries[0].song_id.clone();
+    playlists::move_song(&txn, owner, id, &first, 2, None)
         .await
         .unwrap();
     let detail = playlists::get_playlist(&txn, owner, id).await.unwrap();
@@ -177,12 +177,13 @@ async fn social_listening_shared_playlist_flow() {
         playlists::delete_playlist(&txn, friend, id).await,
         Err(CadenzaError::Forbidden(_))
     ));
-    let entry = playlists::get_playlist(&txn, friend, id)
+    let song = playlists::get_playlist(&txn, friend, id)
         .await
         .unwrap()
         .entries[0]
-        .entry_id;
-    playlists::remove_entry(&txn, friend, id, entry, None)
+        .song_id
+        .clone();
+    playlists::remove_song(&txn, friend, id, &song, None)
         .await
         .unwrap();
 

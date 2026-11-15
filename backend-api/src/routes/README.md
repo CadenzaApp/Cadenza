@@ -104,11 +104,11 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET | `/shared-playlists` | none | `{playlists: [{playlist_id, name, description, owner, role, can, song_count, member_count, cover_song_ids, version, updated_at}]}`, the caller's, newest change first |
 | GET | `/shared-playlists/users/{user_id}` | none | `{playlists}`, that user's, same shape with their `role`. `playlists` null when their `profile_playlists` privacy hides them. Opening one still needs membership or a code |
 | POST | `/shared-playlists` | `{name, description?, song_ids?}` | `{playlist_id}`. Catalog ids only |
-| GET | `/shared-playlists/{id}` | none | `{playlist_id, owner_id, name, description, version, my_role, can, members, entries: [{entry_id, song_id, position, added_by, added_at}]}`. `can` is what the role allows: `{edit_songs, edit_details, manage_members, make_invite, delete}`. 404 for a non member |
+| GET | `/shared-playlists/{id}` | none | `{playlist_id, owner_id, name, description, version, my_role, can, members, entries: [{song_id, position, added_by, added_at}]}`. `can` is what the role allows: `{edit_songs, edit_details, manage_members, make_invite, delete}`. 404 for a non member |
 | PATCH | `/shared-playlists/{id}` | `{name?, description?, expected_version?}` | `{version, deleted}`. Owner. A stale `expected_version` is 409 `VersionConflict`, on every write |
 | DELETE | `/shared-playlists/{id}` | none | `{version: null, deleted: true}`. Owner |
-| POST | `/shared-playlists/{id}/songs` | `{song_ids, position?, expected_version?}` | `{version, deleted}`. Editor or owner |
-| PATCH / DELETE | `/shared-playlists/{id}/songs/{entry_id}` | `{position}` / none | `{version, deleted}`. Move or remove one entry. Editor or owner |
+| POST | `/shared-playlists/{id}/songs` | `{song_ids, position?, expected_version?}` | `{version, deleted}`. Editor or owner. A song already in it stays where it is, and adding nothing leaves the version alone |
+| PATCH / DELETE | `/shared-playlists/{id}/songs/{song_id}` | `{position}` / none | `{version, deleted}`. Move or remove one song. Editor or owner. A song is in a playlist once |
 | POST | `/shared-playlists/{id}/members` | `{user_id, role}` | `{version, deleted}`. Owner. 403 when the user's `playlist_add` privacy refuses |
 | PATCH / DELETE | `/shared-playlists/{id}/members/{user_id}` | `{role}` / none | Set role (owner), or remove (owner) or leave (self). The owner leaving deletes it |
 | POST | `/shared-playlists/{id}/invites` | `{role?, expires_in_hours?, max_uses?}` | `{code, link, grants_role, expires_at, max_uses}`. Owner. `role` is `viewer` (default) or `editor`. Returns the live code for that role, and makes one only when there isn't |

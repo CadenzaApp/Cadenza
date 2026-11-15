@@ -19,7 +19,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `listening_history.rs` | Another user's recent `play_counted` events, gated by `listening_history`. |
 | `invites.rs` | `invite_codes`: create, find a live one, redeem (checked and counted in one `UPDATE`), revoke for a target. Target agnostic. |
 | `shared_playlists.rs` | `shared_playlists`, members, songs. The role table `allowed`, and every read and write. Unit tested. |
-| `collab.rs` | What shared playlists and live sessions share: `check_name`, `moved_order`, and `write_order`, the positions write. Unit tested. |
+| `collab.rs` | What shared playlists and live sessions share: `check_name`, `moved_order`, `write_order` for entry ids, and `write_song_order` for catalog song ids. Unit tested. |
 | `live_sessions.rs` | `live_sessions`, members, queue. Snapshot with projected playback, joins, roles, queue ops, playback commands, host reports. Unit tested. |
 | `social_listening_tests.rs` | Ignored database tests for the three above and now playing, each in one rolled back transaction: `cargo test social_listening -- --ignored --test-threads=1`. The Supabase transaction pooler (port 6543) needs `statement-cache-capacity=0` on the URL, and still flakes on prepared statement names now and then; rerun. |
 | `events.rs`        | The write path for `listening_events`: `NewEvent` and `insert_events`, which is idempotent on `client_event_id` and reports which rows were new.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -361,8 +361,9 @@ transaction, so the database tests can run them inside one that rolls back.
   returns that row. A row that is revoked, expired, or used up is given a new code in place.
 - Shared playlist and live session writes lock their row `FOR UPDATE`, check the role, write,
   and bump `version`, all in one transaction. A non member reads `NotFound`, so ids do not leak.
-- Shared playlist entries have their own id, so one song can be in twice. Writes take an
-  optional `expected_version`; a stale one is `VersionConflict`.
+- A shared playlist holds each catalog song once, keyed by `(playlist_id, song_id)`. Adding a
+  song already in it leaves that row. Writes take an optional `expected_version`; a stale one
+  is `VersionConflict`.
 - The owner leaving a shared playlist deletes it. The host leaving a live session hands it to
   another member (`hand_over`: someone playing along first, then the highest role, then the
   first to join, never someone hosting their own), who always plays; with nobody left it ends.

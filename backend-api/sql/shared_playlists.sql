@@ -40,15 +40,14 @@ create index if not exists shared_playlist_members_user_idx
     on shared_playlist_members (user_id);
 
 create table if not exists shared_playlist_songs (
-    -- its own id, so the same song can be in twice and a move or remove
-    -- targets one entry
-    entry_id    bigserial primary key,
     playlist_id bigint not null references shared_playlists (playlist_id) on delete cascade,
-    -- Apple Music catalog id. A library id means nothing to other members
+    -- Apple Music catalog id. A library id means nothing to other members.
+    -- One song once: this pair is the row.
     song_id     text not null,
     position    int not null,
     added_by    uuid references auth.users (id) on delete set null,
-    added_at    timestamptz not null default now()
+    added_at    timestamptz not null default now(),
+    primary key (playlist_id, song_id)
 );
 
 create index if not exists shared_playlist_songs_order_idx
