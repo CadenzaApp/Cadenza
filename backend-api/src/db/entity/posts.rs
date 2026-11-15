@@ -37,14 +37,6 @@ pub enum Relation {
     PostLikes,
     #[sea_orm(has_many = "super::post_view_status::Entity")]
     PostViewStatus,
-    #[sea_orm(
-        belongs_to = "super::shared_playlists::Entity",
-        from = "Column::SharedPlaylistId",
-        to = "super::shared_playlists::Column::PlaylistId",
-        on_update = "NoAction",
-        on_delete = "SetNull"
-    )]
-    SharedPlaylists,
 }
 
 impl Related<super::comments::Entity> for Entity {
@@ -62,12 +54,6 @@ impl Related<super::post_likes::Entity> for Entity {
 impl Related<super::post_view_status::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::PostViewStatus.def()
-    }
-}
-
-impl Related<super::shared_playlists::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::SharedPlaylists.def()
     }
 }
 

@@ -93,8 +93,9 @@ occurred_at desc)`, and a partial `(user_id, song_id, occurred_at desc)` where `
   `sql/social_edited_at.sql`), `hot_score`, `comments` (bigint, how many comments the post has, default 0,
   bumped when a comment is inserted), and nullable `topic_mk_id` (text), an Apple Music catalog
   id of the song or artist the post is about. Kind is not stored: the client asks MusicKit.
-  Or nullable `shared_playlist_id` instead, a shared playlist the author is in (set null when
-  it is deleted). A check keeps the two from both being set.
+  Or nullable `shared_playlist_id` instead, a shared playlist the author is in. It is not a
+  foreign key, so the id stays after the playlist is deleted and the feed shows that card as
+  unavailable. A check keeps the two from both being set.
 - `comments` - a comment on a post. `comment_id` (identity pk), `user_id` (uuid, references
   `auth.users`, cascades), `post_id` (references `posts`, cascades), `content`, `likes`,
   `created_at`, and nullable `edited_at` (`now()` when the author edits; a client timestamp older than it is ignored).
@@ -400,8 +401,8 @@ transaction, so the database tests can run them inside one that rolls back.
   `one` loops the current song in the projection.
 - A post can attach a shared playlist (`posts.shared_playlist_id`,
   `sql/post_shared_playlists.sql`), never along with `topic_mk_id`. Every post read fills its
-  card from `shared_playlists::playlist_cards`, one query per page. Deleting the playlist
-  drops the attachment.
+  card from `shared_playlists::playlist_cards`, one query per page. An id that matches no
+  playlist is still returned, with `available: false`.
 - `GET /listening/friends` reads a friend's open session at query time (the one they host, or
   play along in), and `can_join` from the host's `session_join` audience and bans, or with no
   session from their `listen_along` audience. A friend in a session that shows as live is listed

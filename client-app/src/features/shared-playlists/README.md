@@ -23,5 +23,6 @@ Gotchas:
 - The ellipsis beside Shuffle is the playlist menu. Share to feed posts with
   `shared_playlist_id`. Anyone who sees the post sees the card
   (`social/SharedPlaylistPostCard.tsx`); a non member who taps it gets the private screen.
+  Deleting the playlist leaves the id on the post, and the card says it is unavailable.
 - Viewers read and play. Editors change songs. The owner also renames, invites, manages members,
   and deletes. The owner leaving deletes it.

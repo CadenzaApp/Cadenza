@@ -434,6 +434,7 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
                                 song_count: entries.length,
                                 member_count: members.length,
                                 cover_song_ids: songIds.slice(0, 4),
+                                available: true,
                             }}
                         />
                     }

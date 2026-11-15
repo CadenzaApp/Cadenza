@@ -72,10 +72,18 @@ pub struct SocialPost {
     /// Apple Music catalog id of the attached song or artist, when the author
     /// picked one. Kind is not stored; the client asks MusicKit.
     pub topic_mk_id: Option<String>,
-    /// The attached shared playlist, instead of a song or artist. `None` too
-    /// once the playlist is deleted.
-    pub shared_playlist: Option<PlaylistCard>,
+    /// The attached shared playlist, instead of a song or artist. `Unavailable`
+    /// when the id matches no playlist.
+    pub shared_playlist: Option<AttachedPlaylist>,
     pub comment_count: i64,
+}
+
+/// A shared playlist on a post. `Unavailable` is an id that matches no row,
+/// which is what deleting the playlist leaves behind.
+#[derive(Clone, Debug)]
+pub enum AttachedPlaylist {
+    Card(PlaylistCard),
+    Unavailable(i64),
 }
 
 /// One comment on a post, most liked first.
@@ -1970,7 +1978,8 @@ struct PostRow {
 }
 
 /// Posts from rows, in order, each with its attached playlist's card. One
-/// query for all the cards.
+/// query for all the cards. An id with no row is still attached, as
+/// [`AttachedPlaylist::Unavailable`].
 async fn to_posts(
     db: &impl ConnectionTrait,
     rows: &[PostRow],
@@ -1983,9 +1992,10 @@ async fn to_posts(
     Ok(rows
         .iter()
         .map(|row| SocialPost {
-            shared_playlist: row
-                .shared_playlist_id
-                .and_then(|id| cards.get(&id).cloned()),
+            shared_playlist: row.shared_playlist_id.map(|id| match cards.get(&id) {
+                Some(card) => AttachedPlaylist::Card(card.clone()),
+                None => AttachedPlaylist::Unavailable(id),
+            }),
             ..row.to_post()
         })
         .collect())

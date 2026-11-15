@@ -3,15 +3,19 @@
 -- member count to everyone who sees the post. Opening it still needs
 -- membership or a code.
 --
--- Deleting the playlist leaves the post and drops the attachment.
+-- shared_playlist_id is not a foreign key. Deleting the playlist leaves the
+-- id on the post, and the feed shows that attachment as unavailable.
 --
--- Additive and idempotent. Adds one nullable column and one check to posts.
+-- Additive and idempotent. Adds one nullable column and one check to posts,
+-- and drops the foreign key if an earlier apply added it.
 --
 -- Applied by hand against Supabase, the same way the rest of this schema was.
 
 alter table posts
-    add column if not exists shared_playlist_id bigint
-        references shared_playlists (playlist_id) on delete set null;
+    add column if not exists shared_playlist_id bigint;
+
+alter table posts
+    drop constraint if exists posts_shared_playlist_id_fkey;
 
 do $$
 begin
