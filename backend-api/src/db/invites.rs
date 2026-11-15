@@ -70,6 +70,8 @@ pub struct NewInvite {
     pub grants_role: Option<PlaylistRole>,
     pub expires_in: Option<Duration>,
     pub max_uses: Option<i32>,
+    /// Replace the code even when the current one can still be used.
+    pub regenerate: bool,
 }
 
 /// Makes a code for `target`. The caller has already checked the user may.
@@ -168,7 +170,7 @@ where
     let existing = find_by_key(db, target, grants_role).await?.ok_or_else(|| {
         CadenzaError::DatabaseError("invite code row disappeared during insert".into())
     })?;
-    if is_live(&existing, now) {
+    if is_live(&existing, now) && !options.regenerate {
         return Ok(existing);
     }
     for _ in 0..MAX_CODE_ATTEMPTS {

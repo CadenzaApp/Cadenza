@@ -168,6 +168,22 @@ async fn social_listening_shared_playlist_flow() {
         .await
         .unwrap();
     assert_eq!(viewer_again.code, viewer.code);
+    let replaced = playlists::invite_for_role(
+        &txn,
+        owner,
+        id,
+        NewInvite {
+            regenerate: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_ne!(replaced.code, viewer.code);
+    assert!(matches!(
+        redeem_invite(&txn, &viewer.code).await,
+        Err(CadenzaError::InviteCodeInvalid)
+    ));
 
     // the editor edits songs but cannot delete or manage
     playlists::add_songs(&txn, friend, id, &["5".into()], None, None)

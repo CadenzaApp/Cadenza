@@ -800,7 +800,9 @@ pub async fn invite_for_role(
     }
     check_can_invite(&txn, user_id, playlist_id).await?;
     let target = InviteTargetRef::SharedPlaylist(playlist_id);
-    if let Some(existing) = find_live_invite(&txn, &target, Some(role.to_value())).await? {
+    if !options.regenerate
+        && let Some(existing) = find_live_invite(&txn, &target, Some(role.to_value())).await?
+    {
         txn.commit().await?;
         return Ok(existing);
     }
@@ -810,8 +812,7 @@ pub async fn invite_for_role(
         &target,
         NewInvite {
             grants_role: Some(role),
-            expires_in: options.expires_in,
-            max_uses: options.max_uses,
+            ..options
         },
     )
     .await?;

@@ -360,6 +360,7 @@ transaction, so the database tests can run them inside one that rolls back.
 - One row per thing and role, primary key `(target_id, target_kind, grants_role)`. `code` is
   unique. A session stores `grants_role` as empty, because the key cannot be null. Asking again
   returns that row. A row that is revoked, expired, or used up is given a new code in place.
+  `regenerate` does that even when the current code still works, and the old code stops.
 - Shared playlist and live session writes lock their row `FOR UPDATE`, check the role, write,
   and bump `version`, all in one transaction. A non member reads `NotFound`, so ids do not leak.
 - A shared playlist holds each catalog song once, keyed by `(playlist_id, song_id)`. Adding a

@@ -20,6 +20,8 @@ type ModalPopupProps = {
     onClose: () => void;
     title?: string;
     titleClassName?: string;
+    /** Sits at the top right of the title row. */
+    headerRight?: ReactNode;
     children: ReactNode;
     contentStyle?: StyleProp<ViewStyle>;
     /** Overrides the default backdrop padding around the popup. */
@@ -40,6 +42,7 @@ export function ModalPopup({
     onClose,
     title,
     titleClassName,
+    headerRight,
     children,
     contentStyle,
     backdropClassName,
@@ -100,15 +103,22 @@ export function ModalPopup({
                                 />
                             </View>
                         ) : null}
-                        {title ? (
-                            <Text
-                                className={cn(
-                                    "text-lg font-semibold text-popover-foreground",
-                                    titleClassName,
+                        {title || headerRight ? (
+                            <View className="flex-row items-start gap-2">
+                                {title ? (
+                                    <Text
+                                        className={cn(
+                                            "flex-1 text-lg font-semibold text-popover-foreground",
+                                            titleClassName,
+                                        )}
+                                    >
+                                        {title}
+                                    </Text>
+                                ) : (
+                                    <View className="flex-1" />
                                 )}
-                            >
-                                {title}
-                            </Text>
+                                {headerRight}
+                            </View>
                         ) : null}
                         {children}
                     </View>

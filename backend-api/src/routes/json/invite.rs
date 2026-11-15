@@ -13,6 +13,9 @@ pub struct CreateInvite {
     pub role: Option<PlaylistRole>,
     pub expires_in_hours: Option<i64>,
     pub max_uses: Option<i32>,
+    /// Replace the code for this thing and role. The previous code stops working.
+    #[serde(default)]
+    pub regenerate: bool,
 }
 
 #[derive(Serialize)]

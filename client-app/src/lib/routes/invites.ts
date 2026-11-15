@@ -28,6 +28,8 @@ export type CreateInviteBody = {
     role?: "viewer" | "editor";
     expires_in_hours?: number;
     max_uses?: number;
+    /** Replace the code. The previous one stops working. */
+    regenerate?: boolean;
 };
 
 /**
