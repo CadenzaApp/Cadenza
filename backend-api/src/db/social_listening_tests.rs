@@ -135,6 +135,40 @@ async fn social_listening_shared_playlist_flow() {
         Err(CadenzaError::InviteCodeInvalid)
     ));
 
+    // a used up code does not count, and asking again returns the new one
+    let editor = playlists::invite_for_role(
+        &txn,
+        owner,
+        id,
+        NewInvite {
+            grants_role: Some(PlaylistRole::Editor),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_ne!(editor.code, invite.code);
+    let editor_again = playlists::invite_for_role(
+        &txn,
+        owner,
+        id,
+        NewInvite {
+            grants_role: Some(PlaylistRole::Editor),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(editor_again.code, editor.code);
+    let viewer = playlists::invite_for_role(&txn, owner, id, NewInvite::default())
+        .await
+        .unwrap();
+    assert_ne!(viewer.code, editor.code);
+    let viewer_again = playlists::invite_for_role(&txn, owner, id, NewInvite::default())
+        .await
+        .unwrap();
+    assert_eq!(viewer_again.code, viewer.code);
+
     // the editor edits songs but cannot delete or manage
     playlists::add_songs(&txn, friend, id, &["5".into()], None, None)
         .await

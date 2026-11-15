@@ -4,7 +4,9 @@
 
 use chrono::{Duration, Utc};
 use sea_orm::{
-    ActiveEnum, ActiveValue::Set, ConnectionTrait, DbErr, EntityTrait, RuntimeErr, prelude::Uuid,
+    ActiveEnum, ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait,
+    DatabaseTransaction, DbErr, EntityTrait, QueryFilter, RuntimeErr, TransactionTrait,
+    prelude::Uuid,
 };
 
 use crate::db::entity::{
@@ -18,6 +20,10 @@ use crate::services::invite_codes::generate_code;
 /// Tries before giving up on finding an unused code. Collisions are
 /// astronomically rare at 31^8; this only stops an endless loop.
 const MAX_CODE_ATTEMPTS: usize = 5;
+
+/// A live session has no playlist role. `grants_role` is in the primary key,
+/// so it cannot be null. Empty means no role.
+const NO_ROLE: &str = "";
 
 /// What a code points at.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,12 +73,15 @@ pub struct NewInvite {
 }
 
 /// Makes a code for `target`. The caller has already checked the user may.
-pub async fn create_invite<C: ConnectionTrait>(
+pub async fn create_invite<C>(
     db: &C,
     created_by: Uuid,
     target: &InviteTargetRef,
     options: NewInvite,
-) -> Result<invite_codes::Model, CadenzaError> {
+) -> Result<invite_codes::Model, CadenzaError>
+where
+    C: ConnectionTrait + TransactionTrait<Transaction = DatabaseTransaction>,
+{
     if options.max_uses.is_some_and(|uses| uses <= 0) {
         return Err(CadenzaError::InvalidRequestBody(
             "max_uses must be at least 1".into(),
@@ -85,9 +94,10 @@ pub async fn create_invite<C: ConnectionTrait>(
                     "a playlist code grants viewer or editor".into(),
                 ));
             }
-            role => Some(role.unwrap_or(PlaylistRole::Viewer).to_value()),
+            Some(role) => role.to_value(),
+            None => PlaylistRole::Viewer.to_value(),
         },
-        InviteTargetRef::LiveSession(_) => None,
+        InviteTargetRef::LiveSession(_) => NO_ROLE.to_string(),
     };
     let now = Utc::now();
 
@@ -104,13 +114,30 @@ pub async fn create_invite<C: ConnectionTrait>(
             uses: Set(0),
             revoked_at: Set(None),
         };
+        // a conflict aborts the transaction unless it is rolled back to here
+        let save = db.begin().await?;
         match invite_codes::Entity::insert(row)
-            .exec_with_returning(db)
+            .exec_with_returning(&save)
             .await
         {
-            Ok(model) => return Ok(model),
-            Err(err) if is_unique_violation(&err) => continue,
-            Err(err) => return Err(err.into()),
+            Ok(model) => {
+                save.commit().await?;
+                return Ok(model);
+            }
+            Err(err) if unique_constraint(&err) == Some("invite_codes_code_key") => {
+                save.rollback().await?;
+                continue;
+            }
+            // one row per thing and role; a usable row is returned, a dead one
+            // is given a new code
+            Err(err) if unique_constraint(&err) == Some("invite_codes_pkey") => {
+                save.rollback().await?;
+                return settle_existing(db, created_by, target, &grants_role, &options, now).await;
+            }
+            Err(err) => {
+                save.rollback().await?;
+                return Err(err.into());
+            }
         }
     }
     Err(CadenzaError::DatabaseError(
@@ -118,9 +145,79 @@ pub async fn create_invite<C: ConnectionTrait>(
     ))
 }
 
-fn is_unique_violation(err: &DbErr) -> bool {
-    matches!(err, DbErr::Query(RuntimeErr::SqlxError(sqlx))
-        if sqlx.as_database_error().and_then(|e| e.code()).as_deref() == Some("23505"))
+fn unique_constraint(err: &DbErr) -> Option<&str> {
+    match err {
+        DbErr::Query(RuntimeErr::SqlxError(sqlx)) => sqlx.as_database_error()?.constraint(),
+        _ => None,
+    }
+}
+
+/// The row for this thing and role already exists. Return it when it can still
+/// be used. Otherwise replace its code and reset its limits.
+async fn settle_existing<C>(
+    db: &C,
+    created_by: Uuid,
+    target: &InviteTargetRef,
+    grants_role: &str,
+    options: &NewInvite,
+    now: chrono::DateTime<Utc>,
+) -> Result<invite_codes::Model, CadenzaError>
+where
+    C: ConnectionTrait + TransactionTrait<Transaction = DatabaseTransaction>,
+{
+    let existing = find_by_key(db, target, grants_role).await?.ok_or_else(|| {
+        CadenzaError::DatabaseError("invite code row disappeared during insert".into())
+    })?;
+    if is_live(&existing, now) {
+        return Ok(existing);
+    }
+    for _ in 0..MAX_CODE_ATTEMPTS {
+        let mut row: invite_codes::ActiveModel = existing.clone().into();
+        row.code = Set(generate_code());
+        row.created_by = Set(created_by);
+        row.created_at = Set(now.fixed_offset());
+        row.expires_at = Set(options.expires_in.map(|d| (now + d).fixed_offset()));
+        row.max_uses = Set(options.max_uses);
+        row.uses = Set(0);
+        row.revoked_at = Set(None);
+        let save = db.begin().await?;
+        match row.update(&save).await {
+            Ok(model) => {
+                save.commit().await?;
+                return Ok(model);
+            }
+            Err(err) if unique_constraint(&err) == Some("invite_codes_code_key") => {
+                save.rollback().await?;
+                continue;
+            }
+            Err(err) => {
+                save.rollback().await?;
+                return Err(err.into());
+            }
+        }
+    }
+    Err(CadenzaError::DatabaseError(
+        "could not find an unused invite code".into(),
+    ))
+}
+
+fn is_live(row: &invite_codes::Model, now: chrono::DateTime<Utc>) -> bool {
+    row.revoked_at.is_none()
+        && row.expires_at.is_none_or(|at| at.with_timezone(&Utc) > now)
+        && row.max_uses.is_none_or(|max| row.uses < max)
+}
+
+async fn find_by_key<C: ConnectionTrait>(
+    db: &C,
+    target: &InviteTargetRef,
+    grants_role: &str,
+) -> Result<Option<invite_codes::Model>, CadenzaError> {
+    Ok(invite_codes::Entity::find()
+        .filter(invite_codes::Column::TargetKind.eq(target.kind()))
+        .filter(invite_codes::Column::TargetId.eq(target.id_text()))
+        .filter(invite_codes::Column::GrantsRole.eq(grants_role))
+        .one(db)
+        .await?)
 }
 
 /// Checks `code`, counts one use, and returns what it points at.
@@ -136,7 +233,8 @@ pub async fn redeem_invite(db: &impl Db, code: &str) -> Result<Redeemed, Cadenza
                AND revoked_at IS NULL
                AND (expires_at IS NULL OR expires_at > now())
                AND (max_uses IS NULL OR uses < max_uses)
-             RETURNING target_kind::text AS target_kind, target_id, grants_role",
+             RETURNING target_kind::text AS target_kind, target_id,
+                       NULLIF(grants_role, '') AS grants_role",
             vec![code.into()],
         ))
         .await?
@@ -149,6 +247,46 @@ pub async fn redeem_invite(db: &impl Db, code: &str) -> Result<Redeemed, Cadenza
         target: InviteTargetRef::from_row(&kind, &target_id)?,
         grants_role,
     })
+}
+
+/// The newest code for `target` that can still be redeemed, or none.
+/// `grants_role` is the playlist role it joins as (`viewer` or `editor`).
+/// A session code has none. Revoked, expired, and used up codes do not count.
+pub async fn find_live_invite<C: ConnectionTrait>(
+    db: &C,
+    target: &InviteTargetRef,
+    grants_role: Option<String>,
+) -> Result<Option<invite_codes::Model>, CadenzaError> {
+    let row = db
+        .query_one_raw(stmt(
+            "SELECT code FROM invite_codes
+             WHERE target_kind = $1::invite_target
+               AND target_id = $2
+               AND grants_role IS NOT DISTINCT FROM $3
+               AND revoked_at IS NULL
+               AND (expires_at IS NULL OR expires_at > now())
+               AND (max_uses IS NULL OR uses < max_uses)
+             ORDER BY created_at DESC
+             LIMIT 1",
+            vec![
+                match target {
+                    InviteTargetRef::SharedPlaylist(_) => "shared_playlist",
+                    InviteTargetRef::LiveSession(_) => "live_session",
+                }
+                .into(),
+                target.id_text().into(),
+                grants_role.into(),
+            ],
+        ))
+        .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let code: String = row.try_get("", "code")?;
+    Ok(invite_codes::Entity::find()
+        .filter(invite_codes::Column::Code.eq(code))
+        .one(db)
+        .await?)
 }
 
 /// Revokes every live code for `target`, for when it is deleted or ended.

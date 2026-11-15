@@ -30,7 +30,7 @@ impl From<invite_codes::Model> for Invite {
         Self {
             link: format!("cadenza://join/{}", model.code),
             code: model.code,
-            grants_role: model.grants_role,
+            grants_role: (!model.grants_role.is_empty()).then_some(model.grants_role),
             expires_at: model.expires_at.map(|at| at.with_timezone(&Utc)),
             max_uses: model.max_uses,
         }

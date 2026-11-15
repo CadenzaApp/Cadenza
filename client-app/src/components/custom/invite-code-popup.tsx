@@ -24,9 +24,9 @@ function readable(code: string) {
 }
 
 /**
- * Makes an invite code on open and shows it big, with Share. The code is
- * selectable, and the share sheet has Copy. For a playlist, `withRole` adds a
- * "Joins as" picker; changing it makes a new code.
+ * Shows an invite code big, with Share. The code is selectable, and the share
+ * sheet has Copy. For a playlist, `withRole` adds a "Joins as" picker. Each
+ * role keeps the code it already loaded, so switching back does not ask again.
  */
 export function InviteCodePopup({
     title,
@@ -42,6 +42,10 @@ export function InviteCodePopup({
     const { colors } = useAppTheme();
     const [role, setRole] = useState<Role>("viewer");
     const [attempt, setAttempt] = useState(0);
+    // a playlist role remembers the code it loaded, so switching back shows
+    // that code instead of asking for another
+    const [codes, setCodes] = useState<Partial<Record<Role, Invite>>>({});
+    const cached = withRole ? codes[role] : undefined;
     // a result belongs to the request that made it, so a new role or a retry
     // reads as loading until its own result lands
     const requestKey = `${role}:${attempt}`;
@@ -52,12 +56,15 @@ export function InviteCodePopup({
     } | null>(null);
 
     useEffect(() => {
+        if (cached) return;
         let live = true;
         const key = `${role}:${attempt}`;
         void (async () => {
             try {
                 const invite = await createInvite(withRole ? { role } : {});
-                if (live) setResult({ key, invite });
+                if (!live) return;
+                if (withRole) setCodes((prev) => ({ ...prev, [role]: invite }));
+                setResult({ key, invite });
             } catch {
                 if (live) setResult({ key, failed: true });
             }
@@ -65,11 +72,15 @@ export function InviteCodePopup({
         return () => {
             live = false;
         };
-        // a new role or a retry makes a new code
+        // a role with no code yet, or a retry, asks for one
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [role, attempt, withRole]);
+    }, [role, attempt, withRole, cached]);
 
-    const current = result?.key === requestKey ? result : null;
+    const current = cached
+        ? { invite: cached }
+        : result?.key === requestKey
+          ? result
+          : null;
     const state:
         | { kind: "loading" }
         | { kind: "ready"; invite: Invite }
@@ -102,7 +113,15 @@ export function InviteCodePopup({
                             </Text>
                             <Pressable
                                 accessibilityRole="button"
-                                onPress={() => setAttempt((n) => n + 1)}
+                                onPress={() => {
+                                    setCodes((prev) => {
+                                        if (!withRole) return prev;
+                                        const next = { ...prev };
+                                        delete next[role];
+                                        return next;
+                                    });
+                                    setAttempt((n) => n + 1);
+                                }}
                                 className="active:opacity-60"
                             >
                                 <Text className="text-sm font-semibold text-brand">

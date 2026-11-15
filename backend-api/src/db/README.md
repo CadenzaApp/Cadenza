@@ -17,7 +17,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `now_playing.rs` | One current row per user in `now_playing`: upsert, clear, read for a viewer, friends listening now. `is_live` and position projection are pure and unit tested. |
 | `pool.rs` | The connection pool one backend process opens: the cap, the queue timeout, and the statement and idle in transaction timeouts set on each connection. `PoolConfig::from_env`. Live tests are ignored. |
 | `listening_history.rs` | Another user's recent `play_counted` events, gated by `listening_history`. |
-| `invites.rs` | `invite_codes`: create, redeem (checked and counted in one `UPDATE`), revoke for a target. Target agnostic. |
+| `invites.rs` | `invite_codes`: create, find a live one, redeem (checked and counted in one `UPDATE`), revoke for a target. Target agnostic. |
 | `shared_playlists.rs` | `shared_playlists`, members, songs. The role table `allowed`, and every read and write. Unit tested. |
 | `collab.rs` | What shared playlists and live sessions share: `check_name`, `moved_order`, and `write_order`, the positions write. Unit tested. |
 | `live_sessions.rs` | `live_sessions`, members, queue. Snapshot with projected playback, joins, roles, queue ops, playback commands, host reports. Unit tested. |
@@ -356,6 +356,9 @@ transaction, so the database tests can run them inside one that rolls back.
 
 - An invite code skips the owner's audience for the one thing it points at. Redeeming does not
   join; `services::invite_codes::accept_invite` redeems then calls the target's join.
+- One row per thing and role, primary key `(target_id, target_kind, grants_role)`. `code` is
+  unique. A session stores `grants_role` as empty, because the key cannot be null. Asking again
+  returns that row. A row that is revoked, expired, or used up is given a new code in place.
 - Shared playlist and live session writes lock their row `FOR UPDATE`, check the role, write,
   and bump `version`, all in one transaction. A non member reads `NotFound`, so ids do not leak.
 - Shared playlist entries have their own id, so one song can be in twice. Writes take an

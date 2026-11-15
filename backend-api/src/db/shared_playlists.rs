@@ -16,7 +16,8 @@ use crate::db::collab::{check_name, moved_order, write_order};
 use crate::db::{Db, stmt};
 use crate::db::{
     audience::{PrivacyField, can_see_field},
-    invites::{InviteTargetRef, revoke_invites_for},
+    entity::invite_codes,
+    invites::{InviteTargetRef, NewInvite, create_invite, find_live_invite, revoke_invites_for},
     now_playing::is_catalog_id,
 };
 use crate::err::CadenzaError;
@@ -730,6 +731,57 @@ pub async fn remove_member(
     let version = bump(&txn, playlist_id).await?;
     txn.commit().await?;
     Ok(MemberRemoved::Removed(version))
+}
+
+/// The live code for this playlist and role. Owner only. `role` is what it
+/// joins as, viewer when omitted. Returns the one that can still be used, and
+/// makes one only when there isn't. A revoked, expired, or used up code does
+/// not count.
+pub async fn invite_for_role(
+    db: &impl Db,
+    user_id: Uuid,
+    playlist_id: i64,
+    options: NewInvite,
+) -> Result<invite_codes::Model, CadenzaError> {
+    let role = match options.grants_role {
+        Some(PlaylistRole::Owner) => {
+            return Err(CadenzaError::InvalidRequestBody(
+                "a playlist code grants viewer or editor".into(),
+            ));
+        }
+        Some(role) => role,
+        None => PlaylistRole::Viewer,
+    };
+    let txn = db.begin().await?;
+    if txn
+        .query_one_raw(stmt(
+            "SELECT 1 FROM shared_playlists WHERE playlist_id = $1 FOR UPDATE",
+            vec![playlist_id.into()],
+        ))
+        .await?
+        .is_none()
+    {
+        return Err(CadenzaError::NotFound);
+    }
+    check_can_invite(&txn, user_id, playlist_id).await?;
+    let target = InviteTargetRef::SharedPlaylist(playlist_id);
+    if let Some(existing) = find_live_invite(&txn, &target, Some(role.to_value())).await? {
+        txn.commit().await?;
+        return Ok(existing);
+    }
+    let invite = create_invite(
+        &txn,
+        user_id,
+        &target,
+        NewInvite {
+            grants_role: Some(role),
+            expires_in: options.expires_in,
+            max_uses: options.max_uses,
+        },
+    )
+    .await?;
+    txn.commit().await?;
+    Ok(invite)
 }
 
 /// Locks the playlist for a new invite code and checks the caller may make one.

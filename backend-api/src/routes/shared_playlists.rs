@@ -11,7 +11,7 @@ use crate::{
     AppState,
     auth::SupabaseClaims,
     db::{
-        invites::{InviteTargetRef, NewInvite, create_invite},
+        invites::NewInvite,
         shared_playlists::{self as playlists, MemberRemoved},
     },
     err::CadenzaError,
@@ -271,8 +271,9 @@ async fn remove_member_handler(
     }
 }
 
-/// Makes an invite code. Owner only. `role` is what it joins as, `viewer` by
-/// default.
+/// The live invite code for this playlist and role. Owner only. `role` is what
+/// it joins as, `viewer` by default. The same role returns the same code while
+/// that code can still be used.
 ///
 /// ```json
 /// { "code": "K7M2QX9P", "link": "cadenza://join/K7M2QX9P", "grants_role": "editor", "expires_at": null, "max_uses": null }
@@ -284,11 +285,10 @@ async fn invite_handler(
     body: Option<Json<CreateInvite>>,
 ) -> Result<Json<Invite>, CadenzaError> {
     let body = body.map(|Json(body)| body).unwrap_or_default();
-    playlists::check_can_invite(&db, claims.user_id, playlist_id).await?;
-    let invite = create_invite(
+    let invite = playlists::invite_for_role(
         &db,
         claims.user_id,
-        &InviteTargetRef::SharedPlaylist(playlist_id),
+        playlist_id,
         NewInvite {
             grants_role: body.role,
             expires_in: body.expires_in_hours.map(Duration::hours),
