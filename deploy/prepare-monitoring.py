@@ -46,7 +46,7 @@ else:
         stream.flush()
         os.fsync(stream.fileno())
 # The host parent directory remains root-only; only Grafana's UID can read the bind.
-path.chown(472, 0)
+os.chown(path, 472, 0)
 path.chmod(0o400)
 
 for item in json.loads(
