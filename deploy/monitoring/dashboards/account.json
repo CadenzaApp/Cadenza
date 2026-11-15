@@ -7,7 +7,7 @@
     "feature"
   ],
   "schemaVersion": 39,
-  "version": 5,
+  "version": 8,
   "timezone": "browser",
   "refresh": "30s",
   "time": {
@@ -830,7 +830,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(le)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",le!~\"20|30|40|50|60\",job=\"cadenza-backend\",route=~\"$route\",route=~\"/profile(/.*)?|/settings(/.*)?\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\") and on(operation) label_replace(vector(1),\"operation\",\"${operation:raw}\",\"\",\"\"))",
+          "expr": "sum by(le)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",le!~\"(20|30|40|50|60)([.]0)?\",job=\"cadenza-backend\",route=~\"$route\",route=~\"/profile(/.*)?|/settings(/.*)?\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\") and on(operation) label_replace(vector(1),\"operation\",\"${operation:raw}\",\"\",\"\"))",
           "format": "heatmap",
           "legendFormat": "{{le}}",
           "instant": true,
@@ -896,74 +896,56 @@
                       "0.005": {
                         "text": "2.5-5 ms"
                       },
-                      "0.0075": {
-                        "text": "5-7.5 ms"
-                      },
                       "0.01": {
-                        "text": "7.5-10 ms"
-                      },
-                      "0.015": {
-                        "text": "10-15 ms"
+                        "text": "5-10 ms"
                       },
                       "0.02": {
-                        "text": "15-20 ms"
-                      },
-                      "0.025": {
-                        "text": "20-25 ms"
+                        "text": "10-20 ms"
                       },
                       "0.035": {
-                        "text": "25-35 ms"
+                        "text": "20-35 ms"
                       },
                       "0.05": {
                         "text": "35-50 ms"
                       },
-                      "0.075": {
-                        "text": "50-75 ms"
-                      },
                       "0.1": {
-                        "text": "75-100 ms"
-                      },
-                      "0.15": {
-                        "text": "100-150 ms"
-                      },
-                      "0.2": {
-                        "text": "150-200 ms"
+                        "text": "50-100 ms"
                       },
                       "0.25": {
-                        "text": "200-250 ms"
+                        "text": "100-250 ms"
                       },
-                      "0.35": {
-                        "text": "250-350 ms"
+                      "0.4": {
+                        "text": "250-400 ms"
                       },
-                      "0.5": {
-                        "text": "350-500 ms"
+                      "0.6": {
+                        "text": "400-600 ms"
                       },
-                      "0.75": {
-                        "text": "500-750 ms"
+                      "0.8": {
+                        "text": "600-800 ms"
                       },
                       "1": {
-                        "text": "0.75-1 s"
+                        "text": "800-1000 ms"
                       },
-                      "1.5": {
-                        "text": "1-1.5 s"
-                      },
-                      "2": {
-                        "text": "1.5-2 s"
-                      },
-                      "3": {
-                        "text": "2-3 s"
+                      "2.5": {
+                        "text": "1-2.5 s"
                       },
                       "5": {
-                        "text": "3-5 s"
-                      },
-                      "7.5": {
-                        "text": "5-7.5 s"
+                        "text": "2.5-5 s"
                       },
                       "10": {
-                        "text": "7.5-10 s"
+                        "text": "5-10 s"
                       },
                       "+Inf": {
                         "text": "10+ s"
+                      },
+                      "1.0": {
+                        "text": "800-1000 ms"
+                      },
+                      "5.0": {
+                        "text": "2.5-5 s"
+                      },
+                      "10.0": {
+                        "text": "5-10 s"
                       }
                     }
                   }

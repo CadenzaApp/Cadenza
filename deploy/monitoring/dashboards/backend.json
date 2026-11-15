@@ -7,7 +7,7 @@
     "overview"
   ],
   "schemaVersion": 39,
-  "version": 5,
+  "version": 8,
   "timezone": "browser",
   "refresh": "30s",
   "time": {

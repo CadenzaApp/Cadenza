@@ -34,7 +34,7 @@ impl Metrics {
         let registry = Registry::new();
         let duration = HistogramVec::new(HistogramOpts::new("cadenza_http_request_duration_seconds", "Time until response headers, including auth, queueing and handler work; cancelled requests are separate outcomes.")
             .const_labels([("histogram_schema".to_owned(), "2".to_owned())].into())
-            .buckets(vec![0.001, 0.0025, 0.005, 0.0075, 0.01, 0.015, 0.02, 0.025, 0.035, 0.05, 0.075, 0.1, 0.15, 0.2, 0.25, 0.35, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]), &["method", "route", "status"]).unwrap();
+            .buckets(vec![0.001, 0.0025, 0.005, 0.01, 0.02, 0.035, 0.05, 0.1, 0.25, 0.4, 0.6, 0.8, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]), &["method", "route", "status"]).unwrap();
         let requests = IntCounterVec::new(
             Opts::new(
                 "cadenza_http_requests_total",
@@ -354,14 +354,17 @@ mod tests {
             .duration
             .with_label_values(&["GET", "/example", "200"]);
         histogram.observe(0.019);
+        histogram.observe(0.375);
         histogram.observe(12.0);
         let text = String::from_utf8(metrics.render()).unwrap();
         for (boundary, count) in [
-            ("0.015", "0"),
+            ("0.01", "0"),
             ("0.02", "1"),
-            ("10", "1"),
-            ("20", "2"),
-            ("+Inf", "2"),
+            ("0.25", "1"),
+            ("0.4", "2"),
+            ("10", "2"),
+            ("20", "3"),
+            ("+Inf", "3"),
         ] {
             let line = text
                 .lines()
