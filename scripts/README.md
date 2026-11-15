@@ -52,5 +52,6 @@ apply formatting before trying again.
 Run `./scripts/open-metrics.py` (or `python3 scripts/open-metrics.py`) with an
 active `cadenza-project` AWS session and the Session Manager plugin installed.
 It finds the current ASG host and tunnels the read-only Grafana dashboard to
-localhost. Use `--port` to change the local port. Details are in
+localhost. It opens the default browser after Grafana is reachable. Use `--port`
+to change the local port, or `--no-browser` to open the URL manually. Details are in
 [../deploy/monitoring/README.md](../deploy/monitoring/README.md).

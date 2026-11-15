@@ -16,8 +16,8 @@ aws login --profile cadenza-project --region us-east-2
 ./scripts/open-metrics.py
 ```
 
-Open the printed localhost URL and leave the command running. Ctrl-C closes the
-tunnel. `--port 3301` selects another local port. AWS authenticates access; Grafana
+The script opens your default browser once Grafana responds. Leave the command
+running; Ctrl-C closes the tunnel. Use `--no-browser` for manual opening. `--port 3301` selects another local port. AWS authenticates access; Grafana
 allows read-only anonymous viewing inside the tunnel. Admin endpoints and editing
 still require authentication. A random admin secret is generated privately on
 each new host, not baked into its AMI. Dashboards are provisioned from Git.
@@ -31,7 +31,9 @@ port. `/metrics` listens on backend port 9091 inside Docker; the public API port
 Prometheus retains up to 14 days, or 2 GB of stored blocks, whichever is reached
 first. WAL/head data needs additional space; the block cap is not a filesystem
 quota. The current 16 GiB disk had 8.6 GiB free before installation, so it was not
-enlarged. Prometheus and Grafana each have a 384 MiB memory cap and 0.5 CPU limit.
+enlarged. Prometheus has a 384 MiB memory cap. Grafana has a 768 MiB hard limit and
+a 512 MiB Go memory target; its initial 384 MiB limit caused OOM restarts during
+dashboard use. Each service has a 0.5 CPU limit.
 
 Named volumes retain history/settings across container updates on the same EC2
 host. Replacement or termination destroys this local history; that tradeoff is

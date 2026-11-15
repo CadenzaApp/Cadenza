@@ -41,7 +41,7 @@
           }
         ]
       },
-      "memory_limit": 402653184,
+      "memory_limit": 805306368,
       "image": "grafana/grafana@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f"
     }
   },
@@ -52,10 +52,10 @@
   },
   "disk": {
     "total_bytes": 15523123200,
-    "used_bytes": 8530796544,
-    "free_bytes": 6975549440
+    "used_bytes": 8531476480,
+    "free_bytes": 6974869504
   },
-  "mem_available_mib": 2331,
+  "mem_available_mib": 2311,
   "prometheus_flags": [
     "--config.file=/etc/prometheus/prometheus.yml",
     "--storage.tsdb.retention.time=14d",
@@ -70,7 +70,7 @@
           "job": "cadenza-backend"
         },
         "value": [
-          1794711784.487,
+          1794713126.169,
           "1"
         ]
       }
@@ -84,7 +84,7 @@
           "limit": "provider_calls_per_day"
         },
         "value": [
-          1794711784.489,
+          1794713126.171,
           "7000"
         ]
       }
@@ -93,8 +93,8 @@
       {
         "metric": {},
         "value": [
-          1794711784.49,
-          "76"
+          1794713126.172,
+          "399"
         ]
       }
     ],
@@ -106,7 +106,7 @@
           "job": "cadenza-backend"
         },
         "value": [
-          1794711784.491,
+          1794713126.175,
           "0"
         ]
       }
@@ -121,8 +121,8 @@
     "block_retention_cap": "2GB"
   },
   "instance": "i-0c6219640e98e9b35",
-  "command": "9d927339-6eab-49fa-a3d6-c33c1c4151fb",
-  "verified_at_utc": "2026-11-15T03:03:05.757895+00:00",
+  "command": "a7870a7e-f612-4072-ad6b-654d188cacb9",
+  "verified_at_utc": "2026-11-15T03:25:27.491935+00:00",
   "public_api_checks": {
     "/health/ready": 200,
     "/test": 200,

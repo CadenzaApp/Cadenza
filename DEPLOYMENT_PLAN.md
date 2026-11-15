@@ -355,3 +355,9 @@ limits and private ports. Public `/metrics` returns 404. The existing 16 GiB dis
 was retained. Local history lasts up to 14 days or the 2 GB block cap, and is lost
 on host replacement. Both temporary AMI machines were terminated. Evidence:
 deploy/recovery/verification.metrics.json.
+
+Grafana's initial 384 MiB limit caused OOM restarts under dashboard use. Its
+limit is now 768 MiB with a 512 MiB Go memory target, persisted in template
+version 4. Backend image/AMI and Prometheus are unchanged. The full 17-panel
+query workload completed in 0.327 seconds through the private tunnel after
+the fix; see deploy/recovery/verification.metrics_performance.json.

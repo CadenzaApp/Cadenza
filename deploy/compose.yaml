@@ -68,7 +68,7 @@ services:
     image: grafana/grafana@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
     platform: linux/arm64
     restart: unless-stopped
-    mem_limit: 384m
+    mem_limit: 768m
     cpus: "0.5"
     read_only: true
     cap_drop: [ALL]
@@ -76,6 +76,7 @@ services:
     ports:
       - "127.0.0.1:3300:3000"
     environment:
+      GOMEMLIMIT: 512MiB
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
