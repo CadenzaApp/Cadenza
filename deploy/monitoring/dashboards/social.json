@@ -7,7 +7,7 @@
     "feature"
   ],
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "timezone": "browser",
   "refresh": "30s",
   "time": {
@@ -47,6 +47,26 @@
         "regex": "/route=\"([^\"]+)\"/",
         "sort": 0,
         "description": "Routes in this feature, busiest first over the selected time range."
+      },
+      {
+        "name": "operation",
+        "label": "Histogram operations",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": "query_result(sort_desc(sum by(operation)(label_join(increase(cadenza_http_requests_total{job=\"cadenza-backend\",route=~\"$route\",route=~\"/social(/.*)?\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\"))) > 0)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "regex": "/operation=\"([^\"]+)\"/",
+        "sort": 0,
+        "description": "One histogram per observed method + route; busiest first. Filter here to narrow the repeated charts."
       }
     ]
   },
@@ -788,6 +808,167 @@
           }
         }
       ]
+    },
+    {
+      "id": 40,
+      "type": "barchart",
+      "title": "Runtime distribution - $operation",
+      "description": "Calls in each non-overlapping runtime bucket over the selected range, including error responses. Prometheus cumulative buckets are converted to per-bucket counts before rendering. Unequal-width buckets use equal-width bars: height is calls, not probability density. Includes >60s overflow. Counts are scrape-based estimates; sparse/new series can undercount. Timings end at response headers.",
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "repeat": "operation",
+      "repeatDirection": "h",
+      "maxPerRow": 2,
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(le)(label_join(increase(cadenza_http_request_duration_seconds_bucket{job=\"cadenza-backend\",route=~\"$route\",route=~\"/social(/.*)?\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\") and on(operation) label_replace(vector(1),\"operation\",\"${operation:raw}\",\"\",\"\"))",
+          "format": "heatmap",
+          "legendFormat": "{{le}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "Last *": "Calls",
+              "Last": "Calls"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "custom": {
+            "axisLabel": "Calls"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Field"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Runtime bucket"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0.001": {
+                        "text": "0-1 ms"
+                      },
+                      "0.0025": {
+                        "text": "1-2.5 ms"
+                      },
+                      "0.005": {
+                        "text": "2.5-5 ms"
+                      },
+                      "0.01": {
+                        "text": "5-10 ms"
+                      },
+                      "0.025": {
+                        "text": "10-25 ms"
+                      },
+                      "0.05": {
+                        "text": "25-50 ms"
+                      },
+                      "0.1": {
+                        "text": "50-100 ms"
+                      },
+                      "0.25": {
+                        "text": "100-250 ms"
+                      },
+                      "0.5": {
+                        "text": "250-500 ms"
+                      },
+                      "1": {
+                        "text": "0.5-1 s"
+                      },
+                      "2.5": {
+                        "text": "1-2.5 s"
+                      },
+                      "5": {
+                        "text": "2.5-5 s"
+                      },
+                      "10": {
+                        "text": "5-10 s"
+                      },
+                      "20": {
+                        "text": "10-20 s"
+                      },
+                      "30": {
+                        "text": "20-30 s"
+                      },
+                      "40": {
+                        "text": "30-40 s"
+                      },
+                      "50": {
+                        "text": "40-50 s"
+                      },
+                      "60": {
+                        "text": "50-60 s"
+                      },
+                      "+Inf": {
+                        "text": ">60 s"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "Field",
+        "orientation": "vertical",
+        "showValue": "auto",
+        "stacking": "none",
+        "groupWidth": 0.9,
+        "barWidth": 0.9,
+        "fillOpacity": 85,
+        "xTickLabelRotation": -45,
+        "xTickLabelSpacing": 0,
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
     }
   ],
   "annotations": {

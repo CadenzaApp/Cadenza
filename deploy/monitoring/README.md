@@ -58,7 +58,11 @@ the selected time range across them:
 - Account: profile and settings.
 
 Feature views show summary percentiles, stacked call-volume bars, failed-response
-bars and per-operation percentile trends/tables. Operation combines method and
+bars and per-operation percentile trends/tables. Each feature also repeats a
+runtime-distribution histogram for every observed method/route, busiest first.
+Use Histogram operations to narrow these charts. They cover the selected range
+and convert cumulative Prometheus buckets into disjoint counts, including the
+>60-second overflow. Bucket widths vary; bar heights are counts, not density. Operation combines method and
 route; compact Calls/runtime columns keep the tables readable. The route selector
 and tables rank by calls over the selected range. Calls cards use neutral text,
 not severity colors. Provider/limit panels are server-wide, regardless of route.

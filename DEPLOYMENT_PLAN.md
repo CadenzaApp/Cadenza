@@ -373,3 +373,7 @@ Account from the overview. Each feature has p50/p95/p99, call-volume bars,
 failed responses and operation tables. Provider budget/limit details live under
 Tagging. These views use existing low-cardinality HTTP metrics; span-level
 breakdowns will be added with tracing, rather than inferred from HTTP totals.
+
+Feature runtime histograms repeat per observed method/route over the selected
+range. An operation selector narrows the charts; disjoint bucket counts include
+the >60-second overflow, using the existing HTTP histogram without new labels.
