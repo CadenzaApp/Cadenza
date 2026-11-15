@@ -5,16 +5,16 @@
   "migration_source_resources": "deploy/history/us-west-2/resources.json",
   "seed_instance": "i-0d59593454326c725",
   "warm_ami": {
-    "image_id": "ami-04040be0fc1e6cf6d",
-    "builder_instance": "i-0006b6e15c6688756",
-    "validation_instance": "i-08b3709c5e266801e",
-    "validated_at_utc": "2026-11-14T01:16:02.609432+00:00",
-    "bake_key": "1ae720460e9a304110dd8e9fb47e76fbb81cd905551423cbc4e0be25c5dd9552",
+    "image_id": "ami-0f0e8cff161d36cd0",
+    "builder_instance": "i-003e275c174016c83",
+    "validation_instance": "i-05f48bf31382fb5a7",
+    "validated_at_utc": "2026-11-15T03:01:07.723435+00:00",
+    "bake_key": "31f2a27ae8fc8bfb095876077ef636ba07824ac5958d07fd93a263881ad72d35",
     "cold_base_ami": "ami-02a8f93f158469812",
-    "backend_image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:8c114c88f756a462d0efc6aabcf9ddc3d5f833847803fd0a98ef9378ca832b61",
+    "backend_image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:fc4cf3e7b6afb99f257d1eef8db4c3c4f5198d4b23509a64c5dff9195a7a4dea",
     "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
-    "validation_command": "8f73753c-5328-47a3-ac5a-6f52d4bb3b0d",
-    "validation_result": "{\"stage\": \"targeted_prefetch\", \"seconds\": 70.129, \"files\": 27481, \"logical_bytes\": 2405766940, \"input_blocks\": 4865424}\nAMI validation passed: no containers/secrets; offline finite 768-dimensional inference",
+    "validation_command": "821759d0-e418-4ddb-b892-9cd30ef5a385",
+    "validation_result": "{\"stage\": \"targeted_prefetch\", \"seconds\": 84.127, \"files\": 27481, \"logical_bytes\": 2406144348, \"input_blocks\": 4866680}\nAMI validation passed: no containers/secrets; offline finite 768-dimensional inference",
     "validated": true,
     "startup_prefetch": "targeted-python-model-v1"
   },
@@ -27,9 +27,9 @@
   "backend_security_group": "sg-070f29b06229a834b",
   "launch_template": {
     "LaunchTemplateId": "lt-0369d766012c4ef99",
-    "Version": "2"
+    "Version": "3"
   },
-  "bootstrap_sha256": "bcae68a2fe328ae61ac721d033807f459467cad4bbc90a97699c83251a3dc371",
+  "bootstrap_sha256": "c2b54774cb0f48b8e6587a4a7e9217d535058176da031c5ec17444833ee87677",
   "health_path": "/health/ready",
   "health_interval_seconds": 5,
   "health_timeout_seconds": 4,
@@ -39,8 +39,19 @@
   "notifications_topic": "arn:aws:sns:us-west-1:175220118767:cadenza-demo-instance-events",
   "vpc_origin_id": "vo_4e2OiDgjFp7B3aZsG2PDY9",
   "cutover_complete": true,
-  "active_release_manifest": "deploy/releases/git-e55a35654e24-20261113233036-us-west-1-tls.json",
-  "runtime_verification": "deploy/recovery/verification.us-west-1-runtime.json",
+  "active_release_manifest": "deploy/releases/git-cd254744d6e6-20261115023950.json",
+  "runtime_verification": "deploy/recovery/verification.metrics.json",
   "viewer_access": "public",
-  "public_access_verification": "deploy/recovery/verification.public_access.json"
+  "public_access_verification": "deploy/recovery/verification.public_access.json",
+  "backend_image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:fc4cf3e7b6afb99f257d1eef8db4c3c4f5198d4b23509a64c5dff9195a7a4dea",
+  "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+  "monitoring": {
+    "grafana_host_port": 3300,
+    "grafana_bind": "127.0.0.1",
+    "access": "AWS Session Manager tunnel; anonymous read-only viewer inside tunnel",
+    "retention_days": 14,
+    "block_retention_size": "2GB",
+    "history_survives_replacement": false,
+    "verification": "deploy/recovery/verification.metrics.json"
+  }
 }

@@ -301,8 +301,9 @@ No notification Lambda is needed. Resource identifiers and evidence live under
    Review provider key scopes/spending controls and basic cost/health visibility.
    ALB hourly and capacity charges apply before credits/free allowances;
    EC2/IPv4/EBS/ECR remain separate.
-5. Private Prometheus/Grafana implementation: operation histograms, p50/p95/p99,
-   traffic/statuses, provider calls/window usage, refusals and configured limits.
+5. Completed: private Prometheus/Grafana deployed and verified. Operation
+   histograms, p50/p95/p99, traffic/statuses, provider calls/window usage,
+   refusals and configured limits.
    Run on the existing host with read-only access through an AWS tunnel. Retain
    up to 14 days with a 2 GB block cap; history is intentionally lost on host
    replacement. Bake monitoring images and ship dashboard config with releases.
@@ -342,3 +343,15 @@ rollback. Evidence: deploy/recovery/verification.public_access.json and
 verification.public_runtime.json. No new application build or DB schema change
 was needed. Provider scope/spending review and private Prometheus/Grafana remain
 follow-ups, rather than prerequisites imposed on this public opening.
+
+## Metrics deployed (2026-11-14 local date)
+
+Source cd254744d6e6 is live in us-west-1 with warm AMI ami-0f0e8cff161d36cd0
+and launch-template version 3. The 17-panel private dashboard is reachable via
+`./scripts/open-metrics.py`; no additional Grafana login is needed inside the
+AWS-authenticated tunnel. Live application histograms and p95 queries passed.
+Prometheus and Grafana are non-root with read-only root filesystems, memory/CPU
+limits and private ports. Public `/metrics` returns 404. The existing 16 GiB disk
+was retained. Local history lasts up to 14 days or the 2 GB block cap, and is lost
+on host replacement. Both temporary AMI machines were terminated. Evidence:
+deploy/recovery/verification.metrics.json.

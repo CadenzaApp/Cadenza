@@ -12,8 +12,11 @@
 !backend-api/ml-service/model_queue.py
 !deploy/
 !deploy/monitoring/
-!deploy/monitoring/*.json
-!deploy/monitoring/*.yml
+!deploy/monitoring/backend-dashboard.json
+!deploy/monitoring/images.json
+!deploy/monitoring/prometheus.yml
+!deploy/monitoring/datasources.yml
+!deploy/monitoring/dashboards.yml
 !deploy/monitoring/verify.py
 # Defense in depth, including files underneath the source tree.
 **/.env

@@ -52,3 +52,7 @@ The Grafana data source is `cadenza-prometheus`, at `http://prometheus:9090`.
 also importable elsewhere by selecting a Prometheus data source. No per-user,
 IP, query-string, credential or body labels are emitted. Counters and quotas
 reset on app restart. Python queue-depth metrics and OTel spans remain follow-ups.
+
+Deployed checks are recorded in `../recovery/verification.metrics.json`. This
+includes live histogram queries, anonymous admin denial, port isolation, secret
+file metadata and resource headroom. No secret values are recorded.
