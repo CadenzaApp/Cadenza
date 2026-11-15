@@ -1,12 +1,12 @@
 {
-  "verified_at_utc": "2026-11-15T04:07:57.911064+00:00",
+  "verified_at_utc": "2026-11-15T04:44:04.666637+00:00",
   "dashboards": [
     {
       "uid": "cadenza-account",
       "title": "Cadenza | Account",
       "panels": 13,
       "all_queries_succeeded": true,
-      "query_batch_seconds": 0.302,
+      "query_batch_seconds": 0.282,
       "dropdown_routes": [
         "/profile",
         "/settings"
@@ -17,7 +17,7 @@
       "title": "Cadenza | Analytics",
       "panels": 13,
       "all_queries_succeeded": true,
-      "query_batch_seconds": 0.298,
+      "query_batch_seconds": 0.291,
       "dropdown_routes": [
         "/analytics/listening",
         "/analytics/summary",
@@ -30,30 +30,32 @@
       "title": "Cadenza | Backend overview",
       "panels": 10,
       "all_queries_succeeded": true,
-      "query_batch_seconds": 0.396,
+      "query_batch_seconds": 0.373,
       "dropdown_routes": [
-        "/social/feed",
-        "/tags",
-        "/queries/results",
-        "/analytics/listening",
         "/analytics/summary",
         "/analytics/tag-shares",
-        "/songs/local-tags/batch",
+        "/analytics/listening",
+        "/tags",
         "/events",
-        "/social/posts/views",
-        "/tags/activity",
-        "/social/interests/update",
-        "/songs/metadata/opened",
-        "/social/notifications",
-        "/songs/default-tags",
+        "/songs/local-tags/batch",
         "/songs/local-tags",
+        "/songs/metadata/opened",
+        "/social/interests/update",
+        "/songs/default-tags",
+        "/social/feed",
+        "/social/notifications",
         "/profile",
+        "/social/posts/views",
+        "/social/posts/topic",
+        "/tags/activity",
         "/settings",
         "/social/interests/decay",
+        "/queries/results",
         "unmatched",
         "/social/posts/{post_id}/comments",
         "/social/comments/{comment_id}/likes",
-        "/songs/default-tags/batch"
+        "/songs/default-tags/batch",
+        "/social/posts"
       ]
     },
     {
@@ -61,10 +63,10 @@
       "title": "Cadenza | Library & Queries",
       "panels": 13,
       "all_queries_succeeded": true,
-      "query_batch_seconds": 0.316,
+      "query_batch_seconds": 0.312,
       "dropdown_routes": [
-        "/queries/results",
-        "/songs/metadata/opened"
+        "/songs/metadata/opened",
+        "/queries/results"
       ]
     },
     {
@@ -72,15 +74,17 @@
       "title": "Cadenza | Social",
       "panels": 13,
       "all_queries_succeeded": true,
-      "query_batch_seconds": 0.374,
+      "query_batch_seconds": 0.257,
       "dropdown_routes": [
-        "/social/feed",
-        "/social/posts/views",
         "/social/interests/update",
+        "/social/feed",
         "/social/notifications",
+        "/social/posts/views",
+        "/social/posts/topic",
         "/social/interests/decay",
         "/social/posts/{post_id}/comments",
-        "/social/comments/{comment_id}/likes"
+        "/social/comments/{comment_id}/likes",
+        "/social/posts"
       ]
     },
     {
@@ -88,13 +92,13 @@
       "title": "Cadenza | Tagging",
       "panels": 19,
       "all_queries_succeeded": true,
-      "query_batch_seconds": 0.451,
+      "query_batch_seconds": 0.399,
       "dropdown_routes": [
         "/tags",
         "/songs/local-tags/batch",
-        "/tags/activity",
-        "/songs/default-tags",
         "/songs/local-tags",
+        "/songs/default-tags",
+        "/tags/activity",
         "/songs/default-tags/batch"
       ]
     }
@@ -106,131 +110,111 @@
     "overflow_bucket_included": true,
     "operations": [
       {
-        "dashboard": "cadenza-tagging",
-        "operation": "GET /tags",
-        "buckets": 19,
-        "estimated_calls": 15.063,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-tagging",
-        "operation": "POST /songs/local-tags/batch",
-        "buckets": 19,
-        "estimated_calls": 10.042,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-tagging",
-        "operation": "GET /tags/activity",
-        "buckets": 19,
-        "estimated_calls": 4.017,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-tagging",
-        "operation": "GET /songs/default-tags",
-        "buckets": 19,
-        "estimated_calls": 2.013,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-tagging",
-        "operation": "GET /songs/local-tags",
-        "buckets": 19,
-        "estimated_calls": 2.013,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-analytics",
-        "operation": "GET /analytics/listening",
-        "buckets": 19,
-        "estimated_calls": 10.042,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-analytics",
-        "operation": "GET /analytics/summary",
-        "buckets": 19,
-        "estimated_calls": 10.042,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-analytics",
-        "operation": "GET /analytics/tag-shares",
-        "buckets": 19,
-        "estimated_calls": 10.042,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-analytics",
-        "operation": "POST /events",
-        "buckets": 19,
-        "estimated_calls": 7.045,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-social",
-        "operation": "GET /social/feed",
-        "buckets": 19,
-        "estimated_calls": 396.653,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-social",
-        "operation": "POST /social/posts/views",
-        "buckets": 19,
-        "estimated_calls": 4.017,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-social",
-        "operation": "PATCH /social/interests/update",
-        "buckets": 19,
-        "estimated_calls": 3.019,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-social",
-        "operation": "GET /social/notifications",
-        "buckets": 19,
-        "estimated_calls": 3.013,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-social",
-        "operation": "PATCH /social/interests/decay",
-        "buckets": 19,
-        "estimated_calls": 1.004,
-        "overflow_calls": 0
-      },
-      {
         "dashboard": "cadenza-account",
         "operation": "GET /profile",
-        "buckets": 19,
-        "estimated_calls": 2.008,
+        "buckets": 17,
+        "estimated_calls": 0,
         "overflow_calls": 0
+      }
+    ],
+    "operations_without_new_schema_samples": [
+      {
+        "dashboard": "cadenza-tagging",
+        "operation": "GET /tags"
+      },
+      {
+        "dashboard": "cadenza-tagging",
+        "operation": "POST /songs/local-tags/batch"
+      },
+      {
+        "dashboard": "cadenza-tagging",
+        "operation": "GET /songs/local-tags"
+      },
+      {
+        "dashboard": "cadenza-tagging",
+        "operation": "GET /songs/default-tags"
+      },
+      {
+        "dashboard": "cadenza-tagging",
+        "operation": "POST /songs/local-tags"
+      },
+      {
+        "dashboard": "cadenza-tagging",
+        "operation": "GET /tags/activity"
+      },
+      {
+        "dashboard": "cadenza-analytics",
+        "operation": "GET /analytics/listening"
+      },
+      {
+        "dashboard": "cadenza-analytics",
+        "operation": "GET /analytics/summary"
+      },
+      {
+        "dashboard": "cadenza-analytics",
+        "operation": "GET /analytics/tag-shares"
+      },
+      {
+        "dashboard": "cadenza-analytics",
+        "operation": "POST /events"
+      },
+      {
+        "dashboard": "cadenza-social",
+        "operation": "PATCH /social/interests/update"
+      },
+      {
+        "dashboard": "cadenza-social",
+        "operation": "GET /social/feed"
+      },
+      {
+        "dashboard": "cadenza-social",
+        "operation": "GET /social/notifications"
+      },
+      {
+        "dashboard": "cadenza-social",
+        "operation": "POST /social/posts/views"
+      },
+      {
+        "dashboard": "cadenza-social",
+        "operation": "GET /social/posts/topic"
+      },
+      {
+        "dashboard": "cadenza-social",
+        "operation": "PATCH /social/interests/decay"
       },
       {
         "dashboard": "cadenza-account",
-        "operation": "GET /settings",
-        "buckets": 19,
-        "estimated_calls": 1.004,
-        "overflow_calls": 0
+        "operation": "GET /settings"
       },
       {
         "dashboard": "cadenza-library",
-        "operation": "POST /queries/results",
-        "buckets": 19,
-        "estimated_calls": 12.05,
-        "overflow_calls": 0
-      },
-      {
-        "dashboard": "cadenza-library",
-        "operation": "POST /songs/metadata/opened",
-        "buckets": 19,
-        "estimated_calls": 3.019,
-        "overflow_calls": 0
+        "operation": "POST /songs/metadata/opened"
       }
-    ]
-  }
+    ],
+    "histogram_schema": "2",
+    "visible_buckets": 17,
+    "overflow_lower_bound_seconds": 10
+  },
+  "source_commit": "004031c09a56ff59c286f5701ade54d5f1457789",
+  "warm_ami": "ami-0e69ae1ddde8d6cda",
+  "launch_template_version": "5",
+  "public_probe_statuses": {
+    "/test": 200,
+    "/profile (anonymous)": 401,
+    "/metrics": 404
+  },
+  "temporary_instances": [
+    {
+      "instance": "i-06c2734d5ee38ab97",
+      "state": "terminated"
+    },
+    {
+      "instance": "i-0182d92204a0a4e5c",
+      "state": "terminated"
+    }
+  ],
+  "readable_layout_and_histograms_confirmed_by_user": true,
+  "new_histogram_history": "schema 2, starts with this rollout; old call counts retained",
+  "histogram_visible_bucket_count": 17,
+  "configured_panels_total": 81
 }

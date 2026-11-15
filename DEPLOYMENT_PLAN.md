@@ -379,3 +379,12 @@ range. An operation selector narrows the charts; disjoint bucket counts include
 a 10+ second overflow. Duration buckets with moderate extra detail in the fast and 250-1000 ms ranges use the constant
 `histogram_schema="2"` label to avoid mixing incompatible historical schemas.
 Duration history starts at this rollout; call-count history is retained.
+
+The feature dashboard release is live from source `004031c09a56`, using warm AMI
+`ami-0e69ae1ddde8d6cda` and launch-template version 5. All six provisioned
+views and their live queries passed verification. The refined runtime schema
+has 17 visible distribution buckets, ending in 10+ seconds, while internal
+slow-tail buckets retain percentile precision. API/auth/metrics-isolation checks
+passed; temporary builder and validation hosts were terminated. Evidence:
+`deploy/recovery/verification.metrics_features.json` and the release manifest
+`deploy/releases/git-004031c09a56-20261115042148.json`.

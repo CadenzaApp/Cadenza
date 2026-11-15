@@ -15,7 +15,7 @@
         ]
       },
       "memory_limit": 0,
-      "image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:fc4cf3e7b6afb99f257d1eef8db4c3c4f5198d4b23509a64c5dff9195a7a4dea"
+      "image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:6544b0490be3496a43eaabcf0f049bf4e4f6019cbd7ea105319e253c40830c26"
     },
     "prometheus": {
       "user": "nobody",
@@ -52,10 +52,10 @@
   },
   "disk": {
     "total_bytes": 15523123200,
-    "used_bytes": 8531476480,
-    "free_bytes": 6974869504
+    "used_bytes": 8568967168,
+    "free_bytes": 6937378816
   },
-  "mem_available_mib": 2311,
+  "mem_available_mib": 2261,
   "prometheus_flags": [
     "--config.file=/etc/prometheus/prometheus.yml",
     "--storage.tsdb.retention.time=14d",
@@ -70,7 +70,7 @@
           "job": "cadenza-backend"
         },
         "value": [
-          1794713126.169,
+          1794717869.367,
           "1"
         ]
       }
@@ -84,7 +84,7 @@
           "limit": "provider_calls_per_day"
         },
         "value": [
-          1794713126.171,
+          1794717869.369,
           "7000"
         ]
       }
@@ -93,8 +93,8 @@
       {
         "metric": {},
         "value": [
-          1794713126.172,
-          "399"
+          1794717869.37,
+          "132"
         ]
       }
     ],
@@ -106,7 +106,7 @@
           "job": "cadenza-backend"
         },
         "value": [
-          1794713126.175,
+          1794717869.374,
           "0"
         ]
       }
@@ -116,13 +116,20 @@
     "verified": true,
     "grafana": "private read-only",
     "prometheus_scrape_up": true,
-    "dashboard_panels": 17,
+    "dashboards": {
+      "cadenza-account": 13,
+      "cadenza-analytics": 13,
+      "cadenza-backend": 10,
+      "cadenza-library": 13,
+      "cadenza-social": 13,
+      "cadenza-tagging": 19
+    },
     "retention_days": 14,
     "block_retention_cap": "2GB"
   },
   "instance": "i-0c6219640e98e9b35",
-  "command": "a7870a7e-f612-4072-ad6b-654d188cacb9",
-  "verified_at_utc": "2026-11-15T03:25:27.491935+00:00",
+  "command": "e524f6d7-0b63-4df9-a6e7-6cab7cb0fe09",
+  "verified_at_utc": "2026-11-15T04:44:30.265256+00:00",
   "public_api_checks": {
     "/health/ready": 200,
     "/test": 200,
