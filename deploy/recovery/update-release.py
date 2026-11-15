@@ -76,6 +76,7 @@ def main():
         with tarfile.open(fileobj=bundle, mode="w:gz") as archive:
             for name in [
                 "compose.yaml",
+                "prepare-monitoring.py",
                 "certs/supabase-root.cer",
                 "fetch-secrets.py",
                 "prepare-host-release.sh",

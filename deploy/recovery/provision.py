@@ -244,6 +244,7 @@ def main():
     files = [
         "ec2-bootstrap.sh",
         "compose.yaml",
+        "prepare-monitoring.py",
         "certs/supabase-root.cer",
         "release.env.example",
         "fetch-secrets.py",

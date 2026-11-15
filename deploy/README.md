@@ -208,8 +208,10 @@ starting Rust. There are no claim leases/schema changes or distributed caches.
 The [current plan](../DEPLOYMENT_PLAN.md) records warm-AMI recovery and the remaining
 public-access work. Quotas, bounded queues/inputs and sanitized errors are
 deployed; selected account-ownership tests passed. Broader authorization coverage
-and provider-key scopes remain follow-ups. Private Prometheus/Grafana comes later;
-OpenTelemetry spans are optional follow-up. No monitoring stack is provisioned.
+and provider-key scopes remain follow-ups. Private Prometheus/Grafana is integrated
+into the release workflow; see [monitoring/README.md](monitoring/README.md) for
+read-only AWS tunnel access and the 14-day/local-history retention tradeoff.
+OpenTelemetry spans and Python queue-depth metrics remain follow-ups.
 ALB hourly/usage charges and EC2, IPv4, EBS, ECR and snapshot charges are
 separate from credits/free allowances. Retained rollback snapshots still cost storage.
 

@@ -301,11 +301,14 @@ No notification Lambda is needed. Resource identifiers and evidence live under
    Review provider key scopes/spending controls and basic cost/health visibility.
    ALB hourly and capacity charges apply before credits/free allowances;
    EC2/IPv4/EBS/ECR remain separate.
-5. Add private Prometheus operation histograms and a modest Grafana p50/p95/p99,
-   traffic/error dashboard. Use bounded route labels and inexpensive retention;
-   fleet discovery is unnecessary. Include provider call volume, quota refusals,
-   queue occupancy and configured limits; avoid per-user metric labels. Decide
-   how much history must survive replacement.
+5. Private Prometheus/Grafana implementation: operation histograms, p50/p95/p99,
+   traffic/statuses, provider calls/window usage, refusals and configured limits.
+   Run on the existing host with read-only access through an AWS tunnel. Retain
+   up to 14 days with a 2 GB block cap; history is intentionally lost on host
+   replacement. Bake monitoring images and ship dashboard config with releases.
+   No additional EC2 instance, public listener or schema change. Verify deployed
+   metrics separately from API readiness. Python queue depth and OTel spans are
+   later work; avoid per-user metric labels.
 6. Public CloudFront access opened at the user's explicit request before Grafana
    work. The concurrent-user test is skipped by user choice. Prepare a standalone
    signed phone build when needed. OTel spans remain optional later work. Remove

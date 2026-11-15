@@ -164,6 +164,9 @@ def ensure(image, revision):
             "ami/prefetch-startup.py",
         ]
     }
+    inputs["monitoring-images.json"] = (
+        ROOT / "deploy/monitoring/images.json"
+    ).read_bytes()
     key = hashlib.sha256(
         json.dumps(
             {
@@ -391,11 +394,14 @@ def ensure(image, revision):
 cd /opt/cadenza
 test ! -f secrets/api.env
 test ! -f secrets/ml.env
+test ! -f secrets/grafana-admin-password
 test -z "$(docker ps -aq)"
 python3 prefetch-startup.py
 python3 - <<'OFFLINE'
 import json,subprocess,math
 m=json.load(open('prewarm.json'))
+for item in json.load(open('monitoring-images.json')).values():
+    subprocess.run(['docker','image','inspect',item['image']],check=True,stdout=subprocess.DEVNULL)
 program='from sentence_transformers import SentenceTransformer; import sys,math; m=SentenceTransformer("google/embeddinggemma-300m",revision=sys.argv[1],local_files_only=True,device="cpu");v=m.encode_document("Warm cache verification");assert len(v)==768 and all(math.isfinite(float(x)) for x in v)'
 subprocess.run(['docker','run','--rm','--pull','never','--network','none','--entrypoint','python','-e','HF_HUB_OFFLINE=1','-e','OMP_NUM_THREADS=1','-v','cadenza_model_cache:/cache/huggingface',m['image'],'-c',program,m['model_revision']],check=True)
 print('AMI validation passed: no containers/secrets; offline finite 768-dimensional inference')

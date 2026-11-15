@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "recovery"))
@@ -225,6 +226,48 @@ def main():
             run([sys.executable, "deploy/recovery/update-release.py", str(old_path)])
             resource_path.write_text(before_resources)
             raise
+    # Monitoring has its own health result; it must not roll back a healthy API.
+    monitoring_verified = False
+    try:
+        host = next(
+            i["InstanceId"]
+            for i in aws(
+                "autoscaling",
+                "describe-auto-scaling-groups",
+                AutoScalingGroupNames=[GROUP],
+            )["AutoScalingGroups"][0]["Instances"]
+            if i["LifecycleState"] == "InService"
+        )
+        command = aws(
+            "ssm",
+            "send-command",
+            DocumentName="AWS-RunShellScript",
+            InstanceIds=[host],
+            Parameters={
+                "commands": ["python3 /opt/cadenza/monitoring/verify.py"],
+                "executionTimeout": ["300"],
+            },
+        )["Command"]["CommandId"]
+        for _ in range(60):
+            time.sleep(3)
+            try:
+                result = aws(
+                    "ssm", "get-command-invocation", CommandId=command, InstanceId=host
+                )
+            except RuntimeError as error:
+                if "InvocationDoesNotExist" in str(error):
+                    continue
+                raise
+            if result["Status"] not in ("Pending", "InProgress", "Delayed"):
+                monitoring_verified = result["Status"] == "Success"
+                break
+    except (RuntimeError, StopIteration):
+        pass
+    if not monitoring_verified:
+        print(
+            "API deployed, but monitoring verification failed. Inspect private EC2 monitoring logs before relying on the dashboard.",
+            flush=True,
+        )
     manifest = {
         "source_commit": commit,
         "tag": tag,
@@ -244,6 +287,7 @@ def main():
         "warm_ami_record": str(warm_path.relative_to(ROOT)),
         "bootstrap_mode": "warm",
         "startup_prefetch": warm["startup_prefetch"],
+        "monitoring_verified": monitoring_verified,
         "verified_at_utc": datetime.datetime.now(datetime.UTC).isoformat(),
     }
     directory = ROOT / "deploy/releases"

@@ -9,6 +9,12 @@
 !backend-api/ml-service/pyproject.toml
 !backend-api/ml-service/uv.lock
 !backend-api/ml-service/main.py
+!backend-api/ml-service/model_queue.py
+!deploy/
+!deploy/monitoring/
+!deploy/monitoring/*.json
+!deploy/monitoring/*.yml
+!deploy/monitoring/verify.py
 # Defense in depth, including files underneath the source tree.
 **/.env
 **/.env.*

@@ -71,4 +71,8 @@ stage inference_check_finished
 echo "Testing direct Axum HTTP through the host port mapping." >&3
 curl --fail --silent --show-error --retry 12 --retry-delay 2 --retry-all-errors --max-time 15 -w '\nHTTP %{http_code}\n' http://127.0.0.1/test >&3
 stage http_test_passed
+# Monitoring failure must not roll back or stop an otherwise healthy API.
+if ! timeout 60 docker compose --env-file release.env up -d prometheus grafana; then
+    echo 'API ready, but monitoring startup failed; inspect the private host log.' >&3
+fi
 echo "Backend is ready; external CloudFront HTTPS verification is next." >&3

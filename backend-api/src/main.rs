@@ -3,6 +3,7 @@ mod auth;
 mod db;
 mod err;
 mod lifecycle;
+mod metrics;
 mod operation_budget;
 mod request_log;
 mod routes;
@@ -77,6 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // load environment variables from .env file, needed for db connections
     dotenv().ok();
     admission::init();
+    let metrics_server = metrics::start().await?;
 
     // get a db connection
     let db_url = env::var("DATABASE_URL").expect("error getting DATABASE_URL env var");
@@ -188,7 +190,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             background_tasks.clone(),
             "http://127.0.0.1:3001",
         ))
-        .layer(middleware::from_fn(request_log::log_request));
+        .layer(middleware::from_fn(request_log::log_request))
+        .layer(middleware::from_fn_with_state(
+            metrics::global().clone(),
+            metrics::track,
+        ));
 
     // show time baby
     // Defaults to loopback. Set BIND_ADDR=0.0.0.0:3000 to accept connections
@@ -225,6 +231,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok::<(), Box<dyn std::error::Error>>(())
     })
     .await;
+    if let Some(server) = metrics_server {
+        server.abort();
+    }
     result?;
     cleanup.map_err(|_| std::io::Error::other("shutdown cleanup deadline exceeded"))??;
     println!("[shutdown] background work, model child, and database pool closed");

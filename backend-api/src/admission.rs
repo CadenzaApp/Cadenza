@@ -125,6 +125,46 @@ fn limits() -> &'static Mutex<Limits> {
     LIMITS.get_or_init(Default::default)
 }
 
+fn provider_slots() -> &'static Semaphore {
+    static ACTIVE: OnceLock<Semaphore> = OnceLock::new();
+    ACTIVE.get_or_init(|| Semaphore::new(config().provider_concurrency as usize))
+}
+
+pub struct MetricsSnapshot {
+    pub limits: [(&'static str, u32); 6],
+    pub provider_used: u32,
+    pub provider_active: u32,
+    pub provider_window_remaining: u64,
+}
+
+/// Read-only: a scrape cannot reset or consume a quota window.
+pub fn metrics_snapshot() -> MetricsSnapshot {
+    let config = config();
+    let limits = limits().lock().expect("admission limits");
+    let remaining = limits
+        .provider_day
+        .started
+        .map(|start| Duration::from_secs(86400).saturating_sub(start.elapsed()))
+        .unwrap_or_default();
+    MetricsSnapshot {
+        limits: [
+            ("requests_per_user_minute", config.requests),
+            ("tag_requests_per_user_minute", config.paid_minute),
+            ("tag_requests_per_user_day", config.paid_day),
+            ("provider_calls_per_day", config.provider_day),
+            ("provider_concurrency", config.provider_concurrency),
+            ("http_concurrency", 64),
+        ],
+        provider_used: if remaining.is_zero() {
+            0
+        } else {
+            limits.provider_day.used
+        },
+        provider_active: config.provider_concurrency - provider_slots().available_permits() as u32,
+        provider_window_remaining: remaining.as_secs(),
+    }
+}
+
 pub async fn admit(
     State(_state): State<AppState>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
@@ -141,6 +181,10 @@ pub async fn admit(
         .expect("admission limits")
         .admit(claims.user_id, paid, Instant::now())
     {
+        crate::metrics::global()
+            .refusals
+            .with_label_values(&["request_or_tag_quota"])
+            .inc();
         return CadenzaError::RateLimited.into_response();
     }
     next.run(request).await
@@ -150,6 +194,10 @@ pub async fn admit(
 pub async fn capacity(request: Request, next: Next) -> Response {
     static ACTIVE: Semaphore = Semaphore::const_new(64);
     let Ok(_permit) = ACTIVE.try_acquire() else {
+        crate::metrics::global()
+            .refusals
+            .with_label_values(&["http_capacity"])
+            .inc();
         return CadenzaError::ServiceUnavailable.into_response();
     };
     next.run(request).await
@@ -157,20 +205,27 @@ pub async fn capacity(request: Request, next: Next) -> Response {
 
 /// Counts actual attempted provider calls, including background jobs and failures.
 pub fn provider_call() -> Result<tokio::sync::SemaphorePermit<'static>, CadenzaError> {
-    static ACTIVE: OnceLock<Semaphore> = OnceLock::new();
-    let active = ACTIVE.get_or_init(|| Semaphore::new(config().provider_concurrency as usize));
-    let permit = active
-        .try_acquire()
-        .map_err(|_| CadenzaError::ServiceUnavailable)?;
+    let permit = provider_slots().try_acquire().map_err(|_| {
+        crate::metrics::global()
+            .refusals
+            .with_label_values(&["provider_concurrency"])
+            .inc();
+        CadenzaError::ServiceUnavailable
+    })?;
     let mut limits = limits().lock().expect("admission limits");
     if !limits.provider_day.available(
         Instant::now(),
         Duration::from_secs(86400),
         config().provider_day,
     ) {
+        crate::metrics::global()
+            .refusals
+            .with_label_values(&["provider_day_quota"])
+            .inc();
         return Err(CadenzaError::RateLimited);
     }
     limits.provider_day.used += 1;
+    crate::metrics::global().provider_calls.inc();
     Ok(permit)
 }
 

@@ -37,6 +37,10 @@ with tempfile.TemporaryDirectory(dir="/run", prefix="cadenza-ecr-") as config:
     )
     run(["docker", "--config", config, "pull", image])
 run(["docker", "volume", "create", "cadenza_model_cache"], stdout=subprocess.DEVNULL)
+for item in json.loads(
+    Path("/opt/cadenza/monitoring-images.json").read_text()
+).values():
+    run(["docker", "pull", item["image"]])
 values = json.loads(
     output(
         [

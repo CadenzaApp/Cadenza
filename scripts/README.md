@@ -46,3 +46,11 @@ scripts\install-git-hooks.bat
 The hook runs `scripts/format.sh --check` on macOS and Linux, and `scripts\format.bat --check`
 on Windows. It checks files only and does not modify them. Run the matching format command to
 apply formatting before trying again.
+
+## Private metrics dashboard
+
+Run `./scripts/open-metrics.py` (or `python3 scripts/open-metrics.py`) with an
+active `cadenza-project` AWS session and the Session Manager plugin installed.
+It finds the current ASG host and tunnels the read-only Grafana dashboard to
+localhost. Use `--port` to change the local port. Details are in
+[../deploy/monitoring/README.md](../deploy/monitoring/README.md).
