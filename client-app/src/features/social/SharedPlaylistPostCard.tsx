@@ -46,39 +46,24 @@ export function SharedPlaylistPostCard({
         [playlist.cover_song_ids, songInfo],
     );
 
-    const body = (
-        <>
-            <ArtworkMosaic
-                artworkUrls={unavailable ? [] : artworkUrls}
-                size={ARTWORK_SIZE}
-                placeholderColor={colors.muted}
-            />
-            <View className="min-w-0 flex-1 justify-center px-3">
+    if (unavailable) {
+        return (
+            <View
+                accessibilityLabel="Unavailable playlist"
+                className="justify-center rounded-lg bg-muted px-3 py-2.5"
+            >
                 <Text
                     className="text-base font-semibold text-foreground"
                     numberOfLines={1}
                 >
-                    {unavailable ? "[unavailable playlist]" : playlist.name}
+                    [unavailable playlist]
                 </Text>
                 <Text
                     className="text-xs text-muted-foreground"
                     numberOfLines={1}
                 >
-                    {unavailable
-                        ? "It might have been deleted."
-                        : `${plural(playlist.song_count, "song")} · ${plural(playlist.member_count, "member")}`}
+                    It might have been deleted.
                 </Text>
-            </View>
-        </>
-    );
-
-    if (unavailable) {
-        return (
-            <View
-                accessibilityLabel="Unavailable playlist"
-                className="flex-row items-center overflow-hidden rounded-lg bg-muted"
-            >
-                {body}
             </View>
         );
     }
@@ -93,7 +78,26 @@ export function SharedPlaylistPostCard({
             }}
             className="flex-row items-center overflow-hidden rounded-lg bg-muted active:opacity-80"
         >
-            {body}
+            <ArtworkMosaic
+                artworkUrls={artworkUrls}
+                size={ARTWORK_SIZE}
+                placeholderColor={colors.muted}
+            />
+            <View className="min-w-0 flex-1 justify-center px-3">
+                <Text
+                    className="text-base font-semibold text-foreground"
+                    numberOfLines={1}
+                >
+                    {playlist.name}
+                </Text>
+                <Text
+                    className="text-xs text-muted-foreground"
+                    numberOfLines={1}
+                >
+                    {plural(playlist.song_count, "song")} ·{" "}
+                    {plural(playlist.member_count, "member")}
+                </Text>
+            </View>
             <Ionicons
                 name="chevron-forward"
                 size={18}
