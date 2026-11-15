@@ -5,7 +5,9 @@ API readiness; monitoring failure does not roll back a healthy API. The release
 manifest records a separate monitoring verification result. AMI baking caches
 the pinned images in `images.json`. Dashboard/scrape configuration travels inside
 the immutable backend image and is extracted during host preparation. No manual
-setup is needed after replacement.
+setup is needed after replacement. Monitoring containers are recreated when the
+release image changes so file bind mounts pick up the new configuration, while
+named data volumes are retained. Dashboard file polling runs every 15 seconds.
 
 ## View the dashboard
 
@@ -42,15 +44,35 @@ external metrics store, managed-service subscription or database schema change.
 
 ## Metrics and dashboard
 
-`prometheus.yml` scrapes `backend:9091/metrics` every 15 seconds. The 17-panel
-`backend-dashboard.json` shows per-operation p50/p95/p99, traffic/statuses,
-in-flight work, provider attempts/window usage, refusals and configured limits.
-Health and `/test` are excluded from operation latency/traffic panels. Buckets are
-aggregated across instances before percentile calculation. Sparse traffic can
-produce empty/noisy estimates; timing ends at response headers, not at the phone.
+`prometheus.yml` scrapes `backend:9091/metrics` every 15 seconds. Provisioned
+JSON files live in `dashboards/`. The dashboard menu links these views and carries
+the selected time range across them:
+
+- Backend overview: overall calls, p50/p95/p99, in-flight work, scrape health,
+  latency trends, traffic bars, failed responses and one operation summary table.
+- Social: feed, posts, interests, friends and notifications.
+- Analytics: analytics reads and listening-event ingestion.
+- Tagging: tag reads/writes and song tag application, plus server-wide provider
+  attempts, budget usage, concurrency, refusals and configured limits.
+- Library & Queries: query execution/saved queries, song metadata and play writes.
+- Account: profile and settings.
+
+Feature views show summary percentiles, stacked call-volume bars, failed-response
+bars and per-operation percentile trends/tables. Operation combines method and
+route; compact Calls/runtime columns keep the tables readable. The route selector
+and tables rank by calls over the selected range. Calls cards use neutral text,
+not severity colors. Provider/limit panels are server-wide, regardless of route.
+
+Counts and summary percentiles cover the selected range; latency trends use
+rolling intervals. Volume bars use non-overlapping buckets with a minimum of one
+minute and coarser buckets for longer ranges. Counts are estimates from scraped,
+extrapolated counters, not audit totals or unique users. Health and `/test` are
+excluded from operation panels. Buckets are aggregated across instances before
+percentile calculation. Sparse traffic can produce empty/noisy estimates; timing
+ends at response headers, not at the phone. Trace/span detail remains future work.
 
 The Grafana data source is `cadenza-prometheus`, at `http://prometheus:9090`.
-`datasources.yml` and `dashboards.yml` provision it and the dashboard. The JSON is
+`datasources.yml` and `dashboards.yml` provision it and the dashboards. Each JSON is
 also importable elsewhere by selecting a Prometheus data source. No per-user,
 IP, query-string, credential or body labels are emitted. Counters and quotas
 reset on app restart. Python queue-depth metrics and OTel spans remain follow-ups.

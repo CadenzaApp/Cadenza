@@ -51,6 +51,8 @@ services:
     image: prom/prometheus@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9
     platform: linux/arm64
     restart: unless-stopped
+    labels:
+      cadenza.monitoring-release: ${BACKEND_IMAGE:?Set BACKEND_IMAGE}
     mem_limit: 384m
     cpus: "0.5"
     read_only: true
@@ -68,6 +70,8 @@ services:
     image: grafana/grafana@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
     platform: linux/arm64
     restart: unless-stopped
+    labels:
+      cadenza.monitoring-release: ${BACKEND_IMAGE:?Set BACKEND_IMAGE}
     mem_limit: 768m
     cpus: "0.5"
     read_only: true
@@ -93,7 +97,7 @@ services:
       - ./secrets/grafana-admin-password:/run/secrets/grafana-admin-password:ro
       - ./monitoring/datasources.yml:/etc/grafana/provisioning/datasources/cadenza.yml:ro
       - ./monitoring/dashboards.yml:/etc/grafana/provisioning/dashboards/cadenza.yml:ro
-      - ./monitoring/backend-dashboard.json:/var/lib/grafana/dashboards/cadenza.json:ro
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards:ro
     tmpfs:
       - /tmp:size=32m
     logging: *logs

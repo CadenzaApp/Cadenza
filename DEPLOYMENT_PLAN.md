@@ -361,3 +361,15 @@ limit is now 768 MiB with a 512 MiB Go memory target, persisted in template
 version 4. Backend image/AMI and Prometheus are unchanged. The full 17-panel
 query workload completed in 0.327 seconds through the private tunnel after
 the fix; see deploy/recovery/verification.metrics_performance.json.
+
+Dashboard layout now includes invocation counts next to percentile summaries.
+The route dropdown and the three operation tables sort by call volume over
+the selected dashboard range. Counts are Prometheus counter-increase estimates,
+not an exact request audit log. Dashboard provisioning polls for file updates;
+release labels refresh monitoring container mounts on later app deployments.
+
+Feature dashboards separate Social, Analytics, Tagging, Library & Queries and
+Account from the overview. Each feature has p50/p95/p99, call-volume bars,
+failed responses and operation tables. Provider budget/limit details live under
+Tagging. These views use existing low-cardinality HTTP metrics; span-level
+breakdowns will be added with tracing, rather than inferred from HTTP totals.

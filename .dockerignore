@@ -12,7 +12,8 @@
 !backend-api/ml-service/model_queue.py
 !deploy/
 !deploy/monitoring/
-!deploy/monitoring/backend-dashboard.json
+!deploy/monitoring/dashboards/
+!deploy/monitoring/dashboards/*.json
 !deploy/monitoring/images.json
 !deploy/monitoring/prometheus.yml
 !deploy/monitoring/datasources.yml

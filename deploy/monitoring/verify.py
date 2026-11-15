@@ -1,6 +1,7 @@
 """Verify private monitoring on EC2 without credentials or application data."""
 
 import json
+from pathlib import Path
 import subprocess
 import time
 import urllib.error
@@ -17,9 +18,15 @@ deadline = time.monotonic() + 90
 while time.monotonic() < deadline:
     try:
         assert get("/api/health")["database"] == "ok"
-        dashboard = get("/api/dashboards/uid/cadenza-backend")
-        assert not dashboard["meta"]["canSave"]
-        assert len(dashboard["dashboard"]["panels"]) == 17
+        dashboards = {}
+        for path in sorted((Path(__file__).parent / "dashboards").glob("*.json")):
+            expected = json.loads(path.read_text())
+            dashboard = get("/api/dashboards/uid/" + expected["uid"])
+            assert not dashboard["meta"]["canSave"]
+            assert dashboard["dashboard"]["title"] == expected["title"]
+            assert len(dashboard["dashboard"]["panels"]) == len(expected["panels"])
+            dashboards[expected["uid"]] = len(expected["panels"])
+        assert "cadenza-backend" in dashboards and len(dashboards) == 6
         assert get("/api/datasources/uid/cadenza-prometheus/health")["status"] == "OK"
         try:
             get("/api/admin/settings")
@@ -39,7 +46,7 @@ while time.monotonic() < deadline:
                     "verified": True,
                     "grafana": "private read-only",
                     "prometheus_scrape_up": True,
-                    "dashboard_panels": 17,
+                    "dashboards": dashboards,
                     "retention_days": 14,
                     "block_retention_cap": "2GB",
                 }

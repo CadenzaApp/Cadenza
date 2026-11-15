@@ -1,0 +1,103 @@
+{
+  "verified_at_utc": "2026-11-15T03:56:27.794242+00:00",
+  "dashboards": [
+    {
+      "uid": "cadenza-account",
+      "title": "Cadenza | Account",
+      "panels": 12,
+      "all_queries_succeeded": true,
+      "query_batch_seconds": 0.243,
+      "dropdown_routes": [
+        "/profile",
+        "/settings"
+      ]
+    },
+    {
+      "uid": "cadenza-analytics",
+      "title": "Cadenza | Analytics",
+      "panels": 12,
+      "all_queries_succeeded": true,
+      "query_batch_seconds": 0.263,
+      "dropdown_routes": [
+        "/analytics/listening",
+        "/analytics/tag-shares",
+        "/analytics/summary",
+        "/events"
+      ]
+    },
+    {
+      "uid": "cadenza-backend",
+      "title": "Cadenza | Backend overview",
+      "panels": 10,
+      "all_queries_succeeded": true,
+      "query_batch_seconds": 0.362,
+      "dropdown_routes": [
+        "/social/feed",
+        "/tags",
+        "/queries/results",
+        "/analytics/listening",
+        "/songs/local-tags/batch",
+        "/analytics/tag-shares",
+        "/analytics/summary",
+        "/events",
+        "/tags/activity",
+        "/social/notifications",
+        "/social/posts/views",
+        "/social/interests/update",
+        "/songs/metadata/opened",
+        "/songs/default-tags",
+        "/songs/local-tags",
+        "/profile",
+        "/social/interests/decay",
+        "/settings",
+        "unmatched",
+        "/social/posts/{post_id}/comments",
+        "/social/comments/{comment_id}/likes",
+        "/songs/default-tags/batch"
+      ]
+    },
+    {
+      "uid": "cadenza-library",
+      "title": "Cadenza | Library & Queries",
+      "panels": 12,
+      "all_queries_succeeded": true,
+      "query_batch_seconds": 0.325,
+      "dropdown_routes": [
+        "/queries/results",
+        "/songs/metadata/opened"
+      ]
+    },
+    {
+      "uid": "cadenza-social",
+      "title": "Cadenza | Social",
+      "panels": 12,
+      "all_queries_succeeded": true,
+      "query_batch_seconds": 0.279,
+      "dropdown_routes": [
+        "/social/feed",
+        "/social/notifications",
+        "/social/posts/views",
+        "/social/interests/update",
+        "/social/interests/decay",
+        "/social/posts/{post_id}/comments",
+        "/social/comments/{comment_id}/likes"
+      ]
+    },
+    {
+      "uid": "cadenza-tagging",
+      "title": "Cadenza | Tagging",
+      "panels": 18,
+      "all_queries_succeeded": true,
+      "query_batch_seconds": 0.408,
+      "dropdown_routes": [
+        "/tags",
+        "/songs/local-tags/batch",
+        "/tags/activity",
+        "/songs/default-tags",
+        "/songs/local-tags",
+        "/songs/default-tags/batch"
+      ]
+    }
+  ],
+  "public_api_test_status": 200
+}
