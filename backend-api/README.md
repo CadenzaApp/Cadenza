@@ -73,6 +73,10 @@ admission, queueing and handler work until response headers, not client network
 latency or streaming-body completion. Dropped request futures use status
 `cancelled` and release the in-flight gauge. Histograms can be aggregated across
 instances before calculating p50/p95/p99; do not average instance percentiles.
+The duration histogram has a constant `histogram_schema="2"` label so the finer
+subsecond buckets are never combined with incompatible historical bucket sets.
+Dashboard latency queries select that schema; duration history begins at its
+rollout, while HTTP call counts retain their earlier history.
 
 Admission metrics report refusals, provider-call attempts (including background
 work/failures), held provider permits, current provider-window usage and effective

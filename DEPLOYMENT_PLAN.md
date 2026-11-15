@@ -376,4 +376,6 @@ breakdowns will be added with tracing, rather than inferred from HTTP totals.
 
 Feature runtime histograms repeat per observed method/route over the selected
 range. An operation selector narrows the charts; disjoint bucket counts include
-the >60-second overflow, using the existing HTTP histogram without new labels.
+a 10+ second overflow. Finer subsecond duration buckets use the constant
+`histogram_schema="2"` label to avoid mixing incompatible historical schemas.
+Duration history starts at this rollout; call-count history is retained.

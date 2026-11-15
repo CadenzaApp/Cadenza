@@ -7,7 +7,7 @@
     "feature"
   ],
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "timezone": "browser",
   "refresh": "30s",
   "time": {
@@ -135,7 +135,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range])))",
           "legendFormat": "{{method}} {{route}}",
           "instant": true,
           "range": false
@@ -177,7 +177,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range])))",
           "legendFormat": "{{method}} {{route}}",
           "instant": true,
           "range": false
@@ -219,7 +219,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.99, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range])))",
           "legendFormat": "{{method}} {{route}}",
           "instant": true,
           "range": false
@@ -362,7 +362,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le, method, route) (rate(cadenza_http_request_duration_seconds_bucket{job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le, method, route) (rate(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__rate_interval])))",
           "legendFormat": "{{method}} {{route}}"
         }
       ],
@@ -406,7 +406,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le, method, route) (rate(cadenza_http_request_duration_seconds_bucket{job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, method, route) (rate(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__rate_interval])))",
           "legendFormat": "{{method}} {{route}}"
         }
       ],
@@ -450,7 +450,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.99, sum by (le, method, route) (rate(cadenza_http_request_duration_seconds_bucket{job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le, method, route) (rate(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__rate_interval])))",
           "legendFormat": "{{method}} {{route}}"
         }
       ],
@@ -501,7 +501,7 @@
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.5,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
+          "expr": "histogram_quantile(0.5,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -612,7 +612,7 @@
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
+          "expr": "histogram_quantile(0.95,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -723,7 +723,7 @@
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.99,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
+          "expr": "histogram_quantile(0.99,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -813,7 +813,7 @@
       "id": 40,
       "type": "barchart",
       "title": "Runtime distribution - $operation",
-      "description": "Calls in each non-overlapping runtime bucket over the selected range, including error responses. Prometheus cumulative buckets are converted to per-bucket counts before rendering. Unequal-width buckets use equal-width bars: height is calls, not probability density. Includes >60s overflow. Counts are scrape-based estimates; sparse/new series can undercount. Timings end at response headers.",
+      "description": "Calls in each non-overlapping runtime bucket over the selected range, including error responses. Prometheus cumulative buckets are converted to per-bucket counts before rendering. Fine bucket history begins at metrics schema 2; older schema data is excluded. Unequal-width buckets use equal-width bars: height is calls, not probability density. Everything above 10 seconds is combined into 10+ s. Counts are scrape-based estimates; sparse/new series can undercount. Timings end at response headers.",
       "gridPos": {
         "x": 0,
         "y": 27,
@@ -830,7 +830,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(le)(label_join(increase(cadenza_http_request_duration_seconds_bucket{job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\") and on(operation) label_replace(vector(1),\"operation\",\"${operation:raw}\",\"\",\"\"))",
+          "expr": "sum by(le)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",le!~\"20|30|40|50|60\",job=\"cadenza-backend\",route=~\"$route\",route=~\"/queries(/.*)?|/saved-queries(/.*)?|/songs|/songs/(plays|metadata-tags|metadata/.*)\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\") and on(operation) label_replace(vector(1),\"operation\",\"${operation:raw}\",\"\",\"\"))",
           "format": "heatmap",
           "legendFormat": "{{le}}",
           "instant": true,
@@ -896,53 +896,74 @@
                       "0.005": {
                         "text": "2.5-5 ms"
                       },
+                      "0.0075": {
+                        "text": "5-7.5 ms"
+                      },
                       "0.01": {
-                        "text": "5-10 ms"
+                        "text": "7.5-10 ms"
+                      },
+                      "0.015": {
+                        "text": "10-15 ms"
+                      },
+                      "0.02": {
+                        "text": "15-20 ms"
                       },
                       "0.025": {
-                        "text": "10-25 ms"
+                        "text": "20-25 ms"
+                      },
+                      "0.035": {
+                        "text": "25-35 ms"
                       },
                       "0.05": {
-                        "text": "25-50 ms"
+                        "text": "35-50 ms"
+                      },
+                      "0.075": {
+                        "text": "50-75 ms"
                       },
                       "0.1": {
-                        "text": "50-100 ms"
+                        "text": "75-100 ms"
+                      },
+                      "0.15": {
+                        "text": "100-150 ms"
+                      },
+                      "0.2": {
+                        "text": "150-200 ms"
                       },
                       "0.25": {
-                        "text": "100-250 ms"
+                        "text": "200-250 ms"
+                      },
+                      "0.35": {
+                        "text": "250-350 ms"
                       },
                       "0.5": {
-                        "text": "250-500 ms"
+                        "text": "350-500 ms"
+                      },
+                      "0.75": {
+                        "text": "500-750 ms"
                       },
                       "1": {
-                        "text": "0.5-1 s"
+                        "text": "0.75-1 s"
                       },
-                      "2.5": {
-                        "text": "1-2.5 s"
+                      "1.5": {
+                        "text": "1-1.5 s"
+                      },
+                      "2": {
+                        "text": "1.5-2 s"
+                      },
+                      "3": {
+                        "text": "2-3 s"
                       },
                       "5": {
-                        "text": "2.5-5 s"
+                        "text": "3-5 s"
+                      },
+                      "7.5": {
+                        "text": "5-7.5 s"
                       },
                       "10": {
-                        "text": "5-10 s"
-                      },
-                      "20": {
-                        "text": "10-20 s"
-                      },
-                      "30": {
-                        "text": "20-30 s"
-                      },
-                      "40": {
-                        "text": "30-40 s"
-                      },
-                      "50": {
-                        "text": "40-50 s"
-                      },
-                      "60": {
-                        "text": "50-60 s"
+                        "text": "7.5-10 s"
                       },
                       "+Inf": {
-                        "text": ">60 s"
+                        "text": "10+ s"
                       }
                     }
                   }
@@ -955,7 +976,7 @@
       "options": {
         "xField": "Field",
         "orientation": "vertical",
-        "showValue": "auto",
+        "showValue": "never",
         "stacking": "none",
         "groupWidth": 0.9,
         "barWidth": 0.9,
