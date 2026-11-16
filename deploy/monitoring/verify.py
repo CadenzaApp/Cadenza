@@ -26,7 +26,8 @@ while time.monotonic() < deadline:
             assert dashboard["dashboard"]["title"] == expected["title"]
             assert len(dashboard["dashboard"]["panels"]) == len(expected["panels"])
             dashboards[expected["uid"]] = len(expected["panels"])
-        assert "cadenza-backend" in dashboards and len(dashboards) == 6
+        assert "cadenza-backend" in dashboards
+        assert len(dashboards) == len(list((Path(__file__).parent / "dashboards").glob("*.json")))
         assert get("/api/datasources/uid/cadenza-prometheus/health")["status"] == "OK"
         try:
             get("/api/admin/settings")

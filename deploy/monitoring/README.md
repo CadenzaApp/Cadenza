@@ -55,8 +55,11 @@ the selected time range across them:
   latency trends, traffic bars, failed responses and one operation summary table.
 - Social: feed, posts, interests, friends and notifications.
 - Analytics: analytics reads and listening-event ingestion.
-- Tagging & Assistant: assistant messages, tag reads/writes and song tag application, plus server-wide provider
-  attempts, budget usage, concurrency, refusals and configured limits.
+- Tagging: tag reads/writes and song tag application, plus shared server-wide
+  provider attempts, budget usage, concurrency, refusals and configured limits.
+  These provider counters include assistant calls and are labeled as shared.
+- Assistant: assistant messages, with separate HTTP traffic, errors, latency
+  percentiles and per-operation runtime histograms.
 - Library & Queries: query execution/saved queries, song metadata and play writes.
 - Account: profile and settings.
 
