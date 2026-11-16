@@ -1,0 +1,178 @@
+{
+  "verified_at_utc": "2026-11-16T03:14:58.195259+00:00",
+  "account_id": "175220118767",
+  "account_name": "Cadenza Backend",
+  "region": "us-west-1",
+  "merged_main_commit": "e6db11c",
+  "source_commit": "db73ac984639b7d8a734a0cc842c3764138fdac1",
+  "release_manifest": "deploy/releases/git-db73ac984639-20261116030916.json",
+  "deployment_elapsed_seconds": 236.86,
+  "bootstrap_mode": "cold",
+  "base_ami": "ami-02a8f93f158469812",
+  "launch_template": {
+    "LaunchTemplateId": "lt-0369d766012c4ef99",
+    "LaunchTemplateName": "cadenza-demo-single",
+    "Version": "7"
+  },
+  "serving_instance": "i-0c6219640e98e9b35",
+  "asg_and_alb_healthy": true,
+  "replacement_release_and_bootstrap_match_source": true,
+  "public_checks": {
+    "GET /test": 200,
+    "GET /health/ready": 200,
+    "GET /profile": 401,
+    "GET /tags": 401,
+    "POST /assistant/messages": 401,
+    "GET /metrics": 404
+  },
+  "monitoring": {
+    "verified": true,
+    "grafana": "private read-only",
+    "prometheus_scrape_up": true,
+    "dashboards": {
+      "cadenza-account": 13,
+      "cadenza-analytics": 13,
+      "cadenza-backend": 10,
+      "cadenza-library": 13,
+      "cadenza-social": 13,
+      "cadenza-tagging": 19
+    },
+    "retention_days": 14,
+    "block_retention_cap": "2GB"
+  },
+  "runtime": {
+    "backend": {
+      "running": true,
+      "restarts": 0,
+      "oom": false,
+      "image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:7be097b22f6b4558549bbe006a844a6591a35b1b2714557a13b31a82d352f80f",
+      "ports": {
+        "3000/tcp": [
+          {
+            "HostIp": "",
+            "HostPort": "80"
+          }
+        ]
+      },
+      "source_commit": "db73ac984639b7d8a734a0cc842c3764138fdac1"
+    },
+    "prometheus": {
+      "running": true,
+      "restarts": 0,
+      "oom": false,
+      "image": "prom/prometheus@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9",
+      "ports": {}
+    },
+    "grafana": {
+      "running": true,
+      "restarts": 0,
+      "oom": false,
+      "image": "grafana/grafana@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f",
+      "ports": {
+        "3000/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "3300"
+          }
+        ]
+      }
+    },
+    "available_ram_mib": 2284
+  },
+  "dashboard_checks": [
+    {
+      "uid": "cadenza-account",
+      "title": "Cadenza | Account",
+      "panels": 13,
+      "all_queries_succeeded": true,
+      "query_batch_seconds": 0.695,
+      "dropdown_routes": [
+        "/profile"
+      ]
+    },
+    {
+      "uid": "cadenza-analytics",
+      "title": "Cadenza | Analytics",
+      "panels": 13,
+      "all_queries_succeeded": true,
+      "query_batch_seconds": 1.088,
+      "dropdown_routes": [
+        "/analytics/listening",
+        "/analytics/summary",
+        "/analytics/tag-shares",
+        "/events"
+      ]
+    },
+    {
+      "uid": "cadenza-backend",
+      "title": "Cadenza | Backend overview",
+      "panels": 10,
+      "all_queries_succeeded": true,
+      "query_batch_seconds": 1.017,
+      "dropdown_routes": [
+        "/analytics/listening",
+        "/analytics/summary",
+        "/analytics/tag-shares",
+        "/profile",
+        "/tags",
+        "unmatched",
+        "/events",
+        "/songs/metadata/opened",
+        "/songs/default-tags",
+        "/songs/local-tags",
+        "/social/interests/update",
+        "/social/posts/topic"
+      ]
+    },
+    {
+      "uid": "cadenza-library",
+      "title": "Cadenza | Library & Queries",
+      "panels": 13,
+      "all_queries_succeeded": true,
+      "query_batch_seconds": 0.352,
+      "dropdown_routes": [
+        "/songs/metadata/opened"
+      ]
+    },
+    {
+      "uid": "cadenza-social",
+      "title": "Cadenza | Social",
+      "panels": 13,
+      "all_queries_succeeded": true,
+      "query_batch_seconds": 0.416,
+      "dropdown_routes": [
+        "/social/interests/update",
+        "/social/posts/topic"
+      ]
+    },
+    {
+      "uid": "cadenza-tagging",
+      "title": "Cadenza | Tagging & Assistant",
+      "panels": 19,
+      "all_queries_succeeded": true,
+      "query_batch_seconds": 0.871,
+      "dropdown_routes": [
+        "/tags",
+        "/songs/default-tags",
+        "/songs/local-tags"
+      ]
+    }
+  ],
+  "local_tests": {
+    "backend_passed": 311,
+    "database_tests_ignored": 79,
+    "client_passed": 507,
+    "ml_service_passed": 9,
+    "deployment_and_grafana_passed": 26
+  },
+  "workstation_checks": {
+    "macos_deployment": "passed",
+    "macos_real_ssm_tunnel": "passed",
+    "windows_command_and_cleanup_unit_tests": "passed",
+    "native_windows_run_performed": false,
+    "macos_tunnel_ctrl_c_cleanup": "passed"
+  },
+  "database_schema_changed": false,
+  "fresh_replacement_rehearsal_performed": false,
+  "phone_smoke": "awaiting optional confirmation"
+}
