@@ -3,7 +3,10 @@ import { Modal, Platform, Pressable, StyleSheet, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 
 import { Button } from "@/components/ui/button";
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
@@ -66,6 +69,7 @@ function TagValueDialogContent({
     const [pickerStep, setPickerStep] = useState<"date" | "time" | null>(null);
     // The day chosen in the Android date step, waiting for a time.
     const [pendingDate, setPendingDate] = useState<Date | null>(null);
+    const outlined = shouldShowGlassOutline();
 
     if (!tag) return null;
 
@@ -156,7 +160,11 @@ function TagValueDialogContent({
             >
                 <Pressable
                     onPress={(event) => event.stopPropagation()}
-                    className="w-full max-w-[420px] overflow-hidden border border-border rounded-xl p-5 gap-4"
+                    className={
+                        outlined
+                            ? "w-full max-w-[420px] overflow-hidden rounded-xl border border-border p-5 gap-4"
+                            : "w-full max-w-[420px] overflow-hidden rounded-xl p-5 gap-4"
+                    }
                 >
                     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                         <GlassSurface

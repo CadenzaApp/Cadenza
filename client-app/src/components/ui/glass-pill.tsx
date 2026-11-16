@@ -7,7 +7,10 @@ import {
     type PressableProps,
 } from "react-native";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -38,6 +41,7 @@ export function GlassPill({
     const { colors } = useAppTheme();
     const contentColor = destructive ? colors.destructive : colors.foreground;
     const iconSize = size === "sm" ? 16 : 19;
+    const outlined = shouldShowGlassOutline();
 
     return (
         <Pressable
@@ -51,7 +55,8 @@ export function GlassPill({
         >
             <View
                 className={cn(
-                    "flex-row items-center justify-center gap-2 overflow-hidden rounded-full border border-border",
+                    "flex-row items-center justify-center gap-2 overflow-hidden rounded-full",
+                    outlined && "border border-border",
                     size === "sm" ? "h-9 px-3.5" : "h-12 px-5",
                 )}
             >

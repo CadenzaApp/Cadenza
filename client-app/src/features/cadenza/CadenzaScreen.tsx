@@ -1,7 +1,10 @@
 import { CadenzaLogo } from "@/components/custom/cadenza-logo";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import { Text } from "@/components/ui/text";
 import { AdvancedQueryBuilder } from "@/features/advanced-query-builder/AdvancedQueryBuilder";
@@ -55,6 +58,7 @@ const OUTER_OPTIONS = [
 ] as const;
 
 export function CadenzaScreen() {
+    const outlined = shouldShowGlassOutline();
     const { userTags, userTagsMeta, userTagsLoading, userTagsErr } =
         useUserTags();
     const { activityTags } = useActivityTags();
@@ -254,7 +258,9 @@ export function CadenzaScreen() {
         <View
             className={
                 Platform.OS === "ios"
-                    ? "h-9 flex-row items-center overflow-hidden rounded-full border border-border"
+                    ? outlined
+                        ? "h-9 flex-row items-center overflow-hidden rounded-full border border-border"
+                        : "h-9 flex-row items-center overflow-hidden rounded-full"
                     : "flex-row items-center gap-2"
             }
         >
@@ -273,7 +279,7 @@ export function CadenzaScreen() {
                     else dispatch({ type: "undo" });
                 }}
             />
-            {Platform.OS === "ios" ? (
+            {Platform.OS === "ios" && outlined ? (
                 <View className="h-5 border-l border-border" />
             ) : null}
             <HistoryActionButton

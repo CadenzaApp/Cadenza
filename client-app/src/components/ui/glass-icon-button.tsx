@@ -8,7 +8,10 @@ import {
     type ViewStyle,
 } from "react-native";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { usePressedFill } from "@/components/ui/pressed-fill";
 import { cn } from "@/lib/utils";
 
@@ -48,6 +51,7 @@ export function GlassIconButton({
     ...rest
 }: GlassIconButtonProps) {
     const radius = size / 2;
+    const outlined = bordered && shouldShowGlassOutline();
 
     const pressedFill = usePressedFill(surfaceScheme);
 
@@ -63,7 +67,7 @@ export function GlassIconButton({
                     // never flattened away, pressed or not
                     collapsable={false}
                     className={cn(
-                        bordered && "border border-border",
+                        outlined && "border border-border",
                         className,
                     )}
                     style={[
@@ -87,9 +91,9 @@ export function GlassIconButton({
                             colorScheme={surfaceScheme}
                             style={[
                                 StyleSheet.absoluteFill,
-                                // Inset the glass only when the wrapper has a border.
+                                // Inset fallback glass only when its wrapper has a border.
                                 {
-                                    borderRadius: radius - (bordered ? 1 : 0),
+                                    borderRadius: radius - (outlined ? 1 : 0),
                                     overflow: "hidden",
                                 },
                             ]}
@@ -107,7 +111,7 @@ export function GlassIconButton({
                         style={[
                             StyleSheet.absoluteFill,
                             {
-                                borderRadius: radius - (bordered ? 1 : 0),
+                                borderRadius: radius - (outlined ? 1 : 0),
                                 backgroundColor: pressedFill,
                             },
                             pressed ? styles.pressedFill : styles.restingFill,

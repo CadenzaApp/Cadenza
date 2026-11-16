@@ -15,7 +15,10 @@ import { ModalPopup } from "@/components/custom/modal-popup";
 import { TagPill } from "@/components/custom/tag-pill";
 import { Button } from "@/components/ui/button";
 import { GlassButton } from "@/components/ui/glass-button";
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 import type { AppliedTag, Tag } from "@/lib/types";
@@ -372,9 +375,14 @@ export function TagSelectorPanel({
     children: ReactNode;
     onLayout?: (layout: LayoutRectangle) => void;
 }) {
+    const outlined = shouldShowGlassOutline();
     return (
         <View
-            className="overflow-hidden rounded-2xl border border-border bg-card p-4"
+            className={
+                outlined
+                    ? "overflow-hidden rounded-2xl border border-border bg-card p-4"
+                    : "overflow-hidden rounded-2xl bg-card p-4"
+            }
             onLayout={(event) => onLayout?.(event.nativeEvent.layout)}
         >
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>

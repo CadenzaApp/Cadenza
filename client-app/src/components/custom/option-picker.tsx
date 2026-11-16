@@ -21,7 +21,10 @@ import Animated, {
     type SharedValue,
 } from "react-native-reanimated";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
@@ -97,6 +100,7 @@ export function OptionPicker({
 }: Props) {
     const { colors } = useTheme();
     const { colors: palette } = useAppTheme();
+    const outlined = shouldShowGlassOutline();
     const window = useWindowDimensions();
     const [search, setSearch] = useState("");
     const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
@@ -218,7 +222,10 @@ export function OptionPicker({
                     <Pressable
                         accessibilityViewIsModal
                         onPress={(event) => event.stopPropagation()}
-                        className="overflow-hidden rounded-xl border border-border px-4 pb-2 gap-3"
+                        className={cn(
+                            "overflow-hidden rounded-xl px-4 pb-2 gap-3",
+                            outlined && "border border-border",
+                        )}
                         // explicit, so the title always clears the top edge
                         style={{
                             width,

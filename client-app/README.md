@@ -4,6 +4,11 @@ The Cadenza mobile app. Expo / React Native with expo-router for navigation, nat
 styling, SWR for data. Talks to Apple Music through a local native module and to `backend-api`
 over HTTP.
 
+The Social tab uses a full-screen nebula behind a transparent feed. Its compact Listening now
+story row includes temporary visual friends until presence styling is finalized; live, directly
+joinable sessions use the account accent ring. The bottom-row post action opens a keyboard-aware
+modal rather than changing the feed's layout.
+
 ## Files
 
 | path                                                  | role                                                                                                                                                                                                                                                              |

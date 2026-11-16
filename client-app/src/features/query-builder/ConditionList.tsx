@@ -25,7 +25,10 @@ import {
 import { MeasuredReorderList, useReorderHandle } from "./MeasuredReorderList";
 
 import { TagPill } from "@/components/custom/tag-pill";
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 import type { Tag } from "@/lib/types";
@@ -270,6 +273,7 @@ function ConditionCard({
     const members =
         condition.kind === "group" ? condition.members : [condition];
     const { colors: theme } = useAppTheme();
+    const outlined = shouldShowGlassOutline();
     const editor = useEditorActions();
     const { dragState } = useDrag();
     const hovered = useDropHover(`condition-${condition.id}`);
@@ -422,9 +426,17 @@ function ConditionCard({
     );
     return (
         <View
-            className="overflow-hidden rounded-xl border"
+            className={
+                outlined
+                    ? "overflow-hidden rounded-xl border"
+                    : "overflow-hidden rounded-xl"
+            }
             style={{
-                borderColor: hovered ? theme.primary : theme.border,
+                borderColor: outlined
+                    ? hovered
+                        ? theme.primary
+                        : theme.border
+                    : undefined,
             }}
         >
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>

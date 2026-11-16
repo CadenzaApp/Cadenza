@@ -4,7 +4,10 @@ import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { FullWindowOverlay as RNFullWindowOverlay } from "react-native-screens";
 
 import { GlassButton } from "@/components/ui/glass-button";
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 
@@ -36,6 +39,7 @@ export function GlassConfirmDialog({
     onConfirm,
 }: GlassConfirmDialogProps) {
     const { destructive } = useAppTheme().colors;
+    const outlined = shouldShowGlassOutline();
 
     return (
         <AlertDialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -46,7 +50,13 @@ export function GlassConfirmDialog({
                         asChild={Platform.OS !== "web"}
                     >
                         <View className="w-full items-center">
-                            <AlertDialogPrimitive.Content className="w-full max-w-lg overflow-hidden rounded-3xl border border-border px-5 py-5">
+                            <AlertDialogPrimitive.Content
+                                className={
+                                    outlined
+                                        ? "w-full max-w-lg overflow-hidden rounded-3xl border border-border px-5 py-5"
+                                        : "w-full max-w-lg overflow-hidden rounded-3xl px-5 py-5"
+                                }
+                            >
                                 <View
                                     pointerEvents="none"
                                     style={StyleSheet.absoluteFill}
