@@ -1,0 +1,18 @@
+{
+  "source_commit": "75c47ac4c77d11be223bf5dbaa8b598f6fb29aef",
+  "tag": "git-75c47ac4c77d-20261116033858",
+  "image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:883ea17154746d051b6dd546c83c24a3defa857e6542d254c49887933982f138",
+  "release_env_sha256": "1e3f2dcd30647f16ea6336e6b066d8fb97323b825bdcb36fa2557d372051e079",
+  "launch_template": {
+    "LaunchTemplateId": "lt-0369d766012c4ef99",
+    "LaunchTemplateName": "cadenza-demo-single",
+    "Version": "8"
+  },
+  "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+  "platform": "linux/arm64",
+  "viewer_http_status": 200,
+  "base_ami": "ami-02a8f93f158469812",
+  "bootstrap_mode": "cold",
+  "monitoring_verified": true,
+  "verified_at_utc": "2026-11-16T03:41:00.097373+00:00"
+}

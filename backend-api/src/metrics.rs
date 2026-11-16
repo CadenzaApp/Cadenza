@@ -33,8 +33,8 @@ impl Metrics {
     fn new() -> Self {
         let registry = Registry::new();
         let duration = HistogramVec::new(HistogramOpts::new("cadenza_http_request_duration_seconds", "Time until response headers, including auth, queueing and handler work; cancelled requests are separate outcomes.")
-            .const_labels([("histogram_schema".to_owned(), "2".to_owned())].into())
-            .buckets(vec![0.001, 0.0025, 0.005, 0.01, 0.02, 0.035, 0.05, 0.1, 0.25, 0.4, 0.6, 0.8, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]), &["method", "route", "status"]).unwrap();
+            .const_labels([("histogram_schema".to_owned(), "3".to_owned())].into())
+            .buckets(vec![0.001, 0.0025, 0.005, 0.01, 0.02, 0.035, 0.05, 0.1, 0.25, 0.4, 0.6, 0.8, 1.0, 2.5, 5.0, 7.5, 10.0, 12.5, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0]), &["method", "route", "status"]).unwrap();
         let requests = IntCounterVec::new(
             Opts::new(
                 "cadenza_http_requests_total",
@@ -356,15 +356,20 @@ mod tests {
         histogram.observe(0.019);
         histogram.observe(0.375);
         histogram.observe(12.0);
+        histogram.observe(14.0);
+        histogram.observe(18.0);
         let text = String::from_utf8(metrics.render()).unwrap();
         for (boundary, count) in [
             ("0.01", "0"),
             ("0.02", "1"),
             ("0.25", "1"),
             ("0.4", "2"),
+            ("7.5", "2"),
             ("10", "2"),
-            ("20", "3"),
-            ("+Inf", "3"),
+            ("12.5", "3"),
+            ("15", "4"),
+            ("20", "5"),
+            ("+Inf", "5"),
         ] {
             let line = text
                 .lines()
@@ -373,7 +378,7 @@ mod tests {
                         && line.contains(&format!("le=\"{boundary}\""))
                 })
                 .unwrap();
-            assert!(line.contains("histogram_schema=\"2\""));
+            assert!(line.contains("histogram_schema=\"3\""));
             assert!(line.ends_with(&format!(" {count}")), "{line}");
         }
     }

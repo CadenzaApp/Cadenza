@@ -68,11 +68,12 @@ bars and per-operation percentile trends/tables. Each feature also repeats a
 runtime-distribution histogram for every observed method/route, busiest first.
 Use Histogram operations to narrow these charts. They cover the selected range
 and convert cumulative Prometheus buckets into disjoint counts, including the
-10+ second overflow. Extra boundaries at 20/35 ms and 400/600/800 ms concentrate
-detail in the fast and subsecond ranges. Bucket widths vary;
+15+ second overflow. Extra boundaries at 20/35 ms and 400/600/800 ms concentrate
+detail in the fast and subsecond ranges. Boundaries at 7.5, 12.5 and 15 seconds
+add detail for slower operations. Bucket widths vary;
 bar heights are counts, not density. Longer internal buckets remain available
 for tail percentiles but are combined in these distribution charts. Histogram
-schema 2 starts fresh duration history at rollout so incompatible old buckets
+schema 3 starts fresh duration history at rollout so incompatible old buckets
 are not mixed; existing call-count history remains available. Operation combines
 method and route; compact Calls/runtime columns keep the tables readable. The route selector
 and tables rank by calls over the selected range. Calls cards use neutral text,

@@ -7,7 +7,7 @@
     "overview"
   ],
   "schemaVersion": 39,
-  "version": 8,
+  "version": 9,
   "timezone": "browser",
   "refresh": "30s",
   "time": {
@@ -115,7 +115,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range])))",
           "legendFormat": "{{method}} {{route}}",
           "instant": true,
           "range": false
@@ -157,7 +157,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range])))",
           "legendFormat": "{{method}} {{route}}",
           "instant": true,
           "range": false
@@ -199,7 +199,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.99, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range])))",
           "legendFormat": "{{method}} {{route}}",
           "instant": true,
           "range": false
@@ -314,21 +314,21 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5,sum by(le)(rate(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5,sum by(le)(rate(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__rate_interval])))",
           "instant": false,
           "range": true,
           "legendFormat": "p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95,sum by(le)(rate(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95,sum by(le)(rate(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__rate_interval])))",
           "instant": false,
           "range": true,
           "legendFormat": "p95"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.99,sum by(le)(rate(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99,sum by(le)(rate(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__rate_interval])))",
           "instant": false,
           "range": true,
           "legendFormat": "p99"
@@ -483,21 +483,21 @@
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.5,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
+          "expr": "histogram_quantile(0.5,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
           "instant": true,
           "range": false,
           "format": "table"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
+          "expr": "histogram_quantile(0.95,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
           "instant": true,
           "range": false,
           "format": "table"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"2\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
+          "expr": "histogram_quantile(0.99,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
           "instant": true,
           "range": false,
           "format": "table"
