@@ -1,9 +1,9 @@
-import {
-    PLAYER_CONTROL_SIZE,
-    PLAYER_SIDE_INSET,
-} from "@/lib/screen-overlay-geometry";
+import { PLAYER_CONTROL_SIZE } from "@/lib/screen-overlay-geometry";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useBottomRowActionButton } from "@/lib/screen-overlay";
+import {
+    BOTTOM_ACTION_RIGHT_OFFSET,
+    useBottomRowActionButton,
+} from "@/lib/screen-overlay";
 import { useTheme } from "expo-router/react-navigation";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
@@ -93,7 +93,7 @@ export function MusicListArrangeButton({ value, onChange }: Props) {
                     size={PLAYER_CONTROL_SIZE}
                     bordered={false}
                     shadow={false}
-                    rightOffset={PLAYER_SIDE_INSET}
+                    rightOffset={BOTTOM_ACTION_RIGHT_OFFSET}
                     onPress={openSort}
                     accessibilityLabel={
                         arranged ? "Sort and group, on" : "Sort and group"

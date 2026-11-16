@@ -12,6 +12,30 @@ export const OVERLAY_GAP = 12;
 export const PLAYER_ROW_GAP = 8;
 export const PLAYER_SIDE_INSET = 20;
 
+/**
+ * iOS 26's floating tab bar is 62pt tall, so its Search circle is 62pt
+ * across, and it sits 21pt in from the screen's sides. UIKit does not expose
+ * the frame, so these are the measured values fabbar ships.
+ */
+export const GLASS_TAB_BAR_HEIGHT = 62;
+export const GLASS_TAB_BAR_SIDE_INSET = 21;
+/** The Search circle's center, measured from the screen's right edge. */
+export const SEARCH_TAB_CENTER_FROM_RIGHT =
+    GLASS_TAB_BAR_SIDE_INSET + GLASS_TAB_BAR_HEIGHT / 2;
+
+/**
+ * How far to shift the bottom row action from its resting spot, centered
+ * `PLAYER_SIDE_INSET` in from the right, so it centers over Search. Negative
+ * is left.
+ */
+export const SEARCH_DOCK_X =
+    PLAYER_SIDE_INSET + PLAYER_CONTROL_SIZE / 2 - SEARCH_TAB_CENTER_FROM_RIGHT;
+
+/** The right offset that centers a floating control of `size` over Search. */
+export function rightOffsetOverSearch(size: number) {
+    return SEARCH_TAB_CENTER_FROM_RIGHT - size / 2;
+}
+
 /** UIKit owns scroll docking only for the expanded player on primary tabs. */
 export function nativePlayerAccessoryEnabled({
     supported,

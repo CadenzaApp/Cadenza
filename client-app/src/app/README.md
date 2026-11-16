@@ -45,6 +45,7 @@ logic out.
 | `player/tags.tsx`                                                             | `/player/tags`            | Opens the same pager with Tags selected and optional focused-song params.                                                                                    |
 | `library-categories.tsx`                                                      | `/library-categories`     | Sheet that picks which rows the library shows.                                                                                                               |
 | `add-to-playlist.tsx`                                                         | `/add-to-playlist`        | Sheet that picks a library playlist for a song, or makes one.                                                                                                |
+| `assistant.tsx`                                                               | `/assistant`              | The assistant chat sheet. Wires `AssistantChat`. Opened from the button at the right end of the bottom row, on every screen in the tabs. |
 | `+not-found.tsx`                                                              |                           | 404.                                                                                                                                                         |
 
 `(splashscreen)`, `(tabs)`, and each `(<tab>)` are route groups, so the parentheses do not appear in

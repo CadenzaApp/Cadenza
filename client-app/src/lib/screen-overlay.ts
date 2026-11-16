@@ -32,11 +32,27 @@ import {
     playerHostIsActive,
     nativePlayerAccessoryEnabled,
     OVERLAY_GAP,
+    PLAYER_CONTROL_SIZE,
+    PLAYER_SIDE_INSET,
+    rightOffsetOverSearch,
 } from "./screen-overlay-geometry";
 export {
     COMPACT_PLAYER_HEIGHT,
     FLOATING_ACTION_SIZE,
 } from "./screen-overlay-geometry";
+
+/** iOS 26 and up: the floating glass tab bar, with Search as its own circle. */
+export const GLASS_TAB_BAR =
+    Platform.OS === "ios" &&
+    Number.parseInt(String(Platform.Version), 10) >= 26;
+
+/**
+ * Where a screen's own bottom action floats from the right: centered over
+ * Search on the glass tab bar, else at the player's side inset.
+ */
+export const BOTTOM_ACTION_RIGHT_OFFSET = GLASS_TAB_BAR
+    ? rightOffsetOverSearch(PLAYER_CONTROL_SIZE)
+    : PLAYER_SIDE_INSET;
 
 const NATIVE_TAB_BAR_HEIGHT = Platform.select({
     ios: 49,
@@ -52,6 +68,7 @@ const NATIVE_TAB_BAR_HEIGHT = Platform.select({
  */
 const SHEET_SEGMENTS = new Set([
     "account",
+    "assistant",
     "appearance",
     "player",
     "library-categories",
@@ -281,9 +298,7 @@ function useWantsNativePlayerAccessory() {
     const rootSegment = useBaseRouteSegment();
     const insideSheet = useContext(InsideSheetContext);
     return nativePlayerAccessoryEnabled({
-        supported:
-            Platform.OS === "ios" &&
-            Number.parseInt(String(Platform.Version), 10) >= 26,
+        supported: GLASS_TAB_BAR,
         inTabs: !insideSheet && rootSegment === "(tabs)",
         hasTrack: activeTrack != null,
         collapsed: isPlayerCollapsed,

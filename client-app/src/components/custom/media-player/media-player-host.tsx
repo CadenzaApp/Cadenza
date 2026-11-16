@@ -21,6 +21,7 @@ import {
     PLAYER_SIDE_INSET,
     PLAYER_CONTROL_SIZE,
     PLAYER_ROW_GAP,
+    SEARCH_DOCK_X,
 } from "@/lib/screen-overlay-geometry";
 
 import { usePlaybackTrackState } from "@/lib/playback";
@@ -29,10 +30,12 @@ import { usePlayerPresentation } from "@/lib/player-presentation";
 import { useBottomSelectionOverlay } from "@/lib/bottom-selection-overlay";
 
 import {
+    GLASS_TAB_BAR,
     useBottomBarsHidden,
     usePlayerHostActive,
     useBottomRowAction,
 } from "@/lib/screen-overlay";
+import { AssistantRowButton } from "@/features/assistant/assistant-button";
 
 import { MediaPlayer } from "./media-player";
 
@@ -130,6 +133,9 @@ function MediaPlayerRow({
     const nativeTargetY = useSharedValue(-(expandedHeight + PLAYER_ROW_GAP));
     const selectionContent = useBottomSelectionOverlay();
     const selectionVisible = selectionContent != null;
+    // Always the row's rightmost control, except while the multiselect
+    // toolbar takes the row.
+    const assistantVisible = !barsHidden && !selectionVisible;
     const { width: windowWidth } = useWindowDimensions();
     const [selectionPanel, setSelectionPanel] = useState({
         source: selectionContent,
@@ -185,18 +191,10 @@ function MediaPlayerRow({
             sortScale.set(
                 withSpring(diameter / PLAYER_CONTROL_SIZE, SORT_SPRING),
             );
-            // Anchor to the trailing native rail inset, not the accessory's
-            // content edge: UIKit adds padding outside that measured content.
-            const searchCenter =
-                windowWidth - PLAYER_SIDE_INSET - PLAYER_ROW_GAP - diameter / 2;
-            const restingCenter =
-                windowWidth - PLAYER_SIDE_INSET - PLAYER_CONTROL_SIZE / 2;
-            sortDockX.set(
-                withSpring(
-                    tucking ? searchCenter - restingCenter : 0,
-                    SORT_SPRING,
-                ),
-            );
+            // Search keeps its size and place whether the player is expanded
+            // or tucked, and the scale is about the button's center, so one
+            // shift centers it over Search in both
+            sortDockX.set(withSpring(SEARCH_DOCK_X, SORT_SPRING));
         },
     );
     useEffect(() => {
@@ -205,7 +203,9 @@ function MediaPlayerRow({
             nativeTargetY.set(restingY);
             nativePanelY.set(withSpring(restingY, SORT_SPRING));
             sortScale.set(withSpring(1, SORT_SPRING));
-            sortDockX.set(withSpring(0, SORT_SPRING));
+            sortDockX.set(
+                withSpring(GLASS_TAB_BAR ? SEARCH_DOCK_X : 0, SORT_SPRING),
+            );
         }
     }, [
         nativePlayer,
@@ -254,11 +254,47 @@ function MediaPlayerRow({
     useEffect(() => {
         sortX.set(withSpring(sortVisible ? 0 : SORT_OFFSCREEN_X, SORT_SPRING));
     }, [sortVisible, sortX]);
+    // The assistant takes the row's right end and the sort control moves one
+    // slot left of it. Only while both show, so a leaving sort control never
+    // slides back into view.
+    const assistantX = useSharedValue(SORT_OFFSCREEN_X);
+    const sortShift = useSharedValue(0);
+    useEffect(() => {
+        assistantX.set(
+            withSpring(assistantVisible ? 0 : SORT_OFFSCREEN_X, SORT_SPRING),
+        );
+        sortShift.set(
+            withSpring(assistantVisible && sortVisible ? 1 : 0, SORT_SPRING),
+        );
+    }, [assistantVisible, sortVisible, assistantX, sortShift]);
+    const assistantStyle = useAnimatedStyle(() => ({
+        transform: [
+            {
+                translateX:
+                    assistantX.get() +
+                    sortDockX.get() * (1 - circleStack.get()),
+            },
+            {
+                translateY:
+                    auxiliaryControlY(
+                        nativePanelY.get(),
+                        circleStack.get(),
+                        hasPlayer,
+                    ) +
+                    (PLAYER_CONTROL_SIZE * (1 - sortScale.get())) / 2,
+            },
+            { scale: sortScale.get() },
+        ],
+    }));
     const sortStyle = useAnimatedStyle(() => ({
         transform: [
             {
                 translateX:
-                    sortX.get() + sortDockX.get() * (1 - circleStack.get()),
+                    sortX.get() +
+                    sortDockX.get() * (1 - circleStack.get()) -
+                    sortShift.get() *
+                        (PLAYER_CONTROL_SIZE * sortScale.get() +
+                            PLAYER_ROW_GAP),
             },
             {
                 translateY:
@@ -355,6 +391,17 @@ function MediaPlayerRow({
                         color={colors.text}
                     />
                 </GlassIconButton>
+            </Animated.View>
+            <Animated.View
+                className="absolute bottom-0 right-0"
+                style={assistantStyle}
+                pointerEvents={assistantVisible ? "auto" : "none"}
+                accessibilityElementsHidden={!assistantVisible}
+                importantForAccessibility={
+                    assistantVisible ? "auto" : "no-hide-descendants"
+                }
+            >
+                <AssistantRowButton disabled={!assistantVisible} />
             </Animated.View>
         </View>
     );

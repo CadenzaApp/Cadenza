@@ -27,7 +27,17 @@ const SETTLE_SPRING = { damping: 20, stiffness: 220, mass: 0.6 };
 type ReorderableListProps<T> = {
     data: readonly T[];
     keyExtractor: (item: T, index: number) => string;
-    renderItem: (info: { item: T; index: number }) => ReactNode;
+    /**
+     * `dragHandle` wraps the row's grab handle. A drag from inside it starts
+     * on the first movement, with no long press, and takes the touch from
+     * whatever is around the list (a sheet's drag to dismiss, a pager). A
+     * long press anywhere else on the row still starts a drag too.
+     */
+    renderItem: (info: {
+        item: T;
+        index: number;
+        dragHandle: (handle: ReactNode) => ReactNode;
+    }) => ReactNode;
     /** Every row is this tall. The list positions rows rather than measuring. */
     itemHeight: number;
     /** Fires once on drop, with positions in the list's own index space. */
@@ -37,6 +47,12 @@ type ReorderableListProps<T> = {
     empty?: ReactNode;
     style?: StyleProp<ViewStyle>;
     contentContainerStyle?: StyleProp<ViewStyle>;
+    /**
+     * True from a touch on a drag handle until that drag ends. Lets the
+     * caller hold still what it owns, like a sheet's drag to dismiss on iOS,
+     * where a native gesture outside the list can otherwise still win.
+     */
+    onHandleTouchChange?: (touching: boolean) => void;
 };
 
 /**
@@ -51,7 +67,9 @@ type ReorderableListProps<T> = {
  * drop, and leaves the reordering to the caller, so the same list works for a
  * playback queue or anything else.
  *
- * A drag begins on a long press, which leaves short drags to the scroll view.
+ * A drag begins on a long press, which leaves short drags to the scroll view,
+ * or straight away from a row's `dragHandle`. A finger that moves up or down
+ * before the long press lands is a scroll, so the row gives up on it.
  * Near either edge the list scrolls itself, otherwise a queue longer than the
  * screen could only be reordered within one screenful.
  *
@@ -71,6 +89,7 @@ export function ReorderableList<T>({
     empty,
     style,
     contentContainerStyle,
+    onHandleTouchChange,
 }: ReorderableListProps<T>) {
     const scrollRef = useAnimatedRef<Animated.ScrollView>();
     const scrollY = useSharedValue(0);
@@ -94,6 +113,12 @@ export function ReorderableList<T>({
     /** The row settling into its slot after a drop, and how far it has to go. */
     const droppedKey = useSharedValue("");
     const dropOffset = useSharedValue(0);
+    /**
+     * Which gesture runs the drag, as `rowKey:kind`, or "". Each row has two
+     * (the long press and the handle), and whichever loses still finalizes, so
+     * only the owner may touch the shared drag state.
+     */
+    const dragOwner = useSharedValue("");
 
     const rowCount = data.length;
     const contentHeight = rowCount * itemHeight;
@@ -157,6 +182,10 @@ export function ReorderableList<T>({
                 contentContainerStyle={contentContainerStyle}
                 onScroll={onScroll}
                 scrollEventThrottle={16}
+                // Android sheets: scroll like the Tags page's list does. The
+                // sheet still only lets drags through inside the area its
+                // host marks (the player pager's SheetScrollRegion).
+                nestedScrollEnabled
                 showsVerticalScrollIndicator={false}
                 onLayout={(event) =>
                     viewportHeight.set(event.nativeEvent.layout.height)
@@ -185,6 +214,8 @@ export function ReorderableList<T>({
                                 moving={moving}
                                 droppedKey={droppedKey}
                                 dropOffset={dropOffset}
+                                dragOwner={dragOwner}
+                                onHandleTouchChange={onHandleTouchChange}
                                 setAutoScrollActive={autoScroll.setActive}
                                 onCommit={commitReorder}
                                 render={renderItem}
@@ -216,6 +247,8 @@ function ReorderableRow<T>({
     moving,
     droppedKey,
     dropOffset,
+    dragOwner,
+    onHandleTouchChange,
     setAutoScrollActive,
     onCommit,
     render,
@@ -236,76 +269,145 @@ function ReorderableRow<T>({
     moving: SharedValue<boolean>;
     droppedKey: SharedValue<string>;
     dropOffset: SharedValue<number>;
+    dragOwner: SharedValue<string>;
+    onHandleTouchChange?: (touching: boolean) => void;
     setAutoScrollActive: (active: boolean) => void;
     onCommit: (from: number, to: number) => void;
-    render: (info: { item: T; index: number }) => ReactNode;
+    render: (info: {
+        item: T;
+        index: number;
+        dragHandle: (handle: ReactNode) => ReactNode;
+    }) => ReactNode;
 }) {
-    const gesture = usePanGesture({
+    const pressOwner = `${rowKey}:press`;
+    const handleOwner = `${rowKey}:handle`;
+    const reportHandleTouch = (touching: boolean) =>
+        onHandleTouchChange?.(touching);
+
+    // The same drag either way; `owner` says which gesture is running it.
+    const activate = (owner: string) => {
+        "worklet";
+        // the slot, not the render index: a drop's reorder may not have
+        // re-rendered this row yet
+        const slot = slots.get()[rowKey] ?? index;
+        dragOwner.set(owner);
+        moving.set(true);
+        droppedKey.set("");
+        activeIndex.set(slot);
+        targetIndex.set(slot);
+        fingerOffset.set(0);
+        autoScrolled.set(0);
+        dragOffset.set(0);
+        runOnJS(setAutoScrollActive)(true);
+    };
+    const update = (owner: string, translationY: number) => {
+        "worklet";
+        if (dragOwner.get() !== owner) return;
+        fingerOffset.set(translationY);
+        fingerViewportY.set(
+            activeIndex.get() * itemHeight + translationY - scrollY.get(),
+        );
+        dragOffset.set(translationY + autoScrolled.get());
+        targetIndex.set(
+            landingIndex(activeIndex, dragOffset, itemHeight, rowCount),
+        );
+    };
+    const drop = (owner: string, canceled: boolean) => {
+        "worklet";
+        if (canceled || dragOwner.get() !== owner) return;
+
+        const from = activeIndex.get();
+        const to = targetIndex.get();
+        // move to the new order here, before the caller's reorder renders
+        slots.set(moveSlot(slots.get(), from, to));
+        // and settle from where the finger let go into the new slot
+        droppedKey.set(rowKey);
+        dropOffset.set((from - to) * itemHeight + dragOffset.get());
+        dropOffset.set(
+            withSpring(0, SETTLE_SPRING, (finished) => {
+                if (!finished || droppedKey.get() !== rowKey) return;
+                droppedKey.set("");
+                moving.set(false);
+            }),
+        );
+        // the slot the drag held now belongs to a neighbour, so the drag
+        // ends here rather than in finalize
+        activeIndex.set(-1);
+        targetIndex.set(-1);
+        runOnJS(onCommit)(from, to);
+    };
+    const finalize = (owner: string, canceled: boolean) => {
+        "worklet";
+        // the gesture that lost to the other one has nothing to clean up, and
+        // must not end the drag the winner is running
+        if (dragOwner.get() !== owner) return;
+        dragOwner.set("");
+        runOnJS(setAutoScrollActive)(false);
+        // a drag that never dropped has nothing to settle
+        if (canceled && droppedKey.get() === "") moving.set(false);
+        activeIndex.set(-1);
+        targetIndex.set(-1);
+        dragOffset.set(0);
+        fingerOffset.set(0);
+        autoScrolled.set(0);
+    };
+
+    // A long press anywhere on the row. Up or down movement before it lands
+    // is a scroll, so the row lets go and the list scrolls.
+    const pressGesture = usePanGesture({
         activateAfterLongPress: 220,
         failOffsetX: [-20, 20],
+        failOffsetY: [-12, 12],
         onActivate: () => {
             "worklet";
-            // the slot, not the render index: a drop's reorder may not have
-            // re-rendered this row yet
-            const slot = slots.get()[rowKey] ?? index;
-            moving.set(true);
-            droppedKey.set("");
-            activeIndex.set(slot);
-            targetIndex.set(slot);
-            fingerOffset.set(0);
-            autoScrolled.set(0);
-            dragOffset.set(0);
-            runOnJS(setAutoScrollActive)(true);
+            activate(pressOwner);
         },
         onUpdate: (event) => {
             "worklet";
-            fingerOffset.set(event.translationY);
-            fingerViewportY.set(
-                activeIndex.get() * itemHeight +
-                    event.translationY -
-                    scrollY.get(),
-            );
-            dragOffset.set(event.translationY + autoScrolled.get());
-            targetIndex.set(
-                landingIndex(activeIndex, dragOffset, itemHeight, rowCount),
-            );
+            update(pressOwner, event.translationY);
         },
         onDeactivate: (event) => {
             "worklet";
-            if (event.canceled) return;
-
-            const from = activeIndex.get();
-            const to = targetIndex.get();
-            // move to the new order here, before the caller's reorder renders
-            slots.set(moveSlot(slots.get(), from, to));
-            // and settle from where the finger let go into the new slot
-            droppedKey.set(rowKey);
-            dropOffset.set((from - to) * itemHeight + dragOffset.get());
-            dropOffset.set(
-                withSpring(0, SETTLE_SPRING, (finished) => {
-                    if (!finished || droppedKey.get() !== rowKey) return;
-                    droppedKey.set("");
-                    moving.set(false);
-                }),
-            );
-            // the slot the drag held now belongs to a neighbour, so the drag
-            // ends here rather than in onFinalize
-            activeIndex.set(-1);
-            targetIndex.set(-1);
-            runOnJS(onCommit)(from, to);
+            drop(pressOwner, event.canceled);
         },
-        onFinalize: (_event) => {
+        onFinalize: (event) => {
             "worklet";
-            runOnJS(setAutoScrollActive)(false);
-            // a drag that never dropped has nothing to settle
-            if (_event.canceled && droppedKey.get() === "") moving.set(false);
-            activeIndex.set(-1);
-            targetIndex.set(-1);
-            dragOffset.set(0);
-            fingerOffset.set(0);
-            autoScrolled.set(0);
+            finalize(pressOwner, event.canceled);
         },
     });
+
+    // The handle drags on the first point of movement, before a sheet's own
+    // drag (which waits for its touch slop) can claim the touch.
+    const handleGesture = usePanGesture({
+        minDistance: 1,
+        onBegin: () => {
+            "worklet";
+            runOnJS(reportHandleTouch)(true);
+        },
+        onActivate: () => {
+            "worklet";
+            activate(handleOwner);
+        },
+        onUpdate: (event) => {
+            "worklet";
+            update(handleOwner, event.translationY);
+        },
+        onDeactivate: (event) => {
+            "worklet";
+            drop(handleOwner, event.canceled);
+        },
+        onFinalize: (event) => {
+            "worklet";
+            finalize(handleOwner, event.canceled);
+            runOnJS(reportHandleTouch)(false);
+        },
+    });
+
+    const dragHandle = (handle: ReactNode) => (
+        <VirtualGestureDetector gesture={handleGesture}>
+            <View collapsable={false}>{handle}</View>
+        </VirtualGestureDetector>
+    );
 
     const rowStyle = useAnimatedStyle(() => {
         const active = activeIndex.get();
@@ -361,7 +463,7 @@ function ReorderableRow<T>({
     });
 
     return (
-        <VirtualGestureDetector gesture={gesture}>
+        <VirtualGestureDetector gesture={pressGesture}>
             <Animated.View
                 style={[
                     {
@@ -374,7 +476,7 @@ function ReorderableRow<T>({
                     rowStyle,
                 ]}
             >
-                {render({ item, index })}
+                {render({ item, index, dragHandle })}
             </Animated.View>
         </VirtualGestureDetector>
     );
