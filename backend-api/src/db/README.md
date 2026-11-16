@@ -96,6 +96,10 @@ occurred_at desc)`, and a partial `(user_id, song_id, occurred_at desc)` where `
   Or nullable `shared_playlist_id` instead, a shared playlist the author is in. It is not a
   foreign key, so the id stays after the playlist is deleted and the feed shows that card as
   unavailable. A check keeps the two from both being set.
+- `post_tags_applied` (`sql/post_tags_applied.sql`) - a decorative label on a post. Not a song tag.
+  `tag_id` (identity pk), `post_id` (references `posts`, cascades), `text` (1 to 24 characters),
+  `color` (`#` plus 6 hex digits). One word per post, ignoring case, via a unique index on
+  `(post_id, lower(text))`. Changing the text keeps `tag_id`.
 - `comments` - a comment on a post. `comment_id` (identity pk), `user_id` (uuid, references
   `auth.users`, cascades), `post_id` (references `posts`, cascades), `content`, `likes`,
   `created_at`, and nullable `edited_at` (`now()` when the author edits; a client timestamp older than it is ignored).

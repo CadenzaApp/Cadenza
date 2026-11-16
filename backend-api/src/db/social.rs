@@ -76,7 +76,36 @@ pub struct SocialPost {
     /// when the id matches no playlist.
     pub shared_playlist: Option<AttachedPlaylist>,
     pub comment_count: i64,
+    /// Decorative labels on this post, sorted by `tag_id`. Not song tags.
+    pub tags: Vec<PostTag>,
 }
+
+/// One decorative label on a post. `tag_id` stays put when the text changes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PostTag {
+    pub tag_id: i64,
+    pub text: String,
+    pub color: String,
+}
+
+/// Text and color for a tag that does not have an id yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewPostTag {
+    pub text: String,
+    pub color: String,
+}
+
+/// A partial change to one post's tags. An empty field changes nothing.
+/// A tag id that is in neither `edit` nor `delete` is left alone.
+#[derive(Clone, Debug, Default)]
+pub struct PostTagPatch {
+    pub edit: HashMap<i64, NewPostTag>,
+    pub delete: Vec<i64>,
+    pub add: Vec<NewPostTag>,
+}
+
+/// How many decorative tags one post can hold.
+pub const POST_TAG_LIMIT: usize = 10;
 
 /// A shared playlist on a post. `Unavailable` is an id that matches no row,
 /// which is what deleting the playlist leaves behind.
@@ -142,7 +171,7 @@ pub struct FeedCandidate {
 /// `embedding_w_bday` is that vector with days-since-epoch in front.
 /// `topic_mk_id` is the Apple Music catalog id of an attached song or artist.
 pub async fn insert_post(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: Uuid,
     content: &str,
     embedding: &[f64],
@@ -169,6 +198,41 @@ pub async fn insert_post(
         .await?
         .ok_or_else(|| CadenzaError::DatabaseError("inserting a post returned no id".into()))?;
     Ok(row.try_get_by_index(0)?)
+}
+
+/// Inserts a post and its tags in one transaction. Tags are returned sorted
+/// by `tag_id`.
+pub async fn insert_post_with_tags(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    content: &str,
+    embedding: &[f64],
+    embedding_w_bday: &[f64],
+    topic_mk_id: Option<&str>,
+    shared_playlist_id: Option<i64>,
+    tags: &[NewPostTag],
+) -> Result<(i64, Vec<PostTag>), CadenzaError> {
+    if tags.len() > POST_TAG_LIMIT {
+        return Err(too_many_tags());
+    }
+    if duplicate_tag_words(tags.iter().map(|tag| tag.text.as_str())) {
+        return Err(duplicate_tag());
+    }
+    let txn = db.begin().await?;
+    let post_id = insert_post(
+        &txn,
+        user_id,
+        content,
+        embedding,
+        embedding_w_bday,
+        topic_mk_id,
+        shared_playlist_id,
+    )
+    .await?;
+    insert_tags(&txn, post_id, tags).await?;
+    let stored = tags_for_post(&txn, post_id).await?;
+    txn.commit().await?;
+    Ok((post_id, stored))
 }
 
 /// Deletes the author's post. `NotFound` when no row matches, including a post
@@ -226,9 +290,10 @@ pub fn edit_replaces(stored: Option<DateTime<Utc>>, incoming: DateTime<Utc>) -> 
     stored.is_none_or(|stored| incoming >= stored)
 }
 
-/// Replaces the author's post text and embedding. `edited_at` is `now()`.
-/// `client_time` older than the stored `edited_at` leaves the row alone.
-/// `NotFound` when the post is missing or owned by someone else.
+/// Replaces the author's post text and embedding, then applies `tags`, in one
+/// transaction. `edited_at` is `now()`. `client_time` older than the stored
+/// `edited_at` leaves the text and the tags alone. Returns the post's tags
+/// either way. `NotFound` when the post is missing or owned by someone else.
 pub async fn update_post_text(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -237,8 +302,10 @@ pub async fn update_post_text(
     embedding: &[f64],
     embedding_w_bday: &[f64],
     client_time: DateTime<Utc>,
-) -> Result<(), CadenzaError> {
-    let row = db
+    tags: &PostTagPatch,
+) -> Result<Vec<PostTag>, CadenzaError> {
+    let txn = db.begin().await?;
+    let kept = txn
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "UPDATE posts
@@ -259,15 +326,25 @@ pub async fn update_post_text(
             ],
         ))
         .await?;
-    if row.is_some() {
-        return Ok(());
+    if kept.is_none() {
+        let exists = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "SELECT post_id FROM posts WHERE post_id = $1 AND user_id = $2",
+                vec![post_id.into(), user_id.into()],
+            ))
+            .await?;
+        if exists.is_none() {
+            return Err(CadenzaError::NotFound);
+        }
+        let stored = tags_for_post(&txn, post_id).await?;
+        txn.commit().await?;
+        return Ok(stored);
     }
-    finish_stale_edit(
-        db,
-        "SELECT post_id FROM posts WHERE post_id = $1 AND user_id = $2",
-        vec![post_id.into(), user_id.into()],
-    )
-    .await
+    apply_tag_patch(&txn, post_id, tags).await?;
+    let stored = tags_for_post(&txn, post_id).await?;
+    txn.commit().await?;
+    Ok(stored)
 }
 
 /// Records a like and bumps `likes` / `hot_score` only when the row is new.
@@ -1989,6 +2066,8 @@ async fn to_posts(
         .filter_map(|row| row.shared_playlist_id)
         .collect();
     let cards = playlist_cards(db, &ids).await?;
+    let post_ids: Vec<i64> = rows.iter().map(|row| row.post_id).collect();
+    let mut tags = tags_for_posts(db, &post_ids).await?;
     Ok(rows
         .iter()
         .map(|row| SocialPost {
@@ -1996,6 +2075,7 @@ async fn to_posts(
                 Some(card) => AttachedPlaylist::Card(card.clone()),
                 None => AttachedPlaylist::Unavailable(id),
             }),
+            tags: tags.remove(&row.post_id).unwrap_or_default(),
             ..row.to_post()
         })
         .collect())
@@ -2017,8 +2097,196 @@ impl PostRow {
             topic_mk_id: self.topic_mk_id.clone(),
             shared_playlist: None,
             comment_count: self.comment_count,
+            tags: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, FromQueryResult)]
+struct PostTagRow {
+    tag_id: i64,
+    post_id: i64,
+    text: String,
+    color: String,
+}
+
+pub async fn post_tags(
+    db: &impl ConnectionTrait,
+    post_id: i64,
+) -> Result<Vec<PostTag>, CadenzaError> {
+    tags_for_post(db, post_id).await
+}
+
+async fn tags_for_post(
+    db: &impl ConnectionTrait,
+    post_id: i64,
+) -> Result<Vec<PostTag>, CadenzaError> {
+    let mut tags = tags_for_posts(db, &[post_id]).await?;
+    Ok(tags.remove(&post_id).unwrap_or_default())
+}
+
+/// Tags for these posts, sorted by `tag_id` within each post.
+async fn tags_for_posts(
+    db: &impl ConnectionTrait,
+    post_ids: &[i64],
+) -> Result<HashMap<i64, Vec<PostTag>>, CadenzaError> {
+    if post_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = PostTagRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT tag_id, post_id, text, color
+         FROM post_tags_applied
+         WHERE post_id = ANY($1)
+         ORDER BY tag_id",
+        vec![post_ids.to_vec().into()],
+    ))
+    .all(db)
+    .await?;
+    let mut tags: HashMap<i64, Vec<PostTag>> = HashMap::new();
+    for row in rows {
+        tags.entry(row.post_id).or_default().push(PostTag {
+            tag_id: row.tag_id,
+            text: row.text,
+            color: row.color,
+        });
+    }
+    Ok(tags)
+}
+
+async fn insert_tags(
+    db: &impl ConnectionTrait,
+    post_id: i64,
+    tags: &[NewPostTag],
+) -> Result<(), CadenzaError> {
+    for tag in tags {
+        db.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO post_tags_applied (post_id, text, color) VALUES ($1, $2, $3)",
+            vec![
+                post_id.into(),
+                tag.text.clone().into(),
+                tag.color.clone().into(),
+            ],
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+/// Applies `patch` to the post's tags. Ids are checked against the rows this
+/// transaction can see, which is after the post row was locked by its update.
+async fn apply_tag_patch(
+    db: &impl ConnectionTrait,
+    post_id: i64,
+    patch: &PostTagPatch,
+) -> Result<(), CadenzaError> {
+    if patch.edit.is_empty() && patch.delete.is_empty() && patch.add.is_empty() {
+        return Ok(());
+    }
+    let current = tags_for_post(db, post_id).await?;
+    let ids: std::collections::HashSet<i64> = current.iter().map(|tag| tag.tag_id).collect();
+    for id in patch.edit.keys().chain(patch.delete.iter()) {
+        if !ids.contains(id) {
+            return Err(CadenzaError::InvalidRequestBody(
+                "tag is not on this post".into(),
+            ));
+        }
+    }
+    if patch.delete.iter().any(|id| patch.edit.contains_key(id)) {
+        return Err(CadenzaError::InvalidRequestBody(
+            "a tag cannot be edited and deleted".into(),
+        ));
+    }
+    let deleted: std::collections::HashSet<i64> = patch.delete.iter().copied().collect();
+    if deleted.len() != patch.delete.len() {
+        return Err(CadenzaError::InvalidRequestBody(
+            "a tag cannot be deleted twice".into(),
+        ));
+    }
+    let mut next: Vec<PostTag> = current
+        .into_iter()
+        .filter(|tag| !deleted.contains(&tag.tag_id))
+        .map(|mut tag| {
+            if let Some(edit) = patch.edit.get(&tag.tag_id) {
+                tag.text = edit.text.clone();
+                tag.color = edit.color.clone();
+            }
+            tag
+        })
+        .collect();
+    for tag in &patch.add {
+        next.push(PostTag {
+            tag_id: 0,
+            text: tag.text.clone(),
+            color: tag.color.clone(),
+        });
+    }
+    if next.len() > POST_TAG_LIMIT {
+        return Err(too_many_tags());
+    }
+    if duplicate_tag_words(next.iter().map(|tag| tag.text.as_str())) {
+        return Err(duplicate_tag());
+    }
+    if !patch.delete.is_empty() {
+        db.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "DELETE FROM post_tags_applied WHERE post_id = $1 AND tag_id = ANY($2)",
+            vec![post_id.into(), patch.delete.clone().into()],
+        ))
+        .await?;
+    }
+    if !patch.edit.is_empty() {
+        let mut sql = String::from(
+            "UPDATE post_tags_applied AS t
+             SET text = v.text, color = v.color
+             FROM (VALUES ",
+        );
+        let mut values: Vec<Value> = vec![post_id.into()];
+        for (index, (tag_id, tag)) in patch.edit.iter().enumerate() {
+            if index > 0 {
+                sql.push_str(", ");
+            }
+            let base = 2 + index * 3;
+            sql.push_str(&format!(
+                "(${base}::bigint, ${}::text, ${}::text)",
+                base + 1,
+                base + 2
+            ));
+            values.push((*tag_id).into());
+            values.push(tag.text.clone().into());
+            values.push(tag.color.clone().into());
+        }
+        sql.push_str(
+            ") AS v(tag_id, text, color)
+             WHERE t.post_id = $1 AND t.tag_id = v.tag_id",
+        );
+        db.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            &sql,
+            values,
+        ))
+        .await?;
+    }
+    insert_tags(db, post_id, &patch.add).await
+}
+
+fn duplicate_tag_words<'a>(words: impl Iterator<Item = &'a str>) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    for word in words {
+        if !seen.insert(word.to_lowercase()) {
+            return true;
+        }
+    }
+    false
+}
+
+fn too_many_tags() -> CadenzaError {
+    CadenzaError::InvalidRequestBody("a post can have at most 10 tags".into())
+}
+
+fn duplicate_tag() -> CadenzaError {
+    CadenzaError::InvalidRequestBody("a post already has that tag".into())
 }
 
 #[derive(Debug, FromQueryResult)]

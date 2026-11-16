@@ -1,4 +1,4 @@
-import type { SocialPost } from "@/lib/types";
+import type { SocialPost, SocialPostTag } from "@/lib/types";
 
 /** Cached reads that carry `SocialPost` rows. */
 export function isSocialPostListKey(key: unknown): boolean {
@@ -65,11 +65,12 @@ export function applyPostContent(
     postId: number,
     content: string,
     editedAt: string | null,
+    tags?: SocialPostTag[],
 ): unknown {
     if (Array.isArray(data)) {
         let changed = false;
         const pages = data.map((page) => {
-            const next = applyPostContent(page, postId, content, editedAt);
+            const next = applyPostContent(page, postId, content, editedAt, tags);
             if (next !== page) changed = true;
             return next;
         });
@@ -84,14 +85,26 @@ export function applyPostContent(
     };
     if (Array.isArray(record.posts)) {
         next.posts = record.posts.map((post) => {
-            const updated = replacePostContent(post, postId, content, editedAt);
+            const updated = replacePostContent(
+                post,
+                postId,
+                content,
+                editedAt,
+                tags,
+            );
             if (updated !== post) changed = true;
             return updated;
         });
     }
     if (Array.isArray(record.feed)) {
         next.feed = record.feed.map((post) => {
-            const updated = replacePostContent(post, postId, content, editedAt);
+            const updated = replacePostContent(
+                post,
+                postId,
+                content,
+                editedAt,
+                tags,
+            );
             if (updated !== post) changed = true;
             return updated;
         });
@@ -150,16 +163,29 @@ function replacePostContent(
     postId: number,
     content: string,
     editedAt: string | null,
+    tags?: SocialPostTag[],
 ): unknown {
     if (!post || typeof post !== "object") return post;
     const row = post as SocialPost;
-    if (
-        row.post_id !== postId ||
-        (row.content === content && row.edited_at === editedAt)
-    ) {
+    if (row.post_id !== postId) return post;
+    const sameTags =
+        tags === undefined ||
+        (row.tags?.length === tags.length &&
+            row.tags.every(
+                (tag, index) =>
+                    tag.tag_id === tags[index]?.tag_id &&
+                    tag.text === tags[index]?.text &&
+                    tag.color === tags[index]?.color,
+            ));
+    if (row.content === content && row.edited_at === editedAt && sameTags) {
         return post;
     }
-    return { ...row, content, edited_at: editedAt };
+    return {
+        ...row,
+        content,
+        edited_at: editedAt,
+        ...(tags === undefined ? {} : { tags }),
+    };
 }
 
 function adjustPost(post: unknown, postId: number, liked: boolean): unknown {

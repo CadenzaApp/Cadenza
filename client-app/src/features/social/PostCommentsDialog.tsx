@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils";
 import { CommentOptionsMenu } from "./CommentOptionsMenu";
 import { EditContentDialog } from "./EditContentDialog";
 import { formatRelativeTime, initialsFromUsername } from "./format";
+import { PostTagRow } from "./PostTags";
 import { PostTopicCard } from "./PostTopicCard";
 import { useResolvedTopic } from "./topic";
 import type { PostTopic, SocialComment, SocialPost } from "./types";
@@ -402,6 +403,7 @@ function PostSummary({
             <Text className="text-base leading-6 text-foreground">
                 {post.content}
             </Text>
+            <PostTagRow tags={post.tags} />
 
             <View className="flex-row items-center gap-4 self-start">
                 <Pressable

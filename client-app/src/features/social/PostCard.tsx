@@ -21,10 +21,17 @@ import { EditContentDialog } from "./EditContentDialog";
 import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostCommentsDialog } from "./PostCommentsDialog";
 import { PostOptionsMenu } from "./PostOptionsMenu";
+import {
+    draftTagsFromPost,
+    PostTagRow,
+    postTagPatch,
+    type DraftPostTag,
+} from "./PostTags";
 import { PostTopicCard } from "./PostTopicCard";
 import { SharedPlaylistPostCard } from "./SharedPlaylistPostCard";
 import { activityLabel, topicCreateFields, useResolvedTopic } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
+import type { SocialPostTag } from "@/lib/types";
 
 type Props = {
     post: SocialPost;
@@ -55,6 +62,7 @@ type Props = {
         postId: number,
         content: string,
         editedAt: string | null,
+        tags?: SocialPostTag[],
     ) => void;
 };
 
@@ -93,7 +101,9 @@ export function PostCard({
     const [savedEdit, setSavedEdit] = useState<{
         content: string;
         edited_at: string | null;
+        tags: SocialPostTag[];
     } | null>(null);
+    const [tagDraft, setTagDraft] = useState<DraftPostTag[]>([]);
     // The card remounts from the cached post after a navigation. Follow that
     // post, or an unlike that already saved still paints as liked.
     useEffect(() => {
@@ -103,8 +113,17 @@ export function PostCard({
 
     useEffect(() => {
         if (!savedEdit) return;
-        if (post.content === savedEdit.content) setSavedEdit(null);
-    }, [post.content, savedEdit]);
+        const propTags = post.tags ?? [];
+        const sameTags =
+            propTags.length === savedEdit.tags.length &&
+            propTags.every(
+                (tag, index) =>
+                    tag.tag_id === savedEdit.tags[index]?.tag_id &&
+                    tag.text === savedEdit.tags[index]?.text &&
+                    tag.color === savedEdit.tags[index]?.color,
+            );
+        if (post.content === savedEdit.content && sameTags) setSavedEdit(null);
+    }, [post.content, post.tags, savedEdit]);
 
     const propCommentCount = post.comment_count ?? 0;
     // Posts the user just created sit outside SWR, so the cache write never
@@ -164,42 +183,67 @@ export function PostCard({
               ...post,
               content: savedEdit.content,
               edited_at: savedEdit.edited_at,
+              tags: savedEdit.tags,
           }
-        : post;
+        : { ...post, tags: post.tags ?? [] };
+
+    function beginEdit() {
+        setTagDraft(draftTagsFromPost(displayPost.tags));
+        setEditing(true);
+    }
 
     async function saveEdit(content: string) {
         const previous = {
             content: displayPost.content,
             edited_at: displayPost.edited_at ?? null,
+            tags: displayPost.tags ?? [],
         };
         const editedAtMs = Date.now();
         const editedAt = new Date(editedAtMs).toISOString();
-        setSavedEdit({ content, edited_at: editedAt });
+        const optimisticTags: SocialPostTag[] = tagDraft.map((tag, index) => ({
+            tag_id: tag.tag_id ?? -(index + 1),
+            text: tag.text,
+            color: tag.color,
+        }));
+        setSavedEdit({ content, edited_at: editedAt, tags: optimisticTags });
         setEditing(false);
-        onEdited?.(post.post_id, content, editedAt);
-        void updateCachedPostContent(post.post_id, content, editedAt);
+        onEdited?.(post.post_id, content, editedAt, optimisticTags);
+        void updateCachedPostContent(
+            post.post_id,
+            content,
+            editedAt,
+            optimisticTags,
+        );
         try {
             const names =
                 post.topic_mk_id && topic ? topicCreateFields(topic) : null;
-            await updatePost(
-                post.post_id,
-                content,
-                editedAtMs,
-                names
+            const saved = await updatePost(post.post_id, content, editedAtMs, {
+                ...(names
                     ? {
                           topic_song_title: names.topic_song_title,
                           topic_artist_name: names.topic_artist_name,
                       }
-                    : undefined,
-            );
+                    : {}),
+                ...postTagPatch(previous.tags, tagDraft),
+            });
+            const tags = saved?.tags ?? optimisticTags;
+            setSavedEdit({ content, edited_at: editedAt, tags });
+            onEdited?.(post.post_id, content, editedAt, tags);
+            void updateCachedPostContent(post.post_id, content, editedAt, tags);
         } catch (error) {
             console.error("Editing a post failed", error);
             setSavedEdit(previous);
-            onEdited?.(post.post_id, previous.content, previous.edited_at);
+            onEdited?.(
+                post.post_id,
+                previous.content,
+                previous.edited_at,
+                previous.tags,
+            );
             void updateCachedPostContent(
                 post.post_id,
                 previous.content,
                 previous.edited_at,
+                previous.tags,
             );
         }
     }
@@ -320,6 +364,7 @@ export function PostCard({
                 <Text className="text-base leading-6 text-foreground">
                     {displayPost.content}
                 </Text>
+                <PostTagRow tags={displayPost.tags} />
 
                 <View className="flex-row items-center gap-4 self-start">
                     <Pressable
@@ -382,7 +427,7 @@ export function PostCard({
                 onClose={() => setMenuOpen(false)}
                 onDeleted={onDeleted}
                 onDeleteFailed={onDeleteFailed}
-                onEdit={() => setEditing(true)}
+                onEdit={beginEdit}
             />
 
             <EditContentDialog
@@ -391,6 +436,8 @@ export function PostCard({
                 initial={displayPost.content}
                 maxLength={MAX_POST_LENGTH}
                 saving={false}
+                tags={tagDraft}
+                onTagsChange={setTagDraft}
                 onSubmit={(content) => void saveEdit(content)}
                 onCancel={() => setEditing(false)}
             />

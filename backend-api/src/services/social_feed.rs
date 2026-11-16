@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 use crate::db::friend_relations;
 use crate::db::shared_playlists::{member_role, playlist_cards};
 use crate::db::social::{
-    self, CommentsCursor, FeedCandidate, FeedExclude, InterestDelta, PublicProfile, SocialPost,
-    TopicPostsCursor, UpsertedInterest,
+    self, CommentsCursor, FeedCandidate, FeedExclude, InterestDelta, NewPostTag, PostTag,
+    PostTagPatch, PublicProfile, SocialPost, TopicPostsCursor, UpsertedInterest,
 };
 use crate::err::CadenzaError;
 
@@ -174,7 +174,8 @@ impl SocialFeedService {
         user_id: Uuid,
         content: &str,
         topic: NewPostTopic<'_>,
-    ) -> Result<i64, CadenzaError> {
+        tags: &[NewPostTag],
+    ) -> Result<(i64, Vec<PostTag>), CadenzaError> {
         let prefix = match topic {
             NewPostTopic::None => None,
             NewPostTopic::Apple {
@@ -205,7 +206,7 @@ impl SocialFeedService {
             NewPostTopic::Apple { mk_id, .. } => (Some(mk_id), None),
             NewPostTopic::SharedPlaylist(id) => (None, Some(id)),
         };
-        social::insert_post(
+        social::insert_post_with_tags(
             db,
             user_id,
             content,
@@ -213,6 +214,7 @@ impl SocialFeedService {
             &with_bday,
             topic_mk_id,
             shared_playlist_id,
+            tags,
         )
         .await
     }
@@ -235,12 +237,13 @@ impl SocialFeedService {
         client_time: DateTime<Utc>,
         topic_song_title: Option<&str>,
         topic_artist_name: Option<&str>,
-    ) -> Result<(), CadenzaError> {
+        tags: &PostTagPatch,
+    ) -> Result<Vec<PostTag>, CadenzaError> {
         let Some(clock) = social::author_post_clock(db, user_id, post_id).await? else {
             return Err(CadenzaError::NotFound);
         };
         if !social::edit_replaces(clock.edited_at, client_time) {
-            return Ok(());
+            return social::post_tags(db, post_id).await;
         }
         let to_embed = match clock
             .topic_mk_id
@@ -262,6 +265,7 @@ impl SocialFeedService {
             &embedding,
             &with_bday,
             client_time,
+            tags,
         )
         .await
     }

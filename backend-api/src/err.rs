@@ -297,6 +297,9 @@ impl From<DbErr> for CadenzaError {
                 }
 
                 // duplicate row
+                "23505" if db_err.constraint() == Some("post_tags_applied_word_idx") => {
+                    return Self::InvalidRequestBody("a post already has that tag".into());
+                }
                 "23505" => match db_err.table() {
                     Some("applied_tags") => return Self::TagAlreadyApplied,
                     Some("songs") => return Self::SongAlreadyInLibrary,

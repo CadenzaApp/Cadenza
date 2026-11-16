@@ -23,6 +23,7 @@ pub mod metadata_albums;
 pub mod metadata_song_tags_applied;
 pub mod now_playing;
 pub mod post_likes;
+pub mod post_tags_applied;
 pub mod post_view_status;
 pub mod posts;
 pub mod privacy_settings;

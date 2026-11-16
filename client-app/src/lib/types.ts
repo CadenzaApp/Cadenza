@@ -89,8 +89,15 @@ export type PostTopic =
  * One social feed post as `/social/feed`, `/social/posts/user/:id`, and
  * `/social/posts/topic` return it. Author comes from `profile`; a missing
  * profile row shows username `"unknown"`. `topic_mk_id` is the Apple Music
- * catalog id of an attached song or artist, or null.
+ * catalog id of an attached song or artist, or null. `tags` are decorative
+ * labels on the post, separate from song tags.
  */
+export type SocialPostTag = {
+    tag_id: number;
+    text: string;
+    color: string;
+};
+
 export type SocialPost = {
     post_id: number;
     content: string;
@@ -111,6 +118,8 @@ export type SocialPost = {
     /** The attached shared playlist, or null. Never set with `topic_mk_id`. */
     shared_playlist: PostSharedPlaylist | null;
     comment_count: number;
+    /** Decorative labels, sorted by `tag_id`. Empty when the post has none. */
+    tags: SocialPostTag[];
 };
 
 /**

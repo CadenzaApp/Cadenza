@@ -31,6 +31,7 @@ import type {
     SocialNotification,
     SocialReply,
     SocialPost,
+    SocialPostTag,
     UserSearchPerson,
     SocialUserProfile,
 } from "@/lib/types";
@@ -336,10 +337,12 @@ type NewPostPayload = {
     topic_artist_name?: string | null;
     /** Attaches a shared playlist the caller is in, instead of a topic. */
     shared_playlist_id?: number | null;
+    tags?: { text: string; color: string }[];
 };
 
 type NewPostResponse = {
     post_id: number;
+    tags: SocialPostTag[];
 };
 
 /**
@@ -357,8 +360,11 @@ export function useCreatePost() {
         createPostErr: x.error,
         createPostLoading: x.isMutating,
         resetCreatePost: x.reset,
-        createPost: async (body: NewPostPayload) =>
-            (await x.trigger(body))?.post_id,
+        createPost: async (body: NewPostPayload) => {
+            const created = await x.trigger(body);
+            if (created?.post_id == null) return undefined;
+            return { post_id: created.post_id, tags: created.tags ?? [] };
+        },
     };
 }
 
@@ -401,6 +407,16 @@ type EditPostPayload = {
     /** Display names for the embedding prefix. Omitted when the post has no topic. */
     topic_song_title?: string | null;
     topic_artist_name?: string | null;
+    /** Existing tags to rewrite, keyed by tag id. */
+    edit?: Record<string, { text: string; color: string }>;
+    /** Tag ids to remove. */
+    delete?: number[];
+    /** Tags that do not have an id yet. */
+    add?: { text: string; color: string }[];
+};
+
+type EditPostResponse = {
+    tags: SocialPostTag[];
 };
 
 function editPostPath({ post_id }: EditPostPayload) {
@@ -415,19 +431,19 @@ function editPostPath({ post_id }: EditPostPayload) {
  * one they do not own, is a 404. Cache updates are separate.
  */
 export function useUpdatePost() {
-    const x = useAPIMutation<EditPostPayload, void>("PATCH", editPostPath, [], {
-        invalidation: "none",
-    });
+    const x = useAPIMutation<EditPostPayload, EditPostResponse>(
+        "PATCH",
+        editPostPath,
+        [],
+        { invalidation: "none" },
+    );
     const updatePost = useCallback(
         (
             post_id: number,
             content: string,
             timestamp: number,
-            topic?: {
-                topic_song_title?: string | null;
-                topic_artist_name?: string | null;
-            },
-        ) => x.trigger({ post_id, content, timestamp, ...topic }),
+            extra?: Omit<EditPostPayload, "post_id" | "content" | "timestamp">,
+        ) => x.trigger({ post_id, content, timestamp, ...extra }),
         [x.trigger],
     );
     return {
@@ -445,11 +461,16 @@ export function useUpdatePost() {
 export function useUpdateCachedPostContent() {
     const { cache, mutate } = useSWRConfig();
     return useCallback(
-        (postId: number, content: string, editedAt: string | null) => {
+        (
+            postId: number,
+            content: string,
+            editedAt: string | null,
+            tags?: SocialPostTag[],
+        ) => {
             const apply = (current: unknown) =>
                 current == null
                     ? current
-                    : applyPostContent(current, postId, content, editedAt);
+                    : applyPostContent(current, postId, content, editedAt, tags);
             const writes: Promise<unknown>[] = [
                 mutate(isSocialPostListKey, apply, { revalidate: false }),
             ];

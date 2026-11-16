@@ -9,6 +9,7 @@ use sea_orm::DatabaseConnection;
 use sea_orm::prelude::Uuid;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     AppState,
@@ -18,8 +19,8 @@ use crate::{
         friend_relations,
         notification::{self, NotificationCursor as DbNotificationCursor},
         social::{
-            self, CommentsCursor as DbCommentsCursor, FeedExclude, InterestDelta,
-            TopicPostsCursor as DbTopicPostsCursor,
+            self, CommentsCursor as DbCommentsCursor, FeedExclude, InterestDelta, NewPostTag,
+            POST_TAG_LIMIT, PostTagPatch, TopicPostsCursor as DbTopicPostsCursor,
         },
     },
     err::CadenzaError,
@@ -27,9 +28,9 @@ use crate::{
         social::{
             CommentsCursor, CreateCommentResponse, CreatePostResponse, FeedResponse,
             FriendshipsResponse, NotificationCursor, NotificationsResponse, PostCommentsResponse,
-            SocialAuthor, SocialComment, SocialFriend, SocialNotification, SocialPost,
-            TopicPostsCursor, TopicPostsResponse, UserPostsResponse, UserRepliesResponse,
-            UserSearchPerson, UserSearchResponse,
+            PostTagsResponse, SocialAuthor, SocialComment, SocialFriend, SocialNotification,
+            SocialPost, TopicPostsCursor, TopicPostsResponse, UserPostsResponse,
+            UserRepliesResponse, UserSearchPerson, UserSearchResponse,
         },
         vec_into,
     },
@@ -40,6 +41,7 @@ use crate::{
 };
 
 const POST_CONTENT_MAX: usize = 500;
+const POST_TAG_TEXT_MAX: usize = 24;
 const COMMENT_CONTENT_MAX: usize = 500;
 const TOPIC_MK_ID_MAX: usize = 128;
 const TOPIC_NAME_MAX: usize = 200;
@@ -169,6 +171,14 @@ struct CreatePostBody {
     topic_artist_name: Option<String>,
     #[serde(default)]
     shared_playlist_id: Option<i64>,
+    #[serde(default)]
+    tags: Vec<IncomingPostTag>,
+}
+
+#[derive(Deserialize)]
+struct IncomingPostTag {
+    text: String,
+    color: String,
 }
 
 /// Creates a post for the signed-in user. `content` is at most 500 characters.
@@ -179,8 +189,12 @@ struct CreatePostBody {
 /// used only to prefix the embedding; stored content is unchanged.
 ///
 /// ```json
-/// { "post_id": 1 }
+/// { "post_id": 1, "tags": [{ "tag_id": 4, "text": "live", "color": "#2061f1" }] }
 /// ```
+///
+/// `tags` is optional, at most 10. Each is `{text, color}`. Text is trimmed,
+/// internal whitespace is collapsed, and it is at most 24 characters. Color
+/// is `#` plus 6 hex digits. A repeated word, ignoring case, is 422.
 async fn create_post(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
@@ -211,10 +225,14 @@ async fn create_post(
         (None, Some(playlist_id)) => NewPostTopic::SharedPlaylist(playlist_id),
         (None, None) => NewPostTopic::None,
     };
-    let post_id = social
-        .create_post(&db, claims.user_id, &body.content, topic)
+    let tags = parse_new_tags(&body.tags)?;
+    let (post_id, tags) = social
+        .create_post(&db, claims.user_id, &body.content, topic, &tags)
         .await?;
-    Ok(Json(CreatePostResponse { post_id }))
+    Ok(Json(CreatePostResponse {
+        post_id,
+        tags: tags.into_iter().map(Into::into).collect(),
+    }))
 }
 
 #[derive(Deserialize)]
@@ -226,6 +244,15 @@ struct EditContentBody {
     topic_song_title: Option<String>,
     #[serde(default)]
     topic_artist_name: Option<String>,
+    /// Existing tags to rewrite, keyed by tag id. An id not listed is left alone.
+    #[serde(default)]
+    edit: HashMap<i64, IncomingPostTag>,
+    /// Tag ids to remove.
+    #[serde(default)]
+    delete: Vec<i64>,
+    /// Tags to add. The server assigns each `tag_id`.
+    #[serde(default)]
+    add: Vec<IncomingPostTag>,
 }
 
 /// Replaces the signed-in user's post text. `content` is trimmed and at most
@@ -234,21 +261,28 @@ struct EditContentBody {
 /// re-embeds the stored text. When the post has a topic, `topic_song_title`
 /// and `topic_artist_name` prefix that embedding the same way as create.
 /// 404 when the post is missing or belongs to someone else. Responds with
-/// `null`.
+/// `{tags}`, the post's tags after the edit. An older `timestamp` changes
+/// neither the text nor the tags, and still returns the stored tags.
+///
+/// `edit` rewrites listed tags. `delete` removes those ids. `add` inserts
+/// new ones. A field that is omitted does nothing. An id in both `edit` and
+/// `delete`, or an id that is not on this post, is 422. More than 10 tags
+/// after the write, or a repeated word ignoring case, is 422.
 async fn update_post(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Path(post_id): Path<i64>,
     Json(body): Json<EditContentBody>,
-) -> Result<Json<Value>, CadenzaError> {
+) -> Result<Json<PostTagsResponse>, CadenzaError> {
     let content = require_content(&body.content, POST_CONTENT_MAX)?;
     let edited_at = edited_at_from_millis(body.timestamp)?;
     let topic_song_title =
         parse_optional_text(body.topic_song_title, "topic_song_title", TOPIC_NAME_MAX)?;
     let topic_artist_name =
         parse_optional_text(body.topic_artist_name, "topic_artist_name", TOPIC_NAME_MAX)?;
-    social
+    let tags = parse_tag_patch(body.edit, body.delete, body.add)?;
+    let tags = social
         .update_post(
             &db,
             claims.user_id,
@@ -257,9 +291,12 @@ async fn update_post(
             edited_at,
             topic_song_title.as_deref(),
             topic_artist_name.as_deref(),
+            &tags,
         )
         .await?;
-    Ok(Json(Value::Null))
+    Ok(Json(PostTagsResponse {
+        tags: tags.into_iter().map(Into::into).collect(),
+    }))
 }
 
 /// Deletes the signed-in user's post. Likes, comments, and view rows go with
@@ -305,6 +342,79 @@ fn require_content(raw: &str, max_chars: usize) -> Result<&str, CadenzaError> {
         )));
     }
     Ok(content)
+}
+
+fn parse_new_tags(tags: &[IncomingPostTag]) -> Result<Vec<NewPostTag>, CadenzaError> {
+    if tags.len() > POST_TAG_LIMIT {
+        return Err(CadenzaError::InvalidRequestBody(
+            "a post can have at most 10 tags".into(),
+        ));
+    }
+    let mut seen = HashSet::new();
+    let mut parsed = Vec::with_capacity(tags.len());
+    for tag in tags {
+        let parsed_tag = parse_post_tag(tag)?;
+        if !seen.insert(parsed_tag.text.to_lowercase()) {
+            return Err(CadenzaError::InvalidRequestBody(
+                "a post already has that tag".into(),
+            ));
+        }
+        parsed.push(parsed_tag);
+    }
+    Ok(parsed)
+}
+
+fn parse_tag_patch(
+    edit: HashMap<i64, IncomingPostTag>,
+    delete: Vec<i64>,
+    add: Vec<IncomingPostTag>,
+) -> Result<PostTagPatch, CadenzaError> {
+    let mut seen_delete = HashSet::new();
+    for id in &delete {
+        if !seen_delete.insert(*id) {
+            return Err(CadenzaError::InvalidRequestBody(
+                "a tag cannot be deleted twice".into(),
+            ));
+        }
+        if edit.contains_key(id) {
+            return Err(CadenzaError::InvalidRequestBody(
+                "a tag cannot be edited and deleted".into(),
+            ));
+        }
+    }
+    let mut parsed_edit = HashMap::with_capacity(edit.len());
+    for (id, tag) in edit {
+        parsed_edit.insert(id, parse_post_tag(&tag)?);
+    }
+    Ok(PostTagPatch {
+        edit: parsed_edit,
+        delete,
+        add: parse_new_tags(&add)?,
+    })
+}
+
+fn parse_post_tag(tag: &IncomingPostTag) -> Result<NewPostTag, CadenzaError> {
+    let text = tag.text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() {
+        return Err(CadenzaError::InvalidRequestBody(
+            "tag text is required".into(),
+        ));
+    }
+    if text.chars().count() > POST_TAG_TEXT_MAX {
+        return Err(CadenzaError::InvalidRequestBody(
+            "tag text is longer than 24 characters".into(),
+        ));
+    }
+    let color = tag.color.trim().to_ascii_lowercase();
+    let hex = color.as_bytes();
+    let valid =
+        hex.len() == 7 && hex[0] == b'#' && hex[1..].iter().all(|byte| byte.is_ascii_hexdigit());
+    if !valid {
+        return Err(CadenzaError::InvalidRequestBody(
+            "tag color must be #rrggbb".into(),
+        ));
+    }
+    Ok(NewPostTag { text, color })
 }
 
 fn parse_optional_text(
@@ -946,4 +1056,44 @@ pub fn get_social_router() -> Router<AppState> {
             "/comments/{comment_id}/likes",
             post(like_comment).delete(unlike_comment),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tag(text: &str, color: &str) -> IncomingPostTag {
+        IncomingPostTag {
+            text: text.to_owned(),
+            color: color.to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_tag_trims_and_collapses_whitespace() {
+        let parsed = parse_post_tag(&tag("  Live   Show  ", " #2061F1 ")).unwrap();
+        assert_eq!(parsed.text, "Live Show");
+        assert_eq!(parsed.color, "#2061f1");
+    }
+
+    #[test]
+    fn a_tag_rejects_empty_text_and_a_bad_color() {
+        assert!(parse_post_tag(&tag("   ", "#2061f1")).is_err());
+        assert!(parse_post_tag(&tag("live", "blue")).is_err());
+        assert!(parse_post_tag(&tag("live", "#fff")).is_err());
+        assert!(parse_post_tag(&tag(&"x".repeat(25), "#2061f1")).is_err());
+    }
+
+    #[test]
+    fn repeated_words_are_rejected() {
+        let tags = vec![tag("Live", "#2061f1"), tag(" live ", "#00907f")];
+        assert!(parse_new_tags(&tags).is_err());
+    }
+
+    #[test]
+    fn an_edit_cannot_also_delete_the_same_tag() {
+        let mut edit = HashMap::new();
+        edit.insert(4, tag("live", "#2061f1"));
+        assert!(parse_tag_patch(edit, vec![4], Vec::new()).is_err());
+    }
 }

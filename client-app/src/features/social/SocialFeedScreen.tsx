@@ -203,26 +203,28 @@ export function SocialFeedScreen() {
             content: string,
             topic?: PostTopic | null,
             playlist?: SharedPlaylistSummary | null,
+            tags?: { text: string; color: string }[],
         ) => {
-            let postId: number | undefined;
+            let created: { post_id: number; tags: SocialPost["tags"] } | undefined;
             try {
-                postId = await createPost({
+                created = await createPost({
                     content,
                     ...(playlist
                         ? { shared_playlist_id: playlist.playlist_id }
                         : topic
                           ? topicCreateFields(topic)
                           : {}),
+                    tags: tags?.map(({ text, color }) => ({ text, color })),
                 });
             } catch (error) {
                 console.error("Creating a post failed", error);
                 throw error;
             }
-            if (postId == null) {
+            if (created?.post_id == null) {
                 console.error("Creating a post failed");
                 throw new Error("Creating a post failed");
             }
-            const publishedId = postId;
+            const publishedId = created.post_id;
             const post: SocialPost = {
                 post_id: publishedId,
                 content,
@@ -246,6 +248,7 @@ export function SocialFeedScreen() {
                       }
                     : null,
                 comment_count: 0,
+                tags: created.tags ?? [],
             };
             setCreated((current) => [post, ...current]);
             if (topic && !playlist) {
@@ -260,11 +263,21 @@ export function SocialFeedScreen() {
     );
 
     const handleEdited = useCallback(
-        (postId: number, content: string, editedAt: string | null) => {
+        (
+            postId: number,
+            content: string,
+            editedAt: string | null,
+            tags?: SocialPost["tags"],
+        ) => {
             setCreated((current) =>
                 current.map((item) =>
                     item.post_id === postId
-                        ? { ...item, content, edited_at: editedAt }
+                        ? {
+                              ...item,
+                              content,
+                              edited_at: editedAt,
+                              ...(tags !== undefined ? { tags } : {}),
+                          }
                         : item,
                 ),
             );

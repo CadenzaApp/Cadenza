@@ -29,6 +29,7 @@ import { useAppTheme } from "@/lib/theme";
 import type { PostTopic } from "@/lib/types";
 import { cn, isUsableArtworkUrl } from "@/lib/utils";
 
+import { PostTagFields, type DraftPostTag } from "./PostTags";
 import { PostTopicCard } from "./PostTopicCard";
 import { topicFromArtist, topicFromSong } from "./topic";
 import { rankTopicSearch } from "./topic-search";
@@ -51,6 +52,7 @@ export type PostComposerOptions = {
         content: string,
         topic?: PostTopic | null,
         playlist?: SharedPlaylistSummary | null,
+        tags?: DraftPostTag[],
     ) => void | Promise<void>;
     /** Called once the post exists, after the form clears. */
     onPosted?: () => void;
@@ -87,6 +89,7 @@ export function usePostComposer({
     const [playlist, setPlaylist] = useState<SharedPlaylistSummary | null>(
         null,
     );
+    const [tags, setTags] = useState<DraftPostTag[]>([]);
     const [topicQuery, setTopicQuery] = useState("");
     const [submittedTerm, setSubmittedTerm] = useState<string | undefined>();
     const [posting, setPosting] = useState(false);
@@ -135,6 +138,7 @@ export function usePostComposer({
         setContent("");
         setTopic(null);
         setPlaylist(null);
+        setTags([]);
         setPostError(null);
         clearSearch();
     }
@@ -160,6 +164,7 @@ export function usePostComposer({
                 trimmed,
                 topicLocked ? lockedTopic : topic,
                 topicLocked ? null : playlist,
+                tags,
             );
             setPostingState(false);
             reset();
@@ -231,6 +236,8 @@ export function usePostComposer({
         searching,
         showResults,
         noResults: showResults && !searching && results.length === 0,
+        tags,
+        setTags,
         posting,
         /** Closing is refused while a post is on its way. */
         isPosting: () => postingRef.current,
@@ -430,6 +437,12 @@ export function PostComposerFields({
                     )}
                 </View>
             ) : null}
+
+            <PostTagFields
+                tags={composer.tags}
+                onChange={composer.setTags}
+                disabled={posting}
+            />
         </View>
     );
 }

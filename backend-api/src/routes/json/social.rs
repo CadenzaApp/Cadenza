@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::db::social::{
-    AttachedPlaylist, AuthorComment, PublicProfile, SocialComment as CommentRow,
+    AttachedPlaylist, AuthorComment, PostTag, PublicProfile, SocialComment as CommentRow,
     SocialPost as PostRow,
 };
 
@@ -22,7 +22,8 @@ use crate::db::social::{
 ///   "author": { "user_id": "11111111-1111-1111-1111-111111111111", "username": "ada" },
 ///   "topic_mk_id": "1615585008",
 ///   "shared_playlist": null,
-///   "comment_count": 3
+///   "comment_count": 3,
+///   "tags": [{ "tag_id": 4, "text": "live", "color": "#2061f1" }]
 /// }
 /// ```
 #[derive(Serialize)]
@@ -40,6 +41,30 @@ pub struct SocialPost {
     /// The attached shared playlist, or `null`. Never set with `topic_mk_id`.
     pub shared_playlist: Option<PostSharedPlaylist>,
     pub comment_count: i64,
+    /// Decorative labels on this post, sorted by `tag_id`. Not song tags.
+    pub tags: Vec<SocialPostTag>,
+}
+
+/// One decorative label on a post.
+///
+/// ```json
+/// { "tag_id": 4, "text": "live", "color": "#2061f1" }
+/// ```
+#[derive(Serialize)]
+pub struct SocialPostTag {
+    pub tag_id: i64,
+    pub text: String,
+    pub color: String,
+}
+
+impl From<PostTag> for SocialPostTag {
+    fn from(tag: PostTag) -> Self {
+        Self {
+            tag_id: tag.tag_id,
+            text: tag.text,
+            color: tag.color,
+        }
+    }
 }
 
 /// A shared playlist on a post. Shown to anyone who sees the post; opening
@@ -110,6 +135,7 @@ impl From<PostRow> for SocialPost {
             topic_mk_id: post.topic_mk_id,
             shared_playlist: post.shared_playlist.map(Into::into),
             comment_count: post.comment_count,
+            tags: post.tags.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -199,9 +225,23 @@ pub struct FeedResponse {
     pub feed: Vec<SocialPost>,
 }
 
+/// `{post_id, tags}` from `POST /social/posts`. `tags` is the stored rows,
+/// sorted by `tag_id`.
+///
+/// ```json
+/// { "post_id": 1, "tags": [{ "tag_id": 4, "text": "live", "color": "#2061f1" }] }
+/// ```
 #[derive(Serialize)]
 pub struct CreatePostResponse {
     pub post_id: i64,
+    pub tags: Vec<SocialPostTag>,
+}
+
+/// `{tags}` from `PATCH /social/posts/:id`. The post's tags after the edit,
+/// including when an older timestamp left them unchanged.
+#[derive(Serialize)]
+pub struct PostTagsResponse {
+    pub tags: Vec<SocialPostTag>,
 }
 
 #[derive(Serialize)]
