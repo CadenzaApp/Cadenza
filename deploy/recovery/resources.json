@@ -4,20 +4,7 @@
   "cold_base_ami": "ami-02a8f93f158469812",
   "migration_source_resources": "deploy/history/us-west-2/resources.json",
   "seed_instance": "i-0d59593454326c725",
-  "warm_ami": {
-    "image_id": "ami-0e69ae1ddde8d6cda",
-    "builder_instance": "i-06c2734d5ee38ab97",
-    "validation_instance": "i-0182d92204a0a4e5c",
-    "validated_at_utc": "2026-11-15T04:42:44.365376+00:00",
-    "bake_key": "5f1452e19d5fbf44f43bfafdcfbd059f819b9a8a2ce10c71fbf10c0eb7d8b335",
-    "cold_base_ami": "ami-02a8f93f158469812",
-    "backend_image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:6544b0490be3496a43eaabcf0f049bf4e4f6019cbd7ea105319e253c40830c26",
-    "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
-    "validation_command": "932d2128-11c7-4111-a324-c5eec45783d1",
-    "validation_result": "{\"stage\": \"targeted_prefetch\", \"seconds\": 87.802, \"files\": 27481, \"logical_bytes\": 2406157364, \"input_blocks\": 4865904}\nAMI validation passed: no containers/secrets; offline finite 768-dimensional inference",
-    "validated": true,
-    "startup_prefetch": "targeted-python-model-v1"
-  },
+  "warm_ami": null,
   "disk_initialization_enabled": false,
   "draining_seconds": 30,
   "load_balancer_arn": "arn:aws:elasticloadbalancing:us-west-1:175220118767:loadbalancer/app/cadenza-demo-single/1e8b7ca71a0268ad",
@@ -27,9 +14,9 @@
   "backend_security_group": "sg-070f29b06229a834b",
   "launch_template": {
     "LaunchTemplateId": "lt-0369d766012c4ef99",
-    "Version": "5"
+    "Version": "6"
   },
-  "bootstrap_sha256": "72d043d26a6b496fcd1bfa8a5dc14aa6f1b1f7162d7c06f5de978fd4d5c2e154",
+  "bootstrap_sha256": "aba7d87107776c3d6d88cdbd1a7d1f66bb6fcffd12aed7eab700d0bb02794ac2",
   "health_path": "/health/ready",
   "health_interval_seconds": 5,
   "health_timeout_seconds": 4,
@@ -39,11 +26,11 @@
   "notifications_topic": "arn:aws:sns:us-west-1:175220118767:cadenza-demo-instance-events",
   "vpc_origin_id": "vo_4e2OiDgjFp7B3aZsG2PDY9",
   "cutover_complete": true,
-  "active_release_manifest": "deploy/releases/git-004031c09a56-20261115042148.json",
+  "active_release_manifest": "deploy/releases/git-794550f183df-20261116024921.json",
   "runtime_verification": "deploy/recovery/verification.metrics.json",
   "viewer_access": "public",
   "public_access_verification": "deploy/recovery/verification.public_access.json",
-  "backend_image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:6544b0490be3496a43eaabcf0f049bf4e4f6019cbd7ea105319e253c40830c26",
+  "backend_image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:02b3d23c17fe05d0e642e3c50255db9ea58356d8643457a91b49361614e03572",
   "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
   "monitoring": {
     "grafana_host_port": 3300,
@@ -56,5 +43,6 @@
     "grafana_memory_limit_mib": 768,
     "grafana_go_memory_target": "512MiB",
     "performance_verification": "deploy/recovery/verification.metrics_performance.json"
-  }
+  },
+  "bootstrap_mode": "cold"
 }

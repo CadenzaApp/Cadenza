@@ -340,3 +340,16 @@ slow-tail buckets retain percentile precision. API/auth/metrics-isolation checks
 passed; temporary builder and validation hosts were terminated. Evidence:
 `deploy/recovery/verification.metrics_features.json` and the release manifest
 `deploy/releases/git-004031c09a56-20261115042148.json`.
+
+## AMI baking retired (2026-11-15)
+
+The simplified release workflow is live from source `794550f183df`. The deploy
+command completed in 105.69 seconds with cached build layers and serving-host
+caches. It performed readiness/inference checks, activation, monitoring checks
+and template promotion without creating an AMI or temporary EC2 machines.
+Launch-template version 6 uses the pinned Ubuntu OS base and embeds the latest
+image/model/bootstrap settings. API, authentication, private metrics, ALB/ASG
+health and all six private dashboards passed verification. A new fresh-instance
+recovery rehearsal was not run. Recovery is expected to take longer because it
+now installs/downloads at boot. Historical AMIs/snapshots remain for reviewed
+rollback/pruning. Evidence: `deploy/recovery/verification.no_bake_release.json`.

@@ -1,5 +1,6 @@
 """Prepare a private ALB, target group and single-instance ASG launch template."""
 
+import argparse
 import base64
 import hashlib
 import io
@@ -86,6 +87,7 @@ def bootstrap_user_data():
 
 
 def main():
+    argparse.ArgumentParser(description=__doc__).parse_args()
     if aws("sts", "get-caller-identity")["Account"] != ACCOUNT:
         raise RuntimeError("AWS profile points to the wrong workload account")
     base_ami = json.loads((ROOT / "deploy/recovery/resources.json").read_text())[

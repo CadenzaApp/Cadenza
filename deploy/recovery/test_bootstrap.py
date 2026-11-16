@@ -1,6 +1,7 @@
 """Check replacement packaging and the single-backend gate without AWS."""
 
 import base64
+import contextlib
 import io
 import json
 import os
@@ -10,11 +11,20 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import provision
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_help_and_retired_options_never_mutate_aws(self):
+        for option, code in [("--help", 0), ("--warm-ami-manifest", 2)]:
+            with self.subTest(option=option), patch.object(sys, "argv", ["provision.py", option]), patch.object(provision, "aws") as aws, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as exited:
+                    provision.main()
+                self.assertEqual(exited.exception.code, code)
+                aws.assert_not_called()
+
     def test_bundle_fits_userdata_and_pins_current_release_without_baking_tools(self):
         user_data, digest = provision.bootstrap_user_data()
         self.assertLess(len(user_data.encode()), 16384)

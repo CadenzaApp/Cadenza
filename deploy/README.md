@@ -19,6 +19,10 @@ baking, snapshot wait or temporary builder/validator. Build and image-transfer
 time still vary; activation briefly interrupts service. Prerequisites/options:
 `./scripts/deploy-backend.sh --help`.
 
+The first deployment without baking completed in 105.69 seconds using cached
+build layers and serving-host caches. This is one observed run, not a guaranteed
+duration. Evidence: `recovery/verification.no_bake_release.json`.
+
 | Location | Purpose |
 | --- | --- |
 | `release.py` | Workstation release orchestration behind the developer command |
@@ -33,8 +37,7 @@ time still vary; activation briefly interrupts service. Prerequisites/options:
 The small host helpers are bundled onto EC2 by the release tooling; developers
 do not run them individually. Completed experiment harnesses, the initial ALB
 cutover script and retired manual-recovery scripts have been removed. Historical
-records may refer to those retired tools. No infrastructure changes are needed
-for this source cleanup.
+records may refer to those retired tools.
 
 ## Current deployment
 
