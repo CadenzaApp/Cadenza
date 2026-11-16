@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import json
+import os
 import subprocess
 import time
 
@@ -23,7 +24,7 @@ def main():
                 "--max-time",
                 "2",
                 "--output",
-                "/dev/null",
+                os.devnull,
                 "--write-out",
                 "%{http_code}",
                 args.url,

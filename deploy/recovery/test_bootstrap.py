@@ -37,6 +37,7 @@ class BootstrapTests(unittest.TestCase):
             self.assertIn("supabase-root.cer", names)
             self.assertFalse(any("prefetch" in name or "bake" in name for name in names))
 
+    @unittest.skipIf(os.name == "nt", "Tests the Linux EC2 host script with POSIX stubs")
     def bootstrap(self, other_host):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

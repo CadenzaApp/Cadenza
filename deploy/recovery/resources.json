@@ -2,7 +2,6 @@
   "group": "cadenza-demo-single",
   "region": "us-west-1",
   "cold_base_ami": "ami-02a8f93f158469812",
-  "migration_source_resources": "deploy/history/us-west-2/resources.json",
   "seed_instance": "i-0d59593454326c725",
   "warm_ami": null,
   "disk_initialization_enabled": false,
@@ -27,9 +26,8 @@
   "vpc_origin_id": "vo_4e2OiDgjFp7B3aZsG2PDY9",
   "cutover_complete": true,
   "active_release_manifest": "deploy/releases/git-794550f183df-20261116024921.json",
-  "runtime_verification": "deploy/recovery/verification.metrics.json",
+  "runtime_verification": "deploy/recovery/verification.release.json",
   "viewer_access": "public",
-  "public_access_verification": "deploy/recovery/verification.public_access.json",
   "backend_image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:02b3d23c17fe05d0e642e3c50255db9ea58356d8643457a91b49361614e03572",
   "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
   "monitoring": {
@@ -39,10 +37,9 @@
     "retention_days": 14,
     "block_retention_size": "2GB",
     "history_survives_replacement": false,
-    "verification": "deploy/recovery/verification.metrics.json",
+    "verification": "deploy/recovery/verification.release.json",
     "grafana_memory_limit_mib": 768,
-    "grafana_go_memory_target": "512MiB",
-    "performance_verification": "deploy/recovery/verification.metrics_performance.json"
+    "grafana_go_memory_target": "512MiB"
   },
   "bootstrap_mode": "cold"
 }

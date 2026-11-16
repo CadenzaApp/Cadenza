@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 spec = importlib.util.spec_from_file_location("release", Path(__file__).with_name("release.py"))
 release = importlib.util.module_from_spec(spec)
@@ -59,8 +59,6 @@ class ReleaseTests(unittest.TestCase):
                 return "unix:///docker.sock"
             if command[:3] == ["aws", "ecr", "get-login-password"]:
                 return "test-password"
-            if command[0] == "curl":
-                return "503" if fail == "viewer" else "200"
             raise AssertionError(command)
 
         def run(command, **kwargs):
@@ -76,7 +74,11 @@ class ReleaseTests(unittest.TestCase):
                 launch["Version"] = "6"
                 resources.write_text(json.dumps({"cold_base_ami": "ami-base", "bootstrap_mode": "cold"}))
 
-        with patch.object(release, "ROOT", root), patch.object(release, "aws", side_effect=aws), patch.object(release, "run", side_effect=run), patch.object(release.os, "chdir"), patch.object(release.subprocess, "check_output", side_effect=check_output), patch.object(release.time, "sleep"), patch.object(release.sys, "argv", ["release.py"]), patch.dict(os.environ, {"CADENZA_DEPLOY_AWAKE": "1"}), contextlib.redirect_stdout(io.StringIO()):
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.status = 503 if fail == "viewer" else 200
+        with patch.object(release.urllib.request, "urlopen", return_value=response), patch.object(release, "ROOT", root), patch.object(release, "aws", side_effect=aws), patch.object(release, "run", side_effect=run), patch.object(release.os, "chdir"), patch.object(release.subprocess, "check_output", side_effect=check_output), patch.object(release.time, "sleep"), patch.object(release.sys, "argv", ["release.py"]), patch.dict(os.environ, {"CADENZA_DEPLOY_AWAKE": "1"}), contextlib.redirect_stdout(io.StringIO()):
             if fail:
                 with self.assertRaises(RuntimeError):
                     release.main()

@@ -47,11 +47,18 @@ The hook runs `scripts/format.sh --check` on macOS and Linux, and `scripts\forma
 on Windows. It checks files only and does not modify them. Run the matching format command to
 apply formatting before trying again.
 
-## Private metrics dashboard
+## Backend deployment and private Grafana
 
-Run `./scripts/open-metrics.py` (or `python3 scripts/open-metrics.py`) with an
-active `cadenza-project` AWS session and the Session Manager plugin installed.
-It finds the current ASG host and tunnels the read-only Grafana dashboard to
-localhost. It opens the default browser after Grafana is reachable. Use `--port`
-to change the local port, or `--no-browser` to open the URL manually. Details are in
-[../deploy/monitoring/README.md](../deploy/monitoring/README.md).
+See [developer setup](../deploy/GETTING_STARTED.md) for AWS access and prerequisites.
+
+| Task | macOS | Windows PowerShell |
+| --- | --- | --- |
+| Deploy | `./scripts/deploy-backend.sh` | `.\scripts\deploy-backend.bat` |
+| Grafana | `python3 scripts/open-metrics.py` | `.\scripts\open-metrics.bat` |
+
+Both use the same Python implementations and work from any directory. Docker
+Desktop must use Linux containers. Grafana also requires the Session Manager
+plugin. Its browser opens when the private tunnel is ready; Ctrl-C closes it.
+Use `--port 3301` for another local port and `--no-browser` for a printed URL.
+
+The EC2 installation/startup shell scripts are Linux-only host internals.

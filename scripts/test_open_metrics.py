@@ -6,7 +6,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location(
     "open_metrics", Path(__file__).with_name("open-metrics.py")
@@ -87,3 +87,24 @@ class BrowserTests(unittest.TestCase):
         )
         browser.assert_not_called()
         self.assertEqual(self.server.requests, 0)
+
+
+class PlatformTests(unittest.TestCase):
+    def test_tunnel_uses_a_new_process_group_on_each_platform(self):
+        self.assertEqual(module.tunnel_process_options(False), {"start_new_session": True})
+        self.assertTrue(module.tunnel_process_options(True)["creationflags"])
+
+    def test_windows_cleanup_stops_the_aws_plugin_tree(self):
+        process = Mock(pid=123)
+        process.poll.return_value = None
+        with patch.object(module.os, "name", "nt"), patch.object(module.subprocess, "run") as run:
+            module.stop_tunnel(process)
+        self.assertEqual(run.call_args.args[0], ["taskkill", "/PID", "123", "/T", "/F"])
+        process.wait.assert_called_once_with(timeout=5)
+
+    def test_macos_cleanup_stops_the_process_group(self):
+        process = Mock(pid=123)
+        process.poll.return_value = None
+        with patch.object(module.os, "name", "posix"), patch.object(module.os, "killpg", create=True) as killpg:
+            module.stop_tunnel(process)
+        killpg.assert_called_once_with(123, module.signal.SIGTERM)

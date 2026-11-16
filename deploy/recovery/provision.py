@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import tarfile
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,9 +31,18 @@ def aws(service, operation, **args):
         "--output",
         "json",
     ]
-    if args:
-        cmd += ["--cli-input-json", json.dumps(args)]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    # A file avoids Windows argument-length and embedded-quote problems for
+    # large SSM scripts and launch-template user data. Close it before AWS reads it.
+    with tempfile.TemporaryDirectory(prefix="cadenza-aws-") as directory:
+        if args:
+            request = Path(directory) / "request.json"
+            request.write_text(json.dumps(args), encoding="utf-8", newline="\n")
+            cmd += ["--cli-input-json", "file://" + request.as_posix()]
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env=dict(os.environ, AWS_PAGER="", AWS_CLI_AUTO_PROMPT="off"),
+            check=False,
+        )
     if result.returncode:
         raise RuntimeError(f"{service} {operation}: {result.stderr.strip()}")
     return json.loads(result.stdout) if result.stdout.strip() else {}

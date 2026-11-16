@@ -18,6 +18,10 @@ aws login --profile cadenza-project --region us-east-2
 ./scripts/open-metrics.py
 ```
 
+On Windows use `scripts\open-metrics.bat` from PowerShell, or
+`py -3 scripts/open-metrics.py`. On macOS use the command above. Both use the
+same Python code. See [workstation setup](../GETTING_STARTED.md).
+
 The script opens your default browser once Grafana responds. Leave the command
 running; Ctrl-C closes the tunnel. Use `--no-browser` for manual opening. `--port 3301` selects another local port. AWS authenticates access; Grafana
 allows read-only anonymous viewing inside the tunnel. Admin endpoints and editing
@@ -52,7 +56,7 @@ the selected time range across them:
   latency trends, traffic bars, failed responses and one operation summary table.
 - Social: feed, posts, interests, friends and notifications.
 - Analytics: analytics reads and listening-event ingestion.
-- Tagging: tag reads/writes and song tag application, plus server-wide provider
+- Tagging & Assistant: assistant messages, tag reads/writes and song tag application, plus server-wide provider
   attempts, budget usage, concurrency, refusals and configured limits.
 - Library & Queries: query execution/saved queries, song metadata and play writes.
 - Account: profile and settings.
@@ -86,6 +90,6 @@ also importable elsewhere by selecting a Prometheus data source. No per-user,
 IP, query-string, credential or body labels are emitted. Counters and quotas
 reset on app restart. Python queue-depth metrics and OTel spans remain follow-ups.
 
-Deployed checks are recorded in `../recovery/verification.metrics.json`. This
+Deployed checks are recorded in `../recovery/verification.release.json`. This
 includes live histogram queries, anonymous admin denial, port isolation, secret
 file metadata and resource headroom. No secret values are recorded.

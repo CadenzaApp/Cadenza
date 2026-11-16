@@ -5,3 +5,7 @@ build.env
 
 # Local pre-cutover API backup; prior configuration is already in Git history.
 history/cloudfront-before-alb.json
+
+# Optional local probe/security reports. Keep one consolidated current check.
+recovery/verification.*
+!recovery/verification.release.json

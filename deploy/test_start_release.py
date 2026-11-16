@@ -21,6 +21,7 @@ elif 'up' in a: s['activated']=True; p.write_text(json.dumps(s))
 elif 'stop' in a: Path('stopped').touch()
 '''
 
+@unittest.skipIf(os.name == "nt", "Tests Linux EC2 host scripts with POSIX stubs")
 class StartupTests(unittest.TestCase):
     def run_case(self, before, after, expected, **extra):
         with tempfile.TemporaryDirectory() as directory:

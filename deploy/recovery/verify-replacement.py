@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import json
+import os
 import subprocess
 import time
 
@@ -125,7 +126,7 @@ VERIFY"""
                 "--max-time",
                 "20",
                 "--output",
-                "/dev/null",
+                os.devnull,
                 "--write-out",
                 "%{http_code}",
                 "https://d1wj9jjqzhjpqq.cloudfront.net/" + path,

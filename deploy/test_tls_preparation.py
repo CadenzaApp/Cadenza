@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).parent
 
 
+@unittest.skipIf(os.name == "nt", "Tests Linux EC2 host scripts with POSIX stubs")
 class PreparationTests(unittest.TestCase):
     def test_tls_configuration_is_fail_closed(self):
         source = (ROOT / "prepare-host-release.sh").read_text()

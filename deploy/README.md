@@ -1,313 +1,112 @@
-# Cadenza deployment preparation
+# Backend deployment runbook
 
-Local files for the [agent/human tutorial](../DEPLOYMENT_AGENT_HUMAN_TUTORIAL.md).
-Rust starts Python inside one ARM64 backend container. CloudFront handles HTTPS.
-Host port 80 maps directly to Axum port 3000; no reverse-proxy container runs.
-Secret values stay on EC2 and are not returned to the workstation.
+Start with [GETTING_STARTED.md](GETTING_STARTED.md) for workstation setup,
+macOS/Windows commands, AWS login and private Grafana access.
 
-## Entry points and layout
+## Running architecture
 
-Developers normally need one command, from a clean committed checkout:
-
-```sh
-./scripts/deploy-backend.sh
+```text
+Phone -> CloudFront HTTPS -> private ALB -> one EC2 -> Rust + local Python model
+                                                    -> Supabase / Apple / OpenAI
 ```
 
-It builds/publishes the ARM64 image, updates the existing host with readiness and
-inference checks, then updates automatic replacement settings. There is no AMI
-baking, snapshot wait or temporary builder/validator. Build and image-transfer
-time still vary; activation briefly interrupts service. Prerequisites/options:
-`./scripts/deploy-backend.sh --help`.
+Account 175220118767 is named Cadenza Backend. Workloads run in us-west-1;
+AWS CLI browser login uses us-east-2. Settings are in `aws-config.json` and
+`recovery/resources.json`. The API is https://d1wj9jjqzhjpqq.cloudfront.net.
 
-The first deployment without baking completed in 105.69 seconds using cached
-build layers and serving-host caches. This is one observed run, not a guaranteed
-duration. Evidence: `recovery/verification.no_bake_release.json`.
+The ASG is fixed at one t4g.medium with encrypted 16 GiB gp3 storage. CloudFront
+provides HTTPS without a purchased domain. EC2/ALB have no public API ingress.
+The instance has a public IPv4 for outbound calls; clients use CloudFront.
+ALB probes `/health/ready` every 5 seconds, requiring Rust and the loaded Python
+model. Shared-provider outages do not fail readiness. ASG replaces failed hosts
+and emails configured subscribers. Recovery has downtime; ALB can fail open to
+its last unhealthy target while replacement is pending.
 
-| Location | Purpose |
+## Files developers need
+
+| File | Purpose |
 | --- | --- |
-| `release.py` | Workstation release orchestration behind the developer command |
-| Root shell/Python helpers and `compose.yaml` | EC2 installation, secrets, activation/rollback and startup checks |
-| `ami/` | Historical AMI records and experiment evidence; no executable baking tools |
-| `recovery/` | ALB/ASG provisioning, release updates and optional outage rehearsals |
-| `recovery/resources.json` | Current infrastructure and active release references |
-| `releases/`, `ami/records/` | Release and validated AMI records |
-| `history/`, verification JSON/JSONL files | Historical evidence; not executable setup steps |
-| `iam/` | Instance access policies and historical account-policy changes |
+| `release.py` | Shared macOS/Windows deployment command |
+| `release.env.example` | Current immutable image, model revision and quota settings |
+| `build.env.example`, `backend.Dockerfile` | Pinned ARM64 build dependencies |
+| `releases/` | Current/recent release manifests for audit and rollback |
+| `recovery/resources.json` | Live resource IDs and replacement configuration |
+| `recovery/verification.release.json` | Latest consolidated deployment checks |
+| `monitoring/` | Private Prometheus/Grafana configuration and dashboards |
 
-The small host helpers are bundled onto EC2 by the release tooling; developers
-do not run them individually. Completed experiment harnesses, the initial ALB
-cutover script and retired manual-recovery scripts have been removed. Historical
-records may refer to those retired tools.
+The remaining shell scripts and `fetch-secrets.py`, `prepare-monitoring.py`,
+`check-embedding.py` and `observe-startup.py` are Linux EC2 internals, shipped by
+the deploy command. Developers do not run or port them on Windows. Older manual
+walkthroughs, AMI experiments and raw probe dumps were removed; Git history
+retains the previous work.
 
-## Current deployment
+## Release and rollback
 
-AWS resources run in Northern California (us-west-1). Regional settings are in
-`aws-config.json`; CLI authentication still uses us-east-2. Supabase was not moved.
-The previous Oregon serving resources are retired; rollback images, parameters
-and metadata remain under their original region and `history/us-west-2/`.
+Deploy a clean committed checkout with `scripts/deploy-backend.sh` on macOS or
+`scripts\deploy-backend.bat` on Windows. It builds/publishes an immutable digest,
+pulls it before stopping the current backend, activates it with rollback, checks
+Rust/model readiness and actual inference, and publishes the same settings into
+the launch template. Monitoring is verified separately so a dashboard failure
+does not stop a healthy API. The command prevents idle sleep on macOS.
 
-The API remains `https://d1wj9jjqzhjpqq.cloudfront.net`. CloudFront distribution
-`ED64SQL5BYVBQ` now uses an internal ALB private origin, not a fixed EC2 origin.
-ASG `cadenza-demo-single` has minimum/desired/maximum capacity one and ELB health
-enabled. One t4g.medium (4 GiB), encrypted 16 GiB gp3, Standard CPU credits,
-IMDSv2 and the existing instance role serve Rust plus its local Python model.
+The single-host update briefly selects EC2-only health during expected app
+downtime, then restores ELB health. If a developer forcibly kills the command,
+check the server and restore `HealthCheckType=ELB`; do not leave app recovery
+suppressed. Coordinate one deployment at a time. Logs stay private under
+`/opt/cadenza/logs` and are accessible through SSM, not the public API.
 
-The ALB checks `/health/ready` every 5 seconds, timeout 4 seconds, three failures
-and two successes. ALB connection draining is 30 seconds. Rust must respond and the local Python service must acknowledge
-its loaded model. Provider outages are excluded. These probes are not inference
-benchmarks or complete stall detection. ALB may fail open to its last unhealthy
-target; recovery includes downtime.
+A known-bad startup is automatically rolled back. For a deliberate rollback,
+restore a known-working `release.env.example` image/model/quota combination,
+then run the existing-candidate commands from the repo root:
 
-Networking is CloudFront managed security group -> ALB port 80 -> backend port 80
--> Axum container port 3000. EC2 and ALB have no public API ingress. Each backend
-retains a public IPv4 for outbound access. CloudFront accepts public HTTPS
-viewers; caching remains disabled and Authorization is forwarded. Protected API
-routes still require Supabase authentication.
-The hostname/certificate and client configuration are unchanged.
-
-Resource IDs, the current instance and launch template are recorded in
-`recovery/resources.json`. Always discover the live host through ASG; replacement
-changes instance ID, private/public IP and root/model-cache disk. Earlier launch,
-network and build records are historical snapshots, not current host selectors.
-Authenticate profile `cadenza-project` through us-east-2 and target resources in
-us-west-1. `CADENZA_AWS_PROFILE` can select another authorized developer profile.
-
-The deployed hardening settings are in `release.env.example`: in-memory user
-request/tag quotas and a 7000-call global provider window, with two concurrent
-local provider calls. Counters reset on restart. The model queue admits nine
-jobs total and rejects excess work while health stays responsive. See
-`recovery/verification.hardening_release.json` for deployed checks. Supabase Data
-API is disabled; Auth and direct Postgres remain enabled. Public access was
-verified from outside the home network; see `recovery/verification.public_access.json`
-and `verification.public_runtime.json`. Candidate settings are validated before
-a release builds its image.
-
-## Historical recovery measurements (baked AMIs retired)
-
-The measurements in this section were taken in Oregon before migration. They
-are historical evidence, not measured us-west-1 recovery guarantees.
-
-`recovery/verification.model_failure.json` records Python being stopped while Rust
-remained available, native ALB/ASG replacement, and a fresh successful bootstrap.
-`recovery/verification.host_failure.json` records EC2 termination and automatic
-recovery again. Both verified old-host termination, startup exclusivity, pinned
-image, real 768-dimensional inference, healthy/zero-restart/zero-OOM state,
-home-network HTTPS and off-home 403. `recovery/verification.rollback.json` records
-known-bad candidate rejection and restoration of demo-004. Email subscription is
-confirmed; SNS delivery metrics verified native notifications were delivered.
-
-`recovery/verification.warm_timing.json` measures an unassisted warm-AMI replacement:
-607.56 seconds from killing Python to HTTPS readiness plus `/test` returning 200.
-The one-second probes observed a maximum 1.19-second sampling gap. Detailed checks
-are separate in `verification.warm_runtime.json`: cached startup path, fresh SSM
-identity/secrets, exclusivity, real inference, zero restarts/OOM, auth and home-only
-access. The initial attempt hit the old 60-second startup inference limit and is
-recorded separately as manually recovered. It is not an automatic-recovery result.
-This established historical timing, not a demonstrated speedup over older runs that
-included verification. Model startup and initial snapshot reads remain slow.
-
-The read-only full-root-partition initialization experiment is recorded in
-`recovery/verification.disk_init_timing.json` and `recovery/verification.disk_init_boot.json`.
-It took 743.035 seconds overall: the scan alone took 553.453 seconds, followed by
-38.848 seconds of application startup/verification. The unsuccessful full-scan helper and deployment option were removed; evidence
-is retained.
-
-A subsequent control with 30-second ALB draining and no scan took 611.411 seconds
-(10m 11s), essentially the same as the earlier 607.56-second run. Its app startup
-and verification took 323.567 seconds, versus 38.848 after the full scan. Reading
-the entire partition accelerated later startup but cost more than it saved.
-Evidence: `recovery/verification.drain30_timing.json`, `verification.drain30_boot.json`
-and `verification.drain30_runtime.json`. Both new runs retain every HTTP probe in
-companion `.probes.jsonl` files. Maximum sampling gaps were 1.182 and 1.453 seconds.
-AWS detection/boot timing varied; these single runs do not establish an SLA or
-prove a speedup from reducing draining. Normal deployment keeps draining at 30
-seconds. The former targeted-read optimization is now retired.
-
-Targeted parallel reads were used by the retired warm-AMI startup path. The cold
-replacement rehearsal took 257.965 seconds (4m 18s). Bootstrap-to-public-response
-was 131.440 seconds, including prefetch, versus 372.941 for the no-scan control.
-AWS detection was also faster in this run; this is an observed result, not a
-recovery guarantee. Detailed timings and verification are in
-`recovery/verification.targeted_{timing,boot,runtime}.json`. Temporary AMI
-builder/validator instances were terminated. No paid initialization or CPU-credit
-billing changes were enabled.
-
-No Lambda recovery controller remains. Supabase schema was not changed. No RAM
-rehearsal was repeated. The original 2 GiB measurements and manual model recovery
-are preserved in Git/history; current capacity is 4 GiB.
-
-## Developer releases
-
-Run one release at a time, from a clean committed checkout with Python 3.11+,
-AWS CLI login and Docker buildx:
-
-```sh
-./scripts/deploy-backend.sh
+```text
+python3 deploy/recovery/update-release.py deploy/release.env.example
+python3 deploy/recovery/provision.py
 ```
 
-Use `--help` or an optional `--tag`. The helper checks account/source, builds ARM64,
-checks CPU model dependencies, publishes an immutable ECR digest, activates on the
-single host with rollback, and promotes the launch template. Existing image layers
-and the model cache are reused on that host. It writes a release manifest and
-updated nonsecret settings for a follow-up commit. There are no GitLab runners
-or formal CD jobs. On macOS it prevents idle sleep for the release's lifetime.
-Activation tooling is refreshed from the release on every update.
+On Windows use `py -3` instead of `python3`. Do not publish replacement settings
+unless activation succeeds. Commit the resulting settings/resource record.
+Secrets are fetched fresh, so reverting an image does not revert credentials.
+For normal source changes, use the top-level deploy command instead.
 
-Fresh replacements boot the pinned standard ARM64 Ubuntu image recorded as
-`cold_base_ami`, install tested host tools, fetch fresh SSM secrets, and download
-the pinned application image and model. Readiness and actual inference must pass
-before the launch hook completes. This makes recovery slower and dependent on
-download services. The current host is not replaced for normal deployments.
-No live application host is imaged. Historical AMIs/snapshots are retained for
-rollback/history and still incur storage charges; pruning is separate from
-removing baking from deployment. Old launch-template references must be checked
-before deleting them. Earlier recovery measurements used baked images and do not
-predict the cold-bootstrap path.
+There is no AMI baking. Fresh replacements boot the pinned Ubuntu OS base,
+install tested tools, download the pinned application/model, fetch fresh secrets,
+and verify readiness/inference. Bootstrap waits for all other tagged backend
+hosts to terminate before starting Rust. Existing hosts reuse their caches.
+Fresh recovery is slower than the retired baked-image path and depends on
+package/image/model downloads. Do not quote old AMI rehearsal timings as current
+recovery promises. Historical AWS images remain for reviewed pruning; do not
+delete images referenced by older launch templates without checking those uses.
 
-The lower-level commands and maintenance limitations are described in
-[recovery/README.md](recovery/README.md). The update helper temporarily uses EC2
-host checks during planned app downtime, waits for ALB health to recover, then
-restores ELB health. If the operator process is forcibly killed, explicitly
-restore ELB health. Never publish an unverified candidate into replacement config.
+## Secrets and application safety
 
-## Health and shutdown
+Secrets are Standard SSM SecureString text parameters containing JSON. Values
+stay on EC2, outside images, manifests and Git. Root/Docker administrators and
+AWS identities with decryption rights can inspect them. Use the AWS console or
+a protected local workflow to rotate values, then reactivate the release and
+revoke the old credential after checking the affected operation.
 
-`/health/live` checks Rust HTTP; `/health/ready` also checks the loaded local model
-within two seconds. Docker uses readiness but does not itself restart an unhealthy
-running container. Native ASG replacement now provides that recovery path.
-First inference during fresh-host bootstrap has a 300-second check allowance for
-fresh-host initialization, before the launch hook admits traffic. Other inference checks
-default to 60 seconds; application request/provider timeouts are unchanged.
-SIGTERM stops new periodic work and drains accepted HTTP plus tracked work for
-120 seconds, then cancels it. Child/DB cleanup has a further 15-second bound;
-Docker allows 150 seconds. Business handler responses have a 50-second deadline;
-tag generation has 40 seconds across chunks. Timeout cannot undo completed writes
-or an already-sent provider request. Queued enrichment is best effort.
+Database access requires `sslmode=verify-full` and
+`sslrootcert=/etc/ssl/certs/cadenza-supabase-root.crt`. The public CA in
+`certs/supabase-root.cer` expires April 26, 2031. Do not disable verification.
+Database password rotation requires a coordinated maintenance window.
 
-Exactly one backend may use this database, including local developer backends.
-Fresh replacement bootstrap checks that other tagged hosts have terminated before
-starting Rust. There are no claim leases/schema changes or distributed caches.
+The Supabase Data API is disabled. Supabase Auth and direct Postgres remain in
+use; the backend owns authorization. Distributing the phone app is not a signup
+restriction. [PUBLIC_ACCESS_REVIEW.md](PUBLIC_ACCESS_REVIEW.md) summarizes controls
+and known gaps. Request quotas are in memory and reset on process restart.
+Tag generation and the assistant share the global provider-call budget and
+concurrency limit; their per-user request limits are separate.
 
-## Planned follow-up
+## Operations
 
-The [current plan](../DEPLOYMENT_PLAN.md) records cold-bootstrap recovery and the remaining
-public-access work. Quotas, bounded queues/inputs and sanitized errors are
-deployed; selected account-ownership tests passed. Broader authorization coverage
-and provider-key scopes remain follow-ups. Private Prometheus/Grafana is integrated
-into the release workflow; see [monitoring/README.md](monitoring/README.md) for
-read-only AWS tunnel access and the 14-day/local-history retention tradeoff.
-OpenTelemetry spans and Python queue-depth metrics remain follow-ups.
-ALB hourly/usage charges and EC2, IPv4, EBS, ECR and snapshot charges are
-separate from credits/free allowances. Retained rollback snapshots still cost storage.
+Use the [private dashboard](monitoring/README.md) first. Public `/metrics` is
+intentionally 404. For recovery observation/rehearsal, see
+[recovery/README.md](recovery/README.md). Do not stop an ASG instance directly to
+save credits: it will be replaced. A planned shutdown requires graceful backend
+stop and ASG minimum/desired zero, with ELB health restored; resume at one.
+ALB and retained storage can still incur charges while compute is stopped.
 
-## Client and HTTPS
-
-The Metro/dev build continues using `https://d1wj9jjqzhjpqq.cloudfront.net`; no URL
-or native rebuild is needed. Phones can use cellular or other networks.
-CloudFront terminates viewer TLS and connects privately to ALB port
-80. ALB forwards to host 80 / container 3000. There is no Caddy process, certificate
-volume or reverse-proxy container. No domain purchase is required.
-
-## Stop and resume
-
-Do not stop an ASG instance directly to save credits: the group will replace it.
-Discover the single InService ID via `describe-auto-scaling-groups`. For a staffed
-shutdown, temporarily select EC2-only health, gracefully stop backend via SSM, then
-set ASG minimum/desired to zero and restore ELB health. This removes compute while
-retaining ALB/ECR/other storage charges. Resume by setting minimum/desired to one;
-bootstrap and registration restore the same CloudFront URL.
-
-```sh
-aws autoscaling update-auto-scaling-group --profile cadenza-project --region us-west-1 \
-  --auto-scaling-group-name cadenza-demo-single --health-check-type EC2
-# Gracefully stop the discovered backend through SSM, then:
-aws autoscaling update-auto-scaling-group --profile cadenza-project --region us-west-1 \
-  --auto-scaling-group-name cadenza-demo-single --min-size 0 --desired-capacity 0 --health-check-type ELB
-# Resume later:
-aws autoscaling update-auto-scaling-group --profile cadenza-project --region us-west-1 \
-  --auto-scaling-group-name cadenza-demo-single --min-size 1 --desired-capacity 1
-```
-
-Keep the origin private; do not add public EC2 ingress. The former home-only
-viewer function is detached and retained for rollback. To restrict viewers again,
-use the function association in `history/cloudfront-before-public.json`, applying
-it to a freshly fetched distribution config with its current ETag. Preserve all
-other current settings. Do not blindly restore an old complete distribution.
-Model cache comes from the validated AMI on replacement.
-
-## Secrets and release identity
-
-Workload account is `175220118767`; management account is `625530883844`.
-The instance role can retrieve the two Standard SecureString parameters, whose
-data type is text and whose value is JSON: `/cadenza/demo/api` has DATABASE_URL,
-OPENAI_API_KEY and APPLE_MUSIC_DEVELOPER_TOKEN; `/cadenza/demo/ml` has HF_TOKEN.
-`fetch-secrets.py` validates and writes private env files on EC2. Keep values out
-of Git/chat. Root-volume replacement does not replace Supabase data or parameters.
-
-`release.env.example` is nonsecret: backend digest and pinned model revision.
-The model is `google/embeddinggemma-300m` revision
-`57c266a740f537b4dc058e1b0cda161fd15afa75`. Model changes require a separate vector
-compatibility plan. Base images are pinned in `build.env.example`; host tool
-versions are pinned in `install-host-tools.sh`. Actual image/build identities and
-older measurements remain in their release records/history. Resource discovery
-must use the ASG rather than historical IDs in those snapshots.
-
-## Focused checks
-
-```sh
-python3 -m unittest discover -s deploy -p test_start_release.py -v
-cargo test --locked --manifest-path backend-api/Cargo.toml operation_budget
-cargo test --locked --manifest-path backend-api/Cargo.toml lifecycle_
-./scripts/deploy-backend.sh --help
-```
-
-The intentional failure observer is `recovery/verify-replacement.py`; it observes
-an already-triggered rehearsal and does not itself kill a process/instance. Do
-not manually restart a failing backend while a native ASG rehearsal is active.
-Historical fixed-duration 2 GiB RAM procedures are no longer deployment gates.
-
-Granular startup events are appended to `logs/boot-stages.jsonl`: Docker up,
-first observed Rust liveness, Python/model readiness, combined readiness,
-Docker health, inference check start/end, and direct HTTP verification. Local
-endpoint observation runs once per second; it does not execute inference. The
-model-only comparison under `ami/startup-comparison.json` separately measures
-imports, model construction, first encode and second encode with wall/CPU/I/O
-counters. Those isolated timings are not full backend recovery times.
-
-## Credential rotation
-
-Secret parameters remain Standard SecureString text containing JSON. Only edit
-values in the AWS console or a local protected workflow; never put them in Git,
-CLI arguments, release manifests, screenshots or logs. AWS account operators
-with parameter-read/decryption privileges can read them. Root and Docker admins
-on the live host can inspect the container environment.
-
-For OpenAI/Hugging Face, create a replacement credential with only the needed
-project/model permissions, update the appropriate SSM parameter, reactivate the
-same release to fetch fresh values, verify the affected operation, then revoke
-the old credential. Use provider spending restrictions where available. Runtime
-request quotas reset and do not replace provider-side controls. For Apple Music,
-generate a replacement developer token server-side, update SSM and reactivate;
-keep its signing private key outside the app/repository and track token expiry.
-
-Database-password rotation needs a coordinated short maintenance window because
-the old password may stop working immediately. Change the password at Supabase,
-update DATABASE_URL in the API parameter (URL-encode credentials), reactivate,
-and verify a real database-backed API request. Shared-pooler credential updates
-can take time to propagate. Do not assume rolling back the container rolls back
-secrets: activation fetches the current SSM values. Parameter history may retain
-old values; access to history is sensitive too.
-
-Database connections require `sslmode=verify-full` and
-`sslrootcert=/etc/ssl/certs/cadenza-supabase-root.crt` in DATABASE_URL.
-The public Supabase CA is versioned in `certs/supabase-root.cer`, bundled by
-activation/bootstrap and mounted read-only for the non-root app. It expires
-April 26, 2031; replace it through the same release workflow when Supabase
-rotates its CA. Never substitute a private key or disable verification.
-Preparation rejects missing/relaxed TLS settings before stopping the app.
-A fresh read-only connection and wrong-CA/wrong-hostname rejection were tested;
-the deployed SQLx app also passed startup with these settings. Evidence:
-`recovery/verification.database_tls.json` and `verification.credentials.json`.
-
-Restricting the backend DB role and removing API secrets from the ML child's
-inherited environment remain follow-up measures to reduce compromise impact.
+Backups and concurrent-user testing were deferred by the team. OpenTelemetry
+spans, Python queue-depth reporting, broader ownership tests and provider-key
+scope review remain follow-ups in [DEPLOYMENT_PLAN.md](../DEPLOYMENT_PLAN.md).

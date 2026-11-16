@@ -3,6 +3,8 @@
 
 import argparse
 import json
+import os
+import signal
 import shutil
 import socket
 import subprocess
@@ -11,6 +13,9 @@ import time
 import urllib.request
 import webbrowser
 from pathlib import Path
+
+if sys.version_info < (3, 11):
+    raise SystemExit("Python 3.11 or newer is required.")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy/recovery"))
 from provision import GROUP, PROFILE, REGION, aws
@@ -50,6 +55,34 @@ def open_when_ready(process, port, timeout=60, browser_open=webbrowser.open):
         )
 
 
+def tunnel_process_options(windows=None):
+    windows = os.name == "nt" if windows is None else windows
+    if windows:
+        # Keep Ctrl-C in Python so cleanup can also stop the plugin child process.
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)}
+    return {"start_new_session": True}
+
+
+def stop_tunnel(process):
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+        )
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -64,7 +97,8 @@ def main():
     if not 1024 <= args.port <= 65535:
         parser.error("Choose a local port between 1024 and 65535")
     with socket.socket() as probe:
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if os.name == "nt":
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         try:
             probe.bind(("127.0.0.1", args.port))
         except OSError:
@@ -111,21 +145,16 @@ def main():
             "--document-name",
             "AWS-StartPortForwardingSession",
             "--parameters",
-            f'{{"portNumber":["3300"],"localPortNumber":["{args.port}"]}}',
+            f"portNumber=3300,localPortNumber={args.port}",
         ],
+        **tunnel_process_options(),
     )
     try:
         if not args.no_browser:
             open_when_ready(process, args.port)
         return process.wait()
     finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
+        stop_tunnel(process)
 
 
 if __name__ == "__main__":
@@ -133,3 +162,6 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except KeyboardInterrupt:
         pass
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        print("Could not open Grafana: " + str(error), file=sys.stderr)
+        raise SystemExit(1)

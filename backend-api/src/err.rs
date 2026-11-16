@@ -179,9 +179,9 @@ impl CadenzaError {
                 "error_type": "InvalidRequestBody",
                 "message": msg
             }),
-            Self::AssistantErr(msg) => json!({
+            Self::AssistantErr(_) => json!({
                 "error_type": "AssistantErr",
-                "message": msg
+                "message": "The service could not complete the request."
             }),
             Self::AssistantRateLimited { retry_after } => json!({
                 "error_type": "AssistantRateLimited",
@@ -288,6 +288,7 @@ mod public_error_tests {
             CadenzaError::TagGenerationErr("credential_marker".into()),
             CadenzaError::SongMetadataErr("credential_marker".into()),
             CadenzaError::SocialFeedErr("credential_marker".into()),
+            CadenzaError::AssistantErr("credential_marker".into()),
         ] {
             let response = error.into_response();
             assert!(

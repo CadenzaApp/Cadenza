@@ -10,7 +10,12 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
+
+if sys.version_info < (3, 11):
+    raise SystemExit("Python 3.11 or newer is required.")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "recovery"))
 from provision import ACCOUNT, GROUP, PROFILE, REGION, ROOT, aws
@@ -148,34 +153,26 @@ def main():
     before = {key: before[key] for key in ("LaunchTemplateId", "Version")}
     with tempfile.TemporaryDirectory(prefix="cadenza-release-") as directory:
         candidate_path = Path(directory) / "candidate.env"
-        candidate_path.write_text(candidate)
+        candidate_path.write_text(candidate, encoding="utf-8", newline="\n")
         print(
             "Activating the candidate on the single backend; this briefly interrupts service.",
             flush=True,
         )
         run([sys.executable, "deploy/recovery/update-release.py", str(candidate_path)])
-        canonical.write_text(candidate)
+        canonical.write_text(candidate, encoding="utf-8", newline="\n")
         try:
             print(
                 "Promoting the verified release into replacement configuration.",
                 flush=True,
             )
             run([sys.executable, "deploy/recovery/provision.py"])
-            viewer = subprocess.check_output(
-                [
-                    "curl",
-                    "--silent",
-                    "--show-error",
-                    "--max-time",
-                    "20",
-                    "--output",
-                    "/dev/null",
-                    "--write-out",
-                    "%{http_code}",
-                    "https://d1wj9jjqzhjpqq.cloudfront.net/health/ready",
-                ],
-                text=True,
-            )
+            try:
+                with urllib.request.urlopen(
+                    "https://d1wj9jjqzhjpqq.cloudfront.net/health/ready", timeout=20
+                ) as response:
+                    viewer = str(response.status)
+            except urllib.error.HTTPError as error:
+                viewer = str(error.code)
             if (
                 viewer == "403"
                 and json.loads(before_resources).get("viewer_access") != "public"
@@ -187,9 +184,9 @@ def main():
                 raise RuntimeError("External readiness returned HTTP " + viewer)
 
         except Exception:
-            canonical.write_text(old_env)
+            canonical.write_text(old_env, encoding="utf-8", newline="\n")
             old_path = Path(directory) / "rollback.env"
-            old_path.write_text(old_env)
+            old_path.write_text(old_env, encoding="utf-8", newline="\n")
             aws(
                 "autoscaling",
                 "update-auto-scaling-group",
@@ -204,7 +201,7 @@ def main():
                 DefaultVersion=before["Version"],
             )
             run([sys.executable, "deploy/recovery/update-release.py", str(old_path)])
-            resource_path.write_text(before_resources)
+            resource_path.write_text(before_resources, encoding="utf-8", newline="\n")
             raise
     # Monitoring has its own health result; it must not roll back a healthy API.
     monitoring_verified = False
@@ -270,7 +267,7 @@ def main():
     }
     directory = ROOT / "deploy/releases"
     directory.mkdir(exist_ok=True)
-    (directory / (tag + ".json")).write_text(json.dumps(manifest, indent=2) + "\n")
+    (directory / (tag + ".json")).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
     resource_path = ROOT / "deploy/recovery/resources.json"
     resources = json.loads(resource_path.read_text())
     resources.update(
@@ -278,7 +275,7 @@ def main():
         backend_image=reference,
         model_revision=manifest["model_revision"],
     )
-    resource_path.write_text(json.dumps(resources, indent=2) + "\n")
+    resource_path.write_text(json.dumps(resources, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(
         f"\nRelease deployed: https://d1wj9jjqzhjpqq.cloudfront.net\nReplacement bootstrap: pinned base image, no AMI baking\nCommit the updated release settings, resource record and manifest.",
         flush=True,
@@ -290,6 +287,7 @@ if __name__ == "__main__":
         main()
     except (
         RuntimeError,
+        OSError,
         ValueError,
         TimeoutError,
         subprocess.CalledProcessError,
