@@ -78,4 +78,4 @@ both point at.
 
 See [developer setup](deploy/GETTING_STARTED.md) for macOS/Windows deployment,
 AWS login and private Grafana access. The [runbook](deploy/README.md) covers
-operations and rollback; [DEPLOYMENT_PLAN.md](DEPLOYMENT_PLAN.md) lists follow-ups.
+operations and rollback.

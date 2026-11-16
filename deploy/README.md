@@ -93,8 +93,9 @@ Database password rotation requires a coordinated maintenance window.
 
 The Supabase Data API is disabled. Supabase Auth and direct Postgres remain in
 use; the backend owns authorization. Distributing the phone app is not a signup
-restriction. [PUBLIC_ACCESS_REVIEW.md](PUBLIC_ACCESS_REVIEW.md) summarizes controls
-and known gaps. Request quotas are in memory and reset on process restart.
+restriction. Do not re-enable the Data API without reviewing RLS and table
+permissions. Request quotas are in memory, reset on process restart, and do not
+enforce a durable dollar budget.
 Tag generation and the assistant share the global provider-call budget and
 concurrency limit; their per-user request limits are separate.
 
@@ -109,4 +110,6 @@ ALB and retained storage can still incur charges while compute is stopped.
 
 Backups and concurrent-user testing were deferred by the team. OpenTelemetry
 spans, Python queue-depth reporting, broader ownership tests and provider-key
-scope review remain follow-ups in [DEPLOYMENT_PLAN.md](../DEPLOYMENT_PLAN.md).
+scope review remain follow-ups. Existing ownership checks cover selected profile,
+tag and saved-query paths, not every endpoint. Repeat them with
+`python3 scripts/check-account-isolation.py` (Windows: `py -3` instead of `python3`).
