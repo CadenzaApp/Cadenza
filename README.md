@@ -60,12 +60,12 @@ Install the repository pre-push hook once per clone. It checks Rust and client f
 every push, keeping the code tidy and merge conflicts smaller.
 
 ```sh
-./scripts/install-git-hooks.sh
+git config core.hooksPath .githooks
 ```
 
-On Windows, run `scripts\install-git-hooks.bat`. If the hook blocks a push, run
-`./scripts/format.sh` on macOS or Linux, or `scripts\format.bat` on Windows, then review and
-commit the generated formatting changes.
+The same Git command works on Windows. If the hook blocks a push, run
+`python3 scripts/format.py` on macOS or Linux, or `py -3 scripts/format.py` on Windows.
+Review and commit the generated formatting changes.
 
 ## Docs
 

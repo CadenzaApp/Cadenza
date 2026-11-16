@@ -39,17 +39,16 @@ An account name change can take time to appear in an existing browser session.
 From the repository root on macOS:
 
 ```sh
-./scripts/deploy-backend.sh
+python3 deploy/release.py
 ```
 
 From PowerShell on Windows:
 
 ```powershell
-.\scripts\deploy-backend.bat
+py -3 deploy/release.py
 ```
 
-The wrappers invoke the same Python release script. Direct equivalents are
-`python3 deploy/release.py` on macOS and `py -3 deploy/release.py` on Windows.
+Both commands invoke the same cross-platform Python script.
 The script builds the ARM64 container, pushes it, updates the current server,
 checks readiness and inference, and updates automatic replacement settings.
 It rolls back failed activation/promotion. There is no AMI baking or CI runner.
@@ -73,7 +72,7 @@ python3 scripts/open-metrics.py
 Windows PowerShell:
 
 ```powershell
-.\scripts\open-metrics.bat
+py -3 scripts/open-metrics.py
 ```
 
 Your browser opens when the private AWS tunnel is ready. Leave the terminal

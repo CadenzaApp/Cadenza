@@ -42,8 +42,8 @@ retains the previous work.
 
 ## Release and rollback
 
-Deploy a clean committed checkout with `scripts/deploy-backend.sh` on macOS or
-`scripts\deploy-backend.bat` on Windows. It builds/publishes an immutable digest,
+Deploy a clean committed checkout with `python3 deploy/release.py` on macOS or
+`py -3 deploy/release.py` on Windows. It builds/publishes an immutable digest,
 pulls it before stopping the current backend, activates it with rollback, checks
 Rust/model readiness and actual inference, and publishes the same settings into
 the launch template. Monitoring is verified separately so a dashboard failure

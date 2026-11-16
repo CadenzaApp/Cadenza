@@ -15,11 +15,10 @@ From the repo, with the AWS CLI and Session Manager plugin installed:
 
 ```sh
 aws login --profile cadenza-project --region us-east-2
-./scripts/open-metrics.py
+python3 scripts/open-metrics.py
 ```
 
-On Windows use `scripts\open-metrics.bat` from PowerShell, or
-`py -3 scripts/open-metrics.py`. On macOS use the command above. Both use the
+On Windows use `py -3 scripts/open-metrics.py` from PowerShell. On macOS use the command above. Both use the
 same Python code. See [workstation setup](../GETTING_STARTED.md).
 
 The script opens your default browser once Grafana responds. Leave the command
