@@ -174,5 +174,5 @@
   },
   "database_schema_changed": false,
   "fresh_replacement_rehearsal_performed": false,
-  "phone_smoke": "awaiting optional confirmation"
+  "phone_smoke": "User confirmed tags/saved-query flow and assistant message work after refreshing the Metro dev build."
 }
