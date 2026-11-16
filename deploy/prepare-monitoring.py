@@ -1,4 +1,4 @@
-"""Create a host-local Grafana admin password without displaying it or baking it."""
+"""Create a host-local Grafana admin password without displaying it."""
 
 import json
 import os

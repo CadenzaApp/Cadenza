@@ -46,7 +46,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--output",
-        default="verification.warm_timing.json",
+        default="verification.recovery_timing.json",
         help="Result filename inside recovery/",
     )
     args = parser.parse_args()
@@ -58,8 +58,6 @@ def main():
             ).returncode
         )
     resources = json.loads((ROOT / "deploy/recovery/resources.json").read_text())
-    if not (resources.get("warm_ami") or {}).get("validated"):
-        raise RuntimeError("Promote a validated warm AMI before this rehearsal")
     group = aws(
         "autoscaling", "describe-auto-scaling-groups", AutoScalingGroupNames=[GROUP]
     )["AutoScalingGroups"][0]
@@ -127,12 +125,12 @@ def main():
     probe_path.write_text("")
     thread.start()
     record = {
-        "kind": "warm_model_failure",
+        "kind": "model_failure",
         "workstation_minus_http_date_seconds": round(skew, 3),
         "crash_host_ntp_synchronized": True,
         "old_instance": old,
-        "warm_ami": resources["warm_ami"]["image_id"],
-        "startup_prefetch": resources["warm_ami"].get("startup_prefetch"),
+        "base_ami": resources["cold_base_ami"],
+        "bootstrap_mode": "cold",
         "draining_seconds": resources.get("draining_seconds"),
         "launch_template": group["LaunchTemplate"],
         "poll_interval_seconds": 1,

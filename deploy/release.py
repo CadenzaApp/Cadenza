@@ -15,9 +15,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "recovery"))
 from provision import ACCOUNT, GROUP, PROFILE, REGION, ROOT, aws
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "ami"))
-from bake import ensure as ensure_warm_ami
-
 
 def run(args, **kwargs):
     return subprocess.run(args, check=True, text=True, **kwargs)
@@ -26,7 +23,7 @@ def run(args, **kwargs):
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__,
-        epilog="Needs Python 3.11+, AWS CLI login and Docker Desktop/buildx. Builds and validates a private warm AMI before activation. No CI runners required.",
+        epilog="Needs Python 3.11+, AWS CLI login and Docker Desktop/buildx. Updates the existing instance and its replacement configuration without AMI baking. No CI runners required.",
     )
     parser.add_argument(
         "--tag",
@@ -72,7 +69,7 @@ def main():
     registry = f"{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com"
     remote = registry + "/cadenza-backend:" + tag
     print(
-        f"Building {commit[:12]} for {ACCOUNT} / {REGION}. Deployment mode: validated warm AMI.",
+        f"Building {commit[:12]} for {ACCOUNT} / {REGION}. Deployment mode: direct container update.",
         flush=True,
     )
     command = [
@@ -143,16 +140,6 @@ def main():
     candidate = re.sub(
         r"^BACKEND_IMAGE=.*$", "BACKEND_IMAGE=" + reference, old_env, flags=re.MULTILINE
     )
-    revision = dict(
-        line.split("=", 1)
-        for line in candidate.splitlines()
-        if line and not line.startswith("#")
-    )["MODEL_REVISION"]
-    print(
-        "Preparing and independently validating the warm replacement image.", flush=True
-    )
-    warm = ensure_warm_ami(reference, revision)
-    warm_path = ROOT / "deploy/ami/records" / (warm["image_id"] + ".json")
     resource_path = ROOT / "deploy/recovery/resources.json"
     before_resources = resource_path.read_text()
     before = aws(
@@ -173,14 +160,7 @@ def main():
                 "Promoting the verified release into replacement configuration.",
                 flush=True,
             )
-            run(
-                [
-                    sys.executable,
-                    "deploy/recovery/provision.py",
-                    "--warm-ami-manifest",
-                    str(warm_path),
-                ]
-            )
+            run([sys.executable, "deploy/recovery/provision.py"])
             viewer = subprocess.check_output(
                 [
                     "curl",
@@ -283,10 +263,8 @@ def main():
         )["MODEL_REVISION"],
         "platform": "linux/arm64",
         "viewer_http_status": int(viewer),
-        "warm_ami": warm["image_id"],
-        "warm_ami_record": str(warm_path.relative_to(ROOT)),
-        "bootstrap_mode": "warm",
-        "startup_prefetch": warm["startup_prefetch"],
+        "base_ami": json.loads(resource_path.read_text())["cold_base_ami"],
+        "bootstrap_mode": "cold",
         "monitoring_verified": monitoring_verified,
         "verified_at_utc": datetime.datetime.now(datetime.UTC).isoformat(),
     }
@@ -302,7 +280,7 @@ def main():
     )
     resource_path.write_text(json.dumps(resources, indent=2) + "\n")
     print(
-        f"\nRelease deployed: https://d1wj9jjqzhjpqq.cloudfront.net\nWarm AMI: {warm['image_id']}\nCommit the updated release settings, resource record and manifest.",
+        f"\nRelease deployed: https://d1wj9jjqzhjpqq.cloudfront.net\nReplacement bootstrap: pinned base image, no AMI baking\nCommit the updated release settings, resource record and manifest.",
         flush=True,
     )
 

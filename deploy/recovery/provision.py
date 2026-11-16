@@ -45,46 +45,55 @@ def allow(actions, resources):
     return {"Effect": "Allow", "Action": actions, "Resource": resources}
 
 
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--warm-ami-manifest", type=Path)
-    args = parser.parse_args()
-    warm = (
-        json.loads(args.warm_ami_manifest.read_text())
-        if args.warm_ami_manifest
-        else None
+def bootstrap_user_data():
+    files = [
+        "ec2-bootstrap.sh",
+        "compose.yaml",
+        "prepare-monitoring.py",
+        "certs/supabase-root.cer",
+        "release.env.example",
+        "fetch-secrets.py",
+        "prepare-host-release.sh",
+        "start-release.sh",
+        "check-embedding.py",
+        "observe-startup.py",
+        "install-host-tools.sh",
+        "activate-release.sh",
+    ]
+    bundle = io.BytesIO()
+    with tarfile.open(fileobj=bundle, mode="w:gz") as archive:
+        for name in files:
+            content = (ROOT / "deploy" / name).read_bytes()
+            item = tarfile.TarInfo(
+                "release.env" if name == "release.env.example" else Path(name).name
+            )
+            item.size = len(content)
+            item.mode = 0o644 if name.endswith(".cer") else 0o600
+            archive.addfile(item, io.BytesIO(content))
+        content = (ROOT / "deploy/recovery/bootstrap-start.sh").read_bytes()
+        item = tarfile.TarInfo("bootstrap-start.sh")
+        item.size = len(content)
+        item.mode = 0o600
+        archive.addfile(item, io.BytesIO(content))
+    userdata = "#!/bin/bash\nset -euo pipefail\numask 077\nmkdir -p /opt/cadenza/logs /opt/cadenza/releases /opt/cadenza/secrets\nchmod 700 /opt/cadenza /opt/cadenza/secrets\nexec > /opt/cadenza/logs/bootstrap.log 2>&1\n"
+    userdata += (
+        "printf '%s' '"
+        + base64.b64encode(bundle.getvalue()).decode()
+        + "' | base64 -d | tar xz -C /opt/cadenza\ncd /opt/cadenza\nbash bootstrap-start.sh\n"
     )
+    assert len(userdata.encode()) < 16384
+    return userdata, hashlib.sha256(bundle.getvalue()).hexdigest()
+
+
+def main():
     if aws("sts", "get-caller-identity")["Account"] != ACCOUNT:
         raise RuntimeError("AWS profile points to the wrong workload account")
-    if warm:
-        settings = dict(
-            line.split("=", 1)
-            for line in (ROOT / "deploy/release.env.example").read_text().splitlines()
-            if line and not line.startswith("#")
-        )
-        if not (
-            warm.get("validated")
-            and warm["backend_image"] == settings["BACKEND_IMAGE"]
-            and warm["model_revision"] == settings["MODEL_REVISION"]
-        ):
-            raise RuntimeError(
-                "Warm AMI validation does not match this image/model release"
-            )
-        found = aws(
-            "ec2", "describe-images", ImageIds=[warm["image_id"]], Owners=["self"]
-        )["Images"][0]
-        tags = {tag["Key"]: tag["Value"] for tag in found.get("Tags", [])}
-        if (
-            found["State"] != "available"
-            or found.get("Public")
-            or tags.get("CadenzaValidated") != "true"
-            or tags.get("CadenzaBakeKey") != warm["bake_key"]
-        ):
-            raise RuntimeError(
-                "Expected the private, available, validated AMI in the manifest"
-            )
+    base_ami = json.loads((ROOT / "deploy/recovery/resources.json").read_text())[
+        "cold_base_ami"
+    ]
+    image = aws("ec2", "describe-images", ImageIds=[base_ami])["Images"][0]
+    if image["State"] != "available" or image["Architecture"] != "arm64":
+        raise RuntimeError("Expected an available ARM64 base AMI")
     groups = aws(
         "autoscaling", "describe-auto-scaling-groups", AutoScalingGroupNames=[GROUP]
     )["AutoScalingGroups"]
@@ -241,50 +250,9 @@ def main():
         TargetGroupArn=target["TargetGroupArn"],
         Targets=[{"Id": host["InstanceId"], "Port": 80}],
     )
-    files = [
-        "ec2-bootstrap.sh",
-        "compose.yaml",
-        "prepare-monitoring.py",
-        "certs/supabase-root.cer",
-        "release.env.example",
-        "fetch-secrets.py",
-        "prepare-host-release.sh",
-        "start-release.sh",
-        "check-embedding.py",
-        "observe-startup.py",
-        "install-host-tools.sh",
-        "activate-release.sh",
-        "ami/read-startup-files.py",
-        "ami/prefetch-startup.py",
-    ]
-    bundle = io.BytesIO()
-    with tarfile.open(fileobj=bundle, mode="w:gz") as archive:
-        for name in files:
-            content = (ROOT / "deploy" / name).read_bytes()
-            item = tarfile.TarInfo(
-                "release.env" if name == "release.env.example" else Path(name).name
-            )
-            item.size = len(content)
-            item.mode = 0o644 if name.endswith(".cer") else 0o600
-            archive.addfile(item, io.BytesIO(content))
-        content = (ROOT / "deploy/recovery/bootstrap-start.sh").read_bytes()
-        item = tarfile.TarInfo("bootstrap-start.sh")
-        item.size = len(content)
-        item.mode = 0o600
-        archive.addfile(item, io.BytesIO(content))
-    userdata = "#!/bin/bash\nset -euo pipefail\numask 077\nmkdir -p /opt/cadenza/logs /opt/cadenza/releases /opt/cadenza/secrets\nchmod 700 /opt/cadenza /opt/cadenza/secrets\nexec > /opt/cadenza/logs/bootstrap.log 2>&1\n"
-    userdata += (
-        "printf '%s' '"
-        + base64.b64encode(bundle.getvalue()).decode()
-        + "' | base64 -d | tar xz -C /opt/cadenza\ncd /opt/cadenza\nbash bootstrap-start.sh\n"
-    )
-    assert len(userdata.encode()) < 16384
+    userdata, bootstrap_sha256 = bootstrap_user_data()
     data = {
-        "ImageId": warm["image_id"]
-        if warm
-        else json.loads((ROOT / "deploy/recovery/resources.json").read_text()).get(
-            "cold_base_ami", host["ImageId"]
-        ),
+        "ImageId": base_ami,
         "InstanceType": "t4g.medium",
         "IamInstanceProfile": {"Arn": host["IamInstanceProfile"]["Arn"]},
         "NetworkInterfaces": [
@@ -431,7 +399,8 @@ def main():
         "group": GROUP,
         "region": REGION,
         "notifications_topic": topic,
-        "warm_ami": warm,
+        "warm_ami": None,
+        "bootstrap_mode": "cold",
         "disk_initialization_enabled": False,
         "draining_seconds": 30,
         "load_balancer_arn": lb["LoadBalancerArn"],
@@ -440,7 +409,7 @@ def main():
         "alb_security_group": alb_sg,
         "backend_security_group": backend_sg,
         "launch_template": launch,
-        "bootstrap_sha256": hashlib.sha256(bundle.getvalue()).hexdigest(),
+        "bootstrap_sha256": bootstrap_sha256,
         "health_path": "/health/ready",
         "health_interval_seconds": 5,
         "health_timeout_seconds": 4,

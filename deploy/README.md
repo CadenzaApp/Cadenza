@@ -13,18 +13,17 @@ Developers normally need one command, from a clean committed checkout:
 ./scripts/deploy-backend.sh
 ```
 
-It builds/publishes the ARM64 image, bakes or reuses a compatible private AMI,
-validates a fresh boot, activates the release and updates replacement settings.
-Plan roughly 20-40 minutes when a new AMI is required; this is an estimate,
-not a measured guarantee. The current backend serves during building/baking;
-final activation briefly interrupts service. Prerequisites and options:
+It builds/publishes the ARM64 image, updates the existing host with readiness and
+inference checks, then updates automatic replacement settings. There is no AMI
+baking, snapshot wait or temporary builder/validator. Build and image-transfer
+time still vary; activation briefly interrupts service. Prerequisites/options:
 `./scripts/deploy-backend.sh --help`.
 
 | Location | Purpose |
 | --- | --- |
 | `release.py` | Workstation release orchestration behind the developer command |
 | Root shell/Python helpers and `compose.yaml` | EC2 installation, secrets, activation/rollback and startup checks |
-| `ami/` | Production AMI baking, sanitization, validation and targeted reads |
+| `ami/` | Historical AMI records and experiment evidence; no executable baking tools |
 | `recovery/` | ALB/ASG provisioning, release updates and optional outage rehearsals |
 | `recovery/resources.json` | Current infrastructure and active release references |
 | `releases/`, `ami/records/` | Release and validated AMI records |
@@ -80,7 +79,7 @@ verified from outside the home network; see `recovery/verification.public_access
 and `verification.public_runtime.json`. Candidate settings are validated before
 a release builds its image.
 
-## Verified recovery
+## Historical recovery measurements (baked AMIs retired)
 
 The measurements in this section were taken in Oregon before migration. They
 are historical evidence, not measured us-west-1 recovery guarantees.
@@ -101,7 +100,7 @@ are separate in `verification.warm_runtime.json`: cached startup path, fresh SSM
 identity/secrets, exclusivity, real inference, zero restarts/OOM, auth and home-only
 access. The initial attempt hit the old 60-second startup inference limit and is
 recorded separately as manually recovered. It is not an automatic-recovery result.
-This establishes current timing, not a demonstrated speedup over older runs that
+This established historical timing, not a demonstrated speedup over older runs that
 included verification. Model startup and initial snapshot reads remain slow.
 
 The read-only full-root-partition initialization experiment is recorded in
@@ -119,9 +118,9 @@ and `verification.drain30_runtime.json`. Both new runs retain every HTTP probe i
 companion `.probes.jsonl` files. Maximum sampling gaps were 1.182 and 1.453 seconds.
 AWS detection/boot timing varied; these single runs do not establish an SLA or
 prove a speedup from reducing draining. Normal deployment keeps draining at 30
-seconds and uses targeted file reads.
+seconds. The former targeted-read optimization is now retired.
 
-Targeted parallel reads are now the automatic warm-AMI startup path. The cold
+Targeted parallel reads were used by the retired warm-AMI startup path. The cold
 replacement rehearsal took 257.965 seconds (4m 18s). Bootstrap-to-public-response
 was 131.440 seconds, including prefetch, versus 372.941 for the no-scan control.
 AWS detection was also faster in this run; this is an observed result, not a
@@ -144,40 +143,23 @@ AWS CLI login and Docker buildx:
 ```
 
 Use `--help` or an optional `--tag`. The helper checks account/source, builds ARM64,
-checks CPU model dependencies, publishes an immutable ECR digest, bakes and
-independently validates a matching private AMI, activates on the single host with
-rollback, and promotes the launch template. Baking happens before app downtime.
-It writes a release manifest and updated nonsecret settings for a follow-up
-commit. There are no GitLab runners or formal CD jobs. On macOS the command
-prevents idle sleep for the release's lifetime. It also refreshes activation tools
-on the existing host, so scripts are not left at the version from its last boot.
+checks CPU model dependencies, publishes an immutable ECR digest, activates on the
+single host with rollback, and promotes the launch template. Existing image layers
+and the model cache are reused on that host. It writes a release manifest and
+updated nonsecret settings for a follow-up commit. There are no GitLab runners
+or formal CD jobs. On macOS it prevents idle sleep for the release's lifetime.
+Activation tooling is refreshed from the release on every update.
 
-Baking uses temporary non-serving machines with model-only access, never database
-credentials. The model token travels through stdin, not container environment
-metadata or a file. The snapshot contains installed tools, image layers and model
-files, with no containers, app secrets or saved agent identity. A fresh validator
-checks inference with container networking disabled before promotion. Temporary
-machines are terminated on completion/failure; failed AMIs/snapshots are removed.
-A hard-killed workstation process can require manual cleanup of hosts tagged
-`CadenzaImageBuilder=true`.
-
-Warm AMIs are reused only when baked inputs match. Replacement still fetches fresh
-secrets and verifies the pinned image. A matching cache skips tool installation
-and model downloads; a mismatch falls back to cold preparation. A matching warm
-boot automatically starts targeted parallel reads of Python/runtime files, the
-model and backend executable, overlapping safe preparation. It waits before app
-startup. This uses existing EC2/EBS capabilities, not paid restore features or a
-new service. The read-only helper gets no app secrets and has no network. A
-240-second budget and fallback preserve normal verified startup if it fails.
-
-AMI baking hashes the prefetch inputs, checks the reader on the builder, and
-repeats offline prefetch plus finite 768-dimensional inference on a fresh validator.
-The release command handles creation, validation and template promotion; no manual
-AMI or cache-setup step is required. AMIs capture disk,
-not RAM, and first reads from snapshot-backed disks can be slow. No paid Fast
-Snapshot Restore is enabled. Successful AMIs/snapshots remain for rollback and
-incur storage charges; prune obsolete ones after checking launch-template and
-release references, keeping the active and one known-working previous release.
+Fresh replacements boot the pinned standard ARM64 Ubuntu image recorded as
+`cold_base_ami`, install tested host tools, fetch fresh SSM secrets, and download
+the pinned application image and model. Readiness and actual inference must pass
+before the launch hook completes. This makes recovery slower and dependent on
+download services. The current host is not replaced for normal deployments.
+No live application host is imaged. Historical AMIs/snapshots are retained for
+rollback/history and still incur storage charges; pruning is separate from
+removing baking from deployment. Old launch-template references must be checked
+before deleting them. Earlier recovery measurements used baked images and do not
+predict the cold-bootstrap path.
 
 The lower-level commands and maintenance limitations are described in
 [recovery/README.md](recovery/README.md). The update helper temporarily uses EC2
@@ -191,7 +173,7 @@ restore ELB health. Never publish an unverified candidate into replacement confi
 within two seconds. Docker uses readiness but does not itself restart an unhealthy
 running container. Native ASG replacement now provides that recovery path.
 First inference during fresh-host bootstrap has a 300-second check allowance for
-snapshot disk reads, before the launch hook admits traffic. Other inference checks
+fresh-host initialization, before the launch hook admits traffic. Other inference checks
 default to 60 seconds; application request/provider timeouts are unchanged.
 SIGTERM stops new periodic work and drains accepted HTTP plus tracked work for
 120 seconds, then cancels it. Child/DB cleanup has a further 15-second bound;
@@ -205,7 +187,7 @@ starting Rust. There are no claim leases/schema changes or distributed caches.
 
 ## Planned follow-up
 
-The [current plan](../DEPLOYMENT_PLAN.md) records warm-AMI recovery and the remaining
+The [current plan](../DEPLOYMENT_PLAN.md) records cold-bootstrap recovery and the remaining
 public-access work. Quotas, bounded queues/inputs and sanitized errors are
 deployed; selected account-ownership tests passed. Broader authorization coverage
 and provider-key scopes remain follow-ups. Private Prometheus/Grafana is integrated

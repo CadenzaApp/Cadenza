@@ -20,8 +20,8 @@ It does not attach a host or switch CloudFront; those are deliberate cutover ste
 No Lambda controller or periodic polling service is used. ALB spans two AZs;
 the single application host stays in its existing AZ, On-Demand t4g.medium.
 
-`bootstrap-start.sh` uses matching prewarmed tools/image/model files (or cold
-preparation on a mismatch), retrieves fresh SSM secrets, checks the pinned image,
+`bootstrap-start.sh` installs tools on the pinned standard ARM64 base image,
+retrieves fresh SSM secrets, pulls the pinned container and downloads its model,
 and waits until every other
 `CadenzaBackend=demo` host has terminated. Then it starts/verifies Rust/model and
 completes the ASG launch hook. The gate's evidence is written to a private host
@@ -33,16 +33,15 @@ target until replacement. This is not a zero-downtime deployment.
 For a new backend release, developers use `./scripts/deploy-backend.sh` from a
 clean committed checkout. `--help` lists prerequisites; `CADENZA_AWS_PROFILE`
 overrides the default cadenza-project profile. The helper builds/publishes
-the container, bakes and validates a private warm AMI, then performs the stop-first
-activation/template promotion. Baking never runs a second application backend.
+the container, then performs the stop-first activation/template promotion. It
+does not bake an AMI or start temporary builder/validator machines.
 
 For an already-published candidate, keep a known-working image/config pair.
-Set `WARM_AMI_MANIFEST` to its matching validated JSON record under `deploy/ami/records/`.
 From the repo root:
 
 ```sh
 python3 deploy/recovery/update-release.py deploy/release.env.example
-python3 deploy/recovery/provision.py --warm-ami-manifest "$WARM_AMI_MANIFEST"
+python3 deploy/recovery/provision.py
 ```
 
 The first command temporarily changes ASG health to EC2, runs the host's
@@ -51,8 +50,8 @@ host-failure detection while allowing a planned app interruption. Candidate
 images are pulled before stopping the old container; failed startup restores the
 old env/image. Inspect the private activation log if rollback itself fails.
 The second command publishes the same successful release into a new launch-
-template version. Without `--warm-ami-manifest`, it deliberately publishes cold
-bootstrap using the recorded base AMI. Do not publish an unverified candidate into
+template version. Replacement always uses cold bootstrap with the recorded
+base AMI and the latest verified image/model settings. Do not publish an unverified candidate into
 replacement config.
 If the operator process is killed during maintenance, explicitly restore
 `HealthCheckType=ELB`; do not leave expected application failures suppressed.
@@ -69,18 +68,18 @@ backend before termination. To resume, set minimum/desired to one; bootstrap and
 ALB registration restore the same CloudFront URL. Root/model-cache disks are
 recreated on replacement. Supabase data and SSM parameters are separate.
 
-Warm baking and cache validation live in `deploy/ami/bake.py` (`--help`). The cold
-base AMI stays pinned in resources; do not change it to a baked application AMI.
-Never bake a live host or allow cached containers to auto-start before the gate.
+The standard base AMI stays pinned in resources. Do not replace it with an
+application snapshot. Earlier baked images and their measurements are historical;
+no baking or targeted snapshot-read tools remain in the deployment path.
 
-`rehearse-warm-recovery.py` deliberately kills the Python child on the live backend.
+`rehearse-recovery.py` deliberately kills the Python child on the live backend.
 Run only for a staffed, authorized outage rehearsal from a network that can
 reach the API. It records the
 remote crash timestamp, HTTPS readiness plus `/test` probes, and the first
 responding replacement. Probe cadence is one second with two-second timeouts;
 clock/date checks guard gross clock skew. Detailed post-recovery checks run
 separately with `verify-replacement.py --output` so their duration is excluded
-from the outage measurement. The evidence is `verification.warm_timing.json`.
+from the outage measurement. The evidence is `verification.recovery_timing.json`.
 
 For observation without causing an outage, run:
 
@@ -98,18 +97,18 @@ watcher with `caffeinate -i` for long Mac observations. Inspect
 `maximum_sample_gap_seconds` before treating a result as precise; the rehearsal
 marks sampling gaps over three seconds as unsuitable for precise timing.
 
-The unsuccessful full-disk scan experiment and its deployment option have been
-removed. Its timing evidence is retained. Normal warm bootstrap automatically
-overlaps targeted file prefetch with other preparation. Prefetch only reads selected runtime/model files, with no
-Rust process, network, app secret environment or database access. Failure falls
-back to normal startup; readiness and inference remain mandatory.
+Full-disk scan, AMI baking and targeted snapshot prefetch tools have been
+removed. Their historical timing evidence is retained.
 
 `start-release.sh` launches the lightweight local endpoint observer, writes finer
 Docker/readiness/inference timestamps, and verifies actual inference. The updater
 ships these tools automatically before activation. The cold rehearsal also
 records ALB target transitions separately from ASG transitions.
 
-The optimized cold rehearsal recovered in 257.965 seconds. These are observed
+## Historical baked-AMI rehearsal
+
+The former optimized baked-AMI rehearsal recovered in 257.965 seconds.
+These figures do not describe the current cold-bootstrap path. These are observed
 stages, not fixed deadlines; endpoint observations have about one-second resolution.
 
 | Stage | Seconds |

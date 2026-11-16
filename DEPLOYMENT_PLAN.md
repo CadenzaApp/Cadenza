@@ -48,55 +48,27 @@ Repeated failure requires the operator to suspend Launch/ReplaceUnhealthy, fix t
 launch template, and resume. Recovery takes additional time for download/model
 loading. Record actual rehearsal timings rather than promise a fixed outage bound.
 
-## Minimize replacement cold start
+## Deployment speed and replacement startup
 
-The first model-failure rehearsal took about nine minutes including verification.
-A sanitized prewarmed ARM64 AMI now contains tested Docker/AWS tools, the pinned
-application image, and the pinned model cache. Replacements fetch fresh secrets,
-pass the exclusivity gate, and start the cached release instead of installing and
-downloading it again.
-Measure comparable failure-to-ready timing before and after. An AMI captures
-disk contents, not the running model in RAM; EC2 boot, model loading and ALB
-registration still take time. Snapshot-backed EBS blocks load lazily, so benchmark
-first-read behavior rather than assume instant model loading. Paid Fast Snapshot
-Restore is not assumed for this budget.
+AMI baking was retired on 2026-11-15 to shorten developer deployments. The release
+command builds and publishes an immutable image, updates the existing host with
+rollback/readiness/inference checks, and promotes the verified settings into the
+launch template. It does not create builder/validator machines or snapshots.
+The serving host keeps its image/model caches between normal releases.
 
-The initial warm-host attempt exposed a 60-second first-inference timeout while
-snapshot blocks were still being read. The startup check now allows 300 seconds
-before completing the launch hook. This does not extend normal API deadlines.
-Read-only full-partition initialization was tested with four parallel readers.
-The scan took 553.453 seconds and total recovery took 743.035 seconds. App startup
-and verification after the scan took 38.848 seconds, but the scan cost more than
-it saved. The unsuccessful full-scan helper and deployment option have been
-removed; keep the measurement evidence. Preserve per-second probes and boot-stage timestamps for comparisons.
-A control with 30-second draining and no scan took 611.411 seconds, including
-323.567 seconds of application startup/verification. It did not demonstrate a
-net improvement over the earlier 607.56-second baseline. Detection and boot
-timing varied, so do not treat single-run differences as guarantees.
-Targeted file prefetch was subsequently deployed and measured below. Paid initialization remains untested;
-[AWS documents initialization options](https://docs.aws.amazon.com/ebs/latest/userguide/initalize-volume.html).
+Fresh replacements use the pinned standard ARM64 Ubuntu AMI, install host tools,
+fetch fresh secrets, and download the pinned image/model. Native ALB/ASG recovery,
+startup exclusivity and real inference verification remain. The tradeoff is slower
+replacement and reliance on package/image/model downloads. Historical recovery
+measurements below used baked AMIs and are not current recovery promises. No new
+failure rehearsal is required just to remove baking from ordinary deployment.
+Historical AMIs/snapshots remain for reviewed rollback/pruning; do not delete
+images still referenced by older launch templates without checking those uses.
 
+## Historical baked-AMI recovery experiments
 
-Do not image a live application host as-is. Remove all containers (their Docker
-metadata contains environment secrets), secret files, logs, temporary registry
-authentication, and machine-specific state before capture. Keep model-cache and
-image layers only after checking that they contain no saved tokens. Ensure no
-application container auto-starts before fresh-secret retrieval and the single-
-backend gate. Use a clean non-serving builder that never handled application
-secrets. Deleting secret files from a used server is not reliable sanitization of old disk blocks.
-Do not launch a second serving backend just to build an image.
-
-Pin the AMI ID alongside the backend digest, model revision and bootstrap version.
-A release change must either publish a compatible warm AMI or use the slower
-bootstrap fallback; do not silently use stale cached code. Keep one known-working
-AMI for rollback and remove superseded AMIs/snapshots to control EBS storage cost.
-Verify a fresh launch: SSM registration, fresh secrets, correct image/model,
-startup exclusivity, real inference, ALB health and home-only HTTPS. The AMI is
-an optimization, not a backup of Supabase data. The private validated AMI and its
-evidence are recorded under deploy/ami/records/. Successful snapshots are retained
-for operator-reviewed pruning; protect active/previous launch-template references.
-
-## Recovery optimization results and options
+This section records retired experiments, not the current deployment procedure.
+Baking and prefetch tooling have been removed; use the release command below.
 
 Five-second ALB probes are live, with a four-second timeout and unchanged
 three-failure/two-success thresholds. Three immediate failed responses should
@@ -198,33 +170,13 @@ There are no GitLab runners or formal CD jobs. Use one developer entry point,
 No runner, CI service, long-lived access key, or release service is required.
 
 The command checks the workload account/region, clean committed source,
-Docker ARM64 builder and AWS session; shows the release summary; builds/tests/publishes
-an immutable backend image; prepares and validates a matching sanitized warm AMI;
-then performs the existing stop-first activation and promotes the matching launch-
-template version. Do not advance replacement config on failed validation. Keep
-one matched previous release/AMI/template for rollback and clean up failed builder
-hosts automatically. Write a small release manifest and print the stable API URL.
-
-Bake from a clean non-serving builder that never starts Rust or accesses the app
-DB. It may temporarily coexist with the serving host, but cannot serve app traffic
-or reset DB claims. Use only build-scoped ECR/model access, avoid placing model
-tokens in Docker container environment metadata, and sanitize machine-specific
-state before snapshot. Cache tools/image/model on disk, not live processes or
-secrets. Keep build-time machine costs and retained-snapshot costs visible.
-
-Make bootstrap manifest-aware: when AMI, image digest and model revision match,
-skip installation/download and fetch fresh secrets before the exclusivity gate
-and start. If they do not match, fail clearly or use an explicit cold-bootstrap
-fallback; never silently run a stale cached release. Publish a new AMI when its
-baked inputs change, not merely because deployment was invoked again.
-
-The developer release helper is implemented and has passed an actual build,
-publication, stop-first activation, ALB health verification and template promotion.
-The helper now includes AMI baking before activation. A clean builder never gets
-app DB credentials; a separate fresh validator proves offline model inference.
-Temporary machines and failed snapshots are cleaned up automatically. Warm-cache
-validation and native replacement are exercised separately against the current
-immutable application image.
+Docker ARM64 builder and AWS session. It builds/tests/publishes an immutable
+backend image, performs stop-first activation with rollback, and promotes the
+same image/model/bootstrap settings into the launch template. Failed activation
+must not advance replacement settings. Failed promotion or public readiness
+restores the prior template and release. Readiness and real inference stay
+mandatory; monitoring has its own verification result. A release manifest records
+the digest, model, base AMI and launch-template version. No custom AMI is created.
 
 ## Keep the application small
 
@@ -264,7 +216,7 @@ No notification Lambda is needed. Resource identifiers and evidence live under
 2. Completed: model-failure and host-loss rehearsals verified native replacement,
    prior-host termination, real inference, home-only HTTPS, automatic target
    registration and email delivery. Evidence is under deploy/recovery/.
-   Sanitized warm-AMI baking is integrated into the developer release command.
+   The former warm-AMI baking path was retired on 2026-11-15.
    The unassisted warm-AMI run took 607.56 seconds from Python crash to HTTPS
    readiness and API responses. Precise timing is in verification.warm_timing.json,
    separate from post-recovery checks. This is not a demonstrated speedup: older
@@ -306,7 +258,7 @@ No notification Lambda is needed. Resource identifiers and evidence live under
    refusals and configured limits.
    Run on the existing host with read-only access through an AWS tunnel. Retain
    up to 14 days with a 2 GB block cap; history is intentionally lost on host
-   replacement. Bake monitoring images and ship dashboard config with releases.
+   replacement. Pull pinned monitoring images and ship dashboard config with releases.
    No additional EC2 instance, public listener or schema change. Verify deployed
    metrics separately from API readiness. Python queue depth and OTel spans are
    later work; avoid per-user metric labels.

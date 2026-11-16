@@ -2,8 +2,8 @@
 
 Prometheus and Grafana run beside the backend. Normal releases start them after
 API readiness; monitoring failure does not roll back a healthy API. The release
-manifest records a separate monitoring verification result. AMI baking caches
-the pinned images in `images.json`. Dashboard/scrape configuration travels inside
+manifest records a separate monitoring verification result. Fresh hosts pull
+the pinned monitoring images in `images.json`; existing hosts reuse them. Dashboard/scrape configuration travels inside
 the immutable backend image and is extracted during host preparation. No manual
 setup is needed after replacement. Monitoring containers are recreated when the
 release image changes so file bind mounts pick up the new configuration, while
