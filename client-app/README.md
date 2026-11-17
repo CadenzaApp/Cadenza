@@ -117,6 +117,10 @@ swift scripts/render-svg-png.swift assets/images/cadenza-logo-outline.svg assets
 - `plugins/with-ios-build-fixes.js` is a local config plugin. It patches the generated iOS project
   during prebuild for signing and script sandboxing. SDK 58 supplies scene lifecycle support.
 - The primary navigation uses Expo Router native tabs from `expo-router/native-tabs`.
+- On Android a `formSheet` is Material's `BottomSheetBehavior`, which only lets a drag down
+  scroll back up inside a view with nested scrolling on, and closes the sheet for any other drag.
+  Give a sheet's vertical `ScrollView` `nestedScrollEnabled` from its first render (the settings
+  sheets get it from `SettingsScroll`). iOS needs nothing: UIKit already scrolls first.
 - The [media-player guide](src/components/custom/media-player/README.md) covers native scroll
   docking, floating gestures, and bottom controls. The screens dependency patch requires
   `npx pod-install` followed by an iOS rebuild. The patch only disables native accessory

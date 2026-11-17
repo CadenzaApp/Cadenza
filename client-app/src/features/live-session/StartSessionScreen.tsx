@@ -144,6 +144,9 @@ export function StartSessionScreen({
             title={current ? "Session settings" : "Go live"}
         >
             <ScrollView
+                // so a drag down scrolls back up before it closes the sheet
+                // on Android, as in the settings sheets
+                nestedScrollEnabled
                 className="flex-1"
                 contentContainerClassName="gap-6 px-5 pb-10 pt-2"
                 keyboardShouldPersistTaps="handled"
