@@ -7,10 +7,21 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file               | role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mod.rs`           | Declares `activity_tags`, `analytics`, `entity`, `events`, `metadata_tags`, `notification`, `profile`, `queries`, `saved_queries`, `settings`, `social`, `tag_activity`, `tags`, `user_songs`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `mod.rs`           | `stmt`, a postgres statement for raw SQL, and the `Db` trait. Declares `activity_tags`, `analytics`, `collab`, `entity`, `events`, `invites`, `listening_history`, `live_sessions`, `metadata_tags`, `notification`, `now_playing`, `pool`, `privacy`, `audience`, `profile`, `shared_playlists`, `queries`, `saved_queries`, `settings`, `social`, `tag_activity`, `tags`, `user_songs`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `profile.rs`       | Profile reads and writes: own profile, create with a default username from the email local part, and update username/bio. Unit tested.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `saved_queries.rs` | A user's named queries in `saved_queries` and the songs each holds in `saved_query_songs`: list favorites first, create, patch, delete, replace or append songs. Ignored DB test.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `settings.rs`      | Private per user settings in `user_settings`: read with defaults for a user with no row, and a partial upsert. Unit tested.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `friend_relations.rs` | Favorite friends and blocks: mark, list, block (ends the friendship in one transaction), and the `NOT_BLOCKED_AUTHOR` SQL piece for post reads. |
+| `privacy.rs` | Who sees each part of a user's listening, in `privacy_settings`: read with defaults, partial upsert. |
+| `audience.rs` | The one audience check: `can_see`, `can_see_field`, and `visible_friend_ids` for lists. Unit tested. |
+| `now_playing.rs` | One current row per user in `now_playing`: upsert, clear, read for a viewer, friends listening now. `is_live` and position projection are pure and unit tested. |
+| `pool.rs` | The connection pool one backend process opens: the cap, the queue timeout, and the statement and idle in transaction timeouts set on each connection. `PoolConfig::from_env`. Live tests are ignored. |
+| `listening_history.rs` | Another user's recent `play_counted` events, gated by `listening_history`. |
+| `invites.rs` | `invite_codes`: create, redeem (checked and counted in one `UPDATE`), revoke for a target. Target agnostic. |
+| `shared_playlists.rs` | `shared_playlists`, members, songs. The role table `allowed`, and every read and write. Unit tested. |
+| `collab.rs` | What shared playlists and live sessions share: `check_name`, `moved_order`, and `write_order`, the positions write. Unit tested. |
+| `live_sessions.rs` | `live_sessions`, members, queue. Snapshot with projected playback, joins, roles, queue ops, playback commands, host reports. Unit tested. |
+| `social_listening_tests.rs` | Ignored database tests for the three above and now playing, each in one rolled back transaction: `cargo test social_listening -- --ignored --test-threads=1`. The Supabase transaction pooler (port 6543) needs `statement-cache-capacity=0` on the URL, and still flakes on prepared statement names now and then; rerun. |
 | `events.rs`        | The write path for `listening_events`: `NewEvent` and `insert_events`, which is idempotent on `client_event_id` and reports which rows were new.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `analytics.rs`     | The read path for `listening_events`: the metric summary, dense time bucketed trends, the song, artist, album, playlist and query rankings, replays, top tags with a cover song, tags played, the tag-colored heatmap, plays by hour, active days, and the event bounds. Integration tested against a real database (`--ignored`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `activity_tags.rs` | `ActivityTag` (My Plays, First Played, Last Played, In My Library, Favorited, Tagged), finding their rows by `is_activity` and name, creating missing ones and recoloring stale ones, `record_play`, `set_favorites_within`, and reading their values per song with defaults filled in. Unit tested.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -82,6 +93,8 @@ occurred_at desc)`, and a partial `(user_id, song_id, occurred_at desc)` where `
   `sql/social_edited_at.sql`), `hot_score`, `comments` (bigint, how many comments the post has, default 0,
   bumped when a comment is inserted), and nullable `topic_mk_id` (text), an Apple Music catalog
   id of the song or artist the post is about. Kind is not stored: the client asks MusicKit.
+  Or nullable `shared_playlist_id` instead, a shared playlist the author is in (set null when
+  it is deleted). A check keeps the two from both being set.
 - `comments` - a comment on a post. `comment_id` (identity pk), `user_id` (uuid, references
   `auth.users`, cascades), `post_id` (references `posts`, cascades), `content`, `likes`,
   `created_at`, and nullable `edited_at` (`now()` when the author edits; a client timestamp older than it is ignored).
@@ -92,10 +105,10 @@ user_id)`, plus `date`. Cascades from `comments`.
   either column. `status` is `to_user1`, `to_user2`, or `complete`. A pending status names the
   recipient: `to_user1` when the request is waiting on `user1`, `to_user2` when it is waiting on
   `user2`. A friend count is completed rows where the person is `user1` or `user2`. Cancelling
-  deletes the row for that pair, whatever the status is.
+  deletes the row for that pair, whatever the status is, and both favorites.
 - `notifications` - one row the signed-in user sees (`sql/notifications.sql`). `notif_id` (identity pk),
   `user_id` (uuid, references `auth.users`, cascades), `title`, `content`, `type`
-  (`notification_type`: `friend_req_received`, `friend_req_accepted`, `comment`), `created_at`,
+  (`notification_type`: `friend_req_received`, `friend_req_accepted`, `comment`, and `session_join_request` / `session_join_accepted` from `db::live_sessions`), `created_at`,
   `unread` (bool, default true), and `metadata` (jsonb, default `{}`). A friend request stores
   `{"sender_id", "resolution"}` in `metadata`. A comment stores `{"post_id"}`.
   Accepting or ignoring an incoming request sets
@@ -107,6 +120,10 @@ user_id)`, plus `date`. Cascades from `comments`.
   deletes rows older than 30 days. Rows are written by
   `services::notification::push_notification`, which leaves `created_at` and `unread` to these defaults.
   `POST /social/notifications/read` sets `unread` false on the caller's rows in the given ids.
+- `friend_favorites` and `user_blocks` (`sql/friend_favorites_blocks.sql`) - one direction each,
+  `(user_id, friend_id)` and `(blocker_id, blocked_id)`. A block deletes the pair's friendship and
+  favorites. Every post read adds `friend_relations::NOT_BLOCKED_AUTHOR`, which drops a post whose
+  author and the viewer (`$1`) blocked each other either way. A new post query has to add it too.
 - `saved_queries` - a user's named queries (`sql/saved_queries.sql`). `saved_query_id` (bigserial
   pk), `user_id` (uuid, references `auth.users`, cascades), `name` (unique per user), `query` (jsonb,
   the `/queries/results` wire format), the two builder flags it ran with, `favorite`,
@@ -306,6 +323,89 @@ the SQL and `DEFAULT_USER_SETTINGS` in `client-app/src/lib/routes/settings.tsx`.
 `hide_explicit` also reaches the query compiler, read from the saved setting by the `/queries/results` handler and passed in `QueryOptions`: `compile_query` ANDs a `NOT EXISTS` on
 `content_rating = 'explicit'` onto both halves before the discovered cap. A song with no stored
 metadata has no rating and is not hidden.
+
+## Privacy and now playing
+
+`privacy_settings` (`sql/social_privacy.sql`) holds one `audience` per feature: `now_playing`,
+`listening_history`, `session_join`, `playlist_add`. A user with no row reads `friends` for all
+four, from `PrivacyField::default_audience`, which must match the SQL defaults and
+`DEFAULT_PRIVACY_SETTINGS` in `client-app/src/lib/routes/privacy.ts`. A fifth, `listen_along`
+(`sql/listen_along.sql`), defaults to `nobody`, which means off. Otherwise the client opens a
+session whenever the user plays, marked `live_sessions.listen_along`, and joining it checks this
+audience instead of `session_join`. Two more, `profile_playlists` and `profile_queries`
+(`sql/profile_sharing.sql`, default `friends`), say who sees a user's shared playlists and the
+saved queries they shared (`saved_queries.shared`) on their profile. Seeing a shared query also
+lets the viewer read its songs (`saved_queries::get_viewable_saved_query`); seeing a playlist does
+not let them open it.
+
+Every check goes through `audience.rs`. `everyone` is anyone, `friends` is a `complete`
+`friendships` row, `nobody` is no one, and the owner always sees their own. List reads use
+`visible_friend_ids`, one query, so they list friends only.
+
+`now_playing` (`sql/now_playing.sql`) is current state, not history. Only catalog ids are
+stored, since a library id means nothing on another account. A row counts as playing only while
+`is_live`: playing, and the song would not have ended more than a minute ago, projected from
+`position_ms` at `position_at` (server clock). No cleanup job needed. A row with no duration
+lives two minutes past its last write. `up_next` (jsonb) holds the next two songs in the queue, for display only.
+
+## Invites, shared playlists, live sessions
+
+All three are in `sql/invite_codes.sql`, `sql/shared_playlists.sql`, `sql/live_sessions.sql`.
+Functions that open their own transaction take `&impl Db` (in `mod.rs`), a connection or a
+transaction, so the database tests can run them inside one that rolls back.
+
+- An invite code skips the owner's audience for the one thing it points at. Redeeming does not
+  join; `services::invite_codes::accept_invite` redeems then calls the target's join.
+- Shared playlist and live session writes lock their row `FOR UPDATE`, check the role, write,
+  and bump `version`, all in one transaction. A non member reads `NotFound`, so ids do not leak.
+- Shared playlist entries have their own id, so one song can be in twice. Writes take an
+  optional `expected_version`; a stale one is `VersionConflict`.
+- The owner leaving a shared playlist deletes it. The host leaving a live session hands it to
+  another member (`hand_over`: someone playing along first, then the highest role, then the
+  first to join, never someone hosting their own), who always plays; with nobody left it ends.
+- A live session's playback is an anchor (`current_entry_id`, `is_playing`, `position_ms` at
+  `position_at`). Reads project it forward through the queued entries' `duration_ms` with
+  `services::live_sessions::project`, so members stay right while the host's phone is in the
+  background. The host's reports re-anchor it. A session stays open until the host ends it or it
+  times out (`services::live_sessions::timed_out`, the same rule as `OPEN_SESSION_SQL` and
+  `SessionRow::is_open`): paused 10 minutes (`position_at` is when it paused), a minute after
+  the host's realtime socket dropped (`host_away_since`, `sql/live_session_host_away.sql`) if the
+  phone closed it (`host_closed_app`, the app swiped away; `sql/live_session_host_closed_app.sql`)
+  or it went quiet while playing, or a host alone quiet for 30 minutes. The session
+  sweep (`services/session_sweep.rs`) writes those ends every 30 s with `end_timed_out`. When the host's app is gone it also deletes their `now_playing` row, which a closed app never clears, so they leave friends' Listening now. A listen along session nobody was ever
+  let into ends once nobody is waiting either (`end_if_unused`). Once anyone was let in it went
+  live (`went_live`, any member row besides the host's), shows as live, and stays open for the
+  host when they leave.
+- Members have the same presence as the host: `live_session_members.away_since` and
+  `closed_app` (`sql/live_session_member_away.sql`), set by `set_app_link` from the realtime
+  socket. The sweep's `remove_away_members` takes out a member whose app closed a minute ago or
+  went quiet for 10 (`services::live_sessions::member_gone`, `AWAY_MEMBER_SQL`), the way leaving
+  does.
+- `transfer_host` makes a member host and keeps the caller in as a controller playing along. It
+  shares `make_host` with the hand over on leave.
+- Queue entries keep `album`, `album_id`, and `artist_id` (`sql/live_session_queue_album.sql`)
+  when the app sends them, so a play inside a session is logged with them for the rankings.
+  Adding to an empty session anchors on the first song, at the host's `StartAt` when given.
+  `command_seq` counts anchor moves the host's phone did not make (`AnchorBy::Command`), so the
+  host follows those and ignores versions that only echo its own reports. A report that names an
+  older `command_seq` is ignored. A report off the projection by over 3 s is a seek on the phone
+  and bumps the version so members follow.
+- A played entry keeps `played_at` (`sql/live_session_modes.sql`), which `previous` walks back
+  through. `shuffle` reorders the upcoming songs when turned on. On `repeat_mode` `all`, once the
+  current song is the last queued one, `refill_for_repeat` puts the played songs back after it;
+  `one` loops the current song in the projection.
+- A post can attach a shared playlist (`posts.shared_playlist_id`,
+  `sql/post_shared_playlists.sql`), never along with `topic_mk_id`. Every post read fills its
+  card from `shared_playlists::playlist_cards`, one query per page. Deleting the playlist
+  drops the attachment.
+- `GET /listening/friends` reads a friend's open session at query time (the one they host, or
+  play along in), and `can_join` from the host's `session_join` audience and bans, or with no
+  session from their `listen_along` audience. A friend in a session that shows as live is listed
+  while it is open, paused or with no now playing row (then the session's current song). Nothing
+  writes `now_playing.live_session_id`. `listener_count` is everyone in that session still in it
+  and not banned, the friend included, or 1 with no session that shows as live.
+- `join_listening` makes a listen along session for someone playing, seeded from their
+  `now_playing` row (song, position, up next), then joins it.
 
 ## The query compiler
 

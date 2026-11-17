@@ -42,6 +42,8 @@ type ReorderableListProps<T> = {
     itemHeight: number;
     /** Fires once on drop, with positions in the list's own index space. */
     onReorder: (fromIndex: number, toIndex: number) => void;
+    /** False turns dragging off, for a list the user may only look at. */
+    reorderable?: boolean;
     header?: ReactNode;
     footer?: ReactNode;
     empty?: ReactNode;
@@ -84,6 +86,7 @@ export function ReorderableList<T>({
     renderItem,
     itemHeight,
     onReorder,
+    reorderable = true,
     header,
     footer,
     empty,
@@ -202,6 +205,7 @@ export function ReorderableList<T>({
                                 rowKey={keys[index]}
                                 index={index}
                                 rowCount={rowCount}
+                                reorderable={reorderable}
                                 itemHeight={itemHeight}
                                 activeIndex={activeIndex}
                                 targetIndex={targetIndex}
@@ -235,6 +239,7 @@ function ReorderableRow<T>({
     rowKey,
     index,
     rowCount,
+    reorderable,
     itemHeight,
     activeIndex,
     targetIndex,
@@ -257,6 +262,7 @@ function ReorderableRow<T>({
     rowKey: string;
     index: number;
     rowCount: number;
+    reorderable: boolean;
     itemHeight: number;
     activeIndex: SharedValue<number>;
     targetIndex: SharedValue<number>;
@@ -355,6 +361,7 @@ function ReorderableRow<T>({
     // A long press anywhere on the row. Up or down movement before it lands
     // is a scroll, so the row lets go and the list scrolls.
     const pressGesture = usePanGesture({
+        enabled: reorderable,
         activateAfterLongPress: 220,
         failOffsetX: [-20, 20],
         failOffsetY: [-12, 12],
@@ -379,6 +386,7 @@ function ReorderableRow<T>({
     // The handle drags on the first point of movement, before a sheet's own
     // drag (which waits for its touch slop) can claim the touch.
     const handleGesture = usePanGesture({
+        enabled: reorderable,
         minDistance: 1,
         onBegin: () => {
             "worklet";

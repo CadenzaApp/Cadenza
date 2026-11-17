@@ -13,19 +13,30 @@ use serde_json::Value;
 use crate::{
     AppState,
     auth::SupabaseClaims,
-    db::notification::{self, NotificationCursor as DbNotificationCursor},
-    db::social::{
-        self, CommentsCursor as DbCommentsCursor, FeedExclude, InterestDelta,
-        TopicPostsCursor as DbTopicPostsCursor,
+    db::{
+        audience::{PrivacyField, visible_friend_ids},
+        friend_relations,
+        notification::{self, NotificationCursor as DbNotificationCursor},
+        social::{
+            self, CommentsCursor as DbCommentsCursor, FeedExclude, InterestDelta,
+            TopicPostsCursor as DbTopicPostsCursor,
+        },
     },
     err::CadenzaError,
-    routes::json::social::{
-        CommentsCursor, CreateCommentResponse, CreatePostResponse, FeedResponse,
-        FriendshipsResponse, NotificationCursor, NotificationsResponse, PostCommentsResponse,
-        SocialAuthor, SocialComment, SocialNotification, SocialPost, TopicPostsCursor,
-        TopicPostsResponse, UserPostsResponse, UserSearchPerson, UserSearchResponse,
+    routes::json::{
+        social::{
+            CommentsCursor, CreateCommentResponse, CreatePostResponse, FeedResponse,
+            FriendshipsResponse, NotificationCursor, NotificationsResponse, PostCommentsResponse,
+            SocialAuthor, SocialComment, SocialFriend, SocialNotification, SocialPost,
+            TopicPostsCursor, TopicPostsResponse, UserPostsResponse, UserRepliesResponse,
+            UserSearchPerson, UserSearchResponse,
+        },
+        vec_into,
     },
-    services::social_feed::SocialFeedService,
+    services::{
+        realtime::SharedPresence,
+        social_feed::{NewPostTopic, SocialFeedService},
+    },
 };
 
 const POST_CONTENT_MAX: usize = 500;
@@ -53,6 +64,29 @@ async fn get_feed(
     Ok(Json(FeedResponse {
         feed: posts.into_iter().map(SocialPost::from).collect(),
     }))
+}
+
+/// Posts by completed friends and the caller, newest first, 20 a page.
+/// `before` (RFC 3339) pages back: pass the last post's `created_at`. A
+/// shorter page is the end. Nothing is marked loaded or viewed.
+///
+/// ```json
+/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ] }
+/// ```
+async fn get_friends_feed(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(query): Query<FriendsFeedQuery>,
+) -> Result<Json<FeedResponse>, CadenzaError> {
+    let posts = social::get_friends_feed(&db, claims.user_id, query.before).await?;
+    Ok(Json(FeedResponse {
+        feed: posts.into_iter().map(SocialPost::from).collect(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct FriendsFeedQuery {
+    before: Option<DateTime<Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -133,10 +167,14 @@ struct CreatePostBody {
     topic_song_title: Option<String>,
     #[serde(default)]
     topic_artist_name: Option<String>,
+    #[serde(default)]
+    shared_playlist_id: Option<i64>,
 }
 
 /// Creates a post for the signed-in user. `content` is at most 500 characters.
 /// `topic_mk_id` is an optional Apple Music catalog id of a song or artist.
+/// `shared_playlist_id` attaches a shared playlist the caller is a member of
+/// instead; the two cannot both be set.
 /// `topic_song_title` and `topic_artist_name` are display names from MusicKit,
 /// used only to prefix the embedding; stored content is unchanged.
 ///
@@ -159,15 +197,22 @@ async fn create_post(
         parse_optional_text(body.topic_song_title, "topic_song_title", TOPIC_NAME_MAX)?;
     let topic_artist_name =
         parse_optional_text(body.topic_artist_name, "topic_artist_name", TOPIC_NAME_MAX)?;
+    let topic = match (topic_mk_id.as_deref(), body.shared_playlist_id) {
+        (Some(_), Some(_)) => {
+            return Err(CadenzaError::InvalidRequestBody(
+                "a post attaches a song or artist, or a shared playlist, not both".into(),
+            ));
+        }
+        (Some(mk_id), None) => NewPostTopic::Apple {
+            mk_id,
+            song_title: topic_song_title.as_deref(),
+            artist_name: topic_artist_name.as_deref(),
+        },
+        (None, Some(playlist_id)) => NewPostTopic::SharedPlaylist(playlist_id),
+        (None, None) => NewPostTopic::None,
+    };
     let post_id = social
-        .create_post(
-            &db,
-            claims.user_id,
-            &body.content,
-            topic_mk_id.as_deref(),
-            topic_song_title.as_deref(),
-            topic_artist_name.as_deref(),
-        )
+        .create_post(&db, claims.user_id, &body.content, topic)
         .await?;
     Ok(Json(CreatePostResponse { post_id }))
 }
@@ -363,8 +408,9 @@ async fn topic_posts(
 /// Sending the same request again responds with `null` and sends nothing. A
 /// new request notifies the recipient. If they already requested the caller,
 /// the row becomes `complete` and they are notified that it was accepted. 409
-/// `FriendshipAlreadyExists` when the pair is already friends. 422 when
-/// `user_id` is the caller.
+/// `FriendshipAlreadyExists` when the pair is already friends. 403
+/// `UserBlocked` when either one blocked the other. 422 when `user_id` is the
+/// caller.
 async fn request_friendship(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
@@ -493,7 +539,7 @@ async fn notifications(
 }
 
 #[derive(Deserialize)]
-struct MarkNotificationsReadBody {
+struct NotificationIdsBody {
     notif_ids: Vec<i64>,
 }
 
@@ -502,22 +548,51 @@ struct MarkNotificationsReadBody {
 async fn mark_notifications_read(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
-    Json(body): Json<MarkNotificationsReadBody>,
+    Json(body): Json<NotificationIdsBody>,
 ) -> Result<Json<Value>, CadenzaError> {
     notification::mark_notifications_read(&db, claims.user_id, &body.notif_ids).await?;
     Ok(Json(Value::Null))
 }
 
-/// The signed-in user's friends and pending requests.
+/// Deletes the signed-in user's notifications in `notif_ids`. Ids that are
+/// not theirs are ignored. Responds with `null`.
+async fn dismiss_notifications(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(body): Json<NotificationIdsBody>,
+) -> Result<Json<Value>, CadenzaError> {
+    notification::dismiss_notifications(&db, claims.user_id, Some(&body.notif_ids)).await?;
+    Ok(Json(Value::Null))
+}
+
+/// Deletes every notification the signed-in user has. Responds with `null`.
+async fn clear_notifications(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+) -> Result<Json<Value>, CadenzaError> {
+    notification::dismiss_notifications(&db, claims.user_id, None).await?;
+    Ok(Json(Value::Null))
+}
+
+/// The signed-in user's friends, pending requests, and blocked accounts.
+/// Friends sort favorites first, then online, then by username. `online` is
+/// false for a friend who hides their now playing from friends.
 ///
 /// ```json
-/// { "incoming": [ { "user_id": "...", "username": "ada" } ], "outgoing": [], "friends": [] }
+/// { "incoming": [ { "user_id": "...", "username": "ada" } ], "outgoing": [], "friends": [ { "user_id": "...", "username": "bo", "online": true, "favorite": false } ], "blocked": [] }
 /// ```
 async fn friendships(
     State(db): State<DatabaseConnection>,
+    State(presence): State<SharedPresence>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
 ) -> Result<Json<FriendshipsResponse>, CadenzaError> {
-    let lists = social::list_friendships(&db, claims.user_id).await?;
+    let (lists, favorites, visible, blocked) = tokio::try_join!(
+        social::list_friendships(&db, claims.user_id),
+        friend_relations::favorite_ids(&db, claims.user_id),
+        visible_friend_ids(&db, claims.user_id, PrivacyField::NowPlaying),
+        friend_relations::blocked_people(&db, claims.user_id),
+    )?;
+    let online = presence.online_among(&visible);
     let people = |list: Vec<social::FriendPerson>| {
         list.into_iter()
             .map(|person| SocialAuthor {
@@ -526,11 +601,66 @@ async fn friendships(
             })
             .collect()
     };
+    // list_friendships is username order and the sort is stable, so that
+    // order holds inside each group
+    let mut friends: Vec<SocialFriend> = lists
+        .friends
+        .into_iter()
+        .map(|person| SocialFriend {
+            online: online.contains(&person.user_id),
+            favorite: favorites.contains(&person.user_id),
+            user_id: person.user_id.to_string(),
+            username: person.username,
+        })
+        .collect();
+    friends.sort_by_key(|friend| (!friend.favorite, !friend.online));
     Ok(Json(FriendshipsResponse {
         incoming: people(lists.incoming),
         outgoing: people(lists.outgoing),
-        friends: people(lists.friends),
+        friends,
+        blocked: people(blocked),
     }))
+}
+
+/// Marks a friend a favorite, or with DELETE, drops it. 404 when they are not
+/// a friend. Responds with `null`.
+async fn favorite_friend(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Value>, CadenzaError> {
+    friend_relations::favorite_friend(&db, claims.user_id, user_id).await?;
+    Ok(Json(Value::Null))
+}
+
+async fn unfavorite_friend(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Value>, CadenzaError> {
+    friend_relations::unfavorite_friend(&db, claims.user_id, user_id).await?;
+    Ok(Json(Value::Null))
+}
+
+/// Blocks `user_id`, or with DELETE, unblocks. A block ends any friendship or
+/// request between the two and hides each one's posts from the other. An
+/// unblock does not bring the friendship back. Responds with `null`.
+async fn block_user(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Value>, CadenzaError> {
+    friend_relations::block_user(&db, claims.user_id, user_id).await?;
+    Ok(Json(Value::Null))
+}
+
+async fn unblock_user(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Value>, CadenzaError> {
+    friend_relations::unblock_user(&db, claims.user_id, user_id).await?;
+    Ok(Json(Value::Null))
 }
 
 /// Accepts an incoming friend request from `user_id`. Sets that row to
@@ -561,6 +691,23 @@ async fn user_posts(
     Ok(Json(UserPostsResponse {
         profile: profile.into(),
         posts: posts.into_iter().map(SocialPost::from).collect(),
+    }))
+}
+
+/// One user's comments, newest first, at most 100, each with the post it
+/// is on. `user` in the path is the commenter.
+///
+/// ```json
+/// { "replies": [ { "comment_id": 1, "post_id": 4, "content": "this", "likes": 2, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "post": { "post_id": 4, "content": "new album is out", "author": { "user_id": "...", "username": "bo" } } } ] }
+/// ```
+async fn user_replies(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(author_id): Path<Uuid>,
+) -> Result<Json<UserRepliesResponse>, CadenzaError> {
+    let replies = social::get_author_comments(&db, claims.user_id, author_id).await?;
+    Ok(Json(UserRepliesResponse {
+        replies: vec_into(replies),
     }))
 }
 
@@ -753,6 +900,7 @@ async fn unlike_comment(
 pub fn get_social_router() -> Router<AppState> {
     Router::new()
         .route("/feed", get(get_feed))
+        .route("/feed/friends", get(get_friends_feed))
         .route("/interests/update", patch(update_interests))
         .route("/interests/decay", patch(decay_interests))
         .route("/posts", post(create_post))
@@ -763,11 +911,21 @@ pub fn get_social_router() -> Router<AppState> {
         .route("/posts/views", post(mark_viewed))
         .route("/posts/topic", get(topic_posts))
         .route("/posts/user/{author_id}", get(user_posts))
+        .route("/comments/user/{author_id}", get(user_replies))
         .route("/users", get(search_users))
         .route("/friends", get(friendships))
-        .route("/notifications", get(notifications))
+        .route(
+            "/notifications",
+            get(notifications).delete(clear_notifications),
+        )
         .route("/notifications/read", post(mark_notifications_read))
+        .route("/notifications/dismiss", post(dismiss_notifications))
         .route("/friends/{user_id}/accept", post(accept_friendship))
+        .route(
+            "/friends/{user_id}/favorite",
+            post(favorite_friend).delete(unfavorite_friend),
+        )
+        .route("/blocks/{user_id}", post(block_user).delete(unblock_user))
         .route(
             "/friends/{user_id}",
             post(request_friendship).delete(delete_friendship),

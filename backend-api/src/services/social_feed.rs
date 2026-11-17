@@ -17,6 +17,8 @@ use sea_orm::DatabaseConnection;
 use sea_orm::prelude::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::db::friend_relations;
+use crate::db::shared_playlists::{member_role, playlist_cards};
 use crate::db::social::{
     self, CommentsCursor, FeedCandidate, FeedExclude, InterestDelta, PublicProfile, SocialPost,
     TopicPostsCursor, UpsertedInterest,
@@ -118,6 +120,20 @@ fn ml_python(dir: &Path) -> PathBuf {
 
 /// HTTP client for the sentence-transformer process, plus the in-memory like clock
 /// and user-vector cache.
+/// What a new post is about, if anything.
+#[derive(Clone, Copy, Debug)]
+pub enum NewPostTopic<'a> {
+    None,
+    /// An Apple Music song or artist, with the names MusicKit gave, for the
+    /// embedding.
+    Apple {
+        mk_id: &'a str,
+        song_title: Option<&'a str>,
+        artist_name: Option<&'a str>,
+    },
+    SharedPlaylist(i64),
+}
+
 #[derive(Clone)]
 pub struct SocialFeedService {
     base_url: String,
@@ -148,20 +164,35 @@ impl SocialFeedService {
 
     /// Embeds `content`, stores the post, and returns its id.
     ///
-    /// When `topic_mk_id` is set, the embedding is prefixed with the song or
-    /// artist names from the request. Stored `content` is the user's text.
+    /// A topic prefixes the embedding with what it is about: the song or
+    /// artist names from the request, or the shared playlist's name. Stored
+    /// `content` is the user's text. Only a member can attach a shared
+    /// playlist; anyone else gets `NotFound`, so an id does not leak.
     pub async fn create_post(
         &self,
         db: &DatabaseConnection,
         user_id: Uuid,
         content: &str,
-        topic_mk_id: Option<&str>,
-        topic_song_title: Option<&str>,
-        topic_artist_name: Option<&str>,
+        topic: NewPostTopic<'_>,
     ) -> Result<i64, CadenzaError> {
-        let to_embed = match topic_mk_id
-            .and_then(|_| topic_embedding_prefix(topic_song_title, topic_artist_name))
-        {
+        let prefix = match topic {
+            NewPostTopic::None => None,
+            NewPostTopic::Apple {
+                song_title,
+                artist_name,
+                ..
+            } => topic_embedding_prefix(song_title, artist_name),
+            NewPostTopic::SharedPlaylist(playlist_id) => {
+                if member_role(db, playlist_id, user_id).await?.is_none() {
+                    return Err(CadenzaError::NotFound);
+                }
+                playlist_cards(db, &[playlist_id])
+                    .await?
+                    .remove(&playlist_id)
+                    .map(|card| format!("About the playlist {}: ", card.name))
+            }
+        };
+        let to_embed = match prefix {
             Some(prefix) => format!("{prefix}{content}"),
             None => content.to_owned(),
         };
@@ -169,7 +200,21 @@ impl SocialFeedService {
         let mut with_bday = Vec::with_capacity(embedding.len() + 1);
         with_bday.push(social::days_since_posts_epoch(Utc::now()) as f64);
         with_bday.extend_from_slice(&embedding);
-        social::insert_post(db, user_id, content, &embedding, &with_bday, topic_mk_id).await
+        let (topic_mk_id, shared_playlist_id) = match topic {
+            NewPostTopic::None => (None, None),
+            NewPostTopic::Apple { mk_id, .. } => (Some(mk_id), None),
+            NewPostTopic::SharedPlaylist(id) => (None, Some(id)),
+        };
+        social::insert_post(
+            db,
+            user_id,
+            content,
+            &embedding,
+            &with_bday,
+            topic_mk_id,
+            shared_playlist_id,
+        )
+        .await
     }
 
     /// Replaces the author's post text. When the post has a topic, the
@@ -327,12 +372,22 @@ impl SocialFeedService {
         viewer_id: Uuid,
         author_id: Uuid,
     ) -> Result<(PublicProfile, Vec<SocialPost>), CadenzaError> {
-        let (posts, profile, friend_request_sent, friend_request_received, is_friend) = tokio::try_join!(
+        let (
+            posts,
+            profile,
+            friend_request_sent,
+            friend_request_received,
+            is_friend,
+            favorites,
+            blocked,
+        ) = tokio::try_join!(
             social::get_author_posts(db, viewer_id, author_id),
             social::find_public_profile(db, author_id),
             social::friend_request_sent(db, viewer_id, author_id),
             social::friend_request_sent(db, author_id, viewer_id),
             social::is_friend(db, viewer_id, author_id),
+            friend_relations::favorite_ids(db, viewer_id),
+            friend_relations::has_blocked(db, viewer_id, author_id),
         )?;
         let mut profile = profile.unwrap_or_else(|| PublicProfile {
             user_id: author_id,
@@ -345,10 +400,14 @@ impl SocialFeedService {
             friend_request_sent: false,
             friend_request_received: false,
             is_friend: false,
+            is_favorite: false,
+            blocked: false,
         });
         profile.friend_request_sent = friend_request_sent;
         profile.friend_request_received = friend_request_received;
         profile.is_friend = is_friend;
+        profile.is_favorite = is_friend && favorites.contains(&author_id);
+        profile.blocked = blocked;
         Ok((profile, posts))
     }
 

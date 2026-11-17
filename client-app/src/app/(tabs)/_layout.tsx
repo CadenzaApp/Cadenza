@@ -1,7 +1,6 @@
 import { Redirect } from "expo-router";
 import { NativeTabs } from "expo-router/native-tabs";
 import { useTheme } from "expo-router/react-navigation";
-import { useState } from "react";
 import { DynamicColorIOS, Platform, View } from "react-native";
 
 import { MediaPlayerFallbackOverlay } from "@/components/custom/media-player";
@@ -13,15 +12,14 @@ import {
     useNativePlayerAccessoryEnabled,
     useBottomBarsHidden,
 } from "@/lib/screen-overlay";
-import { PALETTE } from "@/lib/theme";
+import { PALETTE, useAppTheme } from "@/lib/theme";
 
-const IOS_TAB_COLOR =
-    Platform.OS === "ios"
-        ? DynamicColorIOS({
-              light: PALETTE.light.foreground,
-              dark: PALETTE.dark.foreground,
-          })
-        : PALETTE.light.foreground;
+/** The Cadenza note, outlined until its tab is selected, like the others. */
+const CADENZA_TAB_ICON = {
+    default: require("../../../assets/images/tab-cadenza-outline.png"),
+    selected: require("../../../assets/images/tab-cadenza.png"),
+};
+
 const IOS_UNSELECTED_TAB_COLOR =
     Platform.OS === "ios"
         ? DynamicColorIOS({
@@ -47,12 +45,11 @@ export default function TabLayout() {
     const { account } = useAccount();
     const { step } = useOnboarding();
     const { colors } = useTheme();
+    const { colors: palette } = useAppTheme();
     const hidden = useBottomBarsHidden();
     const nativePlayer = useNativePlayerAccessoryEnabled();
-    const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
-        null,
-    );
-    const selectedColor = Platform.OS === "ios" ? IOS_TAB_COLOR : colors.text;
+    // the user's accent, the same in light and dark
+    const selectedColor = palette.brand;
     const unselectedColor =
         Platform.OS === "ios" ? IOS_UNSELECTED_TAB_COLOR : colors.text;
 
@@ -91,10 +88,7 @@ export default function TabLayout() {
             >
                 {nativePlayer ? (
                     <NativeTabs.BottomAccessory>
-                        <NativePlayerAccessory
-                            failedArtworkUrl={failedArtworkUrl}
-                            onArtworkError={setFailedArtworkUrl}
-                        />
+                        <NativePlayerAccessory />
                     </NativeTabs.BottomAccessory>
                 ) : null}
                 <NativeTabs.Trigger name="(social)" {...TRIGGER_PROPS}>
@@ -122,12 +116,11 @@ export default function TabLayout() {
                 </NativeTabs.Trigger>
 
                 <NativeTabs.Trigger name="(cadenza)" {...TRIGGER_PROPS}>
+                    {/* tinted like the other tabs. Rendered from the
+                        cadenza-logo svgs by scripts/render-svg-png.swift */}
                     <NativeTabs.Trigger.Icon
-                        sf="music.note.list"
-                        md={{
-                            default: "music_note",
-                            selected: "music_note",
-                        }}
+                        src={CADENZA_TAB_ICON}
+                        renderingMode="template"
                     />
                     <NativeTabs.Trigger.Label>Cadenza</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
@@ -159,8 +152,6 @@ export default function TabLayout() {
             <MediaPlayerFallbackOverlay
                 hidden={hidden}
                 nativeAccessoryActive={nativePlayer}
-                failedArtworkUrl={failedArtworkUrl}
-                onArtworkError={setFailedArtworkUrl}
             />
         </View>
     );

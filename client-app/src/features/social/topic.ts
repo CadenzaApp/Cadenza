@@ -124,3 +124,9 @@ export function useResolvedTopic(
     if (artist) return topicFromArtist(artist);
     return null;
 }
+
+/** The activity line under a post's author: what it shared, or nothing. */
+export function activityLabel(topic: PostTopic | null | undefined): string {
+    if (!topic) return "";
+    return topic.kind === "song" ? "Shared a song" : "Shared an artist";
+}

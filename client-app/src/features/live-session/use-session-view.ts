@@ -1,0 +1,102 @@
+import { useEffect, useMemo, useState } from "react";
+import { Playback, type PlaybackSnapshot } from "@apple-musickit";
+
+import {
+    useLocalPlaybackState,
+    usePlaybackView,
+    type PlaybackView,
+} from "@/lib/playback";
+import type { PlaySource } from "@/lib/play-source";
+import { usePlayRecorder } from "@/lib/play-recorder";
+import { serverNow } from "@/lib/realtime";
+import type { LiveSession } from "@/lib/routes/live-sessions";
+
+import { playbackPositionMs } from "@/lib/session-playback";
+import { entryToTrack, sessionTarget } from "./use-session-player";
+
+/** How often the shown position moves while the session plays. */
+const TICK_MS = 750;
+
+/**
+ * For a member whose phone does not play the session (Remote, or no
+ * subscription): every player surface shows the session instead. Its song,
+ * progress, and queue, projected on the server's clock. The buttons reach the
+ * session through `useSessionSink`.
+ *
+ * The member's own music is paused when this starts, since it would keep
+ * playing with nothing on screen to stop it.
+ *
+ * What the session plays counts as their listening, the same as on a phone
+ * that plays it: the shown playback goes through `usePlayRecorder`, credited
+ * to the session. Their own player is paused, so nothing counts twice.
+ */
+export function useSessionView(session: LiveSession | null, showing: boolean) {
+    const local = useLocalPlaybackState();
+    const playing = showing && (session?.playback.is_playing ?? false);
+
+    const [now, setNow] = useState(() => serverNow());
+    useEffect(() => {
+        if (!playing) return;
+        const timer = setInterval(() => setNow(serverNow()), TICK_MS);
+        return () => clearInterval(timer);
+    }, [playing]);
+
+    useEffect(() => {
+        if (!showing || !local.isPlaying) return;
+        Playback.pause().catch((error: unknown) =>
+            console.warn("Could not pause for the live session:", error),
+        );
+        // only on the way in
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showing]);
+
+    const target = useMemo(
+        () => (session ? sessionTarget(session) : []),
+        [session],
+    );
+    const queue = useMemo(() => target.map(entryToTrack), [target]);
+
+    const view = useMemo<PlaybackView | null>(() => {
+        if (!showing || !session) return null;
+        const current = target[0];
+        const positionMs = playbackPositionMs(session.playback, now);
+        const durationMs = current?.duration_ms ?? null;
+        // repeat one loops in place; anything else waits at the end for the
+        // next snapshot
+        const shownMs = !durationMs
+            ? positionMs
+            : session.playback.repeat_mode === "one"
+              ? positionMs % durationMs
+              : Math.min(positionMs, durationMs);
+        return {
+            queue,
+            queueIndex: current ? 0 : -1,
+            isPlaying: Boolean(current) && session.playback.is_playing,
+            progress: shownMs / 1000,
+        };
+    }, [now, queue, session, showing, target]);
+
+    usePlaybackView(view);
+
+    const heard = useMemo<PlaybackSnapshot>(
+        () => ({
+            isPlaying: view?.isPlaying ?? false,
+            isLoading: false,
+            progress: view?.progress ?? 0,
+            duration: target[0]?.duration_ms
+                ? target[0].duration_ms / 1000
+                : undefined,
+        }),
+        [target, view?.isPlaying, view?.progress],
+    );
+    const sessionId = session?.session_id;
+    const sessionName = session?.name;
+    const source = useMemo<PlaySource | null>(
+        () =>
+            sessionId && sessionName
+                ? { kind: "live_session", id: sessionId, name: sessionName }
+                : null,
+        [sessionId, sessionName],
+    );
+    usePlayRecorder(heard, view ? (queue[0] ?? null) : null, source);
+}

@@ -39,6 +39,9 @@ import { AssistantRowButton } from "@/features/assistant/assistant-button";
 
 import { MediaPlayer } from "./media-player";
 
+/** Where the row action docks while the player is a circle. */
+const CIRCLE_DOCK_X = GLASS_TAB_BAR ? SEARCH_DOCK_X : 0;
+
 const FALLBACK_TAB_BAR_HEIGHT = Platform.select({
     ios: 49,
     android: 80,
@@ -48,18 +51,11 @@ const FALLBACK_TAB_BAR_HEIGHT = Platform.select({
 const SORT_OFFSCREEN_X = PLAYER_SIDE_INSET + PLAYER_CONTROL_SIZE + 32;
 const SORT_SPRING = BOTTOM_CONTROL_SPRING;
 
-type PlayerArtworkStateProps = {
-    failedArtworkUrl: string | null;
-    onArtworkError: (url: string | null) => void;
-};
-
 /** The morphing player above the primary native tab bar on every platform. */
 export function MediaPlayerFallbackOverlay({
     hidden,
     nativeAccessoryActive = false,
-    failedArtworkUrl,
-    onArtworkError,
-}: PlayerArtworkStateProps & {
+}: {
     hidden: boolean;
     nativeAccessoryActive?: boolean;
 }) {
@@ -89,8 +85,6 @@ export function MediaPlayerFallbackOverlay({
                 <MediaPlayerRow
                     nativePlayer={nativeAccessoryActive}
                     kind="tabs"
-                    failedArtworkUrl={failedArtworkUrl}
-                    onArtworkError={onArtworkError}
                 />
             </View>
         </View>
@@ -101,8 +95,7 @@ export function MediaPlayerFallbackOverlay({
 function MediaPlayerRow({
     nativePlayer = false,
     kind = "detail",
-    ...props
-}: PlayerArtworkStateProps & {
+}: {
     nativePlayer?: boolean;
     kind?: "tabs" | "detail";
 }) {
@@ -270,9 +263,12 @@ function MediaPlayerRow({
     const assistantStyle = useAnimatedStyle(() => ({
         transform: [
             {
+                // the same dock as the row action, so it stays over Search
+                // in circle mode too
                 translateX:
                     assistantX.get() +
-                    sortDockX.get() * (1 - circleStack.get()),
+                    sortDockX.get() * (1 - circleStack.get()) +
+                    CIRCLE_DOCK_X * circleStack.get(),
             },
             {
                 translateY:
@@ -289,9 +285,12 @@ function MediaPlayerRow({
     const sortStyle = useAnimatedStyle(() => ({
         transform: [
             {
+                // collapsing to the circle drops the native player's dock,
+                // but Search stays where it is, so the button stays over it
                 translateX:
                     sortX.get() +
-                    sortDockX.get() * (1 - circleStack.get()) -
+                    sortDockX.get() * (1 - circleStack.get()) +
+                    CIRCLE_DOCK_X * circleStack.get() -
                     sortShift.get() *
                         (PLAYER_CONTROL_SIZE * sortScale.get() +
                             PLAYER_ROW_GAP),
@@ -334,7 +333,6 @@ function MediaPlayerRow({
                 ]}
             >
                 <MediaPlayer
-                    {...props}
                     nativePlayer={nativePlayer}
                     visible={!barsHidden}
                     kind={kind}

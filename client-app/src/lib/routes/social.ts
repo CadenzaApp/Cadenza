@@ -4,6 +4,8 @@ import useSWRInfinite from "swr/infinite";
 
 import { useAccount } from "../account";
 import { fetchAPIData, useAPIData, useAPIMutation } from "../api-actions";
+import { useRealtimeTopics } from "../realtime";
+import type { RealtimeTopic } from "../realtime-protocol";
 import {
     applyCommentContent,
     applyCommentLike,
@@ -27,6 +29,7 @@ import type {
     SocialComment,
     Friendships,
     SocialNotification,
+    SocialReply,
     SocialPost,
     UserSearchPerson,
     SocialUserProfile,
@@ -143,6 +146,59 @@ function isLoadingNextFeedPage(
     isValidating: boolean,
 ) {
     return isValidating && Boolean(data?.length) && size > (data?.length ?? 0);
+}
+
+/** Matches the backend's friends feed page size. A shorter page is the end. */
+const FRIENDS_FEED_PAGE_SIZE = 20;
+
+/**
+ * Posts by friends and you, newest first, for the Friends filter. Pages back
+ * by the last post's time. Read only: nothing is marked loaded.
+ */
+export function useFriendsFeed(enabled: boolean) {
+    const { account } = useAccount();
+    const x = useSWRInfinite<FeedResponse>(
+        (pageIndex, previousPage: FeedResponse | null) => {
+            if (!enabled || !account) return null;
+            if (pageIndex > 0) {
+                const last = previousPage?.feed.at(-1);
+                if (!last || previousPage!.feed.length < FRIENDS_FEED_PAGE_SIZE)
+                    return null;
+                return {
+                    keyType: "api-data",
+                    path: "/social/feed/friends",
+                    params: { before: last.created_at },
+                    accountId: account.id,
+                };
+            }
+            return {
+                keyType: "api-data",
+                path: "/social/feed/friends",
+                params: {},
+                accountId: account.id,
+            };
+        },
+        (key: { path: string; params: Record<string, string> }) =>
+            fetchAPIData<FeedResponse>(key.path, key.params),
+        { revalidateFirstPage: false },
+    );
+    const pages = x.data ?? [];
+    const lastPage = pages.at(-1);
+    const hasNextPage =
+        lastPage !== undefined &&
+        lastPage.feed.length >= FRIENDS_FEED_PAGE_SIZE;
+    const isLoadingNextPage =
+        x.size > 0 && x.data !== undefined && x.data.length < x.size;
+
+    return {
+        friendsPosts: pages.flatMap((page) => page.feed),
+        friendsFeedLoading: x.isLoading,
+        friendsFeedErr: x.error,
+        hasNextFriendsPage: hasNextPage,
+        isLoadingNextFriendsPage: isLoadingNextPage,
+        loadNextFriendsPage: () => x.setSize(x.size + 1),
+        refreshFriendsFeed: () => x.mutate(),
+    };
 }
 
 /**
@@ -278,6 +334,8 @@ type NewPostPayload = {
     topic_mk_id?: string | null;
     topic_song_title?: string | null;
     topic_artist_name?: string | null;
+    /** Attaches a shared playlist the caller is in, instead of a topic. */
+    shared_playlist_id?: number | null;
 };
 
 type NewPostResponse = {
@@ -659,7 +717,8 @@ type UserPostsResponse = {
  *     useUserPosts(authorId);
  * ```
  */
-const EMPTY_PEOPLE: Friendships["friends"] = [];
+const EMPTY_PEOPLE: Friendships["incoming"] = [];
+const EMPTY_FRIENDS: Friendships["friends"] = [];
 
 type FriendRequestPayload = {
     user_id: string;
@@ -855,6 +914,51 @@ export function useNotifications() {
         [mutate],
     );
 
+    const dismissMutation = useAPIMutation<NotificationIdsPayload, void>(
+        "POST",
+        "/social/notifications/dismiss",
+        [],
+        { invalidation: "none" },
+    );
+    const clearMutation = useAPIMutation<void, void>(
+        "DELETE",
+        "/social/notifications",
+        [],
+        { invalidation: "none" },
+    );
+    const dismissTrigger = dismissMutation.trigger;
+    const clearTrigger = clearMutation.trigger;
+    /**
+     * Deletes the given notifications, or every one when `ids` is missing.
+     * Drops them from the list first and refetches if the request fails.
+     */
+    const dismissNotifications = useCallback(
+        async (ids?: number[]) => {
+            const gone = ids ? new Set(ids) : null;
+            await mutate(
+                (current) =>
+                    current?.map((page) => ({
+                        ...page,
+                        notifications: gone
+                            ? page.notifications.filter(
+                                  (item) => !gone.has(item.notif_id),
+                              )
+                            : [],
+                        next: gone ? page.next : null,
+                    })),
+                { revalidate: false },
+            );
+            try {
+                if (ids) await dismissTrigger({ notif_ids: ids });
+                else await clearTrigger();
+            } catch (err) {
+                void mutate();
+                throw err;
+            }
+        },
+        [clearTrigger, dismissTrigger, mutate],
+    );
+
     return {
         notifications,
         notificationsLoading: !data && isLoading,
@@ -864,10 +968,11 @@ export function useNotifications() {
         loadNextPage,
         invalidateNotifications,
         setNotificationResolution,
+        dismissNotifications,
     };
 }
 
-type MarkNotificationsReadPayload = {
+type NotificationIdsPayload = {
     notif_ids: number[];
 };
 
@@ -877,7 +982,7 @@ type MarkNotificationsReadPayload = {
  * that cache when it is opened.
  */
 export function useMarkNotificationsRead() {
-    const x = useAPIMutation<MarkNotificationsReadPayload, void>(
+    const x = useAPIMutation<NotificationIdsPayload, void>(
         "POST",
         "/social/notifications/read",
         [],
@@ -899,15 +1004,90 @@ export function useMarkNotificationsRead() {
     };
 }
 
-/** The signed-in user's friends and pending requests. */
+/** The signed-in user's friends, pending requests, and blocked accounts. */
 export function useFriendships() {
     const x = useAPIData<Friendships>("/social/friends");
     return {
         incoming: x.data?.incoming ?? EMPTY_PEOPLE,
         outgoing: x.data?.outgoing ?? EMPTY_PEOPLE,
-        friends: x.data?.friends ?? EMPTY_PEOPLE,
+        friends: x.data?.friends ?? EMPTY_FRIENDS,
+        blocked: x.data?.blocked ?? EMPTY_PEOPLE,
         friendshipsLoading: x.isLoading,
         friendshipsErr: x.error,
+        reloadFriendships: x.mutate,
+    };
+}
+
+/**
+ * `useFriendships`, refetched the moment a friend comes online or goes
+ * offline, through the realtime socket. For screens that show who is online;
+ * everything else reads `useFriendships` and skips the subscriptions.
+ */
+export function useFriendshipsWithPresence() {
+    const friendships = useFriendships();
+    const { friends, reloadFriendships } = friendships;
+    const topics = useMemo<RealtimeTopic[]>(
+        () => friends.map((friend) => ({ kind: "user", id: friend.user_id })),
+        [friends],
+    );
+    useRealtimeTopics(topics, (event) => {
+        if (event.kind === "presence") void reloadFriendships();
+    });
+    return friendships;
+}
+
+/** Every read a favorite, a block, or an unblock can change. */
+function relationTouched(userId: string, accountId: string | undefined) {
+    return [
+        { path: "/social/friends" },
+        { path: "/social/feed" },
+        { path: "/social/feed/friends" },
+        { path: "/listening/friends" },
+        { path: `/social/posts/user/${userId}` },
+        ...(accountId ? [{ path: `/social/posts/user/${accountId}` }] : []),
+    ];
+}
+
+/** Marks or unmarks a friend a favorite, which sorts them first. */
+export function useFavoriteFriend() {
+    const { account } = useAccount();
+    const add = useAPIMutation<FriendRequestPayload, null>(
+        "POST",
+        ({ user_id }) => `/social/friends/${user_id}/favorite`,
+        ({ user_id }) => relationTouched(user_id, account?.id),
+    );
+    const remove = useAPIMutation<FriendRequestPayload, null>(
+        "DELETE",
+        ({ user_id }) => `/social/friends/${user_id}/favorite`,
+        ({ user_id }) => relationTouched(user_id, account?.id),
+    );
+    return {
+        setFavorite: (user_id: string, favorite: boolean) =>
+            (favorite ? add : remove).trigger({ user_id }),
+        favoriteLoading: add.isMutating || remove.isMutating,
+    };
+}
+
+/**
+ * Blocks or unblocks `user_id`. A block ends the friendship and hides each
+ * one's posts from the other; an unblock does not bring the friendship back.
+ */
+export function useBlockUser() {
+    const { account } = useAccount();
+    const block = useAPIMutation<FriendRequestPayload, null>(
+        "POST",
+        ({ user_id }) => `/social/blocks/${user_id}`,
+        ({ user_id }) => relationTouched(user_id, account?.id),
+    );
+    const unblock = useAPIMutation<FriendRequestPayload, null>(
+        "DELETE",
+        ({ user_id }) => `/social/blocks/${user_id}`,
+        ({ user_id }) => relationTouched(user_id, account?.id),
+    );
+    return {
+        setBlocked: (user_id: string, blocked: boolean) =>
+            (blocked ? block : unblock).trigger({ user_id }),
+        blockLoading: block.isMutating || unblock.isMutating,
     };
 }
 
@@ -936,6 +1116,25 @@ export function useUserPosts(authorId?: string) {
         posts: x.data?.posts ?? EMPTY_POSTS,
         userPostsLoading: x.isLoading,
         userPostsErr: x.error,
+    };
+}
+
+const EMPTY_REPLIES: SocialReply[] = [];
+
+/**
+ * One user's comments, newest first, at most 100, each with the post it
+ * answers. Pass no id to leave it unread.
+ */
+export function useUserReplies(authorId?: string) {
+    const x = useAPIData<{ replies: SocialReply[] }>(
+        `/social/comments/user/${authorId}`,
+        undefined,
+        { enabled: Boolean(authorId) },
+    );
+    return {
+        replies: x.data?.replies ?? EMPTY_REPLIES,
+        userRepliesLoading: x.isLoading,
+        userRepliesErr: x.error,
     };
 }
 

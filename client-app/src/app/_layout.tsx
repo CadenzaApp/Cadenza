@@ -5,6 +5,7 @@ import AccountProvider from "@/lib/account";
 import { AppleMusicProvider } from "@/lib/apple-music-auth";
 import { SongInitProvider } from "@/lib/song-init";
 import { ListeningEventProvider } from "@/lib/listening-events";
+import { LiveSessionRunner } from "@/features/live-session/live-session-runner";
 import { PlaybackProvider } from "@/lib/playback";
 import { TasksHost, TasksProvider } from "@/components/custom/tasks";
 import { AppleMusicSessionGuard } from "@/features/account/apple-music-session-guard";
@@ -30,6 +31,7 @@ export default function RootLayout() {
                             <SongInitProvider>
                                 <ListeningEventProvider>
                                     <PlaybackProvider>
+                                        <LiveSessionRunner />
                                         <AppThemeProvider>
                                             <MusicListPreferencesProvider>
                                                 <BottomBarVisibilityProvider>
@@ -127,6 +129,22 @@ function RootStack() {
             />
             <Stack.Screen
                 name="add-to-playlist"
+                options={sheetScreenOptions(theme)}
+            />
+            <Stack.Screen
+                name="live-session/new"
+                options={sheetScreenOptions(theme)}
+            />
+            <Stack.Screen
+                name="live-session/[id]"
+                options={sheetScreenOptions(theme)}
+            />
+            <Stack.Screen
+                name="join/index"
+                options={sheetScreenOptions(theme)}
+            />
+            <Stack.Screen
+                name="join/[code]"
                 options={sheetScreenOptions(theme)}
             />
         </Stack>

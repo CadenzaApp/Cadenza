@@ -3,7 +3,10 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::db::social::{PublicProfile, SocialComment as CommentRow, SocialPost as PostRow};
+use crate::db::shared_playlists::PlaylistCard;
+use crate::db::social::{
+    AuthorComment, PublicProfile, SocialComment as CommentRow, SocialPost as PostRow,
+};
 
 /// One post as `/social/feed`, `/social/posts/user/:id`, and
 /// `/social/posts/topic` return it.
@@ -18,6 +21,7 @@ use crate::db::social::{PublicProfile, SocialComment as CommentRow, SocialPost a
 ///   "edited_at": null,
 ///   "author": { "user_id": "11111111-1111-1111-1111-111111111111", "username": "ada" },
 ///   "topic_mk_id": "1615585008",
+///   "shared_playlist": null,
 ///   "comment_count": 3
 /// }
 /// ```
@@ -33,7 +37,38 @@ pub struct SocialPost {
     pub author: SocialAuthor,
     /// Apple Music catalog id of the attached song or artist, or `null`.
     pub topic_mk_id: Option<String>,
+    /// The attached shared playlist, or `null`. Never set with `topic_mk_id`.
+    pub shared_playlist: Option<PostSharedPlaylist>,
     pub comment_count: i64,
+}
+
+/// A shared playlist on a post. Shown to anyone who sees the post; opening
+/// it needs membership or a code.
+///
+/// ```json
+/// { "playlist_id": 7, "name": "Road trip", "song_count": 24, "member_count": 3,
+///   "cover_song_ids": ["1440857781", "1615585008"] }
+/// ```
+#[derive(Serialize)]
+pub struct PostSharedPlaylist {
+    pub playlist_id: i64,
+    pub name: String,
+    pub song_count: i64,
+    pub member_count: i64,
+    /// The first four songs' catalog ids, for a cover mosaic.
+    pub cover_song_ids: Vec<String>,
+}
+
+impl From<PlaylistCard> for PostSharedPlaylist {
+    fn from(card: PlaylistCard) -> Self {
+        Self {
+            playlist_id: card.playlist_id,
+            name: card.name,
+            song_count: card.song_count,
+            member_count: card.member_count,
+            cover_song_ids: card.cover_song_ids,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -56,6 +91,7 @@ impl From<PostRow> for SocialPost {
                 username: post.author_username,
             },
             topic_mk_id: post.topic_mk_id,
+            shared_playlist: post.shared_playlist.map(Into::into),
             comment_count: post.comment_count,
         }
     }
@@ -106,11 +142,12 @@ impl From<CommentRow> for SocialComment {
     }
 }
 
-/// `{user_id, username, bio, friend_count, friend_request_sent, friend_request_received, is_friend}`
+/// `{user_id, username, bio, friend_count, friend_request_sent, friend_request_received, is_friend, is_favorite, blocked}`
 /// from `GET /social/posts/user/:id`. `friend_count` is completed rows in
 /// `friendships`. `friend_request_sent` is the viewer's pending request to
 /// this user. `friend_request_received` is this user's pending request to the
 /// viewer. `is_friend` is a completed friendship with the viewer.
+/// `is_favorite` is the viewer's favorite. `blocked` is the viewer's block.
 #[derive(Serialize)]
 pub struct SocialUserProfile {
     pub user_id: String,
@@ -120,6 +157,8 @@ pub struct SocialUserProfile {
     pub friend_request_sent: bool,
     pub friend_request_received: bool,
     pub is_friend: bool,
+    pub is_favorite: bool,
+    pub blocked: bool,
 }
 
 impl From<PublicProfile> for SocialUserProfile {
@@ -132,6 +171,8 @@ impl From<PublicProfile> for SocialUserProfile {
             friend_request_sent: profile.friend_request_sent,
             friend_request_received: profile.friend_request_received,
             is_friend: profile.is_friend,
+            is_favorite: profile.is_favorite,
+            blocked: profile.blocked,
         }
     }
 }
@@ -150,6 +191,43 @@ pub struct CreatePostResponse {
 pub struct UserPostsResponse {
     pub profile: SocialUserProfile,
     pub posts: Vec<SocialPost>,
+}
+
+/// The post a reply is on, enough to show what it answered.
+#[derive(Serialize)]
+pub struct RepliedPost {
+    pub post_id: i64,
+    pub content: String,
+    pub author: SocialAuthor,
+}
+
+/// One of a user's comments, with its post.
+#[derive(Serialize)]
+pub struct SocialReply {
+    #[serde(flatten)]
+    pub comment: SocialComment,
+    pub post: RepliedPost,
+}
+
+impl From<AuthorComment> for SocialReply {
+    fn from(reply: AuthorComment) -> Self {
+        Self {
+            post: RepliedPost {
+                post_id: reply.comment.post_id,
+                content: reply.post_content,
+                author: SocialAuthor {
+                    user_id: reply.post_author_id.to_string(),
+                    username: reply.post_author_username,
+                },
+            },
+            comment: reply.comment.into(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct UserRepliesResponse {
+    pub replies: Vec<SocialReply>,
 }
 
 /// The sort position of the last topic post on a full page. The next request
@@ -191,15 +269,28 @@ pub struct CreateCommentResponse {
     pub comment_id: i64,
 }
 
-/// `{incoming, outgoing, friends}` from `GET /social/friends`.
+/// `{incoming, outgoing, friends, blocked}` from `GET /social/friends`.
 /// Each person is `{user_id, username}`.
 /// `incoming` is requests waiting on the signed-in user. `outgoing` is
-/// requests they sent. `friends` is completed pairs.
+/// requests they sent. `friends` is completed pairs. `blocked` is accounts
+/// they blocked.
 #[derive(Serialize)]
 pub struct FriendshipsResponse {
     pub incoming: Vec<SocialAuthor>,
     pub outgoing: Vec<SocialAuthor>,
-    pub friends: Vec<SocialAuthor>,
+    pub friends: Vec<SocialFriend>,
+    pub blocked: Vec<SocialAuthor>,
+}
+
+/// One friend in `GET /social/friends`. `online` is whether they have the app
+/// open, false when their now playing is hidden from friends. `favorite` is
+/// the caller's favorite.
+#[derive(Serialize)]
+pub struct SocialFriend {
+    pub user_id: String,
+    pub username: String,
+    pub online: bool,
+    pub favorite: bool,
 }
 
 /// One person from `GET /social/users`. `is_friend` is a completed friendship.

@@ -224,10 +224,7 @@ async function sendInBatches(
             added += batch.length;
         }
     } catch (error) {
-        console.log(
-            `${LOG_TAG} sending a batch to the backend failed:`,
-            error,
-        );
+        console.log(`${LOG_TAG} sending a batch to the backend failed:`, error);
         throw error;
     }
 

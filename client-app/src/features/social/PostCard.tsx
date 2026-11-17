@@ -22,7 +22,8 @@ import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostCommentsDialog } from "./PostCommentsDialog";
 import { PostOptionsMenu } from "./PostOptionsMenu";
 import { PostTopicCard } from "./PostTopicCard";
-import { topicCreateFields, useResolvedTopic } from "./topic";
+import { SharedPlaylistPostCard } from "./SharedPlaylistPostCard";
+import { activityLabel, topicCreateFields, useResolvedTopic } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
 
 type Props = {
@@ -249,6 +250,11 @@ export function PostCard({
                 </Text>
                 <Text className="text-xs text-muted-foreground">
                     {formatRelativeTime(post.created_at)}
+                    {topic
+                        ? ` · ${activityLabel(topic)}`
+                        : post.shared_playlist
+                          ? " · Shared a playlist"
+                          : ""}
                 </Text>
             </View>
         </>
@@ -306,6 +312,9 @@ export function PostCard({
                         topic={topic}
                         cardId={String(post.post_id)}
                     />
+                ) : null}
+                {post.shared_playlist ? (
+                    <SharedPlaylistPostCard playlist={post.shared_playlist} />
                 ) : null}
 
                 <Text className="text-base leading-6 text-foreground">

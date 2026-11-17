@@ -14,7 +14,17 @@ type Props = {
      * floating rail would cover.
      */
     pinnedRail?: readonly string[];
+    /**
+     * Route names, relative to `tab`, kept to one copy per set of params. A
+     * second push of the same route and params goes back to the open copy
+     * instead of stacking another, so repeat taps cannot pile screens up.
+     */
+    singular?: readonly string[];
 };
+
+/** One stack entry per route name and params. */
+const singularByParams = (name: string, params: Record<string, unknown>) =>
+    `${name}:${JSON.stringify(params ?? {})}`;
 
 /**
  * A native stack for one tab, with Cadenza's shared top rail as its header.
@@ -24,7 +34,7 @@ type Props = {
  * Every tab also holds the shared detail routes (album, tag, artist, ...), so
  * they push inside the tab and keep the tab bar. They draw their own header.
  */
-export function TabStack({ tab, title, pinnedRail }: Props) {
+export function TabStack({ tab, title, pinnedRail, singular }: Props) {
     return (
         <TopRailProvider
             pinned={pinnedRail?.map((name) => `${tab}/${name}`)}
@@ -51,6 +61,13 @@ export function TabStack({ tab, title, pinnedRail }: Props) {
                 }}
             >
                 <Stack.Screen name={`${tab}/index`} options={{ title }} />
+                {singular?.map((name) => (
+                    <Stack.Screen
+                        key={name}
+                        name={`${tab}/${name}`}
+                        dangerouslySingular={singularByParams}
+                    />
+                ))}
                 {DETAIL_ROUTE_NAMES.map((name) => (
                     <Stack.Screen
                         key={name}

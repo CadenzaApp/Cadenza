@@ -4,5 +4,7 @@ import { TabStack } from "@/components/custom/tab-stack";
 export const unstable_settings = { initialRouteName: "social/index" };
 
 export default function SocialLayout() {
-    return <TabStack tab="social" title="Feed" />;
+    return (
+        <TabStack tab="social" title="Social" singular={["user/[userId]"]} />
+    );
 }

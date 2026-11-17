@@ -31,7 +31,7 @@ import Animated, {
 
 import { Text } from "@/components/ui/text";
 import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
-import { usePlaybackCommands } from "@/lib/playback";
+import { usePlayFromList } from "@/lib/play-from-list";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
@@ -195,7 +195,7 @@ export function MusicList({
 }: MusicListProps) {
     const header = headerProp ?? listHeader;
     const tracks = useVisibleItems(givenTracks);
-    const { togglePlayback } = usePlaybackCommands();
+    const playFromList = usePlayFromList();
     const { showSuggestedTags } = useMusicListPreferences();
     const [internalCompact, setInternalCompact] = useState(false);
     const isCompact = compact ?? internalCompact;
@@ -635,9 +635,15 @@ export function MusicList({
                 return;
             }
 
-            void togglePlayback(track);
+            void playFromList(tracks, track);
         },
-        [isSelecting, onTrackPressOverride, togglePlayback, toggleSelection],
+        [
+            isSelecting,
+            onTrackPressOverride,
+            playFromList,
+            toggleSelection,
+            tracks,
+        ],
     );
     const closeTrackMenu = useCallback(() => setMenuTrack(null), []);
 

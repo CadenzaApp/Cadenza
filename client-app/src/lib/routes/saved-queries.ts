@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import { useAccount } from "../account";
 import type { QueryJSON } from "@/lib/query-json";
 
 import {
@@ -30,7 +31,18 @@ export type SavedQuery = {
     song_count: number;
     created_at: string;
     songs_stored_at: string | null;
+    /** Shown on the user's profile. */
+    shared: boolean;
 };
+
+/** A query shared on a profile, as `GET /saved-queries/users/{id}` lists it. */
+export type ProfileQuery = Pick<
+    SavedQuery,
+    "saved_query_id" | "name" | "artwork_urls" | "song_count"
+>;
+
+/** The most shared queries a profile shows. The backend caps it the same. */
+export const MAX_PROFILE_QUERIES = 5;
 
 type NewSavedQuery = {
     name: string;
@@ -46,6 +58,7 @@ type SavedQueryPatch = {
     name?: string;
     favorite?: boolean;
     artwork_urls?: readonly string[];
+    shared?: boolean;
 };
 
 type SavedQuerySongsResponse = {
@@ -80,6 +93,41 @@ export function useSavedQueries(enabled = true) {
         savedQueriesLoading: x.isLoading,
         savedQueriesErr: x.error,
     };
+}
+
+/**
+ * The queries a user shared on their profile, at most `MAX_PROFILE_QUERIES`.
+ * `null` when their privacy setting hides them. The signed-in user's own come
+ * off their saved list, so sharing one shows here without another read.
+ */
+export function useProfileQueries(userId: string) {
+    const { account } = useAccount();
+    const own = account?.id === userId;
+    const mine = useSavedQueries(own);
+    const theirs = useAPIData<{ queries: ProfileQuery[] | null }>(
+        `${SAVED_QUERIES_PATH}/users/${userId}`,
+        undefined,
+        { enabled: !own },
+    );
+    const ownShared = useMemo(
+        () =>
+            mine.savedQueries
+                ?.filter((saved) => saved.shared)
+                .slice(0, MAX_PROFILE_QUERIES),
+        [mine.savedQueries],
+    );
+
+    return own
+        ? {
+              profileQueries: ownShared,
+              profileQueriesLoading: mine.savedQueriesLoading,
+              profileQueriesErr: mine.savedQueriesErr,
+          }
+        : {
+              profileQueries: theirs.data?.queries,
+              profileQueriesLoading: theirs.isLoading,
+              profileQueriesErr: theirs.error,
+          };
 }
 
 /** One saved query, read off the list. */
@@ -162,7 +210,10 @@ function rerunPath({ saved_query_id }: { saved_query_id: number }) {
     return `${SAVED_QUERIES_PATH}/${saved_query_id}/rerun`;
 }
 
-/** Renames, favorites, or sets the cover of a saved query. */
+/**
+ * Renames, favorites, sets the cover of, or shares on the profile a saved
+ * query.
+ */
 export function useUpdateSavedQuery() {
     const x = useAPIMutation<SavedQueryPatch, SavedQuery>(
         "PATCH",

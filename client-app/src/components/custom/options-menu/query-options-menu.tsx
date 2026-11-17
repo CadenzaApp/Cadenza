@@ -13,9 +13,14 @@ type QueryOptionsMenuProps = {
     saved: boolean;
     favorite: boolean;
     favoriteBusy?: boolean;
+    /** Shown on the user's profile. */
+    shared?: boolean;
+    sharedBusy?: boolean;
     /** The songs Play next and Add to queue take, resolved on tap. */
     resolveTracks: () => Promise<MusicItem[]>;
     onToggleFavorite: () => void;
+    /** Only offered once the query is saved. */
+    onToggleShared?: () => void;
     /** Opens the name prompt. Only offered while the query is not saved. */
     onSave: () => void;
     /** Only offered once the query is saved. */
@@ -24,16 +29,19 @@ type QueryOptionsMenuProps = {
 };
 
 /**
- * The query "..." menu: favorite on its own row, like the album and playlist
- * menus, then Play next and Add to queue against the results, then Save query
- * or, once saved, Rerun query.
+ * The query "..." menu: favorite, and once saved Share on profile, on their
+ * own row, like the album and playlist menus, then Play next and Add to queue
+ * against the results, then Save query or, once saved, Rerun query.
  */
 export function QueryOptionsMenu({
     saved,
     favorite,
     favoriteBusy = false,
+    shared = false,
+    sharedBusy = false,
     resolveTracks,
     onToggleFavorite,
+    onToggleShared,
     onSave,
     onRerun,
     onClose,
@@ -85,6 +93,23 @@ export function QueryOptionsMenu({
                     selected={favorite}
                     toolbar
                 />
+                {onToggleShared ? (
+                    <MusicListActionButton
+                        action={{
+                            id: "share-on-profile",
+                            label: shared ? "On profile" : "Share on profile",
+                            icon: shared
+                                ? "person-circle"
+                                : "person-circle-outline",
+                            onPress: onToggleShared,
+                        }}
+                        target={null}
+                        onPress={onToggleShared}
+                        busy={sharedBusy}
+                        selected={shared}
+                        toolbar
+                    />
+                ) : null}
             </View>
             <Separator className="my-1" />
 

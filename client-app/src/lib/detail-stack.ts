@@ -1,6 +1,6 @@
 /**
- * Keeps the pushed detail screens (artist, album, playlist, tag, song discuss,
- * query results) from piling up on a tab's stack. Every tab's stack holds all
+ * Keeps the pushed detail screens (artist, album, playlist, shared playlist,
+ * tag, song discuss, query results) from piling up on a tab's stack. Every tab's stack holds all
  * of them, see `TabStack`.
  *
  * Opening a detail screen that is already on the stack goes back to it rather
@@ -20,6 +20,7 @@
 const DETAIL_IDENTITY: Record<string, readonly string[]> = {
     "artist/[id]": ["id"],
     "collection/[kind]/[id]": ["kind", "id"],
+    "shared-playlist/[id]": ["id"],
     "tag/[tagId]": ["tagId"],
     "discuss/[songId]": ["songId"],
     "query-results": ["query", "suggested", "saved"],

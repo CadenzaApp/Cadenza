@@ -13,11 +13,13 @@ rankings card's picker, the detail route and each row's href all read that list.
 
 ## The rankings card
 
-One card for songs, playlists, albums, artists and queries. A small tab bar across its top picks
-which, songs by default. It shows the top five from the summary and "See all" opens the full list. A song row plays the
-ranking from that row; every other row opens its page: a playlist, album or artist screen, or a
-query's results run again. Playlists and queries rank off the source a play was started from; see
-Listening events in `src/lib/README.md`.
+One card for songs, playlists, albums, artists, queries, shared playlists and live sessions. A
+small tab bar across its top picks which, songs by default. It shows the top five from the
+summary and "See all" opens the full list. A song row plays the ranking from that row; every
+other row opens its page: a playlist, album, artist, or shared playlist screen, a query's results
+run again, or a live session's sheet, which says so once the session is over. Playlists, queries,
+shared playlists and sessions rank off the source a play was started from; see Listening events
+in `src/lib/README.md`.
 
 ## The overview
 

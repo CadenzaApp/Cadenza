@@ -50,7 +50,14 @@ export type AnalyticsSummary = {
 };
 
 /** What a ranking can be grouped by. */
-export type TopDimension = "song" | "playlist" | "album" | "artist" | "query";
+export type TopDimension =
+    | "song"
+    | "playlist"
+    | "album"
+    | "artist"
+    | "query"
+    | "shared_playlist"
+    | "live_session";
 
 export type AnalyticsTopList = {
     dimension: TopDimension;

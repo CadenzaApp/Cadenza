@@ -18,7 +18,11 @@ type Props = {
     height?: number;
     isPlaying: boolean;
     isLoading: boolean;
+    /** False while a live session's role does not allow play or pause. */
+    canTogglePlayback?: boolean;
     canSkipToNext: boolean;
+    /** The live session's name, shown in place of the artist. */
+    liveLabel?: string | null;
     textColor: ColorValue;
     onExpand: () => void;
     onCollapse: () => void;
@@ -35,7 +39,9 @@ export function MediaPlayerCompact({
     height = 48,
     isPlaying,
     isLoading,
+    canTogglePlayback = true,
     canSkipToNext,
+    liveLabel = null,
     textColor,
     onExpand,
     onCollapse,
@@ -76,7 +82,16 @@ export function MediaPlayerCompact({
                             className="mt-0.5 text-xs text-foreground"
                             numberOfLines={1}
                         >
-                            {track.artistName || "Unknown Artist"}
+                            {liveLabel !== null ? (
+                                <>
+                                    <Text className="text-xs font-bold text-brand">
+                                        LIVE
+                                    </Text>
+                                    {` · ${liveLabel}`}
+                                </>
+                            ) : (
+                                track.artistName || "Unknown Artist"
+                            )}
                         </Text>
                     ) : null}
                 </View>
@@ -90,14 +105,21 @@ export function MediaPlayerCompact({
                               ? "Pause"
                               : "Play"
                     }
-                    accessibilityState={{ busy: isLoading }}
-                    disabled={isLoading}
+                    accessibilityState={{
+                        busy: isLoading,
+                        disabled: !canTogglePlayback,
+                    }}
+                    disabled={isLoading || !canTogglePlayback}
                     hitSlop={10}
                     onPress={(event) => {
                         event.stopPropagation();
                         onTogglePlayback();
                     }}
-                    className="h-10 w-10 items-center justify-center"
+                    className={
+                        canTogglePlayback
+                            ? "h-10 w-10 items-center justify-center"
+                            : "h-10 w-10 items-center justify-center opacity-30"
+                    }
                 >
                     {isLoading ? (
                         <ActivityIndicator size="small" color={textColor} />

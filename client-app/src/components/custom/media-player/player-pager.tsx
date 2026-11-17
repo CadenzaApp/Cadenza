@@ -1,9 +1,7 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { useTheme } from "expo-router/react-navigation";
+import type { SFSymbol } from "expo-symbols";
 import { useEffect, useRef, useState } from "react";
 import {
     Platform,
-    Pressable,
     ScrollView,
     StyleSheet,
     useWindowDimensions,
@@ -14,48 +12,68 @@ import Animated, {
     useAnimatedStyle,
     useSharedValue,
 } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import type { IoniconName } from "@/components/ui/ionicon-name";
 import { Text } from "@/components/ui/text";
+import { LiveSessionBar } from "@/features/live-session/LiveSessionBar";
+import { useShownLiveSession } from "@/features/live-session/use-current-session";
+import { useAppTheme } from "@/lib/theme";
 
 import { DiscussPage } from "./discuss-page";
+import {
+    PLAYER_BAR_INSET,
+    PLAYER_BAR_RADIUS,
+    PlayerBarButton,
+    PlayerBarShell,
+} from "./player-bar";
 import { PlayerPage } from "./player-page";
 import { usePlayerScope } from "./player-scope";
 import { TagsPage } from "./tags-page";
 import { PLAYER_TABS, type PlayerTab, usePlayerTabs } from "./player-tabs";
 import { QueueOpenContext } from "./queue-open";
 
-const TAB_BAR_HEIGHT = 72;
-const TAB_BAR_RADIUS = TAB_BAR_HEIGHT / 2;
-/** Was 76%; the selector reads better with more room for three labels. */
-const TAB_BAR_WIDTH_PERCENT = 91;
-const SELECTION_INSET = 4;
-const SELECTION_RADIUS = TAB_BAR_RADIUS - SELECTION_INSET;
+const SELECTION_RADIUS = PLAYER_BAR_RADIUS - PLAYER_BAR_INSET;
+/** The pill sits darker than the glass, like the native tab bar's. */
+const SELECTION_FILL = {
+    light: "rgba(0, 0, 0, 0.08)",
+    dark: "rgba(0, 0, 0, 0.35)",
+} as const;
+/** How much wider the pill gets halfway between two tabs, like UIKit's. */
+const SELECTION_STRETCH = 0.12;
 const TAB_PRESENTATION = {
     discuss: {
         label: "Discuss",
-        activeIcon: "chatbubble",
-        inactiveIcon: "chatbubble-outline",
+        sf: { active: "bubble.left.fill", inactive: "bubble.left" },
+        icon: { active: "chatbubble", inactive: "chatbubble-outline" },
     },
     player: {
         label: "Player",
-        activeIcon: "musical-note",
-        inactiveIcon: "musical-note-outline",
+        sf: { active: "music.note", inactive: "music.note" },
+        icon: { active: "musical-note", inactive: "musical-note-outline" },
     },
     tags: {
         label: "Tags",
-        activeIcon: "pricetag",
-        inactiveIcon: "pricetag-outline",
+        sf: { active: "tag.fill", inactive: "tag" },
+        icon: { active: "pricetag", inactive: "pricetag-outline" },
     },
-} as const;
+} as const satisfies Record<
+    PlayerTab,
+    {
+        label: string;
+        sf: Record<"active" | "inactive", SFSymbol>;
+        icon: Record<"active" | "inactive", IoniconName>;
+    }
+>;
 
-/** Three always-mounted pages in one native horizontal scroll surface. */
+/**
+ * Three always-mounted pages in one native horizontal scroll surface. In a
+ * live session the tabs give way to the session's bar; the pages still swipe.
+ */
 export function PlayerPager() {
     const { focusedSong } = usePlayerScope();
+    const liveSession = useShownLiveSession();
     const { selectedTab, selectTab } = usePlayerTabs();
     const { width } = useWindowDimensions();
-    const insets = useSafeAreaInsets();
     const scrollRef = useRef<ScrollView>(null);
     const scrollX = useSharedValue(PLAYER_TABS.indexOf(selectedTab) * width);
     const [tabBarWidth, setTabBarWidth] = useState(0);
@@ -65,6 +83,13 @@ export function PlayerPager() {
         () => new Set([selectedTab]),
     );
     const selectedIndex = PLAYER_TABS.indexOf(selectedTab);
+    // The first page only. A changed `contentOffset` prop jumps UIKit's scroll
+    // view without animating, which skipped the slide on every tab tap.
+    const [initialOffset] = useState(() => ({
+        x: selectedIndex * width,
+        y: 0,
+    }));
+    const { scheme } = useAppTheme();
 
     function activateTab(tab: PlayerTab) {
         setVisitedTabs((current) =>
@@ -87,15 +112,15 @@ export function PlayerPager() {
         },
     });
     const selectionStyle = useAnimatedStyle(() => {
-        const itemWidth = tabBarWidth / PLAYER_TABS.length;
+        const itemWidth =
+            (tabBarWidth - PLAYER_BAR_INSET * 2) / PLAYER_TABS.length;
+        const position = width > 0 ? scrollX.value / width : 0;
+        // 0 on a tab, 1 halfway to the next
+        const between = Math.sin(Math.PI * (position - Math.floor(position)));
+        const stretch = itemWidth * SELECTION_STRETCH * between;
         return {
-            width: itemWidth,
-            transform: [
-                {
-                    translateX:
-                        width > 0 ? (scrollX.value / width) * itemWidth : 0,
-                },
-            ],
+            width: itemWidth + stretch,
+            transform: [{ translateX: position * itemWidth - stretch / 2 }],
         };
     });
 
@@ -114,7 +139,7 @@ export function PlayerPager() {
                     removeClippedSubviews={false}
                     showsHorizontalScrollIndicator={false}
                     scrollEventThrottle={16}
-                    contentOffset={{ x: selectedIndex * width, y: 0 }}
+                    contentOffset={initialOffset}
                     onScroll={scrollHandler}
                     onMomentumScrollEnd={(event) => {
                         const index = Math.max(
@@ -130,11 +155,15 @@ export function PlayerPager() {
                     }}
                 >
                     <View style={{ width }}>
-                        <DiscussPage
-                            focusedSong={focusedSong}
-                            enabled={visitedTabs.has("discuss")}
-                            active={selectedTab === "discuss"}
-                        />
+                        {focusedSong ? (
+                            <DiscussPage
+                                focusedSong={focusedSong}
+                                enabled={visitedTabs.has("discuss")}
+                                active={selectedTab === "discuss"}
+                            />
+                        ) : (
+                            <NoSongPage />
+                        )}
                     </View>
                     <View style={{ width }}>
                         <QueueOpenContext.Provider value={setQueueOpen}>
@@ -142,73 +171,73 @@ export function PlayerPager() {
                         </QueueOpenContext.Provider>
                     </View>
                     <View style={{ width }}>
-                        <TagsPage
-                            focusedSong={focusedSong}
-                            enabled={visitedTabs.has("tags")}
-                        />
+                        {focusedSong ? (
+                            <TagsPage
+                                focusedSong={focusedSong}
+                                enabled={visitedTabs.has("tags")}
+                            />
+                        ) : (
+                            <NoSongPage />
+                        )}
                     </View>
                 </Animated.ScrollView>
             </View>
 
-            <View
-                className="items-center px-4 pt-2"
-                style={{ paddingBottom: Math.max(insets.bottom, 8) }}
-            >
-                <View
-                    className="relative flex-row overflow-hidden border border-border"
-                    style={{
-                        width: `${TAB_BAR_WIDTH_PERCENT}%`,
-                        height: TAB_BAR_HEIGHT,
-                        borderRadius: TAB_BAR_RADIUS,
-                        borderCurve: "continuous",
-                    }}
+            {liveSession ? (
+                <LiveSessionBar session={liveSession} />
+            ) : (
+                <PlayerBarShell
                     onLayout={(event) =>
                         setTabBarWidth(event.nativeEvent.layout.width)
                     }
                 >
-                    {/* The glass carries its own radius rather than leaning on
-                    the parent's clip. Native glass shapes its lensing and
-                    its specular edge from its own corners, so a clipped
-                    square reads as a flat fill instead of glass. Keep it
-                    off the touch path; the native view ignores
-                    `pointerEvents` and swallows the tab presses. */}
-                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                        <GlassSurface
-                            style={[
-                                StyleSheet.absoluteFill,
-                                {
-                                    borderRadius: TAB_BAR_RADIUS - 1,
-                                    borderCurve: "continuous",
-                                },
-                            ]}
-                        />
-                    </View>
                     {tabBarWidth > 0 ? (
                         <Animated.View
                             pointerEvents="none"
-                            className="absolute bottom-1 top-1"
-                            style={selectionStyle}
-                        >
-                            <GlassSurface
-                                style={{
-                                    flex: 1,
+                            className="absolute"
+                            style={[
+                                {
+                                    top: PLAYER_BAR_INSET,
+                                    bottom: PLAYER_BAR_INSET,
+                                    left: PLAYER_BAR_INSET,
                                     borderRadius: SELECTION_RADIUS,
                                     borderCurve: "continuous",
-                                    overflow: "hidden",
-                                }}
-                            />
-                        </Animated.View>
-                    ) : null}
-                    {PLAYER_TABS.map((tab) => (
-                        <PlayerTabButton
-                            key={tab}
-                            tab={tab}
-                            selected={selectedTab === tab}
-                            onPress={() => activateTab(tab)}
+                                    backgroundColor: SELECTION_FILL[scheme],
+                                },
+                                selectionStyle,
+                            ]}
                         />
-                    ))}
-                </View>
-            </View>
+                    ) : null}
+                    {PLAYER_TABS.map((tab) => {
+                        const look = TAB_PRESENTATION[tab];
+                        const selected = selectedTab === tab;
+                        return (
+                            <PlayerBarButton
+                                key={tab}
+                                role="tab"
+                                selected={selected}
+                                sf={look.sf[selected ? "active" : "inactive"]}
+                                icon={
+                                    look.icon[selected ? "active" : "inactive"]
+                                }
+                                label={look.label}
+                                onPress={() => activateTab(tab)}
+                            />
+                        );
+                    })}
+                </PlayerBarShell>
+            )}
+        </View>
+    );
+}
+
+/** Discuss and Tags in a live session with nothing playing. */
+function NoSongPage() {
+    return (
+        <View className="flex-1 items-center justify-center px-6">
+            <Text className="text-center text-muted-foreground">
+                Nothing playing yet.
+            </Text>
         </View>
     );
 }
@@ -252,31 +281,3 @@ const styles = StyleSheet.create({
         height: 0,
     },
 });
-
-function PlayerTabButton({
-    tab,
-    selected,
-    onPress,
-}: {
-    tab: PlayerTab;
-    selected: boolean;
-    onPress: () => void;
-}) {
-    const { colors } = useTheme();
-    const presentation = TAB_PRESENTATION[tab];
-    const icon = selected ? presentation.activeIcon : presentation.inactiveIcon;
-    const label = presentation.label;
-
-    return (
-        <Pressable
-            accessibilityRole="tab"
-            accessibilityLabel={label}
-            accessibilityState={{ selected }}
-            onPress={onPress}
-            className="flex-1 items-center justify-center active:opacity-70"
-        >
-            <Ionicons name={icon} size={26} color={colors.text} />
-            <Text className="mt-0.5 text-xs font-medium">{label}</Text>
-        </Pressable>
-    );
-}

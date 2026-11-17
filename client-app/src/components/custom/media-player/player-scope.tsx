@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { usePlaybackTrackState } from "@/lib/playback";
+import { useMyLiveSession } from "@/lib/routes/live-sessions";
 
 export type FocusedSong = {
     id: string;
@@ -19,7 +20,8 @@ export type FocusedSong = {
 };
 
 type PlayerScopeValue = {
-    focusedSong: FocusedSong;
+    /** Null only in a live session with nothing playing. */
+    focusedSong: FocusedSong | null;
 };
 
 const PlayerScopeContext = createContext<PlayerScopeValue | null>(null);
@@ -32,6 +34,10 @@ export function PlayerScopeProvider({ children }: { children: ReactNode }) {
     const router = useRouter();
     const focused = useIsFocused();
     const { activeTrack } = usePlaybackTrackState();
+    // a live session keeps the sheet open with nothing playing, since its
+    // controls live here. The id is known before the session loads, so a
+    // sheet opened right after starting one does not close on the way
+    const inSession = useMyLiveSession().mySessionId !== null;
     const params = useLocalSearchParams<{
         tagsSongId?: string;
         tagsSongTitle?: string;
@@ -70,12 +76,18 @@ export function PlayerScopeProvider({ children }: { children: ReactNode }) {
     // Playback can stop while the sheet is open. A route target still leaves
     // Discuss and Tags with a useful song, so only the plain player closes.
     useEffect(() => {
-        if (focused && !activeTrack && !pinnedSong && router.canGoBack()) {
+        if (
+            focused &&
+            !activeTrack &&
+            !pinnedSong &&
+            !inSession &&
+            router.canGoBack()
+        ) {
             router.back();
         }
-    }, [activeTrack, pinnedSong, focused, router]);
+    }, [activeTrack, pinnedSong, focused, inSession, router]);
 
-    const value = focusedSong ? { focusedSong } : null;
+    const value = focusedSong || inSession ? { focusedSong } : null;
 
     return value ? (
         <PlayerScopeContext.Provider value={value}>

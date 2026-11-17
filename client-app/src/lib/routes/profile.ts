@@ -24,7 +24,7 @@ export function useProfile(enabled = true) {
 /** One count from `GET /profile/data`. */
 export type UserDataCount = {
     name: string;
-    section: "library" | "tags" | "listening" | "social";
+    section: "library" | "tags" | "listening" | "social" | "social_listening";
     description: string;
     unit: "count" | "milliseconds";
     value: number;

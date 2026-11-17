@@ -7,6 +7,10 @@
 use std::collections::HashMap;
 
 use crate::db::entity::{comment_likes, comments, post_likes, posts, profile};
+use crate::db::friend_relations::{
+    NOT_BLOCKED_AUTHOR, blocked_either_way, clear_favorites_between,
+};
+use crate::db::shared_playlists::{PlaylistCard, playlist_cards};
 use crate::err::CadenzaError;
 use crate::services::notification::{NewNotification, NotificationType, push_notification};
 use chrono::{DateTime, TimeZone, Utc};
@@ -16,7 +20,7 @@ use sea_orm::{
     ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
     FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect, QueryTrait, RuntimeErr,
     Statement, TransactionTrait, Value,
-    sea_query::{ArrayType, Expr, ExprTrait, Func, OnConflict},
+    sea_query::{Expr, ExprTrait, Func, OnConflict},
 };
 
 /// How many posts one `/feed` call returns. A shorter page means that exclude
@@ -71,6 +75,9 @@ pub struct SocialPost {
     /// Apple Music catalog id of the attached song or artist, when the author
     /// picked one. Kind is not stored; the client asks MusicKit.
     pub topic_mk_id: Option<String>,
+    /// The attached shared playlist, instead of a song or artist. `None` too
+    /// once the playlist is deleted.
+    pub shared_playlist: Option<PlaylistCard>,
     pub comment_count: i64,
 }
 
@@ -103,6 +110,10 @@ pub struct PublicProfile {
     pub friend_request_received: bool,
     /// The viewer and this user have a completed friendship.
     pub is_friend: bool,
+    /// The viewer marked this friend a favorite.
+    pub is_favorite: bool,
+    /// The viewer blocked this user.
+    pub blocked: bool,
 }
 
 /// One named interest a score update wants to move.
@@ -134,12 +145,14 @@ pub async fn insert_post(
     embedding: &[f64],
     embedding_w_bday: &[f64],
     topic_mk_id: Option<&str>,
+    shared_playlist_id: Option<i64>,
 ) -> Result<i64, CadenzaError> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
-            "INSERT INTO posts (user_id, content, embedding, embedding_w_bday, topic_mk_id)
-             VALUES ($1, $2, $3::vector, $4::vector, $5)
+            "INSERT INTO posts
+                 (user_id, content, embedding, embedding_w_bday, topic_mk_id, shared_playlist_id)
+             VALUES ($1, $2, $3::vector, $4::vector, $5, $6)
              RETURNING post_id",
             vec![
                 user_id.into(),
@@ -147,6 +160,7 @@ pub async fn insert_post(
                 vector_literal(embedding).into(),
                 vector_literal(embedding_w_bday).into(),
                 topic_mk_id.map(str::to_owned).into(),
+                shared_playlist_id.into(),
             ],
         ))
         .await?
@@ -341,7 +355,11 @@ fn notification_metadata(
 ) -> serde_json::Value {
     match notif_type {
         NotificationType::Comment => serde_json::json!({ "post_id": post_id }),
-        NotificationType::FriendReqReceived | NotificationType::FriendReqAccepted => {
+        // session notifications are written by `db::live_sessions`, not here
+        NotificationType::FriendReqReceived
+        | NotificationType::FriendReqAccepted
+        | NotificationType::SessionJoinRequest
+        | NotificationType::SessionJoinAccepted => {
             serde_json::json!({
                 "sender_id": sender_id,
                 "resolution": null,
@@ -368,7 +386,10 @@ async fn notify_user(
     let username = actor_username(db, sender_id).await?;
     let title = match notif_type {
         NotificationType::Comment => format!("{username} commented on your post"),
-        NotificationType::FriendReqReceived | NotificationType::FriendReqAccepted => username,
+        NotificationType::FriendReqReceived
+        | NotificationType::FriendReqAccepted
+        | NotificationType::SessionJoinRequest
+        | NotificationType::SessionJoinAccepted => username,
     };
     push_notification(
         db,
@@ -746,7 +767,7 @@ pub async fn mark_posts_loaded(
          SELECT post_id, $1, 'loaded'
          FROM unnest($2::bigint[]) AS post_id
          ON CONFLICT (post_id, user_id) DO NOTHING",
-        vec![user_id.into(), bigint_array(post_ids)],
+        vec![user_id.into(), post_ids.to_vec().into()],
     ))
     .await?;
     Ok(())
@@ -769,7 +790,7 @@ pub async fn mark_posts_viewed(
          ON CONFLICT (post_id, user_id) DO UPDATE
          SET status = 'viewed',
              date = now()",
-        vec![user_id.into(), bigint_array(post_ids)],
+        vec![user_id.into(), post_ids.to_vec().into()],
     ))
     .await?;
     Ok(())
@@ -786,7 +807,8 @@ pub async fn get_posts(
     }
     let rows = PostRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT
+        format!(
+            "SELECT
              p.post_id,
              p.user_id AS author_id,
              p.content,
@@ -794,6 +816,7 @@ pub async fn get_posts(
              p.created_at,
              p.edited_at,
              p.topic_mk_id,
+             p.shared_playlist_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
@@ -803,20 +826,20 @@ pub async fn get_posts(
              p.comments AS comment_count
          FROM posts p
          LEFT JOIN profile pr ON pr.uid = p.user_id
-         WHERE p.post_id = ANY($2::bigint[])",
-        vec![viewer_id.into(), bigint_array(post_ids)],
+         WHERE p.post_id = ANY($2::bigint[])
+           AND {NOT_BLOCKED_AUTHOR}"
+        ),
+        vec![viewer_id.into(), post_ids.to_vec().into()],
     ))
     .all(db)
     .await?;
 
-    let by_id: HashMap<i64, PostRow> = rows.into_iter().map(|row| (row.post_id, row)).collect();
-    let mut posts = Vec::new();
-    for post_id in post_ids {
-        if let Some(row) = by_id.get(post_id) {
-            posts.push(row.to_post());
-        }
-    }
-    Ok(posts)
+    let mut by_id: HashMap<i64, PostRow> = rows.into_iter().map(|row| (row.post_id, row)).collect();
+    let ordered: Vec<PostRow> = post_ids
+        .iter()
+        .filter_map(|post_id| by_id.remove(post_id))
+        .collect();
+    to_posts(db, &ordered).await
 }
 
 /// The author's profile row, when they have one.
@@ -855,6 +878,8 @@ pub async fn find_public_profile(
         friend_request_sent: false,
         friend_request_received: false,
         is_friend: false,
+        is_favorite: false,
+        blocked: false,
     }))
 }
 
@@ -903,7 +928,7 @@ pub async fn friend_request_sent(
 /// Whether `viewer_id` and `other_id` have a completed friendship.
 /// The same user is never their own friend.
 pub async fn is_friend(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     viewer_id: Uuid,
     other_id: Uuid,
 ) -> Result<bool, CadenzaError> {
@@ -936,7 +961,8 @@ pub async fn is_friend(
 /// "sent you a friend request", in the same transaction as the insert. If the other
 /// person already sent a request, this accepts it and the row becomes
 /// `complete`, which notifies them that it was accepted. A completed
-/// friendship is [`CadenzaError::FriendshipAlreadyExists`].
+/// friendship is [`CadenzaError::FriendshipAlreadyExists`], and a block
+/// either way is [`CadenzaError::UserBlocked`].
 pub async fn request_friendship(
     db: &DatabaseConnection,
     sender_id: Uuid,
@@ -946,6 +972,9 @@ pub async fn request_friendship(
         return Err(CadenzaError::InvalidRequestBody(
             "you cannot send yourself a friend request".into(),
         ));
+    }
+    if blocked_either_way(db, sender_id, recipient_id).await? {
+        return Err(CadenzaError::UserBlocked);
     }
     let (user1, user2) = ordered_friend_users(sender_id, recipient_id);
     let status = friend_request_status(recipient_id, user1);
@@ -1003,8 +1032,8 @@ pub async fn request_friendship(
     }
 }
 
-/// Deletes the friendship row for this pair, whatever its status is.
-/// A missing row is a no-op. `user1` is the lexicographically smaller uuid.
+/// Deletes the friendship row for this pair, whatever its status is, and
+/// both favorites. A missing row is a no-op. `user1` is the lexicographically smaller uuid.
 ///
 /// Ignoring an incoming request also marks that person's "sent you a friend
 /// request" notification `ignored`.
@@ -1040,6 +1069,7 @@ pub async fn delete_friendship(
             resolve_friend_request_notification(&txn, user_id, other_id, "ignored").await?;
         }
     }
+    clear_favorites_between(&txn, user_id, other_id).await?;
     txn.commit().await?;
     Ok(())
 }
@@ -1307,7 +1337,7 @@ pub async fn get_topic_posts(
             post_id: row.post_id,
         });
     Ok(TopicPostPage {
-        posts: rows.iter().map(PostRow::to_post).collect(),
+        posts: to_posts(db, &rows).await?,
         next,
     })
 }
@@ -1320,6 +1350,7 @@ const TOPIC_POSTS_SELECT: &str = "SELECT
              p.created_at,
              p.edited_at,
              p.topic_mk_id,
+             p.shared_playlist_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
@@ -1343,6 +1374,7 @@ fn topic_posts_statement(
             format!(
                 "{TOPIC_POSTS_SELECT}
                  WHERE p.topic_mk_id = $2
+                   AND {NOT_BLOCKED_AUTHOR}
                  ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
                  LIMIT $3"
             ),
@@ -1357,6 +1389,7 @@ fn topic_posts_statement(
             format!(
                 "{TOPIC_POSTS_SELECT}
                  WHERE p.topic_mk_id = $2
+                   AND {NOT_BLOCKED_AUTHOR}
                    AND (p.likes, p.created_at, p.post_id) < ($3, $4, $5)
                  ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
                  LIMIT $6"
@@ -1373,6 +1406,63 @@ fn topic_posts_statement(
     }
 }
 
+/// Posts in the friends feed per page.
+pub const FRIENDS_FEED_SIZE: i64 = 20;
+
+/// Posts by `viewer_id`'s completed friends and their own, newest first,
+/// older than `before` when given. A page of [`FRIENDS_FEED_SIZE`]; a shorter
+/// page is the end. Read only: nothing is marked loaded or viewed.
+pub async fn get_friends_feed(
+    db: &DatabaseConnection,
+    viewer_id: Uuid,
+    before: Option<DateTime<Utc>>,
+) -> Result<Vec<SocialPost>, CadenzaError> {
+    let rows = PostRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        format!(
+            "SELECT
+             p.post_id,
+             p.user_id AS author_id,
+             p.content,
+             p.likes,
+             p.created_at,
+             p.edited_at,
+             p.topic_mk_id,
+             p.shared_playlist_id,
+             COALESCE(pr.username, 'unknown') AS username,
+             EXISTS (
+                 SELECT 1 FROM post_likes
+                 WHERE post_likes.post_id = p.post_id
+                   AND post_likes.user_id = $1
+             ) AS liked,
+             p.comments AS comment_count
+         FROM posts p
+         LEFT JOIN profile pr ON pr.uid = p.user_id
+         WHERE (
+             p.user_id = $1
+             OR EXISTS (
+                 SELECT 1 FROM friendships f
+                 WHERE f.status = 'complete'
+                   AND f.user1 = LEAST(p.user_id, $1)
+                   AND f.user2 = GREATEST(p.user_id, $1)
+             )
+         )
+           AND ($2::timestamptz IS NULL OR p.created_at < $2)
+           AND {NOT_BLOCKED_AUTHOR}
+         ORDER BY p.created_at DESC, p.post_id DESC
+         LIMIT $3"
+        ),
+        vec![
+            viewer_id.into(),
+            before.map(|at| at.fixed_offset()).into(),
+            FRIENDS_FEED_SIZE.into(),
+        ],
+    ))
+    .all(db)
+    .await?;
+    to_posts(db, &rows).await
+}
+
 /// One author's posts, newest first.
 pub async fn get_author_posts(
     db: &DatabaseConnection,
@@ -1381,7 +1471,8 @@ pub async fn get_author_posts(
 ) -> Result<Vec<SocialPost>, CadenzaError> {
     let rows = PostRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT
+        format!(
+            "SELECT
              p.post_id,
              p.user_id AS author_id,
              p.content,
@@ -1389,6 +1480,7 @@ pub async fn get_author_posts(
              p.created_at,
              p.edited_at,
              p.topic_mk_id,
+             p.shared_playlist_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
@@ -1399,12 +1491,89 @@ pub async fn get_author_posts(
          FROM posts p
          LEFT JOIN profile pr ON pr.uid = p.user_id
          WHERE p.user_id = $2
-         ORDER BY p.created_at DESC",
+           AND {NOT_BLOCKED_AUTHOR}
+         ORDER BY p.created_at DESC"
+        ),
         vec![viewer_id.into(), author_id.into()],
     ))
     .all(db)
     .await?;
-    Ok(rows.iter().map(PostRow::to_post).collect())
+    to_posts(db, &rows).await
+}
+
+/// How many replies a profile shows.
+const AUTHOR_COMMENT_LIMIT: u64 = 100;
+
+/// A comment, with the post it is on.
+#[derive(Clone, Debug)]
+pub struct AuthorComment {
+    pub comment: SocialComment,
+    pub post_content: String,
+    pub post_author_id: Uuid,
+    pub post_author_username: String,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct AuthorCommentRow {
+    #[sea_orm(nested)]
+    comment: CommentRow,
+    post_content: String,
+    post_author_id: Uuid,
+    post_author_username: String,
+}
+
+/// One author's comments, newest first, at most [`AUTHOR_COMMENT_LIMIT`].
+/// Left out when the viewer and either the commenter or the post's author
+/// block each other.
+pub async fn get_author_comments(
+    db: &DatabaseConnection,
+    viewer_id: Uuid,
+    author_id: Uuid,
+) -> Result<Vec<AuthorComment>, CadenzaError> {
+    let rows = AuthorCommentRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        format!(
+            "SELECT
+             c.comment_id,
+             c.post_id,
+             c.user_id AS author_id,
+             c.content,
+             c.likes,
+             c.created_at,
+             c.edited_at,
+             COALESCE(cr.username, 'unknown') AS username,
+             EXISTS (
+                 SELECT 1 FROM comment_likes
+                 WHERE comment_likes.comment_id = c.comment_id
+                   AND comment_likes.user_id = $1
+             ) AS liked,
+             p.content AS post_content,
+             p.user_id AS post_author_id,
+             COALESCE(pr.username, 'unknown') AS post_author_username
+         FROM comments c
+         JOIN posts p ON p.post_id = c.post_id
+         LEFT JOIN profile cr ON cr.uid = c.user_id
+         LEFT JOIN profile pr ON pr.uid = p.user_id
+         WHERE c.user_id = $2
+           AND {NOT_BLOCKED_AUTHOR}
+           AND {not_blocked_commenter}
+         ORDER BY c.created_at DESC, c.comment_id DESC
+         LIMIT {AUTHOR_COMMENT_LIMIT}",
+            not_blocked_commenter = NOT_BLOCKED_AUTHOR.replace("p.user_id", "c.user_id"),
+        ),
+        vec![viewer_id.into(), author_id.into()],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| AuthorComment {
+            comment: row.comment.to_comment(),
+            post_content: row.post_content,
+            post_author_id: row.post_author_id,
+            post_author_username: row.post_author_username,
+        })
+        .collect())
 }
 
 /// Normalized weighted sum of the top 10 genres and top 10 artists.
@@ -1578,7 +1747,7 @@ pub async fn upsert_interests(
          ON CONFLICT (name, interest_type) DO UPDATE SET name = EXCLUDED.name
          RETURNING interest_id, name, interest_type::text AS interest_type,
                    (embedding IS NOT NULL) AS embedding_exists",
-            vec![text_array(&names), text_array(&types)],
+            vec![names.to_vec().into(), types.to_vec().into()],
         ))
         .all(db)
         .await?,
@@ -1606,7 +1775,7 @@ pub async fn set_interest_embeddings(
          SET embedding = v.embedding::vector
          FROM unnest($1::bigint[], $2::text[]) AS v(interest_id, embedding)
          WHERE i.interest_id = v.interest_id",
-        vec![bigint_array(interest_ids), text_array(&literals)],
+        vec![interest_ids.to_vec().into(), literals.to_vec().into()],
     ))
     .await?;
     Ok(())
@@ -1632,8 +1801,8 @@ pub async fn add_interest_scores(
          SET score = interest_scores.score + EXCLUDED.score",
         vec![
             user_id.into(),
-            bigint_array(interest_ids),
-            double_array(deltas),
+            interest_ids.to_vec().into(),
+            deltas.to_vec().into(),
         ],
     ))
     .await
@@ -1846,43 +2015,6 @@ fn exclude_clause(exclude: FeedExclude, user_id: Uuid) -> (&'static str, Vec<Val
     }
 }
 
-fn bigint_array(ids: &[i64]) -> Value {
-    Value::Array(
-        ArrayType::BigInt,
-        Some(Box::new(
-            ids.iter()
-                .copied()
-                .map(|id| Value::BigInt(Some(id)))
-                .collect(),
-        )),
-    )
-}
-
-fn text_array(items: &[String]) -> Value {
-    Value::Array(
-        ArrayType::String,
-        Some(Box::new(
-            items
-                .iter()
-                .map(|item| Value::String(Some(item.clone())))
-                .collect(),
-        )),
-    )
-}
-
-fn double_array(items: &[f64]) -> Value {
-    Value::Array(
-        ArrayType::Double,
-        Some(Box::new(
-            items
-                .iter()
-                .copied()
-                .map(|n| Value::Double(Some(n)))
-                .collect(),
-        )),
-    )
-}
-
 fn is_missing_user(err: &DbErr) -> bool {
     let text = err.to_string();
     text.contains("23503") && text.contains("interest_scores")
@@ -1911,7 +2043,30 @@ struct PostRow {
     username: String,
     liked: bool,
     topic_mk_id: Option<String>,
+    shared_playlist_id: Option<i64>,
     comment_count: i64,
+}
+
+/// Posts from rows, in order, each with its attached playlist's card. One
+/// query for all the cards.
+async fn to_posts(
+    db: &impl ConnectionTrait,
+    rows: &[PostRow],
+) -> Result<Vec<SocialPost>, CadenzaError> {
+    let ids: Vec<i64> = rows
+        .iter()
+        .filter_map(|row| row.shared_playlist_id)
+        .collect();
+    let cards = playlist_cards(db, &ids).await?;
+    Ok(rows
+        .iter()
+        .map(|row| SocialPost {
+            shared_playlist: row
+                .shared_playlist_id
+                .and_then(|id| cards.get(&id).cloned()),
+            ..row.to_post()
+        })
+        .collect())
 }
 
 impl PostRow {
@@ -1928,6 +2083,7 @@ impl PostRow {
             author_id: self.author_id,
             author_username: self.username.clone(),
             topic_mk_id: self.topic_mk_id.clone(),
+            shared_playlist: None,
             comment_count: self.comment_count,
         }
     }

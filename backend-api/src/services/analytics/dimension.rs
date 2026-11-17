@@ -97,6 +97,26 @@ impl Dimension {
                              then nullif(btrim(payload->>'source_id'), '') end",
             description: "Most played queries",
         },
+        Dimension {
+            name: "shared_playlist",
+            key_expr: "case when payload->>'source_kind' = 'shared_playlist' \
+                       then nullif(btrim(payload->>'source_id'), '') end",
+            label_expr: "payload->>'source_name'",
+            sub_label_expr: "null::text",
+            entity_id_expr: "case when payload->>'source_kind' = 'shared_playlist' \
+                             then nullif(btrim(payload->>'source_id'), '') end",
+            description: "Most played shared playlists",
+        },
+        Dimension {
+            name: "live_session",
+            key_expr: "case when payload->>'source_kind' = 'live_session' \
+                       then nullif(btrim(payload->>'source_id'), '') end",
+            label_expr: "payload->>'source_name'",
+            sub_label_expr: "null::text",
+            entity_id_expr: "case when payload->>'source_kind' = 'live_session' \
+                             then nullif(btrim(payload->>'source_id'), '') end",
+            description: "Most played live sessions",
+        },
     ];
 
     pub fn from_name(name: &str) -> Option<Self> {
@@ -211,7 +231,7 @@ mod tests {
     /// rank as a query too.
     #[test]
     fn source_dimensions_key_on_their_own_kind() {
-        for name in ["playlist", "query"] {
+        for name in ["playlist", "query", "shared_playlist", "live_session"] {
             let dimension = Dimension::from_name(name).unwrap();
             let kind = format!("'source_kind' = '{name}'");
             assert!(dimension.key_expr.contains(&kind), "{name}");

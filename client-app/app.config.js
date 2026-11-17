@@ -15,7 +15,8 @@ module.exports = {
         version: "1.0.0",
         orientation: "portrait",
         icon: "./assets/images/icon.png",
-        scheme: "client-app",
+        // cadenza:// is what invite links use (cadenza://join/CODE)
+        scheme: ["client-app", "cadenza"],
         userInterfaceStyle: "automatic",
         ios: {
             supportsTablet: true,
@@ -25,6 +26,9 @@ module.exports = {
             infoPlist: {
                 NSAppleMusicUsageDescription:
                     "Cadenza needs access to Apple Music to sync and play your library.",
+                // keeps the app running while music plays in the background,
+                // so plays are counted and friends see now playing there too
+                UIBackgroundModes: ["audio"],
             },
         },
         android: {

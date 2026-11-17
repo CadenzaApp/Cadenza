@@ -12,7 +12,17 @@
 
 import type { QueryJSON } from "./query-json";
 
-export type PlaySourceKind = "playlist" | "query";
+/**
+ * `playlist` is an Apple Music library playlist, `shared_playlist` a Cadenza
+ * one (its id is the backend's playlist id), and `live_session` a live
+ * session (its id is the session's uuid). They are kept apart so ids from one
+ * never rank as the other.
+ */
+export type PlaySourceKind =
+    | "playlist"
+    | "query"
+    | "shared_playlist"
+    | "live_session";
 
 export type PlaySource = {
     kind: PlaySourceKind;
