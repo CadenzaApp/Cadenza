@@ -14,11 +14,18 @@ export function RemoteArtwork({
     className,
     style,
     fallback,
+    animatesSize = false,
 }: {
     url?: string | null;
     className?: string;
     style?: StyleProp<ViewStyle>;
     fallback?: ReactNode;
+    /**
+     * Set for a box whose size animates. The image then keeps its first decode
+     * instead of reloading for every new size, which on Android blinks it out
+     * and fades it back in on each frame.
+     */
+    animatesSize?: boolean;
 }) {
     // the url that failed, not a flag: a recycled list row gets a new url,
     // and a failed cover must not carry over to it
@@ -42,6 +49,7 @@ export function RemoteArtwork({
                     style={StyleSheet.absoluteFill}
                     contentFit="cover"
                     cachePolicy="memory-disk"
+                    allowDownscaling={!animatesSize}
                     transition={120}
                     onError={() => setFailedUrl(uri!)}
                 />
