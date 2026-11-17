@@ -421,7 +421,9 @@ so the audience checks stay in the HTTP reads, and access is checked once per su
   shuffle off, a repeat change that put no songs back, a host report that kept the song).
   Members apply it without a refetch.
 - Presence: a user is online while one of their sockets is open. The client closes its
-  socket in the background, so this is "has the app open". `GET /social/friends` reads it.
+  socket in the background unless a live session or a shared song plays there, so this is
+  "has the app open, or is playing in it". The listening reads only show online users' now
+  playing, since an app closed mid song cannot clear its row. `GET /social/friends` reads it.
   A socket that sends nothing for 60 s is dropped (the client pings every 25 s). A user's last
   socket ending sets `host_away_since` on sessions they host, and `host_closed_app` when the phone
   closed it rather than it going quiet, and the same `away_since` / `closed_app` on sessions they

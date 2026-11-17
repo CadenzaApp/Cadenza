@@ -25,7 +25,7 @@ use crate::{
         },
         vec_into,
     },
-    services::realtime::{EventKind, SharedEventBus, publish_user},
+    services::realtime::{EventKind, SharedEventBus, SharedPresence, publish_user},
 };
 
 /// How many recent plays `GET /listening/users/{user_id}` returns by default.
@@ -59,18 +59,27 @@ async fn delete_now_playing(
 /// Friends playing something now who let friends see it, most recently
 /// updated first. `position_ms` is projected to `as_of`.
 ///
+/// Only friends whose app is up count (see [`SharedPresence`]), or who are
+/// listed for a live session: a phone closed mid song cannot clear its row,
+/// and the row would otherwise stay shown until the song ran out. The app
+/// keeps its socket open in the background while it plays.
+///
 /// ```json
 /// { "listening": [ { "user_id": "...", "username": "ada", "now_playing": { "song_id": "1440857781", "title": "Motion Sickness", "artist": "Phoebe Bridgers", "album": "Stranger in the Alps", "artwork_url": "https://...", "duration_ms": 229000, "position_ms": 61000, "as_of": "2026-11-10T18:00:00Z", "live_session_id": null, "up_next": [ { "song_id": "1440857790", "title": "Kyoto", "artist": "Phoebe Bridgers", "artwork_url": "https://..." } ] }, "can_join": true, "listener_count": 1 } ] }
 /// ```
 async fn get_friends_listening(
     State(db): State<DatabaseConnection>,
+    State(presence): State<SharedPresence>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
 ) -> Result<Json<FriendsListeningResponse>, CadenzaError> {
     let users = friends_listening(&db, claims.user_id).await?;
+    let ids: Vec<Uuid> = users.iter().map(|user| user.user_id).collect();
+    let online = presence.online_among(&ids);
     let now = Utc::now();
     Ok(Json(FriendsListeningResponse {
         listening: users
             .into_iter()
+            .filter(|user| user.in_live_session || online.contains(&user.user_id))
             .map(|user| FriendListening::at(user, now))
             .collect(),
     }))
@@ -84,18 +93,23 @@ struct UserListeningQuery {
 /// One user's now playing and recent plays, each gated by their privacy
 /// settings. `now_playing` is null when nothing is playing or it is hidden,
 /// `recent_plays` is null when hidden. `limit` is at most 50, default 20.
+/// `now_playing` is also null while their app is closed, as on the friends
+/// list.
 ///
 /// ```json
 /// { "user_id": "...", "now_playing": null, "recent_plays": [ { "song_id": "1440857781", "played_at": "2026-11-10T17:40:00Z", "artist_name": "Phoebe Bridgers", "album_name": "Stranger in the Alps" } ] }
 /// ```
 async fn get_user_listening(
     State(db): State<DatabaseConnection>,
+    State(presence): State<SharedPresence>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Path(user_id): Path<Uuid>,
     Query(query): Query<UserListeningQuery>,
 ) -> Result<Json<UserListeningResponse>, CadenzaError> {
     let limit = query.limit.unwrap_or(DEFAULT_RECENT_PLAYS);
-    let now_playing = now_playing_for_viewer(&db, claims.user_id, user_id).await?;
+    let now_playing = now_playing_for_viewer(&db, claims.user_id, user_id)
+        .await?
+        .filter(|_| !presence.online_among(&[user_id]).is_empty());
     let recent_plays = recent_plays_for_viewer(&db, claims.user_id, user_id, limit).await?;
     let now = Utc::now();
     Ok(Json(UserListeningResponse {

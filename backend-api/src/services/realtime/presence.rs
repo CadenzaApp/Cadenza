@@ -1,6 +1,6 @@
 //! Who has the app open: a user counts as online while at least one of their
-//! realtime sockets is up. The client closes its socket in the background, so
-//! this is foreground presence. Behind the [`Presence`] trait for the same
+//! realtime sockets is up. The client closes its socket in the background
+//! unless it is playing there, so this is "the app is open, or playing". Behind the [`Presence`] trait for the same
 //! reason as the bus: one instance keeps it in memory, several would need a
 //! shared store.
 
