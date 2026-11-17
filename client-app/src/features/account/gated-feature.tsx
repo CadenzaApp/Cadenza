@@ -1,10 +1,13 @@
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import { View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import type { MusicFeature } from "@/lib/music-access";
-import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import {
+    InsideSheetContext,
+    useScreenOverlayInsets,
+} from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { APPLE_MUSIC_NEBULA } from "@/lib/theme";
@@ -50,6 +53,7 @@ export function GatedFeature({
 function ConnectInPlace({ reason }: { reason: string }) {
     const scroll = useScreenScroll();
     const { listBottomInset } = useScreenOverlayInsets();
+    const insideSheet = useContext(InsideSheetContext);
     const { connectAppleMusic, isConnecting, message, lastStatus } =
         useConnectAppleMusic();
 
@@ -61,6 +65,9 @@ function ConnectInPlace({ reason }: { reason: string }) {
             <ScreenScrollMarker>
                 <Animated.ScrollView
                     {...scroll}
+                    // in a sheet (Add to Playlist), so a drag down scrolls
+                    // back up before it closes the sheet on Android
+                    nestedScrollEnabled={insideSheet}
                     className="flex-1"
                     contentContainerClassName="flex-grow justify-center gap-6 px-6 pt-6"
                     contentContainerStyle={[

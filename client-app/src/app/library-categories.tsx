@@ -32,6 +32,9 @@ export default function LibraryCategoriesScreen() {
             <ScreenScrollMarker>
                 <Animated.ScrollView
                     {...scroll}
+                    // so a drag down scrolls back up before it closes the
+                    // sheet on Android, as in the settings sheets
+                    nestedScrollEnabled
                     className="flex-1"
                     contentContainerClassName="px-5"
                     contentContainerStyle={[

@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import { FlatList, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { usePrefetchCollectionSongs } from "@/lib/musickit-hooks";
@@ -10,7 +10,10 @@ import { MusicListItemSkeleton } from "@/components/custom/music-list/music-list
 import { ZoomTile } from "@/components/custom/zoom-tile";
 import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
-import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import {
+    InsideSheetContext,
+    useScreenOverlayInsets,
+} from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { useVisibleItems } from "@/lib/use-visible-items";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
@@ -55,11 +58,15 @@ export function CollectionList({
     const collections = useVisibleItems(givenCollections);
     const { listBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll<FlatList<MusicItem>>();
+    const insideSheet = useContext(InsideSheetContext);
 
     return (
         <ScreenScrollMarker>
             <Animated.FlatList
                 {...scroll}
+                // in a sheet (Add to Playlist), so a drag down scrolls back
+                // up before it closes the sheet on Android
+                nestedScrollEnabled={insideSheet}
                 className="flex-1"
                 data={collections}
                 keyExtractor={(collection) => collection.id}
