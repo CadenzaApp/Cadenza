@@ -16,7 +16,11 @@ pub mod phone_tools;
 pub mod prompt;
 pub mod tools;
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use sea_orm::{DatabaseConnection, prelude::Uuid};
@@ -144,10 +148,16 @@ async fn answer(
     };
     let mut tool_definitions = definitions();
     tool_definitions.extend(phone_tools::definitions());
+    // the tag ids the prompt lists are the model's to use without a lookup
+    let tag_ids = tags
+        .iter()
+        .map(|tag| tag.tag_id.to_string())
+        .chain(activity_tags.iter().map(|(_, tag)| tag.tag_id.to_string()));
     let state = match resume {
         Some(resume) => LoopState::resumed(resume, last_card),
         None => LoopState::new(last_card),
-    };
+    }
+    .with_known_ids(tag_ids);
     run_loop(
         model,
         &runner,
@@ -283,6 +293,9 @@ pub struct LoopState {
     /// The last card shown before this answer, for `songs: "card"` until this
     /// answer has a card of its own.
     last_card: Vec<String>,
+    /// Ids the model may use without a tool having returned them in this answer: the
+    /// user's tags, which the prompt lists.
+    known_ids: HashSet<String>,
 }
 
 impl LoopState {
@@ -293,7 +306,47 @@ impl LoopState {
             songs: None,
             steps_used: 0,
             last_card,
+            known_ids: HashSet::new(),
         }
+    }
+
+    /// Ids the prompt already gave the model, like the user's tag ids.
+    pub fn with_known_ids(mut self, ids: impl IntoIterator<Item = String>) -> Self {
+        self.known_ids.extend(ids);
+        self
+    }
+
+    /// Every id the model could have read in this answer: anything a tool returned, the
+    /// cards, and the known ids. Strings and numbers both, as strings. Wider than ids
+    /// alone (titles land here too), which is fine: it only has to hold every real one.
+    fn sourced_ids(&self) -> HashSet<String> {
+        fn walk(value: &Value, found: &mut HashSet<String>) {
+            match value {
+                Value::Object(object) => object.values().for_each(|value| walk(value, found)),
+                Value::Array(values) => values.iter().for_each(|value| walk(value, found)),
+                other => {
+                    if let Some(id) = phone_tools::id_value(other) {
+                        found.insert(id);
+                    }
+                }
+            }
+        }
+        let mut found = self.known_ids.clone();
+        found.extend(self.last_card.iter().cloned());
+        if let Some(card) = &self.songs {
+            found.extend(card.song_ids.iter().cloned());
+        }
+        for item in &self.items {
+            if item["type"] != "function_call_output" {
+                continue;
+            }
+            if let Some(output) = item["output"].as_str()
+                && let Ok(value) = serde_json::from_str::<Value>(output)
+            {
+                walk(&value, &mut found);
+            }
+        }
+        found
     }
 
     /// Picks up a continuation, with the phone's output answering its call.
@@ -309,6 +362,7 @@ impl LoopState {
             songs: continuation.songs,
             steps_used: continuation.steps_used,
             last_card,
+            known_ids: HashSet::new(),
         };
         if let Some(card) = phone_tools::take_card(&mut output) {
             output = with_card_note(output, card.total);
@@ -608,6 +662,25 @@ pub async fn run_loop(
                         continue;
                     }
                 };
+            // an id no tool gave it is one it remembered or made up; it never reaches the
+            // phone, and the model is sent to look it up
+            let sourced = state.sourced_ids();
+            let unsourced: Vec<String> = phone_tools::ids_named(&call.name, &arguments)
+                .into_iter()
+                .filter(|id| !sourced.contains(id))
+                .collect();
+            if !unsourced.is_empty() {
+                println!(
+                    "[assistant] {} refused, ids from no tool: {unsourced:?}",
+                    call.name
+                );
+                state.push_output(
+                    &call.call_id,
+                    &json!({ "error": phone_tools::unsourced_message(&unsourced) }),
+                );
+                state.add_step(&call.name, label);
+                continue;
+            }
             println!(
                 "[assistant] {} -> phone {}",
                 call.name,
@@ -820,7 +893,10 @@ mod tests {
     #[tokio::test]
     async fn a_resume_carries_on_with_the_phones_output() {
         let first = ScriptedModel::new(vec![call("play", r#"{"songs":["9"]}"#)]);
-        let AssistantResponse::ClientToolCall { continuation, .. } = run(&first).await else {
+        // the id came from the last card shown, as a real one would
+        let AssistantResponse::ClientToolCall { continuation, .. } =
+            run_with(&first, LoopState::new(vec!["9".into()])).await
+        else {
             panic!("expected a client tool call");
         };
 
@@ -870,6 +946,66 @@ mod tests {
         let output: Value = serde_json::from_str(inputs[0][2]["output"].as_str().unwrap()).unwrap();
         assert_eq!(output["songs"], json!([]));
         assert!(output.get("card").is_none());
+    }
+
+    #[tokio::test]
+    async fn an_id_from_memory_never_reaches_the_phone() {
+        let model = ScriptedModel::new(vec![
+            call("open_screen", r#"{"screen":"album","id":"999"}"#),
+            text("I need to look it up first."),
+        ]);
+        let AssistantResponse::Reply { text, .. } = run(&model).await else {
+            panic!("expected a reply, not a phone call");
+        };
+        assert_eq!(text, "I need to look it up first.");
+        let inputs = model.inputs.lock().unwrap();
+        let output = inputs[1][2]["output"].as_str().unwrap();
+        assert!(output.contains("999 did not come from a tool result"));
+    }
+
+    /// Answers find_album with a real album id.
+    struct AlbumTools;
+
+    #[async_trait]
+    impl ToolRunner for AlbumTools {
+        async fn run(&self, _name: &str, _arguments: &str) -> ToolOutcome {
+            ToolOutcome {
+                output: json!({ "albums": [{ "album_id": "1440", "name": "Blonde" }] }),
+                label: "Looked up an album".into(),
+                songs: None,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn an_id_a_tool_returned_goes_to_the_phone() {
+        let model = ScriptedModel::new(vec![
+            call("find_album", r#"{"name":"Blonde"}"#),
+            call("open_screen", r#"{"screen":"album","id":"1440"}"#),
+        ]);
+        let response = run_loop(
+            &model,
+            &AlbumTools,
+            "instructions",
+            history(),
+            &[],
+            LoopState::new(vec![]),
+        )
+        .await
+        .unwrap();
+        assert!(
+            matches!(response, AssistantResponse::ClientToolCall { name, .. } if name == "open_screen")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_tag_id_from_the_prompt_is_known() {
+        let model = ScriptedModel::new(vec![call("open_screen", r#"{"screen":"tag","id":12}"#)]);
+        let state = LoopState::new(vec![]).with_known_ids(["12".to_owned()]);
+        assert!(matches!(
+            run_with(&model, state).await,
+            AssistantResponse::ClientToolCall { .. }
+        ));
     }
 
     #[tokio::test]

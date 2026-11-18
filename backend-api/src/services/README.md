@@ -384,6 +384,14 @@ append each call and its output, and repeat until the model answers with text. I
   budget), so the phone cannot slip a message with another role in. The request is
   `parallel_tool_calls: false`; a second call in the same turn as a phone tool is answered with
   an error so the model asks again.
+- No id from memory reaches the phone. Before a phone tool runs, every id it names
+  (`phone_tools::ids_named`: a screen's id, an album, artist, or playlist id, song ids) must be
+  one this answer's tool outputs returned, a card's, or one of the user's tag ids from the
+  prompt (`LoopState::sourced_ids`). Any other id is answered with an error that sends the
+  model to look it up (`find_album`, `find_artist`, `apple_music_playlists`, ...), so a page
+  is never opened on a remembered or made-up id. The phone checks too: an artist, an album
+  (and that it has songs), and an Apple Music playlist are confirmed with Apple before
+  opening.
 - `songs: "card"` on `play`, `queue_songs`, and the Apple Music playlist tools becomes the ids on
   this answer's card, or else the last card shown, since the model only sees the first 25. A
   `card` in a phone tool's output (search, an Apple Music playlist) becomes the answer's card

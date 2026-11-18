@@ -621,6 +621,15 @@ async function openScreenFor(
                 error: "Apple Music has no album with that id. Look the album up with find_album and use its album_id.",
             };
         }
+        // an album Apple lists but has no songs for here would open blank
+        const tracks = await readAppleMusic(() =>
+            MusicKit.getAlbumSongs(id, { limit: 1 }),
+        ).catch(() => null);
+        if (!tracks || tracks.items.length === 0) {
+            return {
+                error: "That album has no songs on Apple Music here, so its page would be empty. Pick another result from find_album, like the standard edition.",
+            };
+        }
         openScreen(collectionRoute(album[0]) as Href, { closing: "assistant" });
         return { opened: screen, id, name: album[0].title };
     }
@@ -649,6 +658,18 @@ async function openScreenFor(
                         } as Href)
                       : null;
     if (!href) return { error: `There is no screen called ${screen}.` };
+    if (screen === "apple_music_playlist") {
+        const exists =
+            playlistNames.has(id) ||
+            (await userPlaylists().catch(() => [])).some(
+                (playlist) => playlist.id === id,
+            );
+        if (!exists) {
+            return {
+                error: "None of the user's Apple Music playlists has that id. Look it up with apple_music_playlists.",
+            };
+        }
+    }
     openScreen(href, { closing: "assistant" });
     return { opened: screen, id };
 }

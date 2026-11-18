@@ -124,6 +124,55 @@ pub fn prepare_arguments(
     Ok(args)
 }
 
+/// The ids a phone tool call names, in its prepared arguments: every one must have come
+/// from a tool result in this answer (or the user's tags in the prompt, or a card), never
+/// from the model's memory. `"current"` (the song playing) is not an id.
+pub fn ids_named(name: &str, args: &Value) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut take = |key: &str| {
+        if let Some(id) = id_value(&args[key]) {
+            ids.push(id);
+        }
+    };
+    match name {
+        "open_screen" => take("id"),
+        "play" | "queue_songs" => {
+            take("apple_music_playlist_id");
+            take("album_id");
+            take("artist_id");
+        }
+        "favorite_song" => {
+            if args["song_id"] != "current" {
+                take("song_id");
+            }
+        }
+        "favorite_collection" => take("id"),
+        "apple_music_playlist_songs" | "add_to_apple_music_playlist" => take("playlist_id"),
+        _ => {}
+    }
+    if let Some(songs) = args["songs"].as_array() {
+        ids.extend(songs.iter().filter_map(id_value));
+    }
+    ids
+}
+
+/// An id as a string, from a JSON string or number.
+pub fn id_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(id) if !id.trim().is_empty() => Some(id.trim().to_owned()),
+        Value::Number(id) => Some(id.to_string()),
+        _ => None,
+    }
+}
+
+/// What the model is told when a phone call names an id no tool gave it.
+pub fn unsourced_message(ids: &[String]) -> String {
+    format!(
+        "Not done: {} did not come from a tool result in this answer, so it may be wrong. Never use an id from memory or from an earlier answer. Look it up first (find_album for an album, find_artist for an artist, apple_music_playlists for an Apple Music playlist, list_saved_queries for a saved query, list_playlists for a shared playlist, now_playing for what is playing, or a song tool like find_songs or run_query for songs), then call this again with the id it returns.",
+        ids.join(", ")
+    )
+}
+
 /// Takes the `card` out of a phone tool's output: the songs to show under the
 /// answer. What is left is what the model reads. None when there is no usable
 /// card.
@@ -411,6 +460,47 @@ mod tests {
         );
         assert!(prepare_arguments("now_playing", "[1]", None).is_err());
         assert!(prepare_arguments("now_playing", "{", None).is_err());
+    }
+
+    #[test]
+    fn ids_named_cover_every_id_argument() {
+        let ids = |name: &str, args: Value| ids_named(name, &args);
+        assert_eq!(
+            ids("open_screen", json!({ "screen": "album", "id": "1440" })),
+            ["1440"]
+        );
+        assert!(ids("open_screen", json!({ "screen": "appearance" })).is_empty());
+        assert_eq!(ids("play", json!({ "album_id": "9" })), ["9"]);
+        assert_eq!(
+            ids(
+                "queue_songs",
+                json!({ "songs": ["1", "2"], "position": "end" })
+            ),
+            ["1", "2"]
+        );
+        assert!(
+            ids(
+                "favorite_song",
+                json!({ "song_id": "current", "favorite": true })
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            ids("favorite_collection", json!({ "kind": "album", "id": "7" })),
+            ["7"]
+        );
+        assert_eq!(
+            ids(
+                "add_to_apple_music_playlist",
+                json!({ "playlist_id": "p.1", "songs": ["3"] })
+            ),
+            ["p.1", "3"]
+        );
+        // a number counts the same as a string
+        assert_eq!(
+            ids("open_screen", json!({ "screen": "tag", "id": 12 })),
+            ["12"]
+        );
     }
 
     #[test]
