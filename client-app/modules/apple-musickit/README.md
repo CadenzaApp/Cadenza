@@ -15,6 +15,7 @@ Import `Auth`, `MusicKit`, `Playback`, and their public types from
   `MusicUserTokenProvider` with cache bypass after the user grants access. The old
   `SKCloudServiceController.requestUserToken` path is deprecated and could return an opaque
   StoreKit client-invalid error after a developer-token change.
+- `MusicKit.getRecommendations()` reads `/v1/me/recommendations` and returns songs and artists. An album or playlist becomes one random song from its first track page, or, one time in three, that song's artist. A later call can pick a different song. Stations are skipped. The list can be shorter than five.
 - `MusicKit` searches the catalog, reads library pages and playlist tracks,
   reads or changes favorite state for songs, albums, and playlists, writes to
   library playlists, and reads catalog and library artists.
@@ -297,13 +298,13 @@ album/playlist equivalent needed elsewhere in this module.
 
 ## Artists
 
-| call                                        | returns                                                      |
-| ------------------------------------------- | ------------------------------------------------------------ |
-| `getSongArtists(songId)`                    | Catalog artist ids credited on a song, most prominent first. |
-| `getArtist(artistId)`                       | An `ArtistDetail`: name, artwork, genres, top songs, albums. |
-| `getLibraryArtists(options)`                | A page of `ArtistItem`s from the user's library.             |
-| `searchLibraryArtists(term, options)`       | Library artists matching a term.                             |
-| `catalogSearch(term, ["artists"], options)` | Catalog artists, on `SearchResult.artists`.                  |
+| call                                        | returns                                                                                                 |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `getSongArtists(songId)`                    | Catalog artist ids credited on a song, most prominent first.                                            |
+| `getArtist(artistId)`                       | An `ArtistDetail`: name, artwork, genres, a short editorial note when Apple has one, top songs, albums. |
+| `getLibraryArtists(options)`                | A page of `ArtistItem`s from the user's library.                                                        |
+| `searchLibraryArtists(term, options)`       | Library artists matching a term.                                                                        |
+| `catalogSearch(term, ["artists"], options)` | Catalog artists, on `SearchResult.artists`.                                                             |
 
 An artist in a list is an `ArtistItem`, not a `MusicItem`. `MusicResourceKind`
 still has no `"artist"` and `PlaybackQueueType` still has no artist case,

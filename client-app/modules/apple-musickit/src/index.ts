@@ -12,6 +12,7 @@ import type {
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
+    MusicRecommendation,
     MusicKitOptions,
     PlaybackSnapshot,
     RepeatMode,
@@ -121,6 +122,8 @@ export interface AppleMusicKitNativeModule {
         kind: CollectionFavoriteKind,
         ids: string[],
     ): Promise<MusicItem[]>;
+    /** Songs and artists from the user's Apple Music recommendations. */
+    getRecommendations(): Promise<MusicRecommendation[]>;
 }
 
 // Set EXPO_PUBLIC_MOCK_MUSICKIT=1 to answer from ./mock-native instead of the

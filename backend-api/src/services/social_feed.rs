@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use reqwest::Client;
 use sea_orm::DatabaseConnection;
 use sea_orm::prelude::Uuid;
@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 use crate::db::friend_relations;
 use crate::db::shared_playlists::{member_role, playlist_cards};
 use crate::db::social::{
-    self, CommentsCursor, FeedCandidate, FeedExclude, InterestDelta, NewPostTag, PostTag,
-    PostTagPatch, PublicProfile, SocialPost, TopicPostsCursor, UpsertedInterest,
+    self, CommentsCursor, FeedCandidate, FeedExclude, InterestDelta, LoadedOrderError, NewPostTag,
+    PostTag, PostTagPatch, PublicProfile, SocialPost, TopicPostsCursor, UpsertedInterest,
 };
 use crate::err::CadenzaError;
 
@@ -33,6 +33,29 @@ const MODEL_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
 const LIKE_MEMORY: usize = 2000;
 /// Users whose interest vector is kept in memory. The least recently read entry is dropped.
 const USER_VECTOR_CACHE: usize = 2000;
+/// How long a user's latest `view_order` stays cached. A write starts this again.
+const FEED_ORDER_TTL: TimeDelta = TimeDelta::minutes(10);
+/// Insert attempts after a stale `view_order` cache loses the unique index.
+const FEED_ORDER_ATTEMPTS: usize = 4;
+
+/// Where `GET /social/feed` takes its starting spotlight chance.
+pub enum InitialSpotlightChance {
+    /// The 3 newest viewed posts: 0.2 per leading non-spotlight, stop at a
+    /// spotlight, cap 0.6. A spotlight viewed more than two days ago is 0.6.
+    History,
+    /// A caller-supplied chance in `0..=1`.
+    Fixed(f64),
+}
+
+/// One `GET /social/feed` page.
+pub struct FeedPage {
+    pub posts: Vec<SocialPost>,
+    /// True when fewer than five of this user's spotlight posts are unviewed.
+    /// `loaded` still counts as unviewed.
+    pub not_enough_spotlights: bool,
+    /// Chance after the last ranked post. The next page sends this back.
+    pub spotlight_chance: f64,
+}
 
 /// The python model process started by [`spawn_ml_service`]. Dropping it kills
 /// the child.
@@ -141,6 +164,8 @@ pub struct SocialFeedService {
     likes: Arc<Mutex<LikeMemory>>,
     comment_likes: Arc<Mutex<LikeMemory>>,
     vectors: Arc<Mutex<UserVectorCache>>,
+    /// `user_id` -> (latest `view_order`, when that number was stored).
+    view_orders: Arc<Mutex<ViewOrderCache>>,
 }
 
 impl SocialFeedService {
@@ -159,6 +184,7 @@ impl SocialFeedService {
             likes: Arc::new(Mutex::new(LikeMemory::default())),
             comment_likes: Arc::new(Mutex::new(LikeMemory::default())),
             vectors: Arc::new(Mutex::new(UserVectorCache::default())),
+            view_orders: Arc::new(Mutex::new(ViewOrderCache::default())),
         }
     }
 
@@ -167,7 +193,8 @@ impl SocialFeedService {
     /// A topic prefixes the embedding with what it is about: the song or
     /// artist names from the request, or the shared playlist's name. Stored
     /// `content` is the user's text. Only a member can attach a shared
-    /// playlist; anyone else gets `NotFound`, so an id does not leak.
+    /// playlist; anyone else gets `NotFound`, so an id does not leak. The
+    /// author is marked `viewed` on the new post with their next `view_order`.
     pub async fn create_post(
         &self,
         db: &DatabaseConnection,
@@ -206,17 +233,41 @@ impl SocialFeedService {
             NewPostTopic::Apple { mk_id, .. } => (Some(mk_id), None),
             NewPostTopic::SharedPlaylist(id) => (None, Some(id)),
         };
-        social::insert_post_with_tags(
-            db,
-            user_id,
-            content,
-            &embedding,
-            &with_bday,
-            topic_mk_id,
-            shared_playlist_id,
-            tags,
-        )
-        .await
+        for _ in 0..FEED_ORDER_ATTEMPTS {
+            let latest = self.latest_view_order(db, user_id).await?;
+            match social::insert_post_with_tags(
+                db,
+                user_id,
+                content,
+                &embedding,
+                &with_bday,
+                topic_mk_id,
+                shared_playlist_id,
+                tags,
+                latest,
+            )
+            .await
+            {
+                Ok((post_id, tags, order)) => {
+                    self.view_orders.lock().expect("view order cache").set(
+                        user_id,
+                        order,
+                        Utc::now(),
+                    );
+                    return Ok((post_id, tags));
+                }
+                Err(LoadedOrderError::Taken) => {
+                    self.view_orders
+                        .lock()
+                        .expect("view order cache")
+                        .invalidate(user_id);
+                }
+                Err(LoadedOrderError::Other(err)) => return Err(err),
+            }
+        }
+        Err(CadenzaError::DatabaseError(
+            "view order was updated by another server".into(),
+        ))
     }
 
     /// Replaces the author's post text. When the post has a topic, the
@@ -281,13 +332,18 @@ impl SocialFeedService {
         social::delete_post(db, user_id, post_id).await
     }
 
-    /// Ranked posts for `user_id`. Marks the returned ids `loaded`.
+    /// Ranked posts for `user_id`. A spotlight may be inserted after one.
+    /// The posts returned are marked `loaded`. `view_order` is left unset.
+    ///
+    /// `initial` is `History` to derive the starting chance from the newest
+    /// viewed posts, or `Fixed` to use the given chance in `0..=1`.
     pub async fn get_feed(
         &self,
         db: &DatabaseConnection,
         user_id: Uuid,
         exclude: FeedExclude,
-    ) -> Result<Vec<SocialPost>, CadenzaError> {
+        initial: InitialSpotlightChance,
+    ) -> Result<FeedPage, CadenzaError> {
         let now = Utc::now();
         let cached = self
             .vectors
@@ -312,50 +368,106 @@ impl SocialFeedService {
         )?;
 
         let mut posts = social::merge_feed_candidates(similar.into_iter().chain(hot));
-        if posts.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let similarities = match vector.as_deref() {
-            Some(vector) => self.similarities(vector, &posts).await?,
-            None => HashMap::new(),
+        let ranked_ids: Vec<i64> = if posts.is_empty() {
+            Vec::new()
+        } else {
+            let similarities = match vector.as_deref() {
+                Some(vector) => self.similarities(vector, &posts).await?,
+                None => HashMap::new(),
+            };
+            let scored_at = Utc::now();
+            let scores: HashMap<i64, f64> = posts
+                .iter()
+                .map(|post| {
+                    (
+                        post.post_id,
+                        social::score_post(
+                            post.likes,
+                            social::age_days(post.created_at, scored_at),
+                            similarities.get(&post.post_id).copied().unwrap_or(0.0),
+                        ),
+                    )
+                })
+                .collect();
+            posts.sort_by(|a, b| {
+                let score =
+                    |post: &FeedCandidate| scores.get(&post.post_id).copied().unwrap_or(0.0);
+                score(b)
+                    .partial_cmp(&score(a))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            posts
+                .iter()
+                .take(social::FEED_SIZE as usize)
+                .map(|post| post.post_id)
+                .collect()
         };
 
-        let now = Utc::now();
-        let scores: HashMap<i64, f64> = posts
-            .iter()
-            .map(|post| {
-                (
-                    post.post_id,
-                    social::score_post(
-                        post.likes,
-                        social::age_days(post.created_at, now),
-                        similarities.get(&post.post_id).copied().unwrap_or(0.0),
-                    ),
-                )
-            })
-            .collect();
-        posts.sort_by(|a, b| {
-            let score = |post: &FeedCandidate| scores.get(&post.post_id).copied().unwrap_or(0.0);
-            score(b)
-                .partial_cmp(&score(a))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        let page_ids: Vec<i64> = posts
-            .iter()
-            .take(social::FEED_SIZE as usize)
-            .map(|post| post.post_id)
-            .collect();
+        let (spotlights, start) = match initial {
+            InitialSpotlightChance::History => {
+                let (spotlights, recent) = tokio::try_join!(
+                    social::spotlight_posts(db, user_id, exclude, social::SPOTLIGHT_QUEUE),
+                    social::recent_viewed_posts(db, user_id, social::INITIAL_VIEW_COUNT),
+                )?;
+                (spotlights, social::initial_spotlight_chance(&recent, now))
+            }
+            InitialSpotlightChance::Fixed(chance) => (
+                social::spotlight_posts(db, user_id, exclude, social::SPOTLIGHT_QUEUE).await?,
+                chance,
+            ),
+        };
+        let mut rng = UnitRng::seeded(now);
+        let (mut page_ids, spotlight_chance) =
+            social::mix_feed(&ranked_ids, &spotlights.post_ids, start, || rng.next_unit());
+        page_ids.truncate(social::FEED_SIZE as usize);
 
-        let (_, page) = tokio::try_join!(
-            social::mark_posts_loaded(db, user_id, &page_ids),
-            social::get_posts(db, user_id, &page_ids),
-        )?;
-        Ok(page)
+        let page = social::get_posts(db, user_id, &page_ids).await?;
+        let returned_ids: Vec<i64> = page.iter().map(|post| post.post_id).collect();
+        self.mark_page_loaded(db, user_id, &returned_ids).await?;
+        Ok(FeedPage {
+            posts: page,
+            not_enough_spotlights: spotlights.not_enough,
+            spotlight_chance,
+        })
+    }
+
+    /// Marks `post_ids` `loaded`. Does not set `view_order`. Never downgrades
+    /// `viewed`.
+    async fn mark_page_loaded(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        post_ids: &[i64],
+    ) -> Result<(), CadenzaError> {
+        social::mark_posts_loaded(db, user_id, post_ids).await
+    }
+
+    /// Cached latest `view_order`, or the database maximum when the cache is
+    /// missing or older than ten minutes. Reading it does not extend the TTL.
+    async fn latest_view_order(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+    ) -> Result<i32, CadenzaError> {
+        let now = Utc::now();
+        if let Some(order) = self
+            .view_orders
+            .lock()
+            .expect("view order cache")
+            .get(user_id, now)
+        {
+            return Ok(order);
+        }
+        let order = social::max_view_order(db, user_id).await?;
+        self.view_orders
+            .lock()
+            .expect("view order cache")
+            .set(user_id, order, Utc::now());
+        Ok(order)
     }
 
     /// One page of posts whose topic is `topic_mk_id`, most liked first.
-    /// `cursor` is `None` for the first page.
+    /// A post with no author is left out. `cursor` is `None` for the first page.
     pub async fn topic_posts(
         &self,
         db: &DatabaseConnection,
@@ -394,7 +506,7 @@ impl SocialFeedService {
             user_id: author_id,
             username: posts
                 .first()
-                .map(|post| post.author_username.clone())
+                .and_then(|post| post.author_username.clone())
                 .unwrap_or_else(|| "unknown".to_owned()),
             bio: String::new(),
             friend_count: 0,
@@ -515,13 +627,41 @@ impl SocialFeedService {
         Ok(())
     }
 
+    /// Sets `viewed`. Every id takes the next `view_order`, in `post_ids`
+    /// order. A row that already had a number gets a new, higher one.
     pub async fn mark_posts_viewed(
         &self,
         db: &DatabaseConnection,
         user_id: Uuid,
         post_ids: &[i64],
     ) -> Result<(), CadenzaError> {
-        social::mark_posts_viewed(db, user_id, post_ids).await
+        if post_ids.is_empty() {
+            return Ok(());
+        }
+        for _ in 0..FEED_ORDER_ATTEMPTS {
+            let latest = self.latest_view_order(db, user_id).await?;
+            match social::mark_posts_viewed(db, user_id, post_ids, latest).await {
+                Ok(None) => return Ok(()),
+                Ok(Some(newest)) => {
+                    self.view_orders.lock().expect("view order cache").set(
+                        user_id,
+                        newest,
+                        Utc::now(),
+                    );
+                    return Ok(());
+                }
+                Err(LoadedOrderError::Taken) => {
+                    self.view_orders
+                        .lock()
+                        .expect("view order cache")
+                        .invalidate(user_id);
+                }
+                Err(LoadedOrderError::Other(err)) => return Err(err),
+            }
+        }
+        Err(CadenzaError::DatabaseError(
+            "view order was updated by another server".into(),
+        ))
     }
 
     /// One page of comments on `post_id`, most liked first.
@@ -793,6 +933,61 @@ impl UserVectorCache {
     }
 }
 
+/// `user_id` -> (latest `view_order`, when that number was stored).
+#[derive(Default)]
+struct ViewOrderCache {
+    entries: HashMap<Uuid, (i32, DateTime<Utc>)>,
+}
+
+impl ViewOrderCache {
+    /// The stored number when it is younger than [`FEED_ORDER_TTL`].
+    fn get(&mut self, user_id: Uuid, now: DateTime<Utc>) -> Option<i32> {
+        let Some((order, stored_at)) = self.entries.get(&user_id).copied() else {
+            return None;
+        };
+        if now.signed_duration_since(stored_at) >= FEED_ORDER_TTL {
+            self.entries.remove(&user_id);
+            return None;
+        }
+        Some(order)
+    }
+
+    /// Stores `order` and starts its ten minutes over.
+    fn set(&mut self, user_id: Uuid, order: i32, now: DateTime<Utc>) {
+        self.entries
+            .retain(|_, (_, stored_at)| now.signed_duration_since(*stored_at) < FEED_ORDER_TTL);
+        self.entries.insert(user_id, (order, now));
+    }
+
+    fn invalidate(&mut self, user_id: Uuid) {
+        self.entries.remove(&user_id);
+    }
+}
+
+/// Coin flips for [`social::mix_feed`]. Values land in `0..1`.
+struct UnitRng {
+    state: u64,
+}
+
+impl UnitRng {
+    fn seeded(now: DateTime<Utc>) -> Self {
+        let nanos = now.timestamp_nanos_opt().unwrap_or(1) as u64;
+        Self { state: nanos | 1 }
+    }
+
+    fn next_unit(&mut self) -> f64 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        if x == 0 {
+            x = 0x9E37_79B9_7F4A_7C15;
+        }
+        self.state = x;
+        (x >> 11) as f64 / ((1u64 << 53) as f64)
+    }
+}
+
 #[derive(Default)]
 struct LikeMemory {
     /// `(user, post) -> (timestamp_ms, last_touch)`.
@@ -882,6 +1077,31 @@ struct PostSimilarity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn view_order_cache_expires_and_a_write_resets_the_ttl() {
+        let mut cache = ViewOrderCache::default();
+        let user = Uuid::nil();
+        let start = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        assert_eq!(cache.get(user, start), None);
+
+        cache.set(user, 4, start);
+        assert_eq!(
+            cache.get(user, start + TimeDelta::minutes(10) - TimeDelta::seconds(1)),
+            Some(4)
+        );
+        assert_eq!(cache.get(user, start + TimeDelta::minutes(10)), None);
+
+        cache.set(user, 4, start);
+        let written = start + TimeDelta::minutes(9);
+        cache.set(user, 5, written);
+        assert_eq!(cache.get(user, written + TimeDelta::minutes(9)), Some(5));
+        assert_eq!(cache.get(user, written + TimeDelta::minutes(10)), None);
+
+        cache.set(user, 5, written);
+        cache.invalidate(user);
+        assert_eq!(cache.get(user, written), None);
+    }
 
     #[test]
     fn topic_prefix_uses_song_and_artist_or_just_the_artist() {

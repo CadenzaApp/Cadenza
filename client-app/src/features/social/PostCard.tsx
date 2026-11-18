@@ -20,6 +20,7 @@ import { EditContentDialog } from "./EditContentDialog";
 import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostCommentsDialog } from "./PostCommentsDialog";
 import { PostOptionsMenu } from "./PostOptionsMenu";
+import { SpotlightPost } from "./SpotlightPost";
 import {
     draftTagsFromPost,
     PostTagRow,
@@ -67,7 +68,10 @@ type Props = {
 
 const MAX_POST_LENGTH = 500;
 
-/** One feed row: author, attached topic, body, likes, and comments. */
+/**
+ * One feed row: author, attached topic, body, likes, and comments.
+ * A post with no author is a spotlight, and the cover is the whole post.
+ */
 export function PostCard({
     post,
     topicHint,
@@ -86,7 +90,9 @@ export function PostCard({
     const updateCachedPostLike = useUpdateCachedPostLike();
     const { updatePost } = useUpdatePost();
     const updateCachedPostContent = useUpdateCachedPostContent();
-    const isOwnPost = account?.id === post.author.user_id;
+    const author = post.author;
+    const spotlight = author == null;
+    const isOwnPost = account?.id != null && account.id === author?.user_id;
     // Resolved even when the card hides the topic, so an edit can send the
     // same title and artist the create request uses for the embedding.
     const topic = useResolvedTopic(post.topic_mk_id, topicHint);
@@ -271,17 +277,26 @@ export function PostCard({
     }
 
     function openAuthor(userId?: string) {
-        const id = userId || post.author.user_id;
+        const id = userId || author?.user_id;
         if (!id) return;
         if (onAuthorPress) onAuthorPress(id);
         else router.push(`/social/user/${id}`);
     }
 
+    const authorName = author?.username ?? "";
+    const authorSubtitle = `${formatRelativeTime(post.created_at)}${
+        topic
+            ? ` · ${activityLabel(topic)}`
+            : post.shared_playlist
+              ? " · Shared a playlist"
+              : ""
+    }`;
+
     const authorRow = (
         <>
             <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
                 <Text className="text-sm font-semibold text-foreground">
-                    {initialsFromUsername(post.author.username)}
+                    {initialsFromUsername(authorName)}
                 </Text>
             </View>
             <View className="min-w-0 flex-1">
@@ -289,135 +304,148 @@ export function PostCard({
                     className="font-semibold text-foreground"
                     numberOfLines={1}
                 >
-                    {post.author.username}
+                    {authorName}
                 </Text>
-                <Text className="text-xs text-muted-foreground">
-                    {formatRelativeTime(post.created_at)}
-                    {topic
-                        ? ` · ${activityLabel(topic)}`
-                        : post.shared_playlist
-                          ? " · Shared a playlist"
-                          : ""}
-                </Text>
+                {authorSubtitle ? (
+                    <Text className="text-xs text-muted-foreground">
+                        {authorSubtitle}
+                    </Text>
+                ) : null}
             </View>
         </>
     );
 
     return (
         <>
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="View post comments"
-                onPress={openComments}
-                className="gap-3 overflow-hidden rounded-3xl border border-border p-4"
-            >
-                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                    <GlassSurface
-                        variant="regular"
-                        style={StyleSheet.absoluteFill}
-                    />
-                </View>
+            {spotlight ? (
+                <SpotlightPost
+                    topic={topic}
+                    cardId={String(post.post_id)}
+                    liked={liked}
+                    likes={likes}
+                    commentCount={commentCount}
+                    onToggleLike={toggleLike}
+                    onOpenComments={openComments}
+                />
+            ) : (
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="View post comments"
+                    onPress={openComments}
+                    className="gap-3 overflow-hidden rounded-3xl border border-border p-4"
+                >
+                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                        <GlassSurface
+                            variant="regular"
+                            style={StyleSheet.absoluteFill}
+                        />
+                    </View>
 
-                <View className="flex-row items-center">
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`View ${post.author.username}'s profile`}
-                        onPress={(event) => {
-                            event.stopPropagation();
-                            openAuthor();
-                        }}
-                        className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-60"
-                    >
-                        {authorRow}
-                    </Pressable>
-                    {isOwnPost ? (
-                        <Button
-                            size="icon"
-                            variant="ghost"
-                            className="-mr-2 h-10 w-10 shrink-0 rounded-full"
+                    <View className="flex-row items-center">
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`View ${authorName}'s profile`}
                             onPress={(event) => {
                                 event.stopPropagation();
-                                setMenuOpen(true);
+                                openAuthor();
                             }}
-                            accessibilityLabel="Post options"
+                            className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-60"
+                        >
+                            {authorRow}
+                        </Pressable>
+                        {isOwnPost ? (
+                            <Button
+                                size="icon"
+                                variant="ghost"
+                                className="-mr-2 h-10 w-10 shrink-0 rounded-full"
+                                onPress={(event) => {
+                                    event.stopPropagation();
+                                    setMenuOpen(true);
+                                }}
+                                accessibilityLabel="Post options"
+                            >
+                                <Ionicons
+                                    name="ellipsis-horizontal"
+                                    size={24}
+                                    color={foreground}
+                                />
+                            </Button>
+                        ) : null}
+                    </View>
+
+                    {showTopic && topic ? (
+                        <PostTopicCard
+                            topic={topic}
+                            cardId={String(post.post_id)}
+                        />
+                    ) : null}
+                    {post.shared_playlist ? (
+                        <SharedPlaylistPostCard
+                            playlist={post.shared_playlist}
+                        />
+                    ) : null}
+
+                    <Text className="text-base leading-6 text-foreground">
+                        {displayPost.content}
+                    </Text>
+                    <PostTagRow tags={displayPost.tags} />
+
+                    <View className="flex-row items-center gap-4 self-start">
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                                liked ? "Unlike post" : "Like post"
+                            }
+                            accessibilityState={{ selected: liked }}
+                            onPress={(event) => {
+                                event.stopPropagation();
+                                toggleLike();
+                            }}
+                            hitSlop={8}
+                            className="flex-row items-center gap-1.5 active:opacity-60"
                         >
                             <Ionicons
-                                name="ellipsis-horizontal"
-                                size={24}
-                                color={foreground}
+                                name={liked ? "heart" : "heart-outline"}
+                                size={18}
+                                color={like}
                             />
-                        </Button>
-                    ) : null}
-                </View>
+                            <Text
+                                className="text-sm"
+                                style={{
+                                    color: liked ? like : mutedForeground,
+                                }}
+                            >
+                                {likes}
+                            </Text>
+                        </Pressable>
 
-                {showTopic && topic ? (
-                    <PostTopicCard
-                        topic={topic}
-                        cardId={String(post.post_id)}
-                    />
-                ) : null}
-                {post.shared_playlist ? (
-                    <SharedPlaylistPostCard playlist={post.shared_playlist} />
-                ) : null}
-
-                <Text className="text-base leading-6 text-foreground">
-                    {displayPost.content}
-                </Text>
-                <PostTagRow tags={displayPost.tags} />
-
-                <View className="flex-row items-center gap-4 self-start">
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={liked ? "Unlike post" : "Like post"}
-                        accessibilityState={{ selected: liked }}
-                        onPress={(event) => {
-                            event.stopPropagation();
-                            toggleLike();
-                        }}
-                        hitSlop={8}
-                        className="flex-row items-center gap-1.5 active:opacity-60"
-                    >
-                        <Ionicons
-                            name={liked ? "heart" : "heart-outline"}
-                            size={18}
-                            color={like}
-                        />
-                        <Text
-                            className="text-sm"
-                            style={{
-                                color: liked ? like : mutedForeground,
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="View comments"
+                            onPress={(event) => {
+                                event.stopPropagation();
+                                openComments();
                             }}
+                            hitSlop={8}
+                            className="flex-row items-center gap-1.5 active:opacity-60"
                         >
-                            {likes}
-                        </Text>
-                    </Pressable>
-
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="View comments"
-                        onPress={(event) => {
-                            event.stopPropagation();
-                            openComments();
-                        }}
-                        hitSlop={8}
-                        className="flex-row items-center gap-1.5 active:opacity-60"
-                    >
-                        <Ionicons
-                            name="chatbubble-outline"
-                            size={18}
-                            color={mutedForeground}
-                        />
-                        <Text className="text-sm text-muted-foreground">
-                            {commentCount}
-                        </Text>
-                    </Pressable>
-                    {displayPost.edited_at ? (
-                        <Text className="text-sm text-muted-foreground">
-                            (edited)
-                        </Text>
-                    ) : null}
-                </View>
-            </Pressable>
+                            <Ionicons
+                                name="chatbubble-outline"
+                                size={18}
+                                color={mutedForeground}
+                            />
+                            <Text className="text-sm text-muted-foreground">
+                                {commentCount}
+                            </Text>
+                        </Pressable>
+                        {displayPost.edited_at ? (
+                            <Text className="text-sm text-muted-foreground">
+                                (edited)
+                            </Text>
+                        ) : null}
+                    </View>
+                </Pressable>
+            )}
 
             <PostOptionsMenu
                 post={menuOpen ? displayPost : null}
@@ -445,6 +473,7 @@ export function PostCard({
                 post={displayPost}
                 topicHint={topicHint}
                 showTopic={showTopic}
+                commentCount={commentCount}
                 onLikedChange={onLikedChange}
                 onAuthorPress={openAuthor}
                 onCommentCreated={noteCommentCreated}

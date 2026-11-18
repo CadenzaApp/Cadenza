@@ -48,6 +48,7 @@ export function topicFromSong(song: MusicItem): PostTopic {
         title: song.title,
         artistName: song.artistName,
         artworkUrl: song.artworkUrl,
+        artworkUrlLarge: song.artworkUrlLarge,
         artworkColor: song.artworkColor,
         catalogId: song.catalogId,
         playbackId: song.playbackId,
@@ -62,6 +63,7 @@ export function topicFromArtist(artist: {
     artworkUrl?: string;
     artworkColor?: string;
     catalogId?: string;
+    editorialNote?: string;
 }): PostTopic {
     return {
         kind: "artist",
@@ -70,6 +72,7 @@ export function topicFromArtist(artist: {
         artworkUrl: artist.artworkUrl,
         artworkColor: artist.artworkColor,
         catalogId: artist.catalogId ?? artist.id,
+        editorialNote: artist.editorialNote,
     };
 }
 

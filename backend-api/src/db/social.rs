@@ -13,7 +13,7 @@ use crate::db::friend_relations::{
 use crate::db::shared_playlists::{PlaylistCard, playlist_cards};
 use crate::err::CadenzaError;
 use crate::services::notification::{NewNotification, NotificationType, push_notification};
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
     ActiveValue::{NotSet, Set},
@@ -67,8 +67,11 @@ pub struct SocialPost {
     pub created_at: DateTime<Utc>,
     /// `None` until the author edits the post.
     pub edited_at: Option<DateTime<Utc>>,
-    pub author_id: Uuid,
-    pub author_username: String,
+    /// `None` for a spotlight post, which has no author.
+    pub author_id: Option<Uuid>,
+    /// `None` when `author_id` is `None`. A real author with no profile row
+    /// is `"unknown"`.
+    pub author_username: Option<String>,
     /// Apple Music catalog id of the attached song or artist, when the author
     /// picked one. Kind is not stored; the client asks MusicKit.
     pub topic_mk_id: Option<String>,
@@ -200,8 +203,9 @@ pub async fn insert_post(
     Ok(row.try_get_by_index(0)?)
 }
 
-/// Inserts a post and its tags in one transaction. Tags are returned sorted
-/// by `tag_id`.
+/// Inserts a post, its tags, and the author's `viewed` row in one transaction.
+/// Tags are returned sorted by `tag_id`. `view_order` is `latest + 1`.
+/// [`LoadedOrderError::Taken`] rolls the post back.
 pub async fn insert_post_with_tags(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -211,14 +215,18 @@ pub async fn insert_post_with_tags(
     topic_mk_id: Option<&str>,
     shared_playlist_id: Option<i64>,
     tags: &[NewPostTag],
-) -> Result<(i64, Vec<PostTag>), CadenzaError> {
+    latest: i32,
+) -> Result<(i64, Vec<PostTag>, i32), LoadedOrderError> {
     if tags.len() > POST_TAG_LIMIT {
-        return Err(too_many_tags());
+        return Err(LoadedOrderError::Other(too_many_tags()));
     }
     if duplicate_tag_words(tags.iter().map(|tag| tag.text.as_str())) {
-        return Err(duplicate_tag());
+        return Err(LoadedOrderError::Other(duplicate_tag()));
     }
-    let txn = db.begin().await?;
+    let txn = db
+        .begin()
+        .await
+        .map_err(|err| LoadedOrderError::Other(err.into()))?;
     let post_id = insert_post(
         &txn,
         user_id,
@@ -228,11 +236,49 @@ pub async fn insert_post_with_tags(
         topic_mk_id,
         shared_playlist_id,
     )
-    .await?;
-    insert_tags(&txn, post_id, tags).await?;
-    let stored = tags_for_post(&txn, post_id).await?;
-    txn.commit().await?;
-    Ok((post_id, stored))
+    .await
+    .map_err(LoadedOrderError::Other)?;
+    insert_tags(&txn, post_id, tags)
+        .await
+        .map_err(LoadedOrderError::Other)?;
+    let stored = tags_for_post(&txn, post_id)
+        .await
+        .map_err(LoadedOrderError::Other)?;
+    let order = insert_author_view(&txn, user_id, post_id, latest).await?;
+    txn.commit()
+        .await
+        .map_err(|err| LoadedOrderError::Other(err.into()))?;
+    Ok((post_id, stored, order))
+}
+
+/// Marks `post_id` `viewed` for its author at `latest + 1`.
+async fn insert_author_view(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    post_id: i64,
+    latest: i32,
+) -> Result<i32, LoadedOrderError> {
+    let row = ViewOrderRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "INSERT INTO post_view_status (post_id, user_id, status, view_order)
+         VALUES ($1, $2, 'viewed', $3 + 1)
+         RETURNING view_order",
+        vec![post_id.into(), user_id.into(), latest.into()],
+    ))
+    .one(db)
+    .await
+    .map_err(|err| {
+        if is_view_order_conflict(&err) {
+            LoadedOrderError::Taken
+        } else {
+            LoadedOrderError::Other(err.into())
+        }
+    })?;
+    row.map(|row| row.view_order).ok_or_else(|| {
+        LoadedOrderError::Other(CadenzaError::DatabaseError(
+            "marking a new post viewed returned no view order".into(),
+        ))
+    })
 }
 
 /// Deletes the author's post. `NotFound` when no row matches, including a post
@@ -490,7 +536,8 @@ async fn notify_user(
 /// The post's author gets a `comment` notification, title
 /// "<username> commented on your post" and content the comment, in this same
 /// transaction. Metadata is `{"post_id"}`.
-/// The author commenting on their own post gets none. A failed notification
+/// The author commenting on their own post gets none. A spotlight post has no
+/// author, so a comment on it notifies nobody. A failed notification
 /// rolls the comment back.
 pub async fn insert_comment(
     db: &DatabaseConnection,
@@ -541,16 +588,19 @@ pub async fn insert_comment(
         txn.rollback().await?;
         return Err(CadenzaError::NotFound);
     };
-    let author_id: Uuid = author.try_get_by_index(0)?;
-    if let Err(err) = notify_user(
-        &txn,
-        author_id,
-        user_id,
-        content,
-        NotificationType::Comment,
-        Some(post_id),
-    )
-    .await
+    let author_id: Option<Uuid> = author.try_get_by_index(0)?;
+    // A spotlight post has no author, so the comment still saves and nobody
+    // is notified.
+    if let Some(author_id) = author_id
+        && let Err(err) = notify_user(
+            &txn,
+            author_id,
+            user_id,
+            content,
+            NotificationType::Comment,
+            Some(post_id),
+        )
+        .await
     {
         txn.rollback().await?;
         return Err(err);
@@ -832,7 +882,31 @@ pub async fn unlike_comment(
     Ok(())
 }
 
-/// Inserts `loaded` for ids that have no row yet. Never downgrades `viewed`.
+/// Why a `view_order` write did not store the number.
+pub enum LoadedOrderError {
+    /// `(user_id, view_order)` was already taken. The caller drops its cached
+    /// maximum and tries again.
+    Taken,
+    Other(CadenzaError),
+}
+
+/// This user's highest `view_order`, or 0 when none of their rows are numbered.
+pub async fn max_view_order(db: &DatabaseConnection, user_id: Uuid) -> Result<i32, CadenzaError> {
+    let row = ViewOrderRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT COALESCE(MAX(view_order), 0)::int AS view_order
+         FROM post_view_status
+         WHERE user_id = $1",
+        vec![user_id.into()],
+    ))
+    .one(db)
+    .await?
+    .ok_or_else(|| CadenzaError::DatabaseError("view order max returned no row".into()))?;
+    Ok(row.view_order)
+}
+
+/// Inserts `loaded` for ids that have no row yet. Does not set `view_order`
+/// and never downgrades `viewed`.
 pub async fn mark_posts_loaded(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -853,27 +927,64 @@ pub async fn mark_posts_loaded(
     Ok(())
 }
 
-/// Sets `viewed`, inserting or upgrading from `loaded`.
+/// True when the insert lost the `(user_id, view_order)` unique index.
+fn is_view_order_conflict(err: &DbErr) -> bool {
+    let DbErr::Query(RuntimeErr::SqlxError(sqlx_err)) = err else {
+        return false;
+    };
+    let Some(db_err) = sqlx_err.as_database_error() else {
+        return false;
+    };
+    db_err.code().as_deref() == Some("23505")
+        && (db_err.constraint() == Some("post_view_status_user_view_order_idx")
+            || db_err.table() == Some("post_view_status"))
+}
+
+/// Sets `viewed`. Every id takes the next `view_order`, in `post_ids` order,
+/// including a row that already had one. The new numbers are higher than
+/// `latest`.
+///
+/// `Ok(None)` means `post_ids` was empty. `Ok(Some(n))` is the highest
+/// `view_order` stored. A `(user_id, view_order)` conflict returns
+/// [`LoadedOrderError::Taken`] and writes nothing.
 pub async fn mark_posts_viewed(
     db: &DatabaseConnection,
     user_id: Uuid,
     post_ids: &[i64],
-) -> Result<(), CadenzaError> {
+    latest: i32,
+) -> Result<Option<i32>, LoadedOrderError> {
     if post_ids.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
-    db.execute_raw(Statement::from_sql_and_values(
+    let inserted = ViewOrderRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "INSERT INTO post_view_status (post_id, user_id, status)
-         SELECT post_id, $1, 'viewed'
-         FROM unnest($2::bigint[]) AS post_id
+        "INSERT INTO post_view_status (post_id, user_id, status, view_order)
+         SELECT post_id, $1, 'viewed', $3 + rn
+         FROM (
+             SELECT post_id, row_number() OVER (ORDER BY ord)::int AS rn
+             FROM (
+                 SELECT DISTINCT ON (post_id) post_id, ord
+                 FROM unnest($2::bigint[]) WITH ORDINALITY AS t(post_id, ord)
+                 ORDER BY post_id, ord
+             ) AS ids
+         ) AS page
          ON CONFLICT (post_id, user_id) DO UPDATE
          SET status = 'viewed',
-             date = now()",
-        vec![user_id.into(), post_ids.to_vec().into()],
+             date = now(),
+             view_order = EXCLUDED.view_order
+         RETURNING view_order",
+        vec![user_id.into(), post_ids.to_vec().into(), latest.into()],
     ))
-    .await?;
-    Ok(())
+    .all(db)
+    .await
+    .map_err(|err| {
+        if is_view_order_conflict(&err) {
+            LoadedOrderError::Taken
+        } else {
+            LoadedOrderError::Other(err.into())
+        }
+    })?;
+    Ok(inserted.into_iter().map(|row| row.view_order).max())
 }
 
 /// Display fields for `post_ids`, in that order. Missing ids are skipped.
@@ -897,7 +1008,7 @@ pub async fn get_posts(
              p.edited_at,
              p.topic_mk_id,
              p.shared_playlist_id,
-             COALESCE(pr.username, 'unknown') AS username,
+             CASE WHEN p.user_id IS NULL THEN NULL ELSE COALESCE(pr.username, 'unknown') END AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
                  WHERE post_likes.post_id = p.post_id
@@ -1396,9 +1507,10 @@ pub struct TopicPostPage {
 
 /// Posts whose topic is this Apple Music catalog id, at most [`TOPIC_POST_LIMIT`].
 ///
-/// Order is `likes` desc, `created_at` desc, `post_id` desc. `created_at` is
-/// not unique, so `post_id` finishes the order and the cursor. `cursor` is
-/// `None` for the first page. Later pages pass the previous `next`.
+/// A post with no author is left out. Order is `likes` desc, `created_at`
+/// desc, `post_id` desc. `created_at` is not unique, so `post_id` finishes the
+/// order and the cursor. `cursor` is `None` for the first page. Later pages
+/// pass the previous `next`.
 pub async fn get_topic_posts(
     db: &DatabaseConnection,
     viewer_id: Uuid,
@@ -1431,7 +1543,7 @@ const TOPIC_POSTS_SELECT: &str = "SELECT
              p.edited_at,
              p.topic_mk_id,
              p.shared_playlist_id,
-             COALESCE(pr.username, 'unknown') AS username,
+             CASE WHEN p.user_id IS NULL THEN NULL ELSE COALESCE(pr.username, 'unknown') END AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
                  WHERE post_likes.post_id = p.post_id
@@ -1454,6 +1566,7 @@ fn topic_posts_statement(
             format!(
                 "{TOPIC_POSTS_SELECT}
                  WHERE p.topic_mk_id = $2
+                   AND p.user_id IS NOT NULL
                    AND {NOT_BLOCKED_AUTHOR}
                  ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
                  LIMIT $3"
@@ -1469,6 +1582,7 @@ fn topic_posts_statement(
             format!(
                 "{TOPIC_POSTS_SELECT}
                  WHERE p.topic_mk_id = $2
+                   AND p.user_id IS NOT NULL
                    AND {NOT_BLOCKED_AUTHOR}
                    AND (p.likes, p.created_at, p.post_id) < ($3, $4, $5)
                  ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
@@ -1509,7 +1623,7 @@ pub async fn get_friends_feed(
              p.edited_at,
              p.topic_mk_id,
              p.shared_playlist_id,
-             COALESCE(pr.username, 'unknown') AS username,
+             CASE WHEN p.user_id IS NULL THEN NULL ELSE COALESCE(pr.username, 'unknown') END AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
                  WHERE post_likes.post_id = p.post_id
@@ -1561,7 +1675,7 @@ pub async fn get_author_posts(
              p.edited_at,
              p.topic_mk_id,
              p.shared_playlist_id,
-             COALESCE(pr.username, 'unknown') AS username,
+             CASE WHEN p.user_id IS NULL THEN NULL ELSE COALESCE(pr.username, 'unknown') END AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
                  WHERE post_likes.post_id = p.post_id
@@ -1589,8 +1703,10 @@ const AUTHOR_COMMENT_LIMIT: u64 = 100;
 pub struct AuthorComment {
     pub comment: SocialComment,
     pub post_content: String,
-    pub post_author_id: Uuid,
-    pub post_author_username: String,
+    /// `None` when the post is a spotlight and has no author.
+    pub post_author_id: Option<Uuid>,
+    /// `None` when `post_author_id` is `None`.
+    pub post_author_username: Option<String>,
 }
 
 #[derive(Debug, FromQueryResult)]
@@ -1598,8 +1714,8 @@ struct AuthorCommentRow {
     #[sea_orm(nested)]
     comment: CommentRow,
     post_content: String,
-    post_author_id: Uuid,
-    post_author_username: String,
+    post_author_id: Option<Uuid>,
+    post_author_username: Option<String>,
 }
 
 /// One author's comments, newest first, at most [`AUTHOR_COMMENT_LIMIT`].
@@ -1629,7 +1745,7 @@ pub async fn get_author_comments(
              ) AS liked,
              p.content AS post_content,
              p.user_id AS post_author_id,
-             COALESCE(pr.username, 'unknown') AS post_author_username
+             CASE WHEN p.user_id IS NULL THEN NULL ELSE COALESCE(pr.username, 'unknown') END AS post_author_username
          FROM comments c
          JOIN posts p ON p.post_id = c.post_id
          LEFT JOIN profile cr ON cr.uid = c.user_id
@@ -1740,6 +1856,356 @@ pub fn merge_feed_candidates(
         by_id.entry(post.post_id).or_insert(post);
     }
     by_id.into_values().collect()
+}
+
+/// How many unviewed spotlights `/feed` wants before it asks the client for more.
+pub const SPOTLIGHT_QUEUE: i64 = 5;
+
+/// Default and maximum page size for `GET /social/feed/history`.
+pub const HISTORY_DEFAULT_LIMIT: i64 = 10;
+pub const HISTORY_MAX_LIMIT: i64 = 50;
+
+/// How much one ranked post raises the chance the next slot is a spotlight.
+const SPOTLIGHT_STEP: f64 = 0.2;
+
+/// How much one recent non-spotlight raises the starting chance.
+const INITIAL_SPOTLIGHT_STEP: f64 = 0.2;
+
+/// Cap for a starting chance taken from recent views or the loaded feed.
+const INITIAL_SPOTLIGHT_CAP: f64 = 0.6;
+
+/// How many newest viewed posts `history` reads for its starting chance.
+pub const INITIAL_VIEW_COUNT: i64 = 3;
+
+/// A spotlight viewed longer ago than this sets the starting chance to the cap.
+const STALE_SPOTLIGHT: TimeDelta = TimeDelta::days(2);
+
+/// Unviewed spotlight post ids for the mix, plus whether the queue is short.
+pub struct SpotlightCandidates {
+    pub post_ids: Vec<i64>,
+    /// True when fewer than `count` of this user's spotlight posts are unviewed.
+    /// `loaded` still counts as unviewed. Ignores the request's `exclude`.
+    pub not_enough: bool,
+}
+
+/// One viewed post in view order, before it is hydrated.
+#[derive(Clone, Debug)]
+pub struct ViewedPostRef {
+    pub post_id: i64,
+    /// Order this post was viewed for this user. History pages by this.
+    pub view_order: i32,
+    pub viewed_at: DateTime<Utc>,
+}
+
+/// A history row: the post, its view order, and when this user viewed it.
+#[derive(Clone, Debug)]
+pub struct HistoryPost {
+    pub post: SocialPost,
+    pub view_order: i32,
+    pub viewed_at: DateTime<Utc>,
+}
+
+/// One catalog id to queue for this user.
+pub struct SpotlightInput {
+    pub spotlight_type: String,
+    pub musickit_id: String,
+}
+
+/// Inserts a shared spotlight post per catalog id, then queues it for `user_id`.
+/// `added` is how many queue rows were new. An id that already has a spotlight
+/// post reuses it. A queue row that already exists is left alone.
+pub async fn add_spotlights(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    items: &[SpotlightInput],
+) -> Result<i64, CadenzaError> {
+    if items.is_empty() {
+        return Ok(0);
+    }
+    let txn = db.begin().await?;
+    let mut added = 0i64;
+    for item in items {
+        let post_id = ensure_spotlight_post(&txn, &item.musickit_id).await?;
+        let inserted = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "INSERT INTO user_spotlights (user_id, spotlight_type, musickit_id, post_id)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (user_id, spotlight_type, musickit_id) DO NOTHING
+                 RETURNING user_id",
+                vec![
+                    user_id.into(),
+                    item.spotlight_type.clone().into(),
+                    item.musickit_id.clone().into(),
+                    post_id.into(),
+                ],
+            ))
+            .await?;
+        if inserted.is_some() {
+            added += 1;
+        }
+    }
+    txn.commit().await?;
+    Ok(added)
+}
+
+/// The shared spotlight post for this catalog id, inserting it when missing.
+async fn ensure_spotlight_post(
+    db: &impl ConnectionTrait,
+    musickit_id: &str,
+) -> Result<i64, CadenzaError> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "WITH inserted AS (
+                 INSERT INTO posts (user_id, content, embedding, embedding_w_bday, topic_mk_id)
+                 VALUES (NULL, '', NULL, NULL, $1)
+                 ON CONFLICT (topic_mk_id) WHERE user_id IS NULL AND topic_mk_id IS NOT NULL
+                 DO NOTHING
+                 RETURNING post_id
+             )
+             SELECT post_id FROM inserted
+             UNION ALL
+             SELECT post_id FROM posts
+             WHERE user_id IS NULL AND topic_mk_id = $1
+               AND NOT EXISTS (SELECT 1 FROM inserted)
+             LIMIT 1",
+            vec![musickit_id.to_owned().into()],
+        ))
+        .await?
+        .ok_or_else(|| {
+            CadenzaError::DatabaseError("inserting a spotlight post returned no id".into())
+        })?;
+    Ok(row.try_get_by_index(0)?)
+}
+
+/// Spotlight posts to mix into this page, and whether the unviewed pool is short.
+///
+/// `not_enough` counts unviewed rows (`loaded` included) and ignores `exclude`.
+/// The ids actually returned honor `exclude`, and that filter is applied before
+/// `LIMIT`, so a loaded spotlight does not use up a slot.
+pub async fn spotlight_posts(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    exclude: FeedExclude,
+    count: i64,
+) -> Result<SpotlightCandidates, CadenzaError> {
+    let unviewed = UnviewedCount::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        format!(
+            "SELECT COUNT(DISTINCT us.post_id)::bigint AS count
+             FROM user_spotlights us
+             JOIN posts p ON p.post_id = us.post_id
+             WHERE us.user_id = $1
+               AND NOT EXISTS (
+                   SELECT 1 FROM post_view_status v
+                   WHERE v.post_id = us.post_id
+                     AND v.user_id = $1
+                     AND v.status = 'viewed'
+               )
+               AND {NOT_BLOCKED_AUTHOR}"
+        ),
+        vec![user_id.into()],
+    ))
+    .one(db)
+    .await?
+    .map(|row| row.count)
+    .unwrap_or(0);
+
+    let values = vec![user_id.into(), count.into()];
+    let rows = IdRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        format!(
+            "SELECT us.post_id
+             FROM user_spotlights us
+             JOIN posts p ON p.post_id = us.post_id
+             WHERE us.user_id = $1
+               {view_filter}
+               AND {NOT_BLOCKED_AUTHOR}
+             GROUP BY us.post_id
+             ORDER BY us.post_id
+             LIMIT $2",
+            view_filter = spotlight_view_filter(exclude),
+        ),
+        values,
+    ))
+    .all(db)
+    .await?;
+
+    Ok(SpotlightCandidates {
+        post_ids: rows.into_iter().map(|row| row.post_id).collect(),
+        not_enough: unviewed < count,
+    })
+}
+
+/// `exclude` for the spotlight mix. `$1` is the viewer, already bound.
+fn spotlight_view_filter(exclude: FeedExclude) -> &'static str {
+    match exclude {
+        FeedExclude::None => "",
+        FeedExclude::Viewed => {
+            "AND NOT EXISTS (
+                 SELECT 1 FROM post_view_status v
+                 WHERE v.post_id = us.post_id
+                   AND v.user_id = $1
+                   AND v.status = 'viewed'
+             )"
+        }
+        FeedExclude::Loaded => {
+            "AND NOT EXISTS (
+                 SELECT 1 FROM post_view_status v
+                 WHERE v.post_id = us.post_id
+                   AND v.user_id = $1
+             )"
+        }
+    }
+}
+
+/// Viewed posts from `before_view_order` downward.
+///
+/// `before_view_order` is the highest number included. Previously viewed
+/// passes the `latest_view_order` from the first feed page, then one less
+/// than the last row. Blocked authors are left out.
+pub async fn viewed_posts(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    before_view_order: i32,
+    limit: i64,
+) -> Result<Vec<ViewedPostRef>, CadenzaError> {
+    let rows = ViewedPostRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        format!(
+            "SELECT p.post_id, v.view_order, v.date AS viewed_at
+             FROM post_view_status v
+             JOIN posts p ON p.post_id = v.post_id
+             WHERE v.user_id = $1
+               AND v.status = 'viewed'
+               AND v.view_order IS NOT NULL
+               AND v.view_order <= $2
+               AND {NOT_BLOCKED_AUTHOR}
+             ORDER BY v.view_order DESC
+             LIMIT $3"
+        ),
+        vec![user_id.into(), before_view_order.into(), limit.into()],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ViewedPostRef {
+            post_id: row.post_id,
+            view_order: row.view_order,
+            viewed_at: row.viewed_at.with_timezone(&Utc),
+        })
+        .collect())
+}
+
+/// [`viewed_posts`] hydrated in that order. A post the hydrate step drops is
+/// left out.
+pub async fn feed_history(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    before_view_order: i32,
+    limit: i64,
+) -> Result<Vec<HistoryPost>, CadenzaError> {
+    let refs = viewed_posts(db, user_id, before_view_order, limit).await?;
+    let ids: Vec<i64> = refs.iter().map(|row| row.post_id).collect();
+    let posts = get_posts(db, user_id, &ids).await?;
+    let mut by_id: HashMap<i64, SocialPost> =
+        posts.into_iter().map(|post| (post.post_id, post)).collect();
+    let mut out = Vec::with_capacity(refs.len());
+    for row in refs {
+        if let Some(post) = by_id.remove(&row.post_id) {
+            out.push(HistoryPost {
+                post,
+                view_order: row.view_order,
+                viewed_at: row.viewed_at,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Inserts spotlight ids after ranked posts. Ranked ids are kept in order.
+///
+/// Chance starts at `start`. For each ranked id, a roll under the current
+/// chance places the next spotlight after that id and resets the chance to 0.
+/// The chance then rises by 0.2, capped at 1. `roll` returns a number in
+/// `0..1`. Nothing is appended once the ranked ids end. The returned chance
+/// is the value after the last ranked post, so the next page can start there.
+pub fn mix_feed(
+    ranked: &[i64],
+    spotlights: &[i64],
+    start: f64,
+    mut roll: impl FnMut() -> f64,
+) -> (Vec<i64>, f64) {
+    let mut out = Vec::with_capacity(ranked.len() + spotlights.len());
+    let mut spotlight_at = 0;
+    let mut chance = start;
+    for &post_id in ranked {
+        out.push(post_id);
+        if spotlight_at < spotlights.len() && roll() < chance {
+            out.push(spotlights[spotlight_at]);
+            spotlight_at += 1;
+            chance = 0.0;
+        }
+        chance = (chance + SPOTLIGHT_STEP).min(1.0);
+    }
+    (out, chance)
+}
+
+/// Starting spotlight chance from the newest views.
+///
+/// Each leading non-spotlight adds 0.2, and the walk stops at the first
+/// spotlight. Three views and no spotlight cap the chance at 0.6. A spotlight
+/// viewed more than two days ago sets the chance to 0.6.
+pub fn initial_spotlight_chance(viewed: &[RecentView], now: DateTime<Utc>) -> f64 {
+    let mut chance = 0.0;
+    for row in viewed.iter().take(INITIAL_VIEW_COUNT as usize) {
+        if row.author_id.is_none() {
+            if now - row.viewed_at > STALE_SPOTLIGHT {
+                return INITIAL_SPOTLIGHT_CAP;
+            }
+            return chance;
+        }
+        chance = (chance + INITIAL_SPOTLIGHT_STEP).min(INITIAL_SPOTLIGHT_CAP);
+    }
+    chance
+}
+
+/// One recently viewed post, newest first, for [`initial_spotlight_chance`].
+#[derive(Clone, Debug)]
+pub struct RecentView {
+    /// `None` when the post is a spotlight.
+    pub author_id: Option<Uuid>,
+    pub viewed_at: DateTime<Utc>,
+}
+
+/// The newest viewed posts for `user_id`, at most `limit`.
+pub async fn recent_viewed_posts(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    limit: i64,
+) -> Result<Vec<RecentView>, CadenzaError> {
+    let rows = RecentViewRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT p.user_id AS author_id, v.date AS viewed_at
+         FROM post_view_status v
+         JOIN posts p ON p.post_id = v.post_id
+         WHERE v.user_id = $1
+           AND v.status = 'viewed'
+         ORDER BY v.date DESC, p.post_id DESC
+         LIMIT $2",
+        vec![user_id.into(), limit.into()],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| RecentView {
+            author_id: row.author_id,
+            viewed_at: row.viewed_at.with_timezone(&Utc),
+        })
+        .collect())
 }
 
 /// Ensures each interest exists. Returns whether it already had an embedding.
@@ -1999,24 +2465,33 @@ async fn candidate_posts(
         .collect()
 }
 
-fn exclude_clause(exclude: FeedExclude, user_id: Uuid) -> (&'static str, Vec<Value>) {
+fn exclude_clause(exclude: FeedExclude, user_id: Uuid) -> (String, Vec<Value>) {
+    // Null-author rows are spotlights. They are inserted afterwards, so the
+    // similar, hot, and unfiltered pools stay ordinary posts.
+    let author = "posts.user_id IS NOT NULL";
     match exclude {
-        FeedExclude::None => ("", Vec::new()),
+        FeedExclude::None => (format!("WHERE {author}"), Vec::new()),
         FeedExclude::Viewed => (
-            "WHERE NOT EXISTS (
-                 SELECT 1 FROM post_view_status
-                 WHERE post_view_status.post_id = posts.post_id
-                   AND post_view_status.user_id = $1
-                   AND post_view_status.status = 'viewed'
-             )",
+            format!(
+                "WHERE {author}
+                 AND NOT EXISTS (
+                     SELECT 1 FROM post_view_status
+                     WHERE post_view_status.post_id = posts.post_id
+                       AND post_view_status.user_id = $1
+                       AND post_view_status.status = 'viewed'
+                 )"
+            ),
             vec![user_id.into()],
         ),
         FeedExclude::Loaded => (
-            "WHERE NOT EXISTS (
-                 SELECT 1 FROM post_view_status
-                 WHERE post_view_status.post_id = posts.post_id
-                   AND post_view_status.user_id = $1
-             )",
+            format!(
+                "WHERE {author}
+                 AND NOT EXISTS (
+                     SELECT 1 FROM post_view_status
+                     WHERE post_view_status.post_id = posts.post_id
+                       AND post_view_status.user_id = $1
+                 )"
+            ),
             vec![user_id.into()],
         ),
     }
@@ -2042,12 +2517,12 @@ fn is_missing_post(err: &DbErr) -> bool {
 #[derive(Debug, FromQueryResult)]
 struct PostRow {
     post_id: i64,
-    author_id: Uuid,
+    author_id: Option<Uuid>,
     content: String,
     likes: i64,
     created_at: DateTime<chrono::FixedOffset>,
     edited_at: Option<DateTime<chrono::FixedOffset>>,
-    username: String,
+    username: Option<String>,
     liked: bool,
     topic_mk_id: Option<String>,
     shared_playlist_id: Option<i64>,
@@ -2068,7 +2543,7 @@ async fn to_posts(
     let cards = playlist_cards(db, &ids).await?;
     let post_ids: Vec<i64> = rows.iter().map(|row| row.post_id).collect();
     let mut tags = tags_for_posts(db, &post_ids).await?;
-    Ok(rows
+    let posts = rows
         .iter()
         .map(|row| SocialPost {
             shared_playlist: row.shared_playlist_id.map(|id| match cards.get(&id) {
@@ -2078,7 +2553,8 @@ async fn to_posts(
             tags: tags.remove(&row.post_id).unwrap_or_default(),
             ..row.to_post()
         })
-        .collect())
+        .collect();
+    Ok(posts)
 }
 
 impl PostRow {
@@ -2363,6 +2839,34 @@ struct CandidateRow {
     created_at: DateTime<chrono::FixedOffset>,
 }
 
+#[derive(Debug, FromQueryResult)]
+struct UnviewedCount {
+    count: i64,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct IdRow {
+    post_id: i64,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct ViewedPostRow {
+    post_id: i64,
+    view_order: i32,
+    viewed_at: DateTime<chrono::FixedOffset>,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct ViewOrderRow {
+    view_order: i32,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct RecentViewRow {
+    author_id: Option<Uuid>,
+    viewed_at: DateTime<chrono::FixedOffset>,
+}
+
 /// An interest row just inserted or already present.
 #[derive(Debug, Clone, FromQueryResult)]
 pub struct UpsertedInterest {
@@ -2415,6 +2919,85 @@ mod tests {
             likes: 0,
             created_at: Utc::now(),
         }
+    }
+
+    fn recent(spotlight: bool, hours_ago: i64, now: DateTime<Utc>) -> RecentView {
+        RecentView {
+            author_id: (!spotlight).then_some(Uuid::nil()),
+            viewed_at: now - TimeDelta::hours(hours_ago),
+        }
+    }
+
+    #[test]
+    fn mix_inserts_a_spotlight_behind_the_ranked_post() {
+        // Chance starts at 0, so the first post never takes a spotlight.
+        // A roll of 0 hits as soon as the chance is 0.2.
+        let (mixed, chance) = mix_feed(&[1, 2, 3], &[10], 0.0, || 0.0);
+        assert_eq!(mixed, vec![1, 2, 10, 3]);
+        assert!((chance - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn mix_resets_chance_after_a_spotlight_then_steps_by_two_tenths() {
+        // post 1: 1.0 < 0, chance 0.2
+        // post 2: 0.0 < 0.2, spotlight behind 2, chance resets then steps to 0.2
+        // post 3: 0.25 < 0.2, chance 0.4
+        // post 4: 0.1 < 0.4, spotlight behind 4
+        let mut rolls = [1.0, 0.0, 0.25, 0.1].into_iter();
+        let (mixed, _) = mix_feed(&[1, 2, 3, 4], &[10, 11], 0.0, || rolls.next().unwrap());
+        assert_eq!(mixed, vec![1, 2, 10, 3, 4, 11]);
+    }
+
+    #[test]
+    fn mix_uses_a_starting_chance_on_the_first_post() {
+        let (mixed, chance) = mix_feed(&[1, 2], &[10], 0.5, || 0.0);
+        assert_eq!(mixed, vec![1, 10, 2]);
+        assert!((chance - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn mix_does_not_append_spotlights_when_ranked_posts_run_out() {
+        let spotlights: Vec<i64> = (10..30).collect();
+        assert_eq!(mix_feed(&[1, 2], &spotlights, 0.0, || 1.0).0, vec![1, 2]);
+        let (mixed, chance) = mix_feed(&[], &[10, 11, 12, 13, 14], 0.3, || 0.0);
+        assert_eq!(mixed, Vec::<i64>::new());
+        assert!((chance - 0.3).abs() < 1e-9);
+    }
+
+    fn chance_near(actual: f64, expected: f64) {
+        assert!((actual - expected).abs() < 1e-9, "{actual} != {expected}");
+    }
+
+    #[test]
+    fn initial_chance_counts_non_spotlights_until_a_spotlight() {
+        let now = Utc::now();
+        chance_near(initial_spotlight_chance(&[], now), 0.0);
+        let three = vec![
+            recent(false, 1, now),
+            recent(false, 2, now),
+            recent(false, 3, now),
+        ];
+        chance_near(initial_spotlight_chance(&three, now), 0.6);
+        let five = vec![recent(false, 1, now); 5];
+        chance_near(initial_spotlight_chance(&five, now), 0.6);
+        let stopped = vec![
+            recent(false, 1, now),
+            recent(false, 2, now),
+            recent(true, 3, now),
+            recent(false, 4, now),
+        ];
+        chance_near(initial_spotlight_chance(&stopped, now), 0.4);
+        chance_near(initial_spotlight_chance(&[recent(true, 1, now)], now), 0.0);
+    }
+
+    #[test]
+    fn initial_chance_caps_when_the_spotlight_is_older_than_two_days() {
+        let now = Utc::now();
+        let old = vec![recent(false, 1, now), recent(true, 49, now)];
+        chance_near(initial_spotlight_chance(&old, now), 0.6);
+        chance_near(initial_spotlight_chance(&[recent(true, 49, now)], now), 0.6);
+        let fresh = vec![recent(false, 1, now), recent(true, 47, now)];
+        chance_near(initial_spotlight_chance(&fresh, now), 0.2);
     }
 
     #[test]
@@ -2557,6 +3140,7 @@ mod tests {
             "{}",
             first.sql
         );
+        assert!(first.sql.contains("p.user_id IS NOT NULL"), "{}", first.sql);
         assert!(
             first
                 .sql
@@ -2585,6 +3169,7 @@ mod tests {
             "{}",
             next.sql
         );
+        assert!(next.sql.contains("p.user_id IS NOT NULL"), "{}", next.sql);
         assert!(next.sql.contains("LIMIT $6"), "{}", next.sql);
         let values = &next.values.as_ref().unwrap().0;
         assert_eq!(values[2], Value::from(4_i64));

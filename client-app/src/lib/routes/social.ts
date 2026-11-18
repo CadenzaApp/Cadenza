@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MusicKit, type MusicRecommendation } from "@apple-musickit";
 import { useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
 
@@ -38,6 +39,15 @@ import type {
 
 /** Matches the backend feed page size. A shorter page means this mode is done. */
 const FEED_PAGE_SIZE = 10;
+
+/** Matches `GET /social/feed/history`'s default limit. */
+const HISTORY_PAGE_SIZE = 10;
+
+/**
+ * Fresh feed pages already sent to `POST /social/spotlights`. A new response
+ * is a new object, so a later page or a refresh searches again.
+ */
+const refilledFeedPages = new WeakSet<object>();
 
 const EMPTY_POSTS: SocialPost[] = [];
 
@@ -113,6 +123,21 @@ export function useEditInterestScores() {
 
 type FeedResponse = {
     feed: SocialPost[];
+    not_enough_spotlights?: boolean;
+    /** Chance after this page. The next fresh page sends it back. */
+    spotlight_chance?: number;
+    /** Highest view number when this was the first page. History starts here. */
+    latest_view_order?: number;
+};
+
+type HistoryPost = SocialPost & { viewed_at: string; view_order: number };
+
+type HistoryResponse = {
+    feed: HistoryPost[];
+};
+
+type SpotlightResponse = {
+    added: number;
 };
 
 type FeedPageKey = {
@@ -206,13 +231,27 @@ export function useFriendsFeed(enabled: boolean) {
  * Ranked posts for the signed-in user, paged like the library lists. Each
  * page already includes everything needed to render a card.
  *
- * First page uses `exclude=viewed` (skip only fully viewed posts). Later
- * pages use `exclude=loaded` (skip anything /feed already returned). The
- * service marks returned ids as `loaded`. When never-loaded posts run out,
- * continues with `exclude=none` after the caught-up separator.
+ * First page uses `exclude=viewed` (skip only fully viewed posts) and
+ * `first_page=true`. The response's `latest_view_order` is where previously
+ * viewed starts. Later pages use `exclude=loaded` (skip anything /feed already
+ * returned) and do not ask for that number. The service marks returned ids as
+ * `loaded` and does not set `view_order`.
+ * When the fresh pages run out, the next pages are `GET /social/feed/history`
+ * from that number downward. The next page starts at one less than the last
+ * row's `view_order`.
+ *
+ * A fresh page with `not_enough_spotlights` asks MusicKit for recommendations
+ * and posts up to five. This page stays as it is. Those spotlights can appear
+ * on a later page.
  */
 export function useFeed() {
     const { account } = useAccount();
+    const postSpotlights = useAPIMutation<
+        { spotlights: MusicRecommendation[] },
+        SpotlightResponse
+    >("POST", "/social/spotlights");
+    const postSpotlightsRef = useRef(postSpotlights.trigger);
+    postSpotlightsRef.current = postSpotlights.trigger;
 
     // Do not revalidate earlier pages when size grows: /feed's ranking shifts
     // as rows are marked loaded/viewed, so refetching page 0 would replace the
@@ -230,7 +269,14 @@ export function useFeed() {
                 keyType: "api-data",
                 path: "/social/feed",
                 // first paint: anything not viewed; scroll: only never-loaded
-                params: { exclude: pageIndex === 0 ? "viewed" : "loaded" },
+                params: {
+                    exclude: pageIndex === 0 ? "viewed" : "loaded",
+                    initial_spotlight_chance:
+                        pageIndex === 0
+                            ? "history"
+                            : (previousPage?.spotlight_chance ?? 0),
+                    ...(pageIndex === 0 ? { first_page: true } : {}),
+                },
                 accountId: account.id,
                 pageIndex,
             };
@@ -239,60 +285,123 @@ export function useFeed() {
         feedSwrOptions,
     );
 
+    useEffect(() => {
+        const pages = fresh.data;
+        if (!pages) return;
+        const todo = pages.filter(
+            (page) =>
+                page.not_enough_spotlights === true &&
+                !refilledFeedPages.has(page),
+        );
+        if (todo.length === 0) return;
+        for (const page of todo) refilledFeedPages.add(page);
+
+        let cancelled = false;
+        void (async () => {
+            for (let i = 0; i < todo.length; i++) {
+                if (cancelled) return;
+                try {
+                    const recommendations = await MusicKit.getRecommendations();
+                    const spotlights = recommendations.slice(0, 5);
+                    if (cancelled || spotlights.length === 0) continue;
+                    await postSpotlightsRef.current({ spotlights });
+                    const songs = spotlights.filter(
+                        (item) => item.type === "song",
+                    ).length;
+                    const artists = spotlights.length - songs;
+                    console.log(
+                        `uploaded MusicKit recommendations: ${songs} song${songs === 1 ? "" : "s"}, ${artists} artist${artists === 1 ? "" : "s"}`,
+                    );
+                } catch (error) {
+                    console.error("Spotlight refill failed", error);
+                }
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [fresh.data]);
+
+    const lastFresh = fresh.data?.at(-1);
     const freshExhausted =
         fresh.data != null &&
-        (fresh.data.length === 0 ||
-            !feedPageIsFull(fresh.data[fresh.data.length - 1]));
+        (fresh.data.length === 0 || !feedPageIsFull(lastFresh));
 
-    const caughtUp = useSWRInfinite<FeedResponse>(
-        (pageIndex, previousPage): FeedPageKey | null => {
-            if (!account || !freshExhausted) return null;
-            if (pageIndex > 0 && !feedPageIsFull(previousPage)) return null;
+    const historyStart = fresh.data?.[0]?.latest_view_order;
+
+    const history = useSWRInfinite<HistoryResponse>(
+        (pageIndex, previousPage) => {
+            if (!account || !freshExhausted || !historyStart) return null;
+            if (pageIndex > 0) {
+                const last = previousPage?.feed.at(-1);
+                if (!last || previousPage.feed.length < HISTORY_PAGE_SIZE) {
+                    return null;
+                }
+                return {
+                    keyType: "api-data",
+                    path: "/social/feed/history",
+                    params: {
+                        before_view_order: last.view_order - 1,
+                        limit: HISTORY_PAGE_SIZE,
+                    },
+                    accountId: account.id,
+                    pageIndex,
+                };
+            }
             return {
                 keyType: "api-data",
-                path: "/social/feed",
-                params: { exclude: "none" },
+                path: "/social/feed/history",
+                params: {
+                    before_view_order: historyStart,
+                    limit: HISTORY_PAGE_SIZE,
+                },
                 accountId: account.id,
                 pageIndex,
             };
         },
-        (key: FeedPageKey) => fetchAPIData<FeedResponse>(key.path, key.params),
+        (key: FeedPageKey) =>
+            fetchAPIData<HistoryResponse>(key.path, key.params),
         feedSwrOptions,
     );
 
     const freshPosts = useMemo(() => feedPagePosts(fresh.data), [fresh.data]);
-    const caughtUpPosts = useMemo(
-        () => feedPagePosts(caughtUp.data),
-        [caughtUp.data],
-    );
-    const posts = useMemo(() => {
+    const historyPosts = useMemo(() => {
         const seen = new Set(freshPosts.map((post) => post.post_id));
-        return [
-            ...freshPosts,
-            ...caughtUpPosts.filter((post) => !seen.has(post.post_id)),
-        ];
-    }, [freshPosts, caughtUpPosts]);
+        const posts: SocialPost[] = [];
+        for (const page of history.data ?? []) {
+            for (const post of page.feed) {
+                if (seen.has(post.post_id)) continue;
+                seen.add(post.post_id);
+                posts.push(post);
+            }
+        }
+        return posts;
+    }, [freshPosts, history.data]);
+    const posts = useMemo(
+        () => [...freshPosts, ...historyPosts],
+        [freshPosts, historyPosts],
+    );
 
     const freshLoadingNext = isLoadingNextFeedPage(
         fresh.size,
         fresh.data,
         fresh.isValidating,
     );
-    const caughtUpLoadingNext = isLoadingNextFeedPage(
-        caughtUp.size,
-        caughtUp.data,
-        caughtUp.isValidating,
+    const historyLoadingNext = isLoadingNextFeedPage(
+        history.size,
+        history.data,
+        history.isValidating,
     );
 
+    const historyLast = history.data?.at(-1);
     const hasNextPage = !freshExhausted
-        ? feedPageIsFull(fresh.data?.[fresh.data.length - 1])
-        : caughtUp.data == null
-          ? !caughtUp.error
-          : feedPageIsFull(caughtUp.data[caughtUp.data.length - 1]);
+        ? feedPageIsFull(lastFresh)
+        : (historyLast?.feed.length ?? 0) >= HISTORY_PAGE_SIZE;
 
     const isLoadingNextPage = !freshExhausted
         ? freshLoadingNext
-        : caughtUp.isLoading || caughtUpLoadingNext;
+        : history.isLoading || historyLoadingNext;
 
     const loadNextPage = useCallback(async () => {
         if (!hasNextPage || isLoadingNextPage) return;
@@ -300,19 +409,19 @@ export function useFeed() {
             await fresh.setSize((size) => size + 1);
             return;
         }
-        await caughtUp.setSize((size) => size + 1);
+        await history.setSize((size) => size + 1);
     }, [
-        caughtUp.setSize,
         fresh.setSize,
         freshExhausted,
         hasNextPage,
+        history.setSize,
         isLoadingNextPage,
     ]);
 
     const refreshFeed = useCallback(async () => {
-        await Promise.all([fresh.setSize(1), caughtUp.setSize(1)]);
-        await Promise.all([fresh.mutate(), caughtUp.mutate()]);
-    }, [caughtUp.mutate, caughtUp.setSize, fresh.mutate, fresh.setSize]);
+        await Promise.all([fresh.setSize(1), history.setSize(1)]);
+        await Promise.all([fresh.mutate(), history.mutate()]);
+    }, [fresh.mutate, fresh.setSize, history.mutate, history.setSize]);
 
     return {
         posts,
@@ -325,8 +434,8 @@ export function useFeed() {
         refreshFeed,
         feedLoading:
             fresh.isLoading ||
-            (freshExhausted && caughtUp.isLoading && !caughtUp.data),
-        feedErr: fresh.error ?? (freshExhausted ? caughtUp.error : undefined),
+            (freshExhausted && history.isLoading && !history.data),
+        feedErr: fresh.error ?? (freshExhausted ? history.error : undefined),
     };
 }
 
@@ -363,7 +472,10 @@ export function useCreatePost() {
         createPost: async (body: NewPostPayload) => {
             const created = await x.trigger(body);
             if (created?.post_id == null) return undefined;
-            return { post_id: created.post_id, tags: created.tags ?? [] };
+            return {
+                post_id: created.post_id,
+                tags: created.tags ?? [],
+            };
         },
     };
 }
@@ -470,7 +582,13 @@ export function useUpdateCachedPostContent() {
             const apply = (current: unknown) =>
                 current == null
                     ? current
-                    : applyPostContent(current, postId, content, editedAt, tags);
+                    : applyPostContent(
+                          current,
+                          postId,
+                          content,
+                          editedAt,
+                          tags,
+                      );
             const writes: Promise<unknown>[] = [
                 mutate(isSocialPostListKey, apply, { revalidate: false }),
             ];
@@ -514,9 +632,12 @@ type MarkPostsViewedPayload = {
 };
 
 /**
- * Marks posts as `viewed` in `post_view_status` (upgrades `loaded`). Does not
- * refresh the feed cache: a mid-scroll refresh would yank rows out from under
- * the user. `/feed` itself writes `loaded` when it returns posts.
+ * Marks posts as `viewed` in `post_view_status` (upgrades `loaded`). `post_ids`
+ * stays in the order given. The server gives each the next `view_order` in
+ * that order, replacing a number that was already there. Only the For You and
+ * Friends lists call this. Discuss, a profile, and a topic page do not.
+ * Does not refresh the feed cache: a mid-scroll refresh would yank rows out
+ * from under the user. `/feed` itself writes `loaded` when it returns posts.
  */
 export function useMarkPostsViewed() {
     const x = useAPIMutation<MarkPostsViewedPayload, void>(
@@ -632,8 +753,9 @@ type TopicPageKey = {
 
 /**
  * Posts whose topic is this Apple Music catalog id, 10 at a time. Most liked
- * first, then newest, then post id. Pass no id, or `enabled: false`, to leave
- * it unread. The next page sends the previous response's `next` cursor.
+ * first, then newest, then post id. A post with no author is left out. Pass
+ * no id, or `enabled: false`, to leave it unread. The next page sends the
+ * previous response's `next` cursor.
  *
  * ```ts
  * const { posts, hasNextPage, loadNextPage } = useTopicPosts(songId, enabled);

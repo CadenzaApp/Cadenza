@@ -8,6 +8,7 @@ import type {
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
+    MusicRecommendation,
     MusicKitOptions,
     SearchResult,
     SongFavoriteStatus,
@@ -30,6 +31,16 @@ const SONG_INFO_CONCURRENCY = 6;
 export const MusicKit = {
     /** Returns whether the native Apple Music bridge is installed. */
     isAvailable: (): boolean => native !== null,
+
+    /**
+     * Songs and artists from the user's Apple Music recommendations.
+     * Albums and playlists become one random song from their first track page,
+     * or, one time in three, that song's artist.
+     * The list may be shorter than five. Stations are left out.
+     */
+    getRecommendations: async (): Promise<MusicRecommendation[]> => {
+        return requireNative().getRecommendations();
+    },
 
     /**
      * Retrieves full metadata for catalog or library song IDs in the requested
@@ -429,6 +440,7 @@ interface LibraryNativeModule {
         kind: CollectionFavoriteKind,
         ids: string[],
     ): Promise<MusicItem[]>;
+    getRecommendations(): Promise<MusicRecommendation[]>;
 }
 
 let native: LibraryNativeModule | null = null;

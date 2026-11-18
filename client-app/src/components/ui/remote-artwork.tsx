@@ -14,11 +14,17 @@ export function RemoteArtwork({
     className,
     style,
     fallback,
+    onLoad,
+    onError,
 }: {
     url?: string | null;
     className?: string;
     style?: StyleProp<ViewStyle>;
     fallback?: ReactNode;
+    /** The bitmap is decoded. A new url has not loaded yet. */
+    onLoad?: () => void;
+    /** The url cannot be drawn. */
+    onError?: () => void;
 }) {
     // the url that failed, not a flag: a recycled list row gets a new url,
     // and a failed cover must not carry over to it
@@ -39,11 +45,18 @@ export function RemoteArtwork({
                 <Image
                     source={{ uri }}
                     recyclingKey={uri}
-                    style={StyleSheet.absoluteFill}
+                    style={[
+                        StyleSheet.absoluteFill,
+                        { width: "100%", height: "100%" },
+                    ]}
                     contentFit="cover"
                     cachePolicy="memory-disk"
                     transition={120}
-                    onError={() => setFailedUrl(uri!)}
+                    onLoad={() => onLoad?.()}
+                    onError={() => {
+                        setFailedUrl(uri!);
+                        onError?.();
+                    }}
                 />
             ) : (
                 fallback

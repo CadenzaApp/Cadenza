@@ -386,12 +386,12 @@ function ReplyCard({
     return (
         <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Reply to ${reply.post.author.username}: ${reply.content}`}
+            accessibilityLabel={`Reply to ${reply.post.author?.username ?? "For you"}: ${reply.content}`}
             onPress={() => onPress(reply.post_id)}
             className="gap-2 rounded-2xl border border-border p-4 active:opacity-60"
         >
             <Text className="text-xs text-muted-foreground">
-                Replying to {reply.post.author.username}
+                Replying to {reply.post.author?.username ?? "For you"}
                 {" \u00b7 "}
                 {formatRelativeTime(reply.created_at)}
             </Text>

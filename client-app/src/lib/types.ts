@@ -70,6 +70,8 @@ export type PostTopic =
           title: string;
           artistName?: string;
           artworkUrl?: string;
+          /** Cover at hero size. The small card uses `artworkUrl`. */
+          artworkUrlLarge?: string;
           artworkColor?: string;
           catalogId?: string;
           playbackId?: string;
@@ -83,12 +85,15 @@ export type PostTopic =
           artworkUrl?: string;
           artworkColor?: string;
           catalogId?: string;
+          /** Apple's short note, when the catalog has one. */
+          editorialNote?: string;
       };
 
 /**
  * One social feed post as `/social/feed`, `/social/posts/user/:id`, and
  * `/social/posts/topic` return it. Author comes from `profile`; a missing
- * profile row shows username `"unknown"`. `topic_mk_id` is the Apple Music
+ * profile row shows username `"unknown"`. `author` is null on a spotlight
+ * post, which has no user. `topic_mk_id` is the Apple Music
  * catalog id of an attached song or artist, or null. `tags` are decorative
  * labels on the post, separate from song tags.
  */
@@ -108,11 +113,12 @@ export type SocialPost = {
     created_at: string;
     /** RFC 3339 in UTC, or null when the author has not edited it. */
     edited_at: string | null;
+    /** Null on a spotlight post. A missing profile row is username `"unknown"`. */
     author: {
         /** Auth user id; used to open their profile page. */
         user_id: string;
         username: string;
-    };
+    } | null;
     /** Apple Music catalog id of the attached song or artist, or null. */
     topic_mk_id: string | null;
     /** The attached shared playlist, or null. Never set with `topic_mk_id`. */
@@ -165,10 +171,11 @@ export type SocialReply = SocialComment & {
     post: {
         post_id: number;
         content: string;
+        /** Null when the post is a spotlight and has no author. */
         author: {
             user_id: string;
             username: string;
-        };
+        } | null;
     };
 };
 

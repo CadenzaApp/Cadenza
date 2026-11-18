@@ -458,6 +458,31 @@ public class AppleMusicKitModule: Module {
         return result
     }
 
+    /// Apple's short blurb, tags stripped. `short` when present, otherwise `standard`.
+    private func editorialNote(_ attributes: [String: Any]) -> String? {
+        guard let notes = attributes["editorialNotes"] as? [String: Any] else { return nil }
+        let raw = (notes["short"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (notes["standard"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        guard let raw else { return nil }
+        let stripped = raw.replacingOccurrences(
+            of: "<[^>]+>",
+            with: " ",
+            options: .regularExpression
+        )
+        let decoded = stripped
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&apos;", with: "'")
+        let text = decoded.replacingOccurrences(
+            of: "\\s+",
+            with: " ",
+            options: .regularExpression
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
     private func artworkURL(_ template: String, width: Int, height: Int) -> String {
         template
             .replacingOccurrences(of: "{w}", with: String(width))
@@ -621,6 +646,141 @@ public class AppleMusicKitModule: Module {
         let response = try await makeAPIRequest(
             path: "/v1/storefronts/\(region)", allowNotFound: true)
         return response.isEmpty ? Self.fallbackStorefront : region
+    }
+
+    /// Songs and artists from `/v1/me/recommendations`. An album or playlist
+    /// becomes one random song from its first track page, or, one time in
+    /// three, that song's artist. Stations are skipped. Track fetches stop
+    /// after a dozen so a long list does not stampede Apple.
+    private func recommendationSpotlights() async throws -> [[String: Any]] {
+        let response = try await makeAPIRequest(path: "/v1/me/recommendations")
+        let groups = response["data"] as? [[String: Any]] ?? []
+        var out: [[String: Any]] = []
+        var seen = Set<String>()
+        var fetches = 0
+        for group in groups {
+            let relationships = group["relationships"] as? [String: Any]
+            let contents = relationships?["contents"] as? [String: Any]
+            let items = contents?["data"] as? [[String: Any]] ?? []
+            for item in items {
+                guard let id = item["id"] as? String, !id.isEmpty else { continue }
+                switch item["type"] as? String {
+                case "songs":
+                    let name = self.resourceName(item) ?? await self.catalogResourceName(kind: "songs", id: id)
+                    self.appendRecommendation(&out, seen: &seen, type: "song", id: id, name: name)
+                case "artists":
+                    let name = self.resourceName(item) ?? await self.catalogResourceName(kind: "artists", id: id)
+                    self.appendRecommendation(&out, seen: &seen, type: "artist", id: id, name: name)
+                case "albums", "playlists":
+                    if fetches >= 12 { continue }
+                    fetches += 1
+                    let resource = item["type"] as? String ?? ""
+                    if let track = try await self.randomCatalogTrack(resource: resource, id: id) {
+                        if Int.random(in: 0..<3) == 0,
+                           let artist = await self.catalogArtist(songId: track.id) {
+                            self.appendRecommendation(
+                                &out, seen: &seen, type: "artist", id: artist.id, name: artist.name)
+                        } else {
+                            self.appendRecommendation(
+                                &out, seen: &seen, type: "song", id: track.id, name: track.name)
+                        }
+                    }
+                default:
+                    continue
+                }
+            }
+        }
+        return out
+    }
+
+    private func appendRecommendation(
+        _ out: inout [[String: Any]],
+        seen: inout Set<String>,
+        type: String,
+        id: String,
+        name: String?
+    ) {
+        if seen.insert("\(type):\(id)").inserted {
+            var row: [String: Any] = ["type": type, "id": id]
+            if let name, !name.isEmpty {
+                row["name"] = name
+            }
+            out.append(row)
+        }
+    }
+
+    /// "Title by Artist" for a song, or the name alone for an artist. `nil`
+    /// when this resource did not include attributes.
+    private func resourceName(_ item: [String: Any]) -> String? {
+        let attributes = item["attributes"] as? [String: Any]
+        guard let name = attributes?["name"] as? String, !name.isEmpty else { return nil }
+        if let artist = attributes?["artistName"] as? String, !artist.isEmpty {
+            return "\(name) by \(artist)"
+        }
+        return name
+    }
+
+    /// One catalog read for a song or artist whose recommendation row had no name.
+    private func catalogResourceName(kind: String, id: String) async -> String? {
+        guard let storefront = try? await currentStorefrontID() else { return nil }
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        guard let response = try? await makeAPIRequest(
+            path: "/v1/catalog/\(storefront)/\(kind)/\(encoded)",
+            allowNotFound: true),
+              let item = (response["data"] as? [[String: Any]])?.first
+        else { return nil }
+        return resourceName(item)
+    }
+
+    /// One song from the first page of a catalog album or playlist. `nil`
+    /// when Apple has no tracks, including a 404.
+    private func randomCatalogTrack(resource: String, id: String) async throws -> (id: String, name: String?)? {
+        let storefront = try await currentStorefrontID()
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let response = try await makeAPIRequest(
+            path: "/v1/catalog/\(storefront)/\(resource)/\(encoded)/tracks?limit=25",
+            allowNotFound: true)
+        let tracks = (response["data"] as? [[String: Any]] ?? []).filter { track in
+            guard let type = track["type"] as? String else { return true }
+            return type == "songs"
+        }
+        guard let track = tracks.randomElement(),
+              let songId = track["id"] as? String, !songId.isEmpty
+        else { return nil }
+        return (songId, resourceName(track))
+    }
+
+    /// The first artist on a catalog song, for the one-in-three album and
+    /// playlist pick that keeps the artist instead of the song.
+    private func catalogArtist(songId: String) async -> (id: String, name: String?)? {
+        guard let storefront = try? await currentStorefrontID() else { return nil }
+        let encoded = songId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? songId
+        guard let response = try? await makeAPIRequest(
+            path: "/v1/catalog/\(storefront)/songs/\(encoded)?include=artists",
+            allowNotFound: true),
+              let song = (response["data"] as? [[String: Any]])?.first
+        else { return nil }
+        let included = response["included"] as? [[String: Any]] ?? []
+        return artist(of: song, included: included)
+    }
+
+    /// The song's first artist. The name comes from the relationship when Apple
+    /// inlined it, otherwise from the `included` list.
+    private func artist(
+        of song: [String: Any], included: [[String: Any]]
+    ) -> (id: String, name: String?)? {
+        let relationships = song["relationships"] as? [String: Any]
+        let artists = relationships?["artists"] as? [String: Any]
+        guard let data = (artists?["data"] as? [[String: Any]])?.first,
+              let id = data["id"] as? String, !id.isEmpty
+        else { return nil }
+        if let name = (data["attributes"] as? [String: Any])?["name"] as? String, !name.isEmpty {
+            return (id, name)
+        }
+        let match = included.first {
+            ($0["id"] as? String) == id && ($0["type"] as? String) == "artists"
+        }
+        return (id, match.flatMap(resourceName))
     }
 
     /// Whether there is a music-user token, so MusicKit's own requests work.
@@ -1220,6 +1380,10 @@ public class AppleMusicKitModule: Module {
             return self.collectionResult(response)
         }
 
+        AsyncFunction("getRecommendations") { () async throws -> [[String: Any]] in
+            try await self.recommendationSpotlights()
+        }
+
         AsyncFunction("getAlbumSongs") {
             (albumId: String, options: PageOptions) async throws -> [String: Any] in
             let encodedID = albumId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
@@ -1544,6 +1708,9 @@ public class AppleMusicKitModule: Module {
             ]
             if let genres = attributes["genreNames"] as? [String] {
                 result["genres"] = genres
+            }
+            if let note = self.editorialNote(attributes) {
+                result["editorialNote"] = note
             }
             if let shareURL = attributes["url"] as? String, !shareURL.isEmpty {
                 result["shareUrl"] = shareURL
