@@ -34,7 +34,7 @@ logic out.
 | `(tabs)/(search)/search/index.tsx`                                                  | `/search`                      | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs).                             |
 | `(tabs)/(analytics,cadenza,library,search,social)/collection/[kind]/[id].tsx`       | `/collection/:kind/:id`        | The songs in one album or playlist.                                                                                                       |
 | `(tabs)/(analytics,cadenza,library,search,social)/tag/[tagId].tsx`                  | `/tag/:tagId`                  | One tag and the songs carrying it.                                                                                                        |
-| `(tabs)/(analytics,cadenza,library,search,social)/artist/[id].tsx`                  | `/artist/:id`                  | One catalog artist: the artist image and a play button, top songs, then an albums rail.                                                   |
+| `(tabs)/(analytics,cadenza,library,search,social)/artist/[id].tsx`                  | `/artist/:id`                  | One catalog artist: the artist image and a play button, top songs, then an albums rail with release month and year when available.                                                   |
 | `(tabs)/(analytics,cadenza,library,search,social)/shared-playlist/[id].tsx`         | `/shared-playlist/:id`         | One shared playlist on `TrackCollectionView`, in the tab it opens from. Draws its own header.                                             |
 | `(tabs)/(analytics,cadenza,library,search,social)/shared-playlist/[id]/members.tsx` | `/shared-playlist/:id/members` | Members, roles, invite, add friends.                                                                                                      |
 | `(tabs)/(analytics,cadenza,library,search,social)/shared-playlist/[id]/reorder.tsx` | `/shared-playlist/:id/reorder` | Drag songs into a new order.                                                                                                              |
@@ -121,8 +121,7 @@ they are root stack routes. The splash screen owns session restore, which is why
 
 ## Native tabs and the mini player
 
-`(tabs)/_layout.tsx` uses SDK 58's `expo-router/native-tabs` API. The five `NativeTabs.Trigger` declarations are the tab order. Search uses the
-native `search` role, and iOS 26 draws the system Liquid Glass tab bar without an app-owned
+`(tabs)/_layout.tsx` uses SDK 58's `expo-router/native-tabs` API. The five `NativeTabs.Trigger` declarations are the tab order. Search uses a regular tab role so all five items share one bar. iOS 26 draws the system Liquid Glass tab bar without an app-owned
 background or selection bubble.
 
 On iOS 26+, expanded playback uses `NativeTabs.BottomAccessory` with

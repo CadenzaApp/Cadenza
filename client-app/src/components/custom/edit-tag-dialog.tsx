@@ -21,9 +21,11 @@ export function EditTagDialog({
     tag,
     mode,
     onClose,
+    onUpdated,
 }: {
     tag: Tag;
     mode: EditMode;
+    onUpdated?: (tag: Tag) => void;
     onClose: () => void;
 }) {
     const { width: screenWidth } = useWindowDimensions();
@@ -48,6 +50,10 @@ export function EditTagDialog({
                     ? { tag_id: tag.id, name: trimmedName }
                     : { tag_id: tag.id, color },
             );
+            onUpdated?.({
+                ...tag,
+                ...(mode === "name" ? { name: trimmedName } : { color }),
+            });
             onClose();
         } catch {
             // The mutation hook owns the error shown below. Keeping the dialog

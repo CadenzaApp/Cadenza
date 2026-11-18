@@ -5,7 +5,7 @@ export const BOTTOM_CONTROL_SPRING = {
     mass: 0.8,
 } as const;
 
-export const COMPACT_PLAYER_HEIGHT = 48;
+export const COMPACT_PLAYER_HEIGHT = 52;
 export const FLOATING_ACTION_SIZE = 56;
 export const PLAYER_CONTROL_SIZE = 52;
 export const OVERLAY_GAP = 12;
@@ -248,7 +248,7 @@ export function playerHostIsActive(
     routes: readonly { key: string; name: string }[],
     index = routes.length - 1,
 ) {
-    if (focused) return true;
+    if (focused || routes[index]?.key === key) return true;
     const sheets = ["player", "account", "appearance"];
     if (!sheets.includes(routes[index]?.name.split("/")[0])) return false;
     let underlying = index;
@@ -258,4 +258,14 @@ export function playerHostIsActive(
     )
         underlying--;
     return routes[underlying]?.key === key;
+}
+
+/** Resolve the underlying screen from current state during sheet transitions. */
+export function baseRouteUnderSheets(
+    routes: readonly { name: string }[],
+    index: number,
+    sheets: ReadonlySet<string>,
+) {
+    while (index >= 0 && sheets.has(routes[index].name.split("/")[0])) index--;
+    return routes[index]?.name.split("/")[0];
 }

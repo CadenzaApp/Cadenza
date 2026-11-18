@@ -12,10 +12,14 @@ import { Text } from "@/components/ui/text";
 import { classifyError } from "@/lib/app-error";
 import {
     useApplyTagsToSongs,
+    useApplyTag,
     useRemoveTagsFromSongs,
 } from "@/lib/routes/songs";
 import { useCreateTag } from "@/lib/routes/tags";
 import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
+
+import { TagValueDialog } from "@/components/custom/tag-value-dialog";
+import { isAttributeTag } from "@/lib/tag-values";
 
 export type BulkTagMode = "apply" | "remove";
 
@@ -120,6 +124,11 @@ export function BulkTagSelectorPopup({
         ReadonlySet<number>
     >(new Set());
     const [submitError, setSubmitError] = useState<string | null>(null);
+    const [valuePrompt, setValuePrompt] = useState<Tag | null>(null);
+    const [tagValues, setTagValues] = useState<Record<number, string | null>>(
+        {},
+    );
+    const { applyTag } = useApplyTag();
     const { applyTagsToSongs } = useApplyTagsToSongs();
     const { removeTagsFromSongs } = useRemoveTagsFromSongs();
     const { createTag } = useCreateTag();
@@ -141,12 +150,20 @@ export function BulkTagSelectorPopup({
         }
         return [...uniqueTags.values()].map((tag) => ({
             ...tag,
-            value: null,
+            value: tagValues[tag.id] ?? null,
             chosen: chosenIds.has(tag.id),
         }));
-    }, [chosenIds, createdTags, initialTags]);
+    }, [chosenIds, createdTags, initialTags, tagValues]);
 
     function toggleTag(tag: TagSelectorItem) {
+        if (
+            mode === "apply" &&
+            !chosenIds.has(tag.id) &&
+            isAttributeTag(tag.type)
+        ) {
+            setValuePrompt(tag);
+            return;
+        }
         setSelection((current) => {
             const overrides = new Map(
                 current.key === sessionKey ? current.overrides : [],
@@ -158,6 +175,10 @@ export function BulkTagSelectorPopup({
 
     function handleTagCreated(tag: Tag) {
         setCreatedTags((current) => [...current, tag]);
+        if (isAttributeTag(tag.type)) {
+            setValuePrompt(tag);
+            return;
+        }
         setSelection((current) => {
             const overrides = new Map(
                 current.key === sessionKey ? current.overrides : [],
@@ -203,8 +224,25 @@ export function BulkTagSelectorPopup({
                 song_ids: songIds,
                 tag_ids: submittedIds,
             };
-            if (mode === "apply") await applyTagsToSongs(payload);
-            else await removeTagsFromSongs(payload);
+            if (mode === "apply") {
+                const valuedIds = submittedIds.filter((id) =>
+                    Object.hasOwn(tagValues, id),
+                );
+                const basicIds = submittedIds.filter(
+                    (id) => !Object.hasOwn(tagValues, id),
+                );
+                if (basicIds.length)
+                    await applyTagsToSongs({ ...payload, tag_ids: basicIds });
+                for (const tagId of valuedIds) {
+                    for (const songId of songIds) {
+                        await applyTag({
+                            song_id: songId,
+                            tag_id: tagId,
+                            value: tagValues[tagId],
+                        });
+                    }
+                }
+            } else await removeTagsFromSongs(payload);
             onComplete();
         } catch (error) {
             console.error(`Bulk ${mode} tags failed:`, error);
@@ -217,78 +255,122 @@ export function BulkTagSelectorPopup({
     const pendingChoiceCount = chosenIds.size;
 
     return (
-        <ModalPopup
-            visible
-            onClose={submitting ? () => undefined : onCancel}
-            variant="transparent"
-            backdropClassName="px-0 py-8"
-            contentStyle={{
-                width: Math.min(width * 0.92, 624),
-                maxWidth: 624,
-                maxHeight: "80%",
-                padding: 0,
-            }}
-        >
-            <ScrollView
-                contentContainerClassName="gap-4 px-4"
-                showsVerticalScrollIndicator={false}
+        <>
+            <ModalPopup
+                visible
+                onClose={submitting ? () => undefined : onCancel}
+                variant="transparent"
+                backdropClassName="px-0 py-8"
+                contentStyle={{
+                    width: Math.min(width * 0.92, 624),
+                    maxWidth: 624,
+                    maxHeight: "80%",
+                    padding: 0,
+                }}
             >
-                <Text className="text-xl font-semibold text-foreground">
-                    {actionLabel} tags
-                </Text>
-                <TagSelector
-                    contextKey={sessionKey}
-                    tags={selectorItems}
-                    tagsHeading={
-                        mode === "apply"
-                            ? "Select tags to apply"
-                            : "Select tags to remove"
-                    }
-                    suggestedTags={suggestedTags}
-                    selectionMode={
-                        mode === "apply" && songIds.length === 1
-                            ? "single"
-                            : "multiple"
-                    }
-                    loading={loading}
-                    emptyLabel={
-                        mode === "remove"
-                            ? "The selected songs have no tags to remove."
-                            : "You have no tags yet."
-                    }
-                    onToggleTag={toggleTag}
-                    onChooseSuggested={(tag) => void chooseSuggestedTag(tag)}
-                    onCreateTag={
-                        mode === "apply" ? handleTagCreated : undefined
-                    }
-                    footerActions={[
-                        {
-                            id: "cancel",
-                            label: "Cancel",
-                            onPress: onCancel,
-                            disabled: submitting,
-                        },
-                        {
-                            id: mode,
-                            label: submitting
-                                ? `${actionLabel}ing...`
-                                : actionLabel,
-                            onPress: () => void submit(),
-                            disabled:
-                                loading ||
-                                submitting ||
-                                pendingChoiceCount === 0,
-                            variant:
-                                mode === "remove" ? "destructive" : "default",
-                        },
-                    ]}
-                />
-                {submitError ? (
-                    <Text className="text-sm text-destructive">
-                        {submitError}
+                <ScrollView
+                    contentContainerClassName="gap-4 p-4"
+                    showsVerticalScrollIndicator={false}
+                >
+                    <Text className="text-xl font-semibold text-foreground">
+                        {actionLabel} tags
                     </Text>
-                ) : null}
-            </ScrollView>
-        </ModalPopup>
+                    <TagSelector
+                        opaque
+                        contextKey={sessionKey}
+                        tags={selectorItems}
+                        onTagDeleted={(id) => {
+                            setCreatedTags((tags) =>
+                                tags.filter((tag) => tag.id !== id),
+                            );
+                            setSelection((current) => ({
+                                ...current,
+                                overrides: new Map(current.overrides).set(
+                                    id,
+                                    false,
+                                ),
+                            }));
+                        }}
+                        onTagUpdated={(tag) =>
+                            setCreatedTags((tags) =>
+                                tags.map((current) =>
+                                    current.id === tag.id ? tag : current,
+                                ),
+                            )
+                        }
+                        tagsHeading={
+                            mode === "apply"
+                                ? "Select tags to apply"
+                                : "Select tags to remove"
+                        }
+                        suggestedTags={suggestedTags}
+                        selectionMode={
+                            mode === "apply" && songIds.length === 1
+                                ? "single"
+                                : "multiple"
+                        }
+                        loading={loading}
+                        emptyLabel={
+                            mode === "remove"
+                                ? "The selected songs have no tags to remove."
+                                : "You have no tags yet."
+                        }
+                        onToggleTag={toggleTag}
+                        onChooseSuggested={(tag) =>
+                            void chooseSuggestedTag(tag)
+                        }
+                        onCreateTag={
+                            mode === "apply" ? handleTagCreated : undefined
+                        }
+                        footerActions={[
+                            {
+                                id: "cancel",
+                                label: "Cancel",
+                                onPress: onCancel,
+                                disabled: submitting,
+                            },
+                            {
+                                id: mode,
+                                label: submitting
+                                    ? `${actionLabel}ing...`
+                                    : actionLabel,
+                                onPress: () => void submit(),
+                                disabled:
+                                    loading ||
+                                    submitting ||
+                                    pendingChoiceCount === 0,
+                                variant:
+                                    mode === "remove"
+                                        ? "destructive"
+                                        : "default",
+                            },
+                        ]}
+                    />
+                    {submitError ? (
+                        <Text className="text-sm text-destructive">
+                            {submitError}
+                        </Text>
+                    ) : null}
+                </ScrollView>
+            </ModalPopup>
+            <TagValueDialog
+                open={valuePrompt != null}
+                tag={valuePrompt}
+                mode="apply"
+                onClose={() => setValuePrompt(null)}
+                onSubmit={(value) => {
+                    if (!valuePrompt) return;
+                    const tagId = valuePrompt.id;
+                    setTagValues((current) => ({ ...current, [tagId]: value }));
+                    setSelection((current) => ({
+                        key: sessionKey,
+                        overrides: new Map(
+                            current.key === sessionKey ? current.overrides : [],
+                        ).set(tagId, true),
+                    }));
+                    setValuePrompt(null);
+                }}
+            />
+        </>
     );
 }

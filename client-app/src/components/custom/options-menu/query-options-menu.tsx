@@ -111,7 +111,7 @@ export function QueryOptionsMenu({
                     />
                 ) : null}
             </View>
-            <Separator className="my-1" />
+            <Separator className="my-1 bg-black/30 dark:bg-white/30" />
 
             {actions.map((action) => (
                 <MusicListActionButton

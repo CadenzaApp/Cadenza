@@ -236,7 +236,7 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   a time without changing their initial relevance order as choices change. The funnel in Your Tags
   switches between relevance and alphabetical order. Its + control opens tag creation. A tag
   created from it or adopted from Suggested becomes one of the user's tags and is applied to
-  `focusedSong` straight away. Basic tag toggles update
+  `focusedSong` after its value prompt when it is an attribute tag, or straight away when basic. Basic tag toggles update
   optimistically and hold that state until the refreshed backend read arrives.
 - Below the selector, the read-only Metadata Tags card uses the same theme-aware `TagSelectorPanel`
   surface as Your Tags and Suggested and is collapsed by default. Its data is not fetched
@@ -260,3 +260,9 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 
 Touching files in this directory? Update this README in the same change.
 See [../../../../../AGENT_GUIDE.md](../../../../../AGENT_GUIDE.md).
+
+The pager starts loading Tags and Discuss on the next animation frame after mounting.
+The filled multiple-tags icon beside the track heading opens Tags. Favorites stay in Song options.
+
+Expanded compact controls draw a two-point playback progress line from the artwork's left edge to the bar's right edge along the bottom, clipped by the bar. It animates linearly between playback snapshots and snaps to confirmed positions on pause or seek. Expanded artwork is 35 points (31 inline), with equal insets and a radius derived from the outer capsule minus its inset.
+The app-owned expanded bar starts at 52 points, matching the assistant bubble. Native accessory height remains UIKit-owned and is measured for handoff.

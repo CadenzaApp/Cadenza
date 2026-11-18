@@ -70,7 +70,7 @@ Set the following public environment variable before starting Expo:
 EXPO_PUBLIC_MOCK_MUSICKIT=1
 ```
 
-Mock mode supplies authorization, catalog and library fixtures, paginated
+Mock mode supplies authorization, catalog and library fixtures, including album release dates, paginated
 collections, album and playlist contents, mutable favorite state for songs and
 collections, the full queue
 surface (reorder, remove, jump, play next, shuffle, repeat), playlist writes,

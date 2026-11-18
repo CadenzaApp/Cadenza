@@ -277,9 +277,15 @@ export function GlassSurface({
  * flat fill. For a container whose glass is a sibling layer under its content
  * rather than the parent of it.
  */
-export function GlassLayer({ children }: { children: ReactNode }) {
+export function GlassLayer({
+    children,
+    active = true,
+}: {
+    children: ReactNode;
+    active?: boolean;
+}) {
     return (
-        <GlassLayerContext.Provider value={true}>
+        <GlassLayerContext.Provider value={active}>
             {children}
         </GlassLayerContext.Provider>
     );

@@ -1,12 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import type { MusicItem, SongFavoriteStatus } from "@apple-musickit";
+import type { MusicItem } from "@apple-musickit";
 import type { ReactNode } from "react";
-import {
-    ActivityIndicator,
-    Pressable,
-    View,
-    type ColorValue,
-} from "react-native";
+import { Pressable, View, type ColorValue } from "react-native";
 
 import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
@@ -31,22 +26,16 @@ function formatTime(totalSeconds: number) {
  */
 export function MediaPlayerTrackHeading({
     track,
-    favoriteStatus,
-    isFavoriteStatusLoading,
-    isUpdatingFavorite,
     textColor,
     compact = false,
-    onFavoriteToggle,
+    onOpenTags,
     onOpenMenu,
     onOpenArtist,
 }: {
     track: MusicItem;
-    favoriteStatus: SongFavoriteStatus | null | undefined;
-    isFavoriteStatusLoading: boolean;
-    isUpdatingFavorite: boolean;
     textColor: ColorValue;
     compact?: boolean;
-    onFavoriteToggle: () => void;
+    onOpenTags: () => void;
     onOpenMenu: () => void;
     onOpenArtist?: () => void;
 }) {
@@ -98,32 +87,11 @@ export function MediaPlayerTrackHeading({
 
             <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={
-                    favoriteStatus?.isFavorite
-                        ? "Remove song from favorites"
-                        : "Add song to favorites"
-                }
-                accessibilityState={{
-                    busy: isFavoriteStatusLoading || isUpdatingFavorite,
-                    disabled:
-                        favoriteStatus === null || isFavoriteStatusLoading,
-                    selected: favoriteStatus?.isFavorite ?? false,
-                }}
-                disabled={favoriteStatus === null || isFavoriteStatusLoading}
-                onPress={onFavoriteToggle}
+                accessibilityLabel="Open tags"
+                onPress={onOpenTags}
                 className="h-11 w-11 items-center justify-center active:opacity-60"
             >
-                {isFavoriteStatusLoading || isUpdatingFavorite ? (
-                    <ActivityIndicator size="small" color={textColor} />
-                ) : (
-                    <Ionicons
-                        name={
-                            favoriteStatus?.isFavorite ? "star" : "star-outline"
-                        }
-                        size={26}
-                        color={textColor}
-                    />
-                )}
+                <Ionicons name="pricetags" size={26} color={textColor} />
             </Pressable>
             <Pressable
                 accessibilityRole="button"

@@ -1,3 +1,4 @@
+import * as Haptics from "expo-haptics";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useColorScheme } from "nativewind";
 import { useMemo, useState, type ReactNode } from "react";
@@ -23,6 +24,7 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 import type { AppliedTag, Tag } from "@/lib/types";
 
+import { ManageTagPopup } from "./manage-tag-popup";
 import { visibleTagSelectorItems } from "./sort-tags";
 
 export type TagSelectorItem = AppliedTag & { chosen: boolean };
@@ -46,6 +48,9 @@ const TAG_GRID_MAX_HEIGHT =
 type TagSelectorSort = "relevance" | "alphabetical";
 
 type TagSelectorProps = {
+    onTagDeleted?: (tagId: number) => void;
+    onTagUpdated?: (tag: Tag) => void;
+    opaque?: boolean;
     tags: readonly TagSelectorItem[];
     suggestedTags?: readonly Tag[];
     /** Heading above the user's available tags. */
@@ -86,7 +91,9 @@ export function TagSelector(props: TagSelectorProps) {
 }
 
 function TagSelectorSession({
-    tags,
+    tags: sourceTags,
+    onTagDeleted,
+    onTagUpdated,
     suggestedTags,
     tagsHeading = "Your Tags",
     onToggleTag,
@@ -102,7 +109,26 @@ function TagSelectorSession({
     emptyLabel = "You have no tags yet.",
     errorMessage,
     scrollableGrid = true,
+    opaque = false,
 }: TagSelectorProps) {
+    const [managedTag, setManagedTag] = useState<Tag | null>(null);
+    const [tagEdits, setTagEdits] = useState<Record<number, Tag | null>>({});
+    const tags = useMemo(
+        () =>
+            sourceTags.flatMap((tag) => {
+                const edit = tagEdits[tag.id];
+                return edit === null
+                    ? []
+                    : [
+                          {
+                              ...tag,
+                              name: edit?.name ?? tag.name,
+                              color: edit?.color ?? tag.color,
+                          },
+                      ];
+            }),
+        [sourceTags, tagEdits],
+    );
     const { colorScheme } = useColorScheme();
     const { colors } = useAppTheme();
     const footerButtonTint = colors.card;
@@ -146,6 +172,7 @@ function TagSelectorSession({
     return (
         <View className="gap-4">
             <TagSelectorPanel
+                opaque={opaque}
                 heading={
                     <View className="flex-row items-center justify-between">
                         <Text className="text-base font-semibold text-foreground">
@@ -212,10 +239,18 @@ function TagSelectorSession({
                                     }}
                                     className="active:opacity-70"
                                     onPress={() => onToggleTag(tag)}
+                                    onLongPress={() => {
+                                        void Haptics.impactAsync(
+                                            Haptics.ImpactFeedbackStyle.Medium,
+                                        );
+                                        setManagedTag(tag);
+                                    }}
+                                    delayLongPress={300}
                                 >
                                     <TagPill
                                         tag={tag}
                                         height={14}
+                                        outlineWidth={1.5}
                                         value={tag.chosen ? tag.value : null}
                                         appearance={
                                             tag.chosen ? "solid" : "outline"
@@ -247,7 +282,7 @@ function TagSelectorSession({
             </TagSelectorPanel>
 
             {selectionMode === "single" ? (
-                <TagSelectorPanel heading="Suggested">
+                <TagSelectorPanel opaque={opaque} heading="Suggested">
                     {suggestedLoading ? (
                         <ActivityIndicator accessibilityLabel="Loading suggested tags" />
                     ) : suggestedTags?.length ? (
@@ -302,6 +337,25 @@ function TagSelectorSession({
                         </GlassButton>
                     ))}
                 </View>
+            ) : null}
+
+            {managedTag ? (
+                <ManageTagPopup
+                    key={managedTag.id}
+                    tag={managedTag}
+                    onClose={() => setManagedTag(null)}
+                    onUpdated={(tag) => {
+                        setTagEdits((current) => ({
+                            ...current,
+                            [tag.id]: tag,
+                        }));
+                        onTagUpdated?.(tag);
+                    }}
+                    onDeleted={(id) => {
+                        setTagEdits((current) => ({ ...current, [id]: null }));
+                        onTagDeleted?.(id);
+                    }}
+                />
             ) : null}
 
             {onCreateTag ? (
@@ -370,7 +424,9 @@ export function TagSelectorPanel({
     heading,
     children,
     onLayout,
+    opaque = false,
 }: {
+    opaque?: boolean;
     heading: ReactNode;
     children: ReactNode;
     onLayout?: (layout: LayoutRectangle) => void;
@@ -379,14 +435,23 @@ export function TagSelectorPanel({
     return (
         <View
             className={
-                outlined
+                opaque
                     ? "overflow-hidden rounded-2xl border border-border bg-card p-4"
-                    : "overflow-hidden rounded-2xl bg-card p-4"
+                    : outlined
+                      ? "overflow-hidden rounded-2xl border border-border p-4"
+                      : "overflow-hidden rounded-2xl p-4"
             }
             onLayout={(event) => onLayout?.(event.nativeEvent.layout)}
         >
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                <GlassSurface style={StyleSheet.absoluteFill} />
+                <GlassSurface
+                    variant={opaque ? "regular" : "clear"}
+                    tintColor={opaque ? undefined : "rgba(18, 18, 24, 0.25)"}
+                    style={[
+                        StyleSheet.absoluteFill,
+                        { borderRadius: 16, overflow: "hidden" },
+                    ]}
+                />
             </View>
             {typeof heading === "string" ? (
                 <Text

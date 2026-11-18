@@ -124,9 +124,13 @@ export function MediaPlayer({
         opacity: interpolate(progress.get(), [0, 0.5, 1], [1, 0, 0]),
         transform: [{ translateX: -24 * progress.get() }],
     }));
-    const artSize = nativeInline ? 28 : 32;
+    const artSize = nativeInline ? 31 : 35;
     const artworkStyle = useAnimatedStyle(() => ({
-        left: interpolate(progress.get(), [0, 1], [12, 3]),
+        left: interpolate(
+            progress.get(),
+            [0, 1],
+            [((source.get()?.height ?? height.get()) - artSize) / 2, 3],
+        ),
         top: interpolate(
             progress.get(),
             [0, 1],
@@ -134,7 +138,11 @@ export function MediaPlayer({
         ),
         width: interpolate(progress.get(), [0, 1], [artSize, SIZE - 6]),
         height: interpolate(progress.get(), [0, 1], [artSize, SIZE - 6]),
-        borderRadius: interpolate(progress.get(), [0, 1], [6, (SIZE - 6) / 2]),
+        borderRadius: interpolate(
+            progress.get(),
+            [0, 1],
+            [artSize / 2, (SIZE - 6) / 2],
+        ),
     }));
     if (!activeTrack) return null;
     return (
@@ -156,11 +164,18 @@ export function MediaPlayer({
                     }
                     accessibilityElementsHidden
                 >
-                    <View className="flex-1 flex-row items-center px-3">
+                    <View
+                        className="flex-1 flex-row items-center"
+                        style={{
+                            paddingHorizontal:
+                                ((nativeHeight ?? expandedHeight) - artSize) /
+                                2,
+                        }}
+                    >
                         <Pressable
                             style={{
-                                width: nativeInline ? 28 : 32,
-                                height: nativeInline ? 28 : 32,
+                                width: nativeInline ? 31 : 35,
+                                height: nativeInline ? 31 : 35,
                             }}
                             onPress={() => {
                                 if (canPress()) runOnUI(motion.collapse)(true);

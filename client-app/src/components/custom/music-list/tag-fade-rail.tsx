@@ -1,7 +1,7 @@
 import MaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
 import { memo, useMemo, useRef, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 
 import { TagPill } from "@/components/custom/tag-pill";
 import { activityTagDisplayValue, unownedDefaultTags } from "@/lib/tag-values";
@@ -51,6 +51,10 @@ export const TagFadeRail = memo(function TagFadeRail({
     activityTags = [],
     lead,
     compact,
+    onPress,
+    onLongPress,
+    onPressIn,
+    onPressOut,
 }: {
     tags: readonly AppliedTag[];
     defaultTags?: readonly Tag[];
@@ -61,6 +65,10 @@ export const TagFadeRail = memo(function TagFadeRail({
     /** The tag the list is sorted by, shown first. */
     lead?: RailLead;
     compact: boolean;
+    onPress: () => void;
+    onLongPress?: () => void;
+    onPressIn: () => void;
+    onPressOut: () => void;
 }) {
     const shownDefaultTags = useMemo(
         () => unownedDefaultTags(defaultTags, tags),
@@ -122,28 +130,41 @@ export const TagFadeRail = memo(function TagFadeRail({
                 widths.current.content = width;
                 remeasure();
             }}
-            contentContainerStyle={{
-                gap: compact ? 4 : 6,
-                // always room for the fade, so the last tag can be scrolled
-                // clear of it without a layout change
-                paddingRight: fadeWidth,
-                paddingVertical: TAG_RAIL_TOUCH_INSET,
-            }}
+            contentContainerStyle={{ flexGrow: 1 }}
         >
-            {pills.map(({ source, tag, value }) => (
-                <View
-                    key={`${source}:${tag.id}`}
-                    style={source === "suggested" ? SUGGESTED_TAG_STYLE : null}
-                >
-                    <TagPill
-                        tag={tag}
-                        value={value}
-                        height={compact ? 8 : 9}
-                        showIcon={false}
-                        suggested={source === "suggested"}
-                    />
-                </View>
-            ))}
+            <Pressable
+                accessible={false}
+                onPress={onPress}
+                onLongPress={onLongPress}
+                onPressIn={onPressIn}
+                onPressOut={onPressOut}
+                delayLongPress={300}
+                style={{
+                    flexGrow: 1,
+                    flexDirection: "row",
+                    gap: compact ? 4 : 6,
+                    // Keep room for the fade and a larger vertical touch area.
+                    paddingRight: fadeWidth,
+                    paddingVertical: TAG_RAIL_TOUCH_INSET,
+                }}
+            >
+                {pills.map(({ source, tag, value }) => (
+                    <View
+                        key={`${source}:${tag.id}`}
+                        style={
+                            source === "suggested" ? SUGGESTED_TAG_STYLE : null
+                        }
+                    >
+                        <TagPill
+                            tag={tag}
+                            value={value}
+                            height={compact ? 8 : 9}
+                            showIcon={false}
+                            suggested={source === "suggested"}
+                        />
+                    </View>
+                ))}
+            </Pressable>
         </ScrollView>
     );
 
