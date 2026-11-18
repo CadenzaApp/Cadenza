@@ -485,7 +485,7 @@ class AppleMusicKitModule : Module() {
             // Fetch Library Songs
             if (libraryIds.isNotEmpty()) {
                 val idsParam = libraryIds.joinToString(",") { encode(it) }
-                val response = makeApiRequest("/v1/me/library/songs?ids=$idsParam&include=albums")
+                val response = makeApiRequest("/v1/me/library/songs?ids=$idsParam&include=albums,artists")
                 val data = objectList(response["data"])
                 fetchedResults.addAll(data.map { formatMediaItem(it) })
             }
@@ -493,7 +493,7 @@ class AppleMusicKitModule : Module() {
             // Fetch Catalog Songs
             if (catalogIds.isNotEmpty()) {
                 val idsParam = catalogIds.joinToString(",") { encode(it) }
-                val response = makeApiRequest("/v1/catalog/${currentStorefrontId()}/songs?ids=$idsParam&include=albums")
+                val response = makeApiRequest("/v1/catalog/${currentStorefrontId()}/songs?ids=$idsParam&include=albums,artists")
                 val data = objectList(response["data"])
                 fetchedResults.addAll(data.map { formatMediaItem(it) })
             }

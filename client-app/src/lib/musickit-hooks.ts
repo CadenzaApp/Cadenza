@@ -1678,6 +1678,67 @@ const NO_IDS: readonly string[] = [];
 const EMPTY_COLLECTIONS: MusicItem[] = [];
 
 /**
+ * One catalog search per term, of one type, all under one cache key. A null
+ * term searches nothing and answers null in its place, so results line up with
+ * the terms. Results are cached for the session: a name finds the same catalog
+ * resource every time.
+ */
+export function useCatalogSearches(
+    type: "artists" | "albums",
+    terms: readonly (string | null)[],
+) {
+    const { canReadCatalog, isInitializing, sessionRevision } = useAppleMusic();
+    const key =
+        canReadCatalog && terms.some(Boolean)
+            ? ([
+                  "MusicKit.catalogSearches",
+                  sessionRevision,
+                  type,
+                  ...terms,
+              ] as const)
+            : null;
+    const x = useSWRImmutable<(SearchResult | null)[]>(key, () =>
+        Promise.all(
+            terms.map((term) =>
+                term
+                    ? read(() =>
+                          MusicKit.catalogSearch(term, [type], { limit: 10 }),
+                      )
+                    : null,
+            ),
+        ),
+    );
+
+    return {
+        searches: x.data ?? null,
+        searchesLoading: x.isLoading || isInitializing,
+    };
+}
+
+/**
+ * Returns name and artwork for many artists in one request, in the order
+ * asked, minus any Apple Music could not find. Ids may be catalog or library.
+ */
+export function useArtistsInfo(artistIds: readonly string[]) {
+    const { isConnected, canReadCatalog, isInitializing, sessionRevision } =
+        useAppleMusic();
+    const ids = readableIds(isConnected, artistIds);
+    const key =
+        canReadCatalog && ids.length > 0
+            ? (["MusicKit.getArtistsInfo", sessionRevision, ...ids] as const)
+            : null;
+    const x = useSWR<ArtistItem[]>(key, () =>
+        read(() => MusicKit.getArtistsInfo([...ids])),
+    );
+
+    return {
+        artists: x.data ?? EMPTY_ARTISTS,
+        artistsLoading: x.isLoading || isInitializing,
+        artistsErr: x.error,
+    };
+}
+
+/**
  * Resolves the catalog artists credited on a song. Separate from `useArtist`
  * because the song only knows ids, and the menu needs to know whether there is
  * an artist to open before it has to load one.

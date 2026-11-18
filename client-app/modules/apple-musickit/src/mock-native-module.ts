@@ -936,7 +936,10 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             return respond<SongFavoriteStatus>({ isFavorite });
         },
 
-        getCollectionInfo: (kind: CollectionFavoriteKind, ids: string[]) =>
+        getCollectionInfo: (
+            kind: CollectionFavoriteKind | "artists",
+            ids: string[],
+        ) =>
             respond(
                 ids
                     .map((id) => MOCK_COLLECTIONS_BY_ID.get(id))

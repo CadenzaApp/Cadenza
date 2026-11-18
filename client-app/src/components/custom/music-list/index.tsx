@@ -848,6 +848,7 @@ export function MusicList({
                 <MusicListArrangeButton
                     value={arrangement.value}
                     onChange={arrangement.onChange}
+                    placement={arrangement.placement}
                 />
             ) : null}
 
@@ -910,6 +911,7 @@ export type {
     MusicListAction,
     MusicListActionIcon,
     MusicListArrangement,
+    MusicListArrangePlacement,
     MusicListMultiSelectConfig,
     MusicListPagination,
     MusicListProps,

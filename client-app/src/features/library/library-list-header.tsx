@@ -57,15 +57,11 @@ export function LibraryListHeader({
 }) {
     return (
         <View className="gap-4 px-5 pb-3 pt-1">
-            <View className="flex-row">
-                <SearchField
-                    value={search.text}
-                    onChangeText={search.setText}
-                    onSubmit={() => {}}
-                    onClear={() => search.setText("")}
-                    placeholder={placeholder}
-                />
-            </View>
+            <SearchField
+                value={search.text}
+                onChangeText={search.setText}
+                placeholder={placeholder}
+            />
             {actions ? <PlayShuffleRow {...actions} /> : null}
         </View>
     );

@@ -74,3 +74,20 @@ export function trackMetadata(
 
     return metadata;
 }
+
+/**
+ * The track with its artist and album ids filled in from the same song looked
+ * up in the catalog, where it had none. Its own ids win: they are the album
+ * actually played, while a catalog song names only its first album.
+ */
+export function withCatalogIds(
+    track: MusicItem,
+    catalog?: MusicItem,
+): MusicItem {
+    if (!catalog) return track;
+    return {
+        ...track,
+        artistId: text(track.artistId) ?? catalog.artistId,
+        albumID: text(track.albumID) ?? catalog.albumID,
+    };
+}

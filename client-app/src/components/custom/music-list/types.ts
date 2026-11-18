@@ -20,7 +20,14 @@ export type MusicListArrangement = {
      * tag it is sorted by, and a metadata tag's value comes from here.
      */
     sortValues?: ReadonlyMap<string, string>;
+    /**
+     * Where the Sort and group button sits: the bottom row (the default), or
+     * the top right corner, opposite a hero's `FloatingBackButton`.
+     */
+    placement?: MusicListArrangePlacement;
 };
+
+export type MusicListArrangePlacement = "bottom" | "top-right";
 
 /** One group of a grouped list, drawn as a header that opens and closes. */
 export type MusicListSection = {

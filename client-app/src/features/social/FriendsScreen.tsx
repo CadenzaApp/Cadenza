@@ -370,15 +370,11 @@ function SearchSection({ onPress }: { onPress: (userId: string) => void }) {
                 <Text className="text-sm font-semibold text-muted-foreground">
                     search
                 </Text>
-                <View className="flex-row">
-                    <SearchField
-                        value={query}
-                        onChangeText={setQuery}
-                        onSubmit={() => {}}
-                        onClear={() => setQuery("")}
-                        placeholder="Find people"
-                    />
-                </View>
+                <SearchField
+                    value={query}
+                    onChangeText={setQuery}
+                    placeholder="Find people"
+                />
             </View>
             <ScrollView
                 style={{ maxHeight: listMaxHeight }}

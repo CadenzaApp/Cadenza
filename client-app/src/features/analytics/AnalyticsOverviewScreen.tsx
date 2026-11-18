@@ -25,7 +25,7 @@ import type { ResolvedPeriod } from "./range";
 import { StatsStrip } from "./StatsStrip";
 import type { TagFilter as TagChoice } from "./tag-share";
 import { TagRotation } from "./TagRotation";
-import { TopRankingsCard } from "./TopRankingsCard";
+import { TopShelves } from "./TopShelves";
 
 /**
  * What the user's listening looks like over one calendar period, from the
@@ -178,7 +178,7 @@ function OverviewBody({
 
             <TagRotation tags={summary.top_tags} />
 
-            <TopRankingsCard top={summary.top} accent={accent} />
+            <TopShelves top={summary.top} />
         </>
     );
 }

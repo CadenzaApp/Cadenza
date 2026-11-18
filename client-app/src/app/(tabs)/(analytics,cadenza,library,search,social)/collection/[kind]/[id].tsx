@@ -6,7 +6,10 @@ import { useTheme } from "expo-router/react-navigation";
 
 import { CollectionOptionsMenu } from "@/components/custom/options-menu/collection-options-menu";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
-import { FloatingBackButton } from "@/components/ui/floating-back-button";
+import {
+    FloatingBackButton,
+    HERO_BUTTON_SIZE,
+} from "@/components/ui/floating-back-button";
 import { useArrangedTrackList } from "@/lib/arranged-track-list";
 import { Text } from "@/components/ui/text";
 import { useArtworkTint } from "@/lib/artwork-color";
@@ -28,8 +31,6 @@ import {
 import type { LibraryCollectionKind } from "@/lib/musickit-hooks";
 
 const DEFAULT_MULTI_SELECT_CONFIG = {} as const;
-/** Diameter of the floating close button. */
-const HERO_BUTTON_SIZE = 52;
 /**
  * The songs inside one library album or playlist. Both kinds render the same
  * way, so the kind is a route param rather than two screens.

@@ -8,17 +8,13 @@ import { useAccount } from "@/lib/account";
 type Props = {
     open: boolean;
     onClose: () => void;
-    onStartSession: () => void;
-    onJoinSession: () => void;
 };
 
-/** The Social header's compact replacement for the former profile and friends cards. */
-export function SocialOverflowMenu({
-    open,
-    onClose,
-    onStartSession,
-    onJoinSession,
-}: Props) {
+/**
+ * The Social header's menu: your profile and friends. Live sessions are on the
+ * + of Your listening, so they are not repeated here.
+ */
+export function SocialOverflowMenu({ open, onClose }: Props) {
     const router = useRouter();
     const { account } = useAccount();
     if (!open) return null;
@@ -41,18 +37,6 @@ export function SocialOverflowMenu({
             label: "See friends",
             icon: "people-outline",
             onPress: closeThen(() => router.push("/social/friends")),
-        },
-        {
-            id: "social-start-session",
-            label: "Start listening session",
-            icon: "radio-outline",
-            onPress: closeThen(onStartSession),
-        },
-        {
-            id: "social-join-session",
-            label: "Join listening session",
-            icon: "keypad-outline",
-            onPress: closeThen(onJoinSession),
         },
     ];
 

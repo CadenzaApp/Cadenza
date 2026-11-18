@@ -15,7 +15,7 @@ logic out.
 | `reconnect-apple-music.tsx`                                                         | `/reconnect-apple-music`       | The same connect page as a modal, opened when Apple drops the connection.                                                                 |
 | `(tabs)/_layout.tsx`                                                                |                                | Protected native tab group, its five triggers, and the media-player bottom accessory.                                                     |
 | `(tabs)/(<tab>)/_layout.tsx`                                                        |                                | One native `Stack` per tab, using `TabStack` for the shared top rail.                                                                     |
-| `(tabs)/(social)/social/index.tsx`                                                  | `/social`                      | The Social tab: nebula-backed transparent feed, Listening now stories, a modal post composer, and a For you / Friends underline switcher. |
+| `(tabs)/(social)/social/index.tsx`                                                  | `/social`                      | The Social tab: nebula-backed transparent feed, Listening now stories, an accordion composer, and a For you / Friends underline switcher. |
 | `(tabs)/(social)/social/friends.tsx`                                                | `/social/friends`              | Requests, listening now, friends, sent. Opened from the Social options menu.                                                              |
 | `(tabs)/(social)/social/notifications.tsx`                                          | `/social/notifications`        | Your notifications. A friend request has accept and ignore. Opened from the bell.                                                         |
 | `(tabs)/(social)/social/user/[userId].tsx`                                          | `/social/user/:userId`         | One user's public profile: username, bio, listening, shared playlists and queries, then posts. Your own page edits the first two.         |
@@ -46,6 +46,7 @@ logic out.
 | `appearance.tsx`                                                                    | `/appearance`                  | Appearance sheet: mode, accent, glass. Wires `AppearanceSettingsScreen`.                                                                  |
 | `apple-music.tsx`                                                                   | `/apple-music`                 | Apple Music sheet: status, sync, connect, disconnect.                                                                                     |
 | `listening-preferences.tsx`                                                         | `/listening-preferences`       | Tag suggestions and Hide explicit content toggles.                                                                                        |
+| `sharing.tsx`                                                                       | `/sharing`                     | Who sees your listening and profile, and who can join or add you. Wires `SharingSettingsScreen`.                                          |
 | `privacy.tsx`                                                                       | `/privacy`                     | What Cadenza stores. Read only.                                                                                                           |
 | `account-details.tsx`                                                               | `/account-details`             | Username and bio editor, Your data, sign out.                                                                                             |
 | `your-data.tsx`                                                                     | `/your-data`                   | Everything Cadenza keeps about you, and Delete account (not wired up yet).                                                                |
@@ -164,9 +165,10 @@ and older iOS get a plain push.
 Every tab is a group with a native `Stack` from `TabStack`. `TopRail` is that stack's
 header. The page title sits on the left, the account
 initials button sits on the right, and the button opens `/account`. The Social tab adds
-a notifications bell and an overflow menu. The menu opens the caller's profile, friends,
-or the listening session flows; the bell opens `/social/notifications`. Its post action is
-the bubble beside the assistant in the shared bottom control row, and it opens a modal form.
+a notifications bell and an overflow menu. The menu opens the caller's profile or friends.
+Starting or joining a live session is only on the + of Your listening, the first bubble in
+Listening now; the bell opens `/social/notifications`. New posts are written
+in a composer at the top of the feed that opens in place.
 
 The rail floats over the page; it is not part of it. The screen's scroller pads its content's top
 by the rail's measured height plus `RAIL_CONTENT_GAP`, the same on every page, replacing the page's
@@ -190,7 +192,7 @@ shared suggested-tag matching scope.
 ## Sheets
 
 The settings routes (`/account`, `/apple-music`, `/listening-preferences`, `/appearance`,
-`/privacy`, `/account-details`, `/your-data`, `/apple-music-limits`), the two pickers
+`/sharing`, `/privacy`, `/account-details`, `/your-data`, `/apple-music-limits`), the two pickers
 (`/library-categories`, `/add-to-playlist`), `/player`, the live session sheets
 (`/live-session/new`, `/live-session/:id`), and the join sheets (`/join`, `/join/:code`) are
 sheets. A sheet is a native surface

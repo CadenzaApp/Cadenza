@@ -83,6 +83,7 @@ const SHEETS: Record<string, Href> = {
     apple_music: "/apple-music",
     listening_preferences: "/listening-preferences",
     privacy: "/privacy",
+    sharing: "/sharing",
     your_data: "/your-data",
 };
 

@@ -92,7 +92,10 @@ type Props = {
     highlightTrackId?: string;
     error?: unknown;
     anticipatedTrackCount?: number;
-    /** Floats over the hero, like `FloatingBackButton`. */
+    /**
+     * Floats over the hero, like `FloatingBackButton`. With one, the Sort and
+     * group button moves to the top right corner, opposite it.
+     */
     backControl?: ReactNode;
     options?: readonly TrackCollectionOption[];
     multiSelect?: MusicListMultiSelectConfig | null;
@@ -427,6 +430,14 @@ export function TrackCollectionView({
         </View>
     );
     const listHeader = header ?? defaultHeader;
+    // with a back button floating top left, Sort and group sits opposite it
+    const cornerArrangement = useMemo(
+        () =>
+            arrangement && backControl
+                ? { ...arrangement, placement: "top-right" as const }
+                : arrangement,
+        [arrangement, backControl],
+    );
 
     return (
         <View className="flex-1 bg-background" style={containerStyle}>
@@ -439,7 +450,7 @@ export function TrackCollectionView({
                 emptyContent={listOverlay ?? undefined}
                 highlightTrackId={highlightTrackId}
                 pagination={pagination}
-                arrangement={arrangement}
+                arrangement={cornerArrangement}
                 sections={sections}
                 anticipatedTrackCount={anticipatedTrackCount}
                 header={listHeader}

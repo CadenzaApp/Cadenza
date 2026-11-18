@@ -448,7 +448,7 @@ pub fn definitions() -> Vec<Value> {
                 "properties": {
                     "screen": {
                         "type": "string",
-                        "enum": ["social", "analytics", "cadenza", "library", "search", "account", "appearance", "apple_music", "listening_preferences", "privacy", "your_data", "now_playing", "song_tags", "friends", "notifications", "friends_listening", "analytics_ranking", "library_category", "tag", "saved_query", "shared_playlist", "apple_music_playlist", "artist", "album", "song_discussion"]
+                        "enum": ["social", "analytics", "cadenza", "library", "search", "account", "appearance", "apple_music", "listening_preferences", "sharing", "privacy", "your_data", "now_playing", "song_tags", "friends", "notifications", "friends_listening", "analytics_ranking", "library_category", "tag", "saved_query", "shared_playlist", "apple_music_playlist", "artist", "album", "song_discussion"]
                     },
                     "id": { "type": "string" },
                     "kind": {

@@ -14,26 +14,23 @@ import {
     FlatList,
     Pressable,
     RefreshControl,
-    ScrollView,
     View,
-    useWindowDimensions,
     type ListRenderItem,
     type ViewToken,
 } from "react-native";
 import Animated, {
-    useAnimatedScrollHandler,
     useAnimatedStyle,
     useSharedValue,
-    useComposedEventHandler,
+    withTiming,
     type SharedValue,
 } from "react-native-reanimated";
 
-import { BottomRowActionBubble } from "@/components/custom/bottom-row-action-bubble";
 import { Toast, useToast } from "@/components/custom/toast";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import { Text } from "@/components/ui/text";
 import { invalidateAPIData } from "@/lib/api-actions";
+import { useKeyboardScroll } from "@/lib/keyboard-scroll";
 import { withAlpha } from "@/lib/artwork-color";
 import { useProfile } from "@/lib/routes/profile";
 import type { SharedPlaylistSummary } from "@/lib/routes/shared-playlists";
@@ -55,7 +52,7 @@ import { stopTopicPreview } from "@/lib/topic-preview";
 import { useTopRailInset } from "@/lib/top-rail";
 import { useAppTheme } from "@/lib/theme";
 
-import { InlinePostComposer } from "./InlinePostComposer";
+import { COMPOSER_LAYOUT, InlinePostComposer } from "./InlinePostComposer";
 import { ListeningNowStrip } from "./ListeningNow";
 import { PostCard } from "./PostCard";
 import { SocialOverflowMenu } from "./SocialOverflowMenu";
@@ -79,38 +76,8 @@ export function SocialFeedScreen() {
     const { listBottomInset } = useScreenOverlayInsets();
     const railInset = useTopRailInset() ?? 0;
     const scroll = useScreenScroll<FlatList<FeedRow>>();
-    const friendsScroll = useScreenScroll<FlatList<FeedRow>>();
-    const pager = useRef<ScrollView>(null);
-    const { width } = useWindowDimensions();
+    // the strip and the tabs above the composer, for scrolling to it
     const [headerHeight, setHeaderHeight] = useState(0);
-    const forYouOffset = useSharedValue(0);
-    const friendsOffset = useSharedValue(0);
-    const trackForYouScroll = useAnimatedScrollHandler((event) => {
-        forYouOffset.set(event.contentOffset.y);
-    });
-    const trackFriendsScroll = useAnimatedScrollHandler((event) => {
-        friendsOffset.set(event.contentOffset.y);
-    });
-    const forYouScrollHandler = useComposedEventHandler([
-        scroll.onScroll,
-        trackForYouScroll,
-    ]);
-    const friendsScrollHandler = useComposedEventHandler([
-        friendsScroll.onScroll,
-        trackFriendsScroll,
-    ]);
-    const pageProgress = useSharedValue(0);
-    const headerStyle = useAnimatedStyle(() => {
-        const progress = Math.max(0, Math.min(1, pageProgress.get()));
-        const left = Math.max(0, Math.min(headerHeight, forYouOffset.get()));
-        const right = Math.max(0, Math.min(headerHeight, friendsOffset.get()));
-        return {
-            transform: [{ translateY: -(left + (right - left) * progress) }],
-        };
-    });
-    const onPageScroll = useAnimatedScrollHandler((event) => {
-        pageProgress.set(event.contentOffset.x / width);
-    });
     const navigation = useNavigation();
     const { colors } = useTheme();
     const { brand } = useAppTheme().colors;
@@ -125,6 +92,18 @@ export function SocialFeedScreen() {
         feedErr,
     } = useFeed();
     const [filter, setFilter] = useState<FeedFilter>("for-you");
+    const tabProgress = useSharedValue(0);
+    useEffect(() => {
+        tabProgress.set(
+            withTiming(filter === "friends" ? 1 : 0, { duration: 200 }),
+        );
+    }, [filter, tabProgress]);
+    // viewability is read through a ref: FlatList does not allow swapping
+    // `onViewableItemsChanged` after mount
+    const filterRef = useRef(filter);
+    useEffect(() => {
+        filterRef.current = filter;
+    }, [filter]);
     const friendsFeed = useFriendsFeed(!feedLoading || filter === "friends");
     const { friendsListening } = useFriendsListening();
     const { createPost } = useCreatePost();
@@ -172,53 +151,16 @@ export function SocialFeedScreen() {
         {},
     );
     const [refreshing, setRefreshing] = useState(false);
-    const [composeOpen, setComposeOpen] = useState(false);
     const [socialMenuOpen, setSocialMenuOpen] = useState(false);
-    const onComposeOpenChange = useCallback((open: boolean) => {
-        setComposeOpen(open);
+    const keyboardScroll = useKeyboardScroll(scroll.ref);
+    // the keyboard carries the composer up until its top is just under the
+    // top rail, the strip and tabs scrolled away above it
+    const scrollToComposer = useCallback(() => {
+        keyboardScroll(headerHeight);
+    }, [keyboardScroll, headerHeight]);
+    const changeFeed = useCallback((next: FeedFilter) => {
+        setFilter(next);
     }, []);
-    const syncHeaderPosition = useCallback(() => {
-        const offset = Math.max(
-            0,
-            Math.min(
-                headerHeight,
-                filter === "friends" ? friendsOffset.get() : forYouOffset.get(),
-            ),
-        );
-        if (filter === "friends") {
-            scroll.ref.current?.scrollToOffset({ offset, animated: false });
-            forYouOffset.set(offset);
-        } else {
-            friendsScroll.ref.current?.scrollToOffset({
-                offset,
-                animated: false,
-            });
-            friendsOffset.set(offset);
-        }
-    }, [
-        filter,
-        headerHeight,
-        friendsOffset,
-        forYouOffset,
-        scroll.ref,
-        friendsScroll.ref,
-    ]);
-    const changeFeed = useCallback(
-        (next: FeedFilter) => {
-            syncHeaderPosition();
-            pager.current?.scrollTo({
-                x: next === "friends" ? width : 0,
-                animated: true,
-            });
-            setFilter(next);
-        },
-        [width, syncHeaderPosition],
-    );
-    // BottomRowActionBubble registers this with shared chrome in a layout
-    // effect. Keep its identity stable, or that registration itself loops.
-    const toggleComposer = useCallback(() => {
-        onComposeOpenChange(!composeOpen);
-    }, [composeOpen, onComposeOpenChange]);
     const socialNebula = useMemo(() => [brand, "#7b61ff", "#20a9a0"], [brand]);
     const { toast, showToast } = useToast();
 
@@ -377,6 +319,7 @@ export function SocialFeedScreen() {
 
     const onViewableItemsChanged = useRef(
         ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+            if (filterRef.current !== "for-you") return;
             for (const token of viewableItems) {
                 const row = token.item as FeedRow | undefined;
                 if (!token.isViewable || row?.kind !== "post") continue;
@@ -514,158 +457,107 @@ export function SocialFeedScreen() {
         showingFriends,
     ]);
 
+    const rows = showingFriends ? friendRows : feed;
+    const loading =
+        rows.length === 0 &&
+        (showingFriends ? friendsFeed.friendsFeedLoading : feedLoading);
+    const failed = showingFriends ? friendsFeed.friendsFeedErr : feedErr;
+    const emptyLabel = loading
+        ? "Loading posts..."
+        : failed
+          ? "Couldn't load posts."
+          : showingFriends
+            ? "Your friends have not posted yet."
+            : "No posts yet.";
+    const pagingNext = showingFriends
+        ? friendsFeed.isLoadingNextFriendsPage
+        : isLoadingNextPage;
+
     return (
         <View className="flex-1 bg-background">
-            <NebulaBackdrop colors={socialNebula} layout="full" />
-            <Animated.View
-                pointerEvents="box-none"
-                className="absolute left-0 right-0 top-0 z-10"
-                onLayout={(event) =>
-                    setHeaderHeight(event.nativeEvent.layout.height)
-                }
-                style={[
-                    scroll.contentContainerStyle,
-                    { paddingHorizontal: 20, paddingBottom: 4 },
-                    headerStyle,
-                ]}
-            >
-                <SocialFeedHeader
-                    filter={filter}
-                    onFilterChange={changeFeed}
-                    progress={pageProgress}
-                />
-            </Animated.View>
+            {/* fixed to the screen, so the feed slides over it */}
+            <NebulaBackdrop colors={socialNebula} layout="float" />
+            {/* the marker takes the list alone, like Analytics: the strip,
+                tabs, and composer scroll inside it as its header, so the
+                native top blur and the refresh spinner both follow the list */}
             <ScreenScrollMarker>
-                <Animated.ScrollView
-                    ref={pager}
-                    onScroll={onPageScroll}
-                    onScrollBeginDrag={syncHeaderPosition}
-                    scrollEventThrottle={16}
-                    horizontal
-                    pagingEnabled
-                    showsHorizontalScrollIndicator={false}
-                    bounces={false}
-                    onMomentumScrollEnd={(event) =>
-                        setFilter(
-                            event.nativeEvent.contentOffset.x >= width / 2
-                                ? "friends"
-                                : "for-you",
-                        )
+                <Animated.FlatList
+                    {...scroll}
+                    className="flex-1"
+                    data={rows}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={reload}
+                            tintColor={colors.text}
+                            colors={[colors.text]}
+                            progressBackgroundColor={colors.card}
+                            progressViewOffset={railInset}
+                        />
                     }
-                >
-                    {(["for-you", "friends"] as const).map((page) => {
-                        const isFriends = page === "friends";
-                        const rows = isFriends ? friendRows : feed;
-                        const pageScroll = isFriends ? friendsScroll : scroll;
-                        const loading =
-                            rows.length === 0 &&
-                            (isFriends
-                                ? friendsFeed.friendsFeedLoading
-                                : feedLoading);
-                        const failed = isFriends
-                            ? friendsFeed.friendsFeedErr
-                            : feedErr;
-                        const emptyLabel = loading
-                            ? "Loading posts..."
-                            : failed
-                              ? "Couldn't load posts."
-                              : isFriends
-                                ? "Your friends have not posted yet."
-                                : "No posts yet.";
-                        const pagingNext = isFriends
-                            ? friendsFeed.isLoadingNextFriendsPage
-                            : isLoadingNextPage;
-                        return (
-                            <View key={page} style={{ width, flex: 1 }}>
-                                <Animated.FlatList
-                                    {...pageScroll}
-                                    onScroll={
-                                        isFriends
-                                            ? friendsScrollHandler
-                                            : forYouScrollHandler
-                                    }
-                                    className="flex-1"
-                                    data={rows}
-                                    refreshControl={
-                                        <RefreshControl
-                                            refreshing={refreshing}
-                                            onRefresh={reload}
-                                            tintColor={colors.text}
-                                            colors={[colors.text]}
-                                            progressBackgroundColor={
-                                                colors.card
-                                            }
-                                            progressViewOffset={railInset}
-                                        />
-                                    }
-                                    keyExtractor={keyExtractor}
-                                    renderItem={renderItem}
-                                    onViewableItemsChanged={
-                                        isFriends
-                                            ? undefined
-                                            : onViewableItemsChanged
-                                    }
-                                    viewabilityConfig={VIEWABILITY_CONFIG}
-                                    ItemSeparatorComponent={PostSeparator}
-                                    keyboardShouldPersistTaps="handled"
-                                    contentContainerStyle={[
-                                        {
-                                            paddingTop: headerHeight + 8,
-                                            paddingHorizontal: 20,
-                                            // listBottomInset clears the tab bar, player, and a
-                                            // FAB-sized gap; add a little more so the last
-                                            // card's footer isn't clipped under the chrome
-                                            paddingBottom: listBottomInset + 48,
-                                        },
-                                    ]}
-                                    ListEmptyComponent={
-                                        <Text className="py-10 text-center text-muted-foreground">
-                                            {emptyLabel}
-                                        </Text>
-                                    }
-                                    ListFooterComponent={
-                                        pagingNext ? (
-                                            <View className="items-center py-4">
-                                                <ActivityIndicator
-                                                    color={colors.text}
-                                                />
-                                            </View>
-                                        ) : (
-                                            <View className="h-5" />
-                                        )
-                                    }
-                                    onEndReached={
-                                        page === filter
-                                            ? onEndReached
-                                            : undefined
-                                    }
-                                    onEndReachedThreshold={1}
-                                    showsVerticalScrollIndicator={false}
+                    keyExtractor={keyExtractor}
+                    renderItem={renderItem}
+                    onViewableItemsChanged={onViewableItemsChanged}
+                    viewabilityConfig={VIEWABILITY_CONFIG}
+                    ItemSeparatorComponent={PostSeparator}
+                    // the posts slide as the composer above them opens
+                    itemLayoutAnimation={COMPOSER_LAYOUT}
+                    ListHeaderComponent={
+                        <View className="mb-3">
+                            <View
+                                onLayout={(event) =>
+                                    setHeaderHeight(
+                                        event.nativeEvent.layout.height,
+                                    )
+                                }
+                            >
+                                <SocialFeedHeader
+                                    filter={filter}
+                                    onFilterChange={changeFeed}
+                                    progress={tabProgress}
                                 />
                             </View>
-                        );
-                    })}
-                </Animated.ScrollView>
+                            <InlinePostComposer
+                                onOpen={scrollToComposer}
+                                onCreate={handleCreate}
+                            />
+                        </View>
+                    }
+                    keyboardShouldPersistTaps="handled"
+                    contentContainerStyle={[
+                        {
+                            paddingTop: 16,
+                            paddingHorizontal: 20,
+                            // listBottomInset clears the tab bar, player, and a
+                            // FAB-sized gap; add a little more so the last
+                            // card's footer isn't clipped under the chrome
+                            paddingBottom: listBottomInset + 48,
+                        },
+                        scroll.contentContainerStyle,
+                    ]}
+                    ListEmptyComponent={
+                        <Text className="py-10 text-center text-muted-foreground">
+                            {emptyLabel}
+                        </Text>
+                    }
+                    ListFooterComponent={
+                        pagingNext ? (
+                            <View className="items-center py-4">
+                                <ActivityIndicator color={colors.text} />
+                            </View>
+                        ) : (
+                            <View className="h-5" />
+                        )
+                    }
+                    onEndReached={onEndReached}
+                    onEndReachedThreshold={1}
+                    showsVerticalScrollIndicator={false}
+                />
             </ScreenScrollMarker>
 
-            <BottomRowActionBubble
-                icon="create-outline"
-                accessibilityLabel="Create a new post"
-                expanded={composeOpen}
-                onPress={toggleComposer}
-            />
-            <InlinePostComposer
-                open={composeOpen}
-                onOpenChange={onComposeOpenChange}
-                onCreate={handleCreate}
-            />
             <SocialOverflowMenu
                 open={socialMenuOpen}
                 onClose={() => setSocialMenuOpen(false)}
-                onStartSession={() =>
-                    router.push("/live-session/new?openPlayer=1")
-                }
-                onJoinSession={() => router.push("/join")}
             />
             <Toast toast={toast} />
         </View>
