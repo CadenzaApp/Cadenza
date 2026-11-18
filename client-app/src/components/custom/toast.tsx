@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useTopRailInset } from "@/lib/top-rail";
 import { cn } from "@/lib/utils";
@@ -37,14 +40,18 @@ export function Toast({ toast }: { toast: ToastMessage | null }) {
     const railInset = useTopRailInset();
     const insets = useSafeAreaInsets();
     if (!toast) return null;
+    const outlined = shouldShowGlassOutline();
     return (
         <View
             pointerEvents="none"
             accessibilityRole="alert"
             style={{ top: railInset ?? insets.top + 8 }}
             className={cn(
-                "absolute left-5 right-5 overflow-hidden rounded-2xl border px-4 py-3",
-                toast.error ? "border-destructive" : "border-border",
+                "absolute left-5 right-5 overflow-hidden rounded-2xl px-4 py-3",
+                outlined &&
+                    (toast.error
+                        ? "border border-destructive"
+                        : "border border-border"),
             )}
         >
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>

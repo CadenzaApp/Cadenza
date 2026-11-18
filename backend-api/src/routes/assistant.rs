@@ -7,7 +7,7 @@ use crate::{
     auth::SupabaseClaims,
     err::CadenzaError,
     routes::json::assistant::{AssistantRequest, AssistantResponse},
-    services::assistant::AssistantService,
+    services::{assistant::AssistantService, song_metadata::SongMetadataService},
 };
 
 /// Answers the last message in a conversation with the assistant.
@@ -49,10 +49,13 @@ use crate::{
 async fn post_message_handler(
     State(db): State<DatabaseConnection>,
     State(assistant_service): State<AssistantService>,
+    State(song_meta_service): State<SongMetadataService>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(body): Json<AssistantRequest>,
 ) -> Result<Json<AssistantResponse>, CadenzaError> {
-    let response = assistant_service.answer(&db, claims.user_id, body).await?;
+    let response = assistant_service
+        .answer(&db, &song_meta_service, claims.user_id, body)
+        .await?;
     Ok(Json(response))
 }
 

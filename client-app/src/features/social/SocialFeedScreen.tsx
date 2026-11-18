@@ -8,31 +8,38 @@ import {
     useMemo,
     useRef,
     useState,
-    type ReactNode,
 } from "react";
 import {
     ActivityIndicator,
     AppState,
     FlatList,
+    Pressable,
     RefreshControl,
     View,
     type ListRenderItem,
     type ViewToken,
 } from "react-native";
-import Animated from "react-native-reanimated";
+import Animated, {
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
+    type SharedValue,
+} from "react-native-reanimated";
 
-import { ListDivider } from "@/components/custom/list-divider";
 import { Toast, useToast } from "@/components/custom/toast";
+import { ListDivider } from "@/components/custom/list-divider";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
-import {
-    SegmentedControl,
-    type SegmentOption,
-} from "@/components/ui/segmented-control";
+import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import { Text } from "@/components/ui/text";
 import { invalidateAPIData } from "@/lib/api-actions";
 import { useKeyboardScroll } from "@/lib/keyboard-scroll";
+import { withAlpha } from "@/lib/artwork-color";
 import { useProfile } from "@/lib/routes/profile";
 import type { SharedPlaylistSummary } from "@/lib/routes/shared-playlists";
+import {
+    useFriendsListening,
+    type FriendListening,
+} from "@/lib/routes/listening";
 import {
     useCreatePost,
     useFeed,
@@ -45,11 +52,12 @@ import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { stopTopicPreview } from "@/lib/topic-preview";
 import { useTopRailInset } from "@/lib/top-rail";
+import { useAppTheme } from "@/lib/theme";
 
-import { InlinePostComposer } from "./InlinePostComposer";
+import { COMPOSER_LAYOUT, InlinePostComposer } from "./InlinePostComposer";
 import { ListeningNowStrip } from "./ListeningNow";
-import { SocialHubCards } from "./SocialHubCards";
 import { PostCard } from "./PostCard";
+import { SocialOverflowMenu } from "./SocialOverflowMenu";
 import { topicCreateFields, topicMkId } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
 
@@ -72,9 +80,12 @@ export function SocialFeedScreen() {
     const { listBottomInset } = useScreenOverlayInsets();
     const railInset = useTopRailInset() ?? 0;
     const scroll = useScreenScroll<FlatList<FeedRow>>();
+    // the strip and the tabs above the composer, for scrolling to it
+    const [headerHeight, setHeaderHeight] = useState(0);
     const navigation = useNavigation();
     const isFocused = useIsFocused();
     const { colors } = useTheme();
+    const { brand } = useAppTheme().colors;
     const {
         posts,
         unseenCount,
@@ -87,7 +98,20 @@ export function SocialFeedScreen() {
         feedErr,
     } = useFeed();
     const [filter, setFilter] = useState<FeedFilter>("for-you");
-    const friendsFeed = useFriendsFeed(filter === "friends");
+    const tabProgress = useSharedValue(0);
+    useEffect(() => {
+        tabProgress.set(
+            withTiming(filter === "friends" ? 1 : 0, { duration: 200 }),
+        );
+    }, [filter, tabProgress]);
+    // viewability is read through a ref: FlatList does not allow swapping
+    // `onViewableItemsChanged` after mount
+    const filterRef = useRef(filter);
+    useEffect(() => {
+        filterRef.current = filter;
+    }, [filter]);
+    const friendsFeed = useFriendsFeed(!feedLoading || filter === "friends");
+    const { friendsListening } = useFriendsListening();
     const { createPost } = useCreatePost();
     const { markPostsViewed } = useMarkPostsViewed();
     const { notifications, invalidateNotifications } = useNotifications();
@@ -132,7 +156,10 @@ export function SocialFeedScreen() {
         const ids = [...pending].sort((a, b) => {
             const ai = order.indexOf(a);
             const bi = order.indexOf(b);
-            return (ai === -1 ? order.length : ai) - (bi === -1 ? order.length : bi);
+            return (
+                (ai === -1 ? order.length : ai) -
+                (bi === -1 ? order.length : bi)
+            );
         });
         void markPostsViewedRef.current(ids).catch(() => {
             for (const id of ids) markedViewedIds.current.delete(id);
@@ -164,20 +191,17 @@ export function SocialFeedScreen() {
         {},
     );
     const [refreshing, setRefreshing] = useState(false);
-    const [composeOpen, setComposeOpen] = useState(false);
-    // where the composer sits in the list, so opening it can scroll it up
-    // above the keyboard
-    const composerY = useRef(0);
-    const scrollWithKeyboard = useKeyboardScroll(scroll.ref);
-    const onComposeOpenChange = useCallback(
-        (open: boolean) => {
-            setComposeOpen(open);
-            // the keyboard carries it up until its top is just under the
-            // top rail
-            if (open) scrollWithKeyboard(composerY.current + 8);
-        },
-        [scrollWithKeyboard],
-    );
+    const [socialMenuOpen, setSocialMenuOpen] = useState(false);
+    const keyboardScroll = useKeyboardScroll(scroll.ref);
+    // the keyboard carries the composer up until its top is just under the
+    // top rail, the strip and tabs scrolled away above it
+    const scrollToComposer = useCallback(() => {
+        keyboardScroll(headerHeight);
+    }, [keyboardScroll, headerHeight]);
+    const changeFeed = useCallback((next: FeedFilter) => {
+        setFilter(next);
+    }, []);
+    const socialNebula = useMemo(() => [brand, "#7b61ff", "#20a9a0"], [brand]);
     const { toast, showToast } = useToast();
 
     const feed = useMemo((): FeedRow[] => {
@@ -188,12 +212,13 @@ export function SocialFeedScreen() {
         const rows: FeedRow[] = pending.map((post) => ({
             kind: "post",
             post,
+            unseen: true,
         }));
         const unseenPosts = posts.slice(0, unseenCount);
         const seenPosts = posts.slice(unseenCount);
         for (const post of unseenPosts) {
             if (hiddenIds.has(post.post_id)) continue;
-            rows.push({ kind: "post", post });
+            rows.push({ kind: "post", post, unseen: true });
         }
         // Fresh pages ran dry: separator, then previously viewed posts.
         if (showingSeen && seenPosts.length > 0) {
@@ -229,6 +254,16 @@ export function SocialFeedScreen() {
                             />
                         ) : null}
                     </View>
+                    <GlassIconButton
+                        accessibilityLabel="Social options"
+                        onPress={() => setSocialMenuOpen(true)}
+                    >
+                        <Ionicons
+                            name="ellipsis-horizontal"
+                            size={22}
+                            color={colors.text}
+                        />
+                    </GlassIconButton>
                 </View>
             ),
         });
@@ -345,6 +380,7 @@ export function SocialFeedScreen() {
 
     const onViewableItemsChanged = useRef(
         ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+            if (filterRef.current !== "for-you") return;
             const next = new Set<number>();
             for (const token of viewableItems) {
                 const row = token.item as FeedRow | undefined;
@@ -419,6 +455,17 @@ export function SocialFeedScreen() {
         [showToast],
     );
 
+    const listeningByUser = useMemo(
+        () =>
+            new Map<string, FriendListening>(
+                (friendsListening ?? []).map((friend) => [
+                    friend.user_id,
+                    friend,
+                ]),
+            ),
+        [friendsListening],
+    );
+
     const renderItem = useCallback<ListRenderItem<FeedRow>>(
         ({ item }) => {
             if (item.kind === "caught-up") {
@@ -430,6 +477,12 @@ export function SocialFeedScreen() {
             return (
                 <PostCard
                     post={item.post}
+                    authorListening={
+                        item.post.author
+                            ? listeningByUser.get(item.post.author.user_id)
+                            : undefined
+                    }
+                    unseen={item.unseen}
                     topicHint={localTopics[item.post.post_id]}
                     onDeleted={handleDeleted}
                     onDeleteFailed={handleDeleteFailed}
@@ -437,25 +490,27 @@ export function SocialFeedScreen() {
                 />
             );
         },
-        [handleDeleteFailed, handleDeleted, handleEdited, localTopics],
+        [
+            handleDeleteFailed,
+            handleDeleted,
+            handleEdited,
+            listeningByUser,
+            localTopics,
+        ],
     );
 
     const showingFriends = filter === "friends";
-    const rows = useMemo(
+    const friendRows = useMemo(
         (): FeedRow[] =>
-            showingFriends
-                ? friendsFeed.friendsPosts
-                      .filter((post) => !hiddenIds.has(post.post_id))
-                      .map((post) => ({ kind: "post", post }))
-                : feed,
-        [feed, friendsFeed.friendsPosts, hiddenIds, showingFriends],
+            friendsFeed.friendsPosts
+                .filter((post) => !hiddenIds.has(post.post_id))
+                .map((post) => ({ kind: "post", post })),
+        [friendsFeed.friendsPosts, hiddenIds],
     );
+    const rows = showingFriends ? friendRows : feed;
     feedPostIdsRef.current = rows.flatMap((row) =>
         row.kind === "post" && !row.history ? [row.post.post_id] : [],
     );
-    const pagingNext = showingFriends
-        ? friendsFeed.isLoadingNextFriendsPage
-        : isLoadingNextPage;
 
     const onEndReached = useCallback(() => {
         if (showingFriends) {
@@ -491,9 +546,17 @@ export function SocialFeedScreen() {
           : showingFriends
             ? "Your friends have not posted yet."
             : "No posts yet.";
+    const pagingNext = showingFriends
+        ? friendsFeed.isLoadingNextFriendsPage
+        : isLoadingNextPage;
 
     return (
         <View className="flex-1 bg-background">
+            {/* fixed to the screen, so the feed slides over it */}
+            <NebulaBackdrop colors={socialNebula} layout="float" />
+            {/* the marker takes the list alone, like Analytics: the strip,
+                tabs, and composer scroll inside it as its header, so the
+                native top blur and the refresh spinner both follow the list */}
             <ScreenScrollMarker>
                 <Animated.FlatList
                     {...scroll}
@@ -514,26 +577,33 @@ export function SocialFeedScreen() {
                     onViewableItemsChanged={onViewableItemsChanged}
                     viewabilityConfig={VIEWABILITY_CONFIG}
                     ItemSeparatorComponent={PostSeparator}
-                    keyboardShouldPersistTaps="handled"
+                    // the posts slide as the composer above them opens
+                    itemLayoutAnimation={COMPOSER_LAYOUT}
                     ListHeaderComponent={
-                        <SocialFeedHeader
-                            filter={filter}
-                            onFilterChange={setFilter}
-                            onComposerY={(y) => {
-                                composerY.current = y;
-                            }}
-                            composer={
-                                <InlinePostComposer
-                                    open={composeOpen}
-                                    onOpenChange={onComposeOpenChange}
-                                    onCreate={handleCreate}
+                        <View className="mb-3">
+                            <View
+                                onLayout={(event) =>
+                                    setHeaderHeight(
+                                        event.nativeEvent.layout.height,
+                                    )
+                                }
+                            >
+                                <SocialFeedHeader
+                                    filter={filter}
+                                    onFilterChange={changeFeed}
+                                    progress={tabProgress}
                                 />
-                            }
-                        />
+                            </View>
+                            <InlinePostComposer
+                                onOpen={scrollToComposer}
+                                onCreate={handleCreate}
+                            />
+                        </View>
                     }
+                    keyboardShouldPersistTaps="handled"
                     contentContainerStyle={[
                         {
-                            paddingTop: 8,
+                            paddingTop: 16,
                             paddingHorizontal: 20,
                             // listBottomInset clears the tab bar, player, and a
                             // FAB-sized gap; add a little more so the last
@@ -562,13 +632,17 @@ export function SocialFeedScreen() {
                 />
             </ScreenScrollMarker>
 
+            <SocialOverflowMenu
+                open={socialMenuOpen}
+                onClose={() => setSocialMenuOpen(false)}
+            />
             <Toast toast={toast} />
         </View>
     );
 }
 
 type FeedRow =
-    | { kind: "post"; post: SocialPost; history?: boolean }
+    | { kind: "post"; post: SocialPost; history?: boolean; unseen?: boolean }
     | { kind: "caught-up" }
     | { kind: "history-heading" };
 
@@ -581,51 +655,90 @@ function PreviouslyViewedHeading() {
 }
 
 function PostSeparator() {
-    return <View className="h-3" />;
+    return null;
 }
 
 type FeedFilter = "for-you" | "friends";
 
-const FEED_FILTERS: readonly SegmentOption<FeedFilter>[] = [
-    { value: "for-you", label: "For you" },
-    { value: "friends", label: "Friends" },
-];
-
 /**
- * Everything above the posts: the hub cards, the Listening now shelf with the
- * session buttons, the inline new post composer, and the For you / Friends
- * filter.
+ * Everything above the posts: a compact Listening now story row and the
+ * feed's X-style tab switcher.
  */
 function SocialFeedHeader({
     filter,
     onFilterChange,
-    composer,
-    onComposerY,
+    progress,
 }: {
     filter: FeedFilter;
     onFilterChange: (filter: FeedFilter) => void;
-    composer: ReactNode;
-    /** Where the composer sits in the header, which is where the list starts. */
-    onComposerY: (y: number) => void;
+    progress: SharedValue<number>;
 }) {
+    const { mutedForeground } = useAppTheme().colors;
+    const [tabWidth, setTabWidth] = useState(0);
+    const indicatorStyle = useAnimatedStyle(() => ({
+        transform: [
+            {
+                translateX:
+                    (Math.max(0, Math.min(1, progress.get())) * tabWidth) / 2,
+            },
+        ],
+    }));
     return (
-        <View className="mb-3">
-            <SocialHubCards />
+        <View className="mb-1">
             <ListeningNowStrip />
             <View
-                className="mt-6"
-                onLayout={(event) => onComposerY(event.nativeEvent.layout.y)}
+                className="mt-1 flex-row border-b pb-1"
+                onLayout={(event) =>
+                    setTabWidth(event.nativeEvent.layout.width)
+                }
+                style={{ borderBottomColor: withAlpha(mutedForeground, 0.55) }}
             >
-                {composer}
-            </View>
-            <View className="mt-4">
-                <SegmentedControl
-                    size="sm"
-                    options={FEED_FILTERS}
-                    value={filter}
-                    onChange={onFilterChange}
+                <FeedTab
+                    label="For you"
+                    active={filter === "for-you"}
+                    onPress={() => onFilterChange("for-you")}
+                />
+                <Animated.View
+                    pointerEvents="none"
+                    className="absolute bottom-0 left-0 h-1 w-1/2 rounded-full bg-brand"
+                    style={indicatorStyle}
+                />
+                <FeedTab
+                    label="Friends"
+                    active={filter === "friends"}
+                    onPress={() => onFilterChange("friends")}
                 />
             </View>
         </View>
+    );
+}
+
+function FeedTab({
+    label,
+    active,
+    onPress,
+}: {
+    label: string;
+    active: boolean;
+    onPress: () => void;
+}) {
+    return (
+        <Pressable
+            className="flex-1"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
+            onPress={onPress}
+        >
+            <Text
+                selectable={false}
+                className={
+                    active
+                        ? "py-3 text-center font-semibold text-foreground"
+                        : "py-3 text-center font-semibold text-muted-foreground"
+                }
+            >
+                {label}
+            </Text>
+        </Pressable>
     );
 }

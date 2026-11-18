@@ -5,7 +5,10 @@ import { Pressable, StyleSheet, View } from "react-native";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 
 import { useAnalyticsPeriod } from "./analytics-period";
@@ -16,6 +19,7 @@ export function GrainPicker() {
     const { period, setGrain } = useAnalyticsPeriod();
     const { colors } = useTheme();
     const [open, setOpen] = useState(false);
+    const outlined = shouldShowGlassOutline();
 
     return (
         <>
@@ -26,7 +30,13 @@ export function GrainPicker() {
                 hitSlop={6}
                 style={({ pressed }) => (pressed ? styles.pressed : null)}
             >
-                <View className="h-9 flex-row items-center gap-1 overflow-hidden rounded-full border border-border px-4">
+                <View
+                    className={
+                        outlined
+                            ? "h-9 flex-row items-center gap-1 overflow-hidden rounded-full border border-border px-4"
+                            : "h-9 flex-row items-center gap-1 overflow-hidden rounded-full px-4"
+                    }
+                >
                     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                         <GlassSurface style={StyleSheet.absoluteFill} />
                     </View>

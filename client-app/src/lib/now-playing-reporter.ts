@@ -8,6 +8,7 @@ import {
     type NowPlayingSample,
     type UpNextSong,
 } from "./now-playing-change";
+import { useRealtimeInBackground } from "./realtime";
 import { useNowPlayingWrites } from "./routes/listening";
 
 /**
@@ -28,8 +29,10 @@ const SEND_DELAY_MS = 1_000;
  * call, from the user's privacy settings.
  *
  * Runs in the background too, while iOS keeps the app running (see the
- * provider's polling). Once the app is suspended nothing is sent, and the
- * last song stays shown until it would have ended.
+ * provider's polling), and holds the realtime socket open there while a
+ * shared song plays. Friends only see someone whose socket is up, so closing
+ * the app takes them off at once instead of leaving the last song shown. A
+ * launch with nothing playing clears the row the closed app left behind.
  */
 export function useNowPlayingReporter(
     snapshot: PlaybackSnapshot,
@@ -47,6 +50,7 @@ export function useNowPlayingReporter(
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const songId = shareableSongId(activeTrack);
+    useRealtimeInBackground(snapshot.isPlaying && songId !== null);
 
     useEffect(() => {
         latestRef.current = {

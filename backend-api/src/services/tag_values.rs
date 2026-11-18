@@ -34,6 +34,12 @@ pub fn canonicalize_tag_value(
 
         TagType::Text => Ok(Some(value.to_string())),
 
+        TagType::Duration => match value.parse::<u64>() {
+            Ok(number) if number <= 9_007_199_254_740_991 => Ok(Some(number.to_string())),
+            _ => Err(CadenzaError::InvalidTagValue(
+                "duration must be a nonnegative integer in milliseconds".into(),
+            )),
+        },
         TagType::Number => match value.parse::<f64>() {
             Ok(number) if number.is_finite() => Ok(Some(number.to_string())),
             _ => Err(CadenzaError::InvalidTagValue(format!(
@@ -80,6 +86,18 @@ mod tests {
 
     fn is_rejected(tag_type: TagType, value: &str) -> bool {
         canonicalize_tag_value(&tag_type, Some(value.to_string())).is_err()
+    }
+
+    #[test]
+    fn duration_is_nonnegative_integer_milliseconds() {
+        assert_eq!(
+            canonical(TagType::Duration, "182000"),
+            Some("182000".into())
+        );
+        assert_eq!(canonical(TagType::Duration, "0"), Some("0".into()));
+        for value in ["-1", "1.5", "NaN", "Infinity"] {
+            assert!(is_rejected(TagType::Duration, value));
+        }
     }
 
     #[test]

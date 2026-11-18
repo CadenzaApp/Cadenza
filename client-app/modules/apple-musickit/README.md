@@ -71,7 +71,7 @@ Set the following public environment variable before starting Expo:
 EXPO_PUBLIC_MOCK_MUSICKIT=1
 ```
 
-Mock mode supplies authorization, catalog and library fixtures, paginated
+Mock mode supplies authorization, catalog and library fixtures, including album release dates, paginated
 collections, album and playlist contents, mutable favorite state for songs and
 collections, the full queue
 surface (reorder, remove, jump, play next, shuffle, repeat), playlist writes,
@@ -220,19 +220,19 @@ alive.
 of them pages the same way: pass `{ limit, offset }`, read `nextOffset` off the
 result, stop when `hasNextPage` is false.
 
-| call                                            | returns                                                                                                                                        |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `getLibrarySongs(options)`                      | Library songs. The only one that accepts `sort`, which is iOS only.                                                                            |
-| `getLibraryAlbums(options)`                     | Library albums.                                                                                                                                |
-| `getUserPlaylists(options)`                     | Library playlists.                                                                                                                             |
-| `getAlbumSongs(albumId, options)`               | The songs on one library album.                                                                                                                |
-| `getPlaylistSongs(playlistId, options)`         | The songs in one library playlist. Apple answers 404 for a playlist holding no tracks, which comes back as an empty page rather than an error. |
-| `getRecentlyAdded(options)`                     | Recently added library items, newest first. Mixed albums, playlists, and loose songs. Apple caps `limit` at 25.                                |
-| `searchLibrarySongs(term, options)`             | Library songs matching a text term. Added after the first dev builds shipped, so a stale binary throws "rebuild the app" rather than crashing. |
-| `getLibraryArtists(options)`                    | Library artists. Same stale-binary guard as `searchLibrarySongs`.                                                                              |
-| `searchLibraryArtists(term, options)`           | Library artists matching a text term. Same guard.                                                                                              |
-| `searchLibraryCollections(term, kind, options)` | Library albums (`kind: "album"`) or playlists (`"playlist"`) matching a text term. Same guard.                                                 |
-| `getSongInfo(ids)`                              | Full metadata for song ids, in the order given. Not paged: it takes the ids it is given.                                                       |
+| call                                            | returns                                                                                                                                                                    |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getLibrarySongs(options)`                      | Library songs. The only one that accepts `sort`, which is iOS only.                                                                                                        |
+| `getLibraryAlbums(options)`                     | Library albums.                                                                                                                                                            |
+| `getUserPlaylists(options)`                     | Library playlists.                                                                                                                                                         |
+| `getAlbumSongs(albumId, options)`               | The songs on one library album.                                                                                                                                            |
+| `getPlaylistSongs(playlistId, options)`         | The songs in one library playlist. Apple answers 404 for a playlist holding no tracks, which comes back as an empty page rather than an error.                             |
+| `getRecentlyAdded(options)`                     | Recently added library items, newest first. Mixed albums, playlists, and loose songs. Apple caps `limit` at 25.                                                            |
+| `searchLibrarySongs(term, options)`             | Library songs matching a text term. Added after the first dev builds shipped, so a stale binary throws "rebuild the app" rather than crashing.                             |
+| `getLibraryArtists(options)`                    | Library artists. Same stale-binary guard as `searchLibrarySongs`.                                                                                                          |
+| `searchLibraryArtists(term, options)`           | Library artists matching a text term. Same guard.                                                                                                                          |
+| `searchLibraryCollections(term, kind, options)` | Library albums (`kind: "album"`) or playlists (`"playlist"`) matching a text term. Same guard.                                                                             |
+| `getSongInfo(ids)`                              | Full metadata for song ids, in the order given, with the first album's `albumID` and first artist's `artistId` for catalog songs. Not paged: it takes the ids it is given. |
 
 Albums and playlists come back as `MusicItem`s with `resourceKind` set to
 `"album"` or `"playlist"`, so the same item type describes all three. Pass the
@@ -278,6 +278,7 @@ otherwise.
 | `getSongFavoriteStatus(id)` / `setSongFavoriteStatus(id, isFavorite)`                         | Reads or writes a song's favorite state.                                                                                                                                              |
 | `getCollectionFavoriteStatus(kind, id)` / `setCollectionFavoriteStatus(kind, id, isFavorite)` | The same, for an album or playlist. `kind` is `"albums"` or `"playlists"`, matching the Apple Music API path segment directly rather than the app's singular `LibraryCollectionKind`. |
 | `getCollectionInfo(kind, ids)`                                                                | Metadata (title, artwork, `shareUrl`) for the album or playlist itself, mirroring `getSongInfo`.                                                                                      |
+| `getArtistsInfo(ids)`                                                                         | Name and artwork for many artists, in the order asked. JS over the native `getCollectionInfo` with kind `artists`, so no native change.                                               |
 
 All three favorite calls resolve a library-only id to its catalog equivalent
 first (`resolveCatalogSongID` for songs, the generalized `resolveCatalogID` for

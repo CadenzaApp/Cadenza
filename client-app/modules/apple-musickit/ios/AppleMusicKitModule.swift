@@ -249,6 +249,9 @@ public class AppleMusicKitModule: Module {
         if let albumId = song.albums?.first?.id.rawValue {
             dict["albumID"] = albumId
         }
+        if let artistId = song.artists?.first?.id.rawValue {
+            dict["artistId"] = artistId
+        }
         if !song.genreNames.isEmpty {
             dict["genres"] = song.genreNames
         }
@@ -861,7 +864,7 @@ public class AppleMusicKitModule: Module {
             .map { self.queryValue($0) }
             .joined(separator: ",")
         let response = try await makeAPIRequest(
-            path: "/v1/catalog/\(storefront)/songs?ids=\(encodedIds)&include=albums")
+            path: "/v1/catalog/\(storefront)/songs?ids=\(encodedIds)&include=albums,artists")
         return (response["data"] as? [[String: Any]] ?? []).map(formatAPIResource)
     }
 
@@ -1193,8 +1196,9 @@ public class AppleMusicKitModule: Module {
             } else if !catalogIds.isEmpty {
                 let musicItemIds = catalogIds.map { MusicItemID($0) }
                 var request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: musicItemIds)
-                // albums are not loaded by default, and albumID is read off them
-                request.properties = [.albums]
+                // albums and artists are not loaded by default, and albumID and
+                // artistId are read off them
+                request.properties = [.albums, .artists]
                 let response = try await request.response()
 
                 let catalogFormatted = response.items.map { self.formatSong($0, playbackType: "song") }

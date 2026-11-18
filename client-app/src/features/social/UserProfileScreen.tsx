@@ -1,22 +1,18 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation, useRouter, type Href } from "expo-router";
-import {
-    useCallback,
-    useEffect,
-    useLayoutEffect,
-    useMemo,
-    useState,
-} from "react";
-import { FlatList, Pressable, View, type ListRenderItem } from "react-native";
-import Animated from "react-native-reanimated";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import Animated, {
+    useAnimatedScrollHandler,
+    useAnimatedStyle,
+    useSharedValue,
+} from "react-native-reanimated";
+import { withAlpha } from "@/lib/artwork-color";
 
 import { Toast, useToast } from "@/components/custom/toast";
 import { Button } from "@/components/ui/button";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
-import {
-    SegmentedControl,
-    type SegmentOption,
-} from "@/components/ui/segmented-control";
+import { type SegmentOption } from "@/components/ui/segmented-control";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import {
@@ -75,7 +71,24 @@ type ProfileRow =
  */
 export function UserProfileScreen({ userId }: Props) {
     const { listBottomInset } = useScreenOverlayInsets();
-    const scroll = useScreenScroll<FlatList<ProfileRow>>();
+    const scroll = useScreenScroll();
+    const pager = useRef<ScrollView>(null);
+    const { width } = useWindowDimensions();
+    const pageWidth = width - 40;
+    const { mutedForeground } = useAppTheme().colors;
+    const progress = useSharedValue(0);
+    const [pageHeights, setPageHeights] = useState([1, 1]);
+    const onPageScroll = useAnimatedScrollHandler((event) => {
+        progress.set(event.contentOffset.x / pageWidth);
+    });
+    const underlineStyle = useAnimatedStyle(() => ({
+        transform: [
+            {
+                translateX:
+                    (Math.max(0, Math.min(1, progress.get())) * pageWidth) / 2,
+            },
+        ],
+    }));
     const navigation = useNavigation();
     const router = useRouter();
     const { account } = useAccount();
@@ -83,7 +96,7 @@ export function UserProfileScreen({ userId }: Props) {
         useUserPosts(userId);
     const [tab, setTab] = useState<ProfileTab>("posts");
     const { replies, userRepliesLoading, userRepliesErr } = useUserReplies(
-        tab === "replies" ? userId : undefined,
+        !userPostsLoading || tab === "replies" ? userId : undefined,
     );
     const [openPostId, setOpenPostId] = useState<number | null>(null);
     const { post: openedPost } = usePost(openPostId);
@@ -128,16 +141,6 @@ export function UserProfileScreen({ userId }: Props) {
             title: username ?? "Profile",
         });
     }, [navigation, username]);
-
-    const renderItem = useCallback<ListRenderItem<ProfileRow>>(
-        ({ item }) =>
-            item.kind === "post" ? (
-                <PostCard post={item.post} />
-            ) : (
-                <ReplyCard reply={item.reply} onPress={setOpenPostId} />
-            ),
-        [],
-    );
 
     const isFriend =
         unfriendedFor !== userId &&
@@ -184,155 +187,251 @@ export function UserProfileScreen({ userId }: Props) {
     };
 
     const blocked = profile?.blocked === true;
-    const rows = useMemo((): ProfileRow[] => {
-        if (blocked) return [];
-        return tab === "posts"
-            ? posts.map((post) => ({ kind: "post", post }))
-            : replies.map((reply) => ({ kind: "reply", reply }));
-    }, [blocked, posts, replies, tab]);
-    const [loading, failed, noun] =
-        tab === "posts"
-            ? [userPostsLoading && posts.length === 0, userPostsErr, "posts"]
-            : [
-                  userRepliesLoading && replies.length === 0,
-                  userRepliesErr,
-                  "replies",
-              ];
-    const emptyLabel = blocked
-        ? "You blocked this account."
-        : loading
-          ? `Loading ${noun}...`
-          : failed
-            ? `Couldn't load ${noun}.`
-            : `No ${noun} yet.`;
+    const changeTab = (next: ProfileTab) => {
+        setTab(next);
+        pager.current?.scrollTo({
+            x: next === "replies" ? pageWidth : 0,
+            animated: true,
+        });
+    };
     const openPost =
         openedPost && openedPost.post_id === openPostId ? openedPost : null;
 
     return (
         <View className="flex-1 bg-background">
             <ScreenScrollMarker>
-                <Animated.FlatList
+                <Animated.ScrollView
                     {...scroll}
-                    className="flex-1"
-                    data={rows}
                     keyboardShouldPersistTaps="handled"
-                    keyExtractor={rowKey}
-                    ListHeaderComponent={
-                        <View>
-                            <ProfileHeader
-                                username={username}
-                                bio={bio}
-                                loading={userPostsLoading && !profile}
-                                canEdit={account?.id === userId}
-                                friendCount={profile?.friend_count ?? 0}
-                                canAddFriend={
-                                    account != null && account.id !== userId
-                                }
-                                isFriend={isFriend}
-                                blocked={blocked}
-                                requestReceived={
-                                    acceptedFor !== userId &&
-                                    unfriendedFor !== userId &&
-                                    profile?.friend_request_received === true
-                                }
-                                requestSent={
-                                    clearedFor !== userId &&
-                                    acceptedFor !== userId &&
-                                    (sentTo === userId ||
-                                        (unfriendedFor !== userId &&
-                                            profile?.friend_request_sent ===
-                                                true))
-                                }
-                                requestBusy={
-                                    requestFriendLoading ||
-                                    cancelFriendRequestLoading
-                                }
-                                onAcceptRequest={() => {
-                                    setAcceptedFor(userId);
-                                    void requestFriend({
-                                        user_id: userId,
-                                    }).catch(() =>
-                                        setAcceptedFor((current) =>
-                                            current === userId ? null : current,
-                                        ),
-                                    );
-                                }}
-                                onAddFriend={() => {
-                                    setClearedFor((current) =>
-                                        current === userId ? null : current,
-                                    );
-                                    setSentTo(userId);
-                                    void requestFriend({
-                                        user_id: userId,
-                                    }).catch(() =>
-                                        setSentTo((current) =>
-                                            current === userId ? null : current,
-                                        ),
-                                    );
-                                }}
-                                onCancelFriend={() => {
-                                    setSentTo((current) =>
-                                        current === userId ? null : current,
-                                    );
-                                    setClearedFor(userId);
-                                    void cancelFriendRequest({
-                                        user_id: userId,
-                                    }).catch(() =>
-                                        setClearedFor((current) =>
-                                            current === userId ? null : current,
-                                        ),
-                                    );
-                                }}
-                                onOpenMenu={() =>
-                                    setMenuFor({
-                                        user_id: userId,
-                                        username: username ?? "unknown",
-                                        isFriend,
-                                        isFavorite:
-                                            isFriend &&
-                                            profile?.is_favorite === true,
-                                    })
-                                }
-                                onUnblock={() => void unblock()}
-                                onEdit={() =>
-                                    router.push("/account-details" as Href)
-                                }
-                            />
-                            <View className="mb-6 gap-6">
-                                <ProfileListening userId={userId} />
-                                {blocked ? null : (
-                                    <ProfileShelves userId={userId} />
-                                )}
-                            </View>
-                            {blocked ? null : (
-                                <View className="mb-4">
-                                    <SegmentedControl
-                                        size="sm"
-                                        options={PROFILE_TABS}
-                                        value={tab}
-                                        onChange={setTab}
-                                    />
-                                </View>
-                            )}
-                        </View>
-                    }
-                    renderItem={renderItem}
-                    ItemSeparatorComponent={PostSeparator}
                     contentContainerStyle={[
                         {
-                            paddingTop: 8,
                             paddingHorizontal: 20,
                             paddingBottom: listBottomInset + 48,
                         },
                         scroll.contentContainerStyle,
                     ]}
-                    ListEmptyComponent={
-                        <Text className="py-10 text-center text-muted-foreground">
-                            {emptyLabel}
-                        </Text>
-                    }
                     showsVerticalScrollIndicator={false}
-                />
+                >
+                    <View>
+                        <ProfileHeader
+                            username={username}
+                            bio={bio}
+                            loading={userPostsLoading && !profile}
+                            canEdit={account?.id === userId}
+                            friendCount={profile?.friend_count ?? 0}
+                            canAddFriend={
+                                account != null && account.id !== userId
+                            }
+                            isFriend={isFriend}
+                            blocked={blocked}
+                            requestReceived={
+                                acceptedFor !== userId &&
+                                unfriendedFor !== userId &&
+                                profile?.friend_request_received === true
+                            }
+                            requestSent={
+                                clearedFor !== userId &&
+                                acceptedFor !== userId &&
+                                (sentTo === userId ||
+                                    (unfriendedFor !== userId &&
+                                        profile?.friend_request_sent === true))
+                            }
+                            requestBusy={
+                                requestFriendLoading ||
+                                cancelFriendRequestLoading
+                            }
+                            onAcceptRequest={() => {
+                                setAcceptedFor(userId);
+                                void requestFriend({
+                                    user_id: userId,
+                                }).catch(() =>
+                                    setAcceptedFor((current) =>
+                                        current === userId ? null : current,
+                                    ),
+                                );
+                            }}
+                            onAddFriend={() => {
+                                setClearedFor((current) =>
+                                    current === userId ? null : current,
+                                );
+                                setSentTo(userId);
+                                void requestFriend({
+                                    user_id: userId,
+                                }).catch(() =>
+                                    setSentTo((current) =>
+                                        current === userId ? null : current,
+                                    ),
+                                );
+                            }}
+                            onCancelFriend={() => {
+                                setSentTo((current) =>
+                                    current === userId ? null : current,
+                                );
+                                setClearedFor(userId);
+                                void cancelFriendRequest({
+                                    user_id: userId,
+                                }).catch(() =>
+                                    setClearedFor((current) =>
+                                        current === userId ? null : current,
+                                    ),
+                                );
+                            }}
+                            onOpenMenu={() =>
+                                setMenuFor({
+                                    user_id: userId,
+                                    username: username ?? "unknown",
+                                    isFriend,
+                                    isFavorite:
+                                        isFriend &&
+                                        profile?.is_favorite === true,
+                                })
+                            }
+                            onUnblock={() => void unblock()}
+                            onEdit={() =>
+                                router.push("/account-details" as Href)
+                            }
+                        />
+                        <View className="mb-6 gap-6">
+                            <ProfileListening userId={userId} />
+                            {blocked ? null : (
+                                <ProfileShelves userId={userId} />
+                            )}
+                        </View>
+                        {blocked ? null : (
+                            <View className="mb-4">
+                                <View
+                                    className="flex-row border-b pb-1"
+                                    style={{
+                                        borderBottomColor: withAlpha(
+                                            mutedForeground,
+                                            0.55,
+                                        ),
+                                    }}
+                                >
+                                    {PROFILE_TABS.map((item) => (
+                                        <Pressable
+                                            key={item.value}
+                                            accessibilityRole="tab"
+                                            accessibilityState={{
+                                                selected: tab === item.value,
+                                            }}
+                                            onPress={() =>
+                                                changeTab(item.value)
+                                            }
+                                            className="flex-1"
+                                        >
+                                            <Text
+                                                className={
+                                                    tab === item.value
+                                                        ? "py-3 text-center font-semibold text-foreground"
+                                                        : "py-3 text-center font-semibold text-muted-foreground"
+                                                }
+                                            >
+                                                {item.label}
+                                            </Text>
+                                        </Pressable>
+                                    ))}
+                                    <Animated.View
+                                        pointerEvents="none"
+                                        className="absolute bottom-0 left-0 h-1 w-1/2 rounded-full bg-brand"
+                                        style={underlineStyle}
+                                    />
+                                </View>
+                            </View>
+                        )}
+                    </View>
+
+                    <Animated.ScrollView
+                        ref={pager}
+                        horizontal
+                        pagingEnabled
+                        bounces={false}
+                        showsHorizontalScrollIndicator={false}
+                        onScroll={onPageScroll}
+                        scrollEventThrottle={16}
+                        onMomentumScrollEnd={(event) =>
+                            setTab(
+                                event.nativeEvent.contentOffset.x >=
+                                    pageWidth / 2
+                                    ? "replies"
+                                    : "posts",
+                            )
+                        }
+                        style={{
+                            height: Math.max(
+                                120,
+                                pageHeights[tab === "posts" ? 0 : 1],
+                            ),
+                        }}
+                        contentContainerStyle={{ alignItems: "flex-start" }}
+                    >
+                        {PROFILE_TABS.map((page, index) => {
+                            const isPosts = page.value === "posts";
+                            const loading = isPosts
+                                ? userPostsLoading
+                                : userRepliesLoading;
+                            const failed = isPosts
+                                ? userPostsErr
+                                : userRepliesErr;
+                            const rows: ProfileRow[] = blocked
+                                ? []
+                                : isPosts
+                                  ? posts.map((post) => ({
+                                        kind: "post",
+                                        post,
+                                    }))
+                                  : replies.map((reply) => ({
+                                        kind: "reply",
+                                        reply,
+                                    }));
+                            const emptyLabel = blocked
+                                ? "You blocked this account."
+                                : loading
+                                  ? `Loading ${page.value}...`
+                                  : failed
+                                    ? `Couldn't load ${page.value}.`
+                                    : `No ${page.value} yet.`;
+                            return (
+                                <View
+                                    key={page.value}
+                                    style={{ width: pageWidth }}
+                                    onLayout={(event) => {
+                                        const height =
+                                            event.nativeEvent.layout.height;
+                                        setPageHeights((current) =>
+                                            current[index] === height
+                                                ? current
+                                                : current.map((value, i) =>
+                                                      i === index
+                                                          ? height
+                                                          : value,
+                                                  ),
+                                        );
+                                    }}
+                                >
+                                    {rows.length ? (
+                                        rows.map((row) => (
+                                            <View key={rowKey(row)}>
+                                                {row.kind === "post" ? (
+                                                    <PostCard post={row.post} />
+                                                ) : (
+                                                    <ReplyCard
+                                                        reply={row.reply}
+                                                        onPress={setOpenPostId}
+                                                    />
+                                                )}
+                                            </View>
+                                        ))
+                                    ) : (
+                                        <Text className="py-10 text-center text-muted-foreground">
+                                            {emptyLabel}
+                                        </Text>
+                                    )}
+                                </View>
+                            );
+                        })}
+                    </Animated.ScrollView>
+                </Animated.ScrollView>
             </ScreenScrollMarker>
             <FriendOptionsMenu
                 target={menuFor}
@@ -565,8 +664,4 @@ function ProfileHeader({
             )}
         </View>
     );
-}
-
-function PostSeparator() {
-    return <View className="h-3" />;
 }

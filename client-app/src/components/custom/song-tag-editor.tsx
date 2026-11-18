@@ -309,10 +309,7 @@ export function useSongTagEditor(songId: string, enabled = true) {
         }
         if (typeof createdTagId === "number") {
             const createdTag = { ...defaultTag, id: createdTagId };
-            rememberRecentTag(createdTag);
-            await runTagMutation(createdTagId, true, () =>
-                applyTagById(createdTagId),
-            );
+            handleTagCreated(createdTag);
         }
     }
 
@@ -343,6 +340,15 @@ export function useSongTagEditor(songId: string, enabled = true) {
         );
     }
 
+    function handleTagCreated(tag: Tag) {
+        rememberRecentTag(tag);
+        if (isAttributeTag(tag.type)) {
+            setValuePrompt({ tag, mode: "apply", initialValue: null, songId });
+            return;
+        }
+        void runTagMutation(tag.id, true, () => applyTagById(tag.id));
+    }
+
     return {
         songTags,
         defaultTags,
@@ -362,9 +368,20 @@ export function useSongTagEditor(songId: string, enabled = true) {
         onValueDialogClose: () => setValuePrompt(null),
         // A tag made from here is meant for this song, so apply it rather
         // than making the user find it in the list afterwards.
-        onTagCreated: (tag: Tag) => {
-            rememberRecentTag(tag);
-            void runTagMutation(tag.id, true, () => applyTagById(tag.id));
+        onTagCreated: handleTagCreated,
+        onTagDeleted: (id: number) => {
+            setRecentTags((current) => ({
+                ...current,
+                tags: current.tags.filter((tag) => tag.id !== id),
+            }));
+        },
+        onTagUpdated: (tag: Tag) => {
+            setRecentTags((current) => ({
+                ...current,
+                tags: current.tags.map((item) =>
+                    item.id === tag.id ? tag : item,
+                ),
+            }));
         },
     };
 }

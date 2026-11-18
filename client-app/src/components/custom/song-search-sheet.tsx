@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
-import { GlassInput } from "@/components/ui/glass-input";
+import { SearchField } from "@/components/custom/search-field";
 import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import { useCatalogSongSearch } from "@/lib/musickit-hooks";
@@ -74,14 +74,11 @@ export function SongSearchSheet({
     return (
         <ModalPopup visible keyboardAware onClose={onClose} title={title}>
             <View className="gap-3 px-1 pb-1">
-                <GlassInput
-                    icon="search"
-                    placeholder="Search Apple Music"
+                <SearchField
                     value={term}
                     onChangeText={setTerm}
+                    placeholder="Search Apple Music"
                     autoFocus
-                    autoCorrect={false}
-                    returnKeyType="search"
                 />
                 <ScrollView
                     style={{ maxHeight: 380 }}

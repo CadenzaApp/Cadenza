@@ -56,6 +56,8 @@ export function TagsPage({
         onValueRemove,
         onValueDialogClose,
         onTagCreated,
+        onTagDeleted,
+        onTagUpdated,
     } = useSongTagEditor(focusedSong.id, enabled);
     return (
         <View className="flex-1">
@@ -90,6 +92,8 @@ export function TagsPage({
                             }
                             onDismissSuggested={setMenuTag}
                             onCreateTag={onTagCreated}
+                            onTagDeleted={onTagDeleted}
+                            onTagUpdated={onTagUpdated}
                             errorMessage={editorError}
                             scrollableGrid={false}
                         />

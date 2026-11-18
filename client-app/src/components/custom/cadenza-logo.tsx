@@ -23,9 +23,12 @@ const FRAME = { origin: 95, side: 610 };
 export function CadenzaLogo({
     size = 96,
     blur = 0,
+    color,
 }: {
     size?: number;
     blur?: number;
+    /** Overrides both logo colors, for a monochrome icon. */
+    color?: string;
 }) {
     // svg ids go in url(#id), which the characters useId makes can break
     const filterId = `cadenzaBlur${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
@@ -67,7 +70,7 @@ export function CadenzaLogo({
                         y="48"
                         width="80"
                         height="485.914171"
-                        fill={CADENZA_LOGO.note}
+                        fill={color ?? CADENZA_LOGO.note}
                     />
                     <Ellipse
                         cx="155.78406"
@@ -75,12 +78,12 @@ export function CadenzaLogo({
                         rx="134"
                         ry="97"
                         transform="rotate(-20 155.78406 555.009537)"
-                        fill={CADENZA_LOGO.note}
+                        fill={color ?? CADENZA_LOGO.note}
                     />
                     <Path
                         transform="translate(11.012 0)"
                         d="M296 48h56l136 135-58 58-134-134V48Z"
-                        fill={CADENZA_LOGO.flag}
+                        fill={color ?? CADENZA_LOGO.flag}
                     />
                 </G>
             </G>

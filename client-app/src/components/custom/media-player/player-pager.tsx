@@ -82,6 +82,12 @@ export function PlayerPager() {
     const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<PlayerTab>>(
         () => new Set([selectedTab]),
     );
+    useEffect(() => {
+        const frame = requestAnimationFrame(() => {
+            setVisitedTabs(new Set(PLAYER_TABS));
+        });
+        return () => cancelAnimationFrame(frame);
+    }, []);
     const selectedIndex = PLAYER_TABS.indexOf(selectedTab);
     // The first page only. A changed `contentOffset` prop jumps UIKit's scroll
     // view without animating, which skipped the slide on every tab tap.

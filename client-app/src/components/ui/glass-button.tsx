@@ -7,7 +7,10 @@ import {
     type PressableProps,
 } from "react-native";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { usePressedFill } from "@/components/ui/pressed-fill";
 import { TextClassContext } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
@@ -36,6 +39,7 @@ export function GlassButton({
 }: GlassButtonProps) {
     const destructive = variant === "destructive";
     const pressedFill = usePressedFill();
+    const outlined = shouldShowGlassOutline();
 
     return (
         <TextClassContext.Provider
@@ -51,7 +55,8 @@ export function GlassButton({
                         // never flattened away, pressed or not
                         collapsable={false}
                         className={cn(
-                            "h-12 flex-row items-center justify-center gap-2 overflow-hidden rounded-2xl border border-border px-4",
+                            "h-12 flex-row items-center justify-center gap-2 overflow-hidden rounded-2xl px-4",
+                            outlined && "border border-border",
                             className,
                         )}
                         style={pressed && styles.pressed}

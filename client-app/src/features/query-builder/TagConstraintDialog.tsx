@@ -21,6 +21,7 @@ import type { QueryTagConstraint } from "./types";
 const DEFAULT_OP: Partial<Record<Tag["type"], FilterOp>> = {
     text: "is",
     number: "eq",
+    duration: "eq",
     date: "on",
     datetime: "on",
     checkbox: "is_true",
@@ -107,7 +108,7 @@ export function TagConstraintDialog({
                         </View>
                         <View className="min-w-0 flex-1 items-center justify-center gap-2">
                             <Text className="text-sm font-semibold">Value</Text>
-                            <View className="min-h-10 w-full justify-center rounded-lg border border-border px-1">
+                            <View className="min-h-10 w-full justify-center rounded-lg border border-black/30 bg-black/5 dark:border-white/30 dark:bg-white/10 px-1">
                                 {valueKind === "none" ? (
                                     <Text className="px-2 text-sm text-muted-foreground">
                                         No value needed
@@ -130,7 +131,7 @@ export function TagConstraintDialog({
                 {valuelessOperators.length ? (
                     <View className="mt-3 gap-2">
                         {valueOperators.length ? (
-                            <View className="h-px bg-border" />
+                            <View className="h-px bg-black/30 dark:bg-white/30" />
                         ) : null}
                         <View className="flex-row flex-wrap gap-2">
                             {valuelessOperators.map((option) => (
@@ -198,7 +199,7 @@ function ConditionOption({
             onPress={onPress}
             accessibilityRole="radio"
             accessibilityState={{ checked: selected }}
-            className={`rounded-full border px-3 py-2 ${selected ? "border-foreground bg-foreground" : "border-border"}`}
+            className={`rounded-full border px-3 py-2 ${selected ? "border-foreground bg-foreground" : "border-black/30 bg-black/5 dark:border-white/30 dark:bg-white/10"}`}
         >
             <Text
                 className={`text-sm font-semibold ${selected ? "text-background" : "text-foreground"}`}

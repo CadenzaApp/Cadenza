@@ -1,8 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { LinearGradient } from "expo-linear-gradient";
-import { useRouter, type Href } from "expo-router";
+import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, View } from "react-native";
+import {
+    ActivityIndicator,
+    Pressable,
+    ScrollView,
+    useWindowDimensions,
+    View,
+} from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
 import { MarqueeText } from "@/components/custom/marquee-text";
@@ -11,9 +16,9 @@ import { GlassPanel } from "@/components/ui/glass-panel";
 import { GlassPill } from "@/components/ui/glass-pill";
 import type { IoniconName } from "@/components/ui/ionicon-name";
 import { RemoteArtwork } from "@/components/ui/remote-artwork";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
+import { useProfile } from "@/lib/routes/profile";
 import { withAlpha } from "@/lib/artwork-color";
 import { useSongInfo } from "@/lib/musickit-hooks";
 import {
@@ -40,7 +45,9 @@ import { formatRelativeTime } from "./format";
 import { formatTrackTime, livePositionMs } from "./listening-progress";
 import { LiveChip } from "./LiveChip";
 import { Initials } from "./MemberRow";
+import { SessionActionsMenu } from "./SessionActionsMenu";
 import { ShelfHeader } from "./ShelfHeader";
+import { ModalPopup } from "@/components/custom/modal-popup";
 
 /** Recent plays a profile shows, and how many to a swipeable column. */
 const PROFILE_RECENT_PLAYS = 16;
@@ -48,70 +55,108 @@ const RECENT_PLAYS_PER_COLUMN = 4;
 
 /** Artwork size on a full card. The progress and up next sit beside it. */
 const CARD_ARTWORK_SIZE = 104;
+/** The share of the listening card the artwork fills; the text takes the rest. */
+const CARD_ART_SHARE = 3 / 5;
 
-/** How far a tile's gray fades up into the bottom of its artwork. */
-const TILE_BLEND = 6;
+/** The gray ring on a bubble that is not live. */
+function neutralRing(mutedForeground: string) {
+    return withAlpha(mutedForeground, 0.55);
+}
 
-/** The shade under the title and artist on the art, clear at its top. */
-const TITLE_SHADE = ["rgba(0,0,0,0)", "rgba(0,0,0,0.45)"] as const;
-
-/** Past this many friends listening, the header offers See all. */
-const STRIP_SEE_ALL_AFTER = 2;
+const STORY_GUTTER = 20;
+const STORY_GAP = 16;
+const STORY_PEEK = 12;
+const STORY_TARGET_SIZE = 70;
 
 /**
- * The Listening now shelf on the feed: a carousel of friends playing now, two
- * whole and the next peeking in, then the session buttons (start one and
- * enter a code, or open yours). Tapping a friend opens their profile. Join
- * appears on a tile whose friend the viewer may join: their session, or with
- * none, one made for them on the spot. A friend in a live session stays on
- * the row while it is open, paused or not.
+ * The compact Listening now shelf on the feed: Your listening, then every
+ * friend playing now. A ring in the user's accent marks a session that can be
+ * joined without a code; the neutral rim marks ordinary listening.
  */
 export function ListeningNowStrip() {
-    const router = useRouter();
-    const { friendsListening, friendsListeningLoading, friendsListeningErr } =
-        useFriendsListening();
-    const listening = friendsListening ?? [];
-    const seeAll = listening.length > STRIP_SEE_ALL_AFTER;
+    const { width: screenWidth } = useWindowDimensions();
+    const [viewportWidth, setViewportWidth] = useState(0);
+    const usableWidth = Math.max(
+        1,
+        (viewportWidth || screenWidth) - STORY_GUTTER,
+    );
+    const visibleCount = Math.max(
+        1,
+        Math.floor(
+            (usableWidth - STORY_PEEK) / (STORY_TARGET_SIZE + STORY_GAP),
+        ),
+    );
+    const storySize = Math.max(
+        1,
+        (usableWidth - STORY_PEEK - visibleCount * STORY_GAP) / visibleCount,
+    );
+    const { friendsListening } = useFriendsListening();
+    const { profile } = useProfile();
+    const { account } = useAccount();
+    const myStory = useMyStory(account?.id ?? null);
+    const stories = friendsListening ?? [];
 
     return (
-        <View className="mb-2 gap-3">
-            <ShelfHeader
-                title="Listening now"
-                onSeeAll={
-                    seeAll
-                        ? () => router.push("/social/listening" as Href)
-                        : undefined
-                }
-            />
-            {listening.length > 0 ? (
-                <PeekCarousel
-                    items={listening}
-                    keyOf={(friend) => friend.user_id}
-                    renderItem={(friend, width) => (
-                        <ListeningTile friend={friend} width={width} />
-                    )}
+        <View
+            style={{ marginHorizontal: -STORY_GUTTER }}
+            onLayout={(event) =>
+                setViewportWidth(event.nativeEvent.layout.width)
+            }
+        >
+            <ScrollView
+                horizontal
+                directionalLockEnabled
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator={false}
+                decelerationRate="fast"
+                snapToInterval={storySize + STORY_GAP}
+                contentContainerStyle={{
+                    gap: STORY_GAP,
+                    paddingHorizontal: STORY_GUTTER,
+                }}
+            >
+                <YourListeningStory
+                    username={
+                        profile?.username ??
+                        account?.email?.split("@")[0] ??
+                        "You"
+                    }
+                    artworkUrl={myStory.artworkUrl}
+                    live={myStory.live}
+                    size={storySize}
                 />
-            ) : friendsListeningLoading ? (
-                <PeekCarousel
-                    items={[0, 1, 2]}
-                    keyOf={(i) => `skeleton-${i}`}
-                    renderItem={(_, width) => (
-                        <Skeleton
-                            className="rounded-2xl"
-                            style={{ width, height: width * 1.6 }}
-                        />
-                    )}
-                />
-            ) : (
-                <Text className="py-2 text-sm text-muted-foreground">
-                    {friendsListeningErr
-                        ? "Couldn't load listening"
-                        : "No friends playing right now"}
-                </Text>
-            )}
-            <SessionButtons />
+                {stories.map((friend) => (
+                    <ListeningStory
+                        key={friend.user_id}
+                        friend={friend}
+                        size={storySize}
+                    />
+                ))}
+            </ScrollView>
         </View>
     );
+}
+
+/**
+ * What the caller's own bubble shows. Live (hosting, or playing along synced,
+ * in a session that shows as live, the same rule friends see) it is the
+ * session's song, paused or not, or nothing with no song queued. Otherwise it
+ * is what they play now, which drops off when they stop.
+ */
+function useMyStory(userId: string | null) {
+    const { userListening } = useUserListening(userId);
+    const session = useShownLiveSession();
+    const live =
+        session !== null &&
+        (session.my_role === "host" || session.my_listen_mode === "synced");
+    if (live) {
+        const song = session.current ?? session.up_next[0] ?? null;
+        return { live, artworkUrl: song?.artwork_url ?? null };
+    }
+    return {
+        live,
+        artworkUrl: userListening?.now_playing?.artwork_url ?? null,
+    };
 }
 
 /**
@@ -139,104 +184,293 @@ export function AllListening() {
 }
 
 /**
- * Two buttons side by side: Start a session, or with one open, Open live
- * session; and Join with code. In a session, joining with a code asks first,
- * since a code for another session takes the caller out of this one.
+ * The caller's own bubble, labeled Your listening. Tapping it opens their live
+ * session when they are in one, else the session menu. The + on its corner
+ * always opens the session menu.
  */
-function SessionButtons() {
+function YourListeningStory({
+    username,
+    artworkUrl,
+    live,
+    size,
+}: {
+    username: string;
+    artworkUrl?: string | null;
+    live: boolean;
+    size: number;
+}) {
     const router = useRouter();
-    const liveSession = useShownLiveSession();
-
-    function joinWithCode() {
-        if (!liveSession) {
-            router.push("/join" as Href);
-            return;
-        }
-        Alert.alert(
-            "Leave your live session?",
-            `Joining another session with a code takes you out of ${liveSession.name}.`,
-            [
-                { text: "Cancel", style: "cancel" },
-                {
-                    text: "Enter a code",
-                    style: "destructive",
-                    onPress: () => router.push("/join" as Href),
-                },
-            ],
-        );
-    }
-
+    const session = useCurrentLiveSession();
+    const { brand, mutedForeground } = useAppTheme().colors;
+    const [menuOpen, setMenuOpen] = useState(false);
+    const badgeSize = Math.round(size * 0.4);
     return (
-        <View className="flex-row gap-3">
-            {liveSession ? (
-                <SessionAction
-                    filled
-                    icon="radio"
-                    label="Open live session"
-                    accessibilityLabel={`Open live session, ${liveSession.name}`}
-                    onPress={() => router.push("/player")}
+        <>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                    session ? "Open your live session" : "Your listening"
+                }
+                onPress={() =>
+                    session ? router.push("/player") : setMenuOpen(true)
+                }
+                className="items-center gap-1.5 active:opacity-60"
+                style={{ width: size }}
+            >
+                <View>
+                    {artworkUrl ? (
+                        <StoryRing
+                            artworkUrl={artworkUrl}
+                            live={live}
+                            size={size}
+                        />
+                    ) : (
+                        <View
+                            className="items-center justify-center rounded-full border-2 border-border bg-muted"
+                            style={{ width: size, height: size }}
+                        >
+                            <Text className="text-lg font-semibold text-foreground">
+                                {username.slice(0, 1).toUpperCase()}
+                            </Text>
+                        </View>
+                    )}
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Start or join a live session"
+                        hitSlop={6}
+                        onPress={() => setMenuOpen(true)}
+                        className="absolute bottom-0 right-0 items-center justify-center rounded-full border-2 active:opacity-60"
+                        style={{
+                            width: badgeSize,
+                            height: badgeSize,
+                            backgroundColor: brand,
+                            borderColor: neutralRing(mutedForeground),
+                        }}
+                    >
+                        <Ionicons
+                            name="add"
+                            size={badgeSize * 0.8}
+                            color="white"
+                        />
+                    </Pressable>
+                </View>
+                <Text
+                    className="w-full text-center text-xs text-foreground"
+                    numberOfLines={1}
+                >
+                    Your listening
+                </Text>
+            </Pressable>
+            <SessionActionsMenu
+                open={menuOpen}
+                onClose={() => setMenuOpen(false)}
+            />
+        </>
+    );
+}
+
+function ListeningStory({
+    friend,
+    size,
+}: {
+    friend: FriendListening;
+    size: number;
+}) {
+    const [open, setOpen] = useState(false);
+    const live = Boolean(friend.now_playing.live_session_id && friend.can_join);
+    return (
+        <>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${friend.username} is listening to ${friend.now_playing.title}`}
+                onPress={() => setOpen(true)}
+                className="items-center gap-1.5 active:opacity-60"
+                style={{ width: size }}
+            >
+                <StoryRing
+                    artworkUrl={friend.now_playing.artwork_url}
+                    live={live}
+                    size={size}
                 />
-            ) : (
-                <SessionAction
-                    filled
-                    icon="radio-outline"
-                    label="Start a session"
-                    accessibilityLabel="Start a live session"
-                    onPress={() =>
-                        router.push("/live-session/new?openPlayer=1" as Href)
-                    }
-                />
-            )}
-            <SessionAction
-                icon="keypad-outline"
-                label="Join with code"
-                accessibilityLabel="Join with a code"
-                onPress={joinWithCode}
+                <Text
+                    className="w-full text-center text-xs text-foreground"
+                    numberOfLines={1}
+                >
+                    {friend.username}
+                </Text>
+            </Pressable>
+            <ListeningStoryDialog
+                friend={friend}
+                open={open}
+                onClose={() => setOpen(false)}
+            />
+        </>
+    );
+}
+
+/**
+ * A listening bubble: the song's art inset in a ring, the accent color when
+ * live, a neutral gray otherwise.
+ */
+function StoryRing({
+    artworkUrl,
+    live,
+    size,
+}: {
+    artworkUrl: string | null;
+    live: boolean;
+    size: number;
+}) {
+    const { brand, mutedForeground } = useAppTheme().colors;
+    return (
+        <View
+            style={{
+                width: size,
+                height: size,
+                borderColor: live ? brand : neutralRing(mutedForeground),
+            }}
+            className="items-center justify-center rounded-full border-2 p-1"
+        >
+            <RemoteArtwork
+                url={artworkUrl}
+                className="h-full w-full rounded-full"
+                fallback={
+                    <Ionicons name="musical-note" size={22} color={brand} />
+                }
             />
         </View>
     );
 }
 
-/** One of the two session buttons. `filled` is the brand colored one. */
-function SessionAction({
-    filled = false,
-    icon,
-    label,
-    accessibilityLabel,
-    onPress,
+export function ListeningStoryDialog({
+    friend,
+    open,
+    onClose,
 }: {
-    filled?: boolean;
-    icon: IoniconName;
-    label: string;
-    accessibilityLabel: string;
-    onPress: () => void;
+    friend: FriendListening;
+    open: boolean;
+    onClose: () => void;
 }) {
-    const { brandForeground, foreground } = useAppTheme().colors;
+    const [width, setWidth] = useState(0);
     return (
-        <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={accessibilityLabel}
-            onPress={onPress}
-            className={cn(
-                "h-12 flex-1 flex-row items-center justify-center gap-2 rounded-2xl active:opacity-70",
-                filled ? "bg-brand" : "border border-border bg-muted",
-            )}
+        <ModalPopup
+            visible={open}
+            onClose={onClose}
+            contentStyle={{ padding: 0 }}
         >
-            <Ionicons
-                name={icon}
-                size={18}
-                color={filled ? brandForeground : foreground}
-            />
-            <Text
-                className={cn(
-                    "text-base font-semibold",
-                    filled ? "text-brand-foreground" : "text-foreground",
-                )}
-                numberOfLines={1}
+            {/* the art is square at the popup's width, so wait for it */}
+            <View
+                onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
             >
-                {label}
-            </Text>
-        </Pressable>
+                {width > 0 ? (
+                    <ListeningTile
+                        friend={friend}
+                        width={width}
+                        onOpenProfile={onClose}
+                    />
+                ) : null}
+            </View>
+        </ModalPopup>
+    );
+}
+
+/**
+ * One friend's listening on the popup's glass: the artwork fills the top three
+ * fifths, square, and everything else sits on the glass in the bottom two:
+ * the song, the friend and how many are listening, the live progress, then
+ * Join when they can be joined. Tapping the art or the text above the progress
+ * opens their profile, after `onOpenProfile`.
+ */
+function ListeningTile({
+    friend,
+    width,
+    onOpenProfile,
+}: {
+    friend: FriendListening;
+    width: number;
+    onOpenProfile?: () => void;
+}) {
+    const router = useRouter();
+    const { now_playing: nowPlaying, listener_count: listeners } = friend;
+    // the art is square, so the text's share follows from the width
+    const textHeight = (width / CARD_ART_SHARE) * (1 - CARD_ART_SHARE);
+
+    return (
+        <View>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${friend.username} is playing ${nowPlaying.title}, ${listeners} listening`}
+                onPress={() => {
+                    onOpenProfile?.();
+                    router.push(`/social/user/${friend.user_id}`);
+                }}
+                className="active:opacity-80"
+            >
+                <View>
+                    <Artwork
+                        url={nowPlaying.artwork_url}
+                        size={width}
+                        rounded={false}
+                    />
+                    {nowPlaying.live_session_id ? (
+                        <LiveChip className="absolute left-3 top-3" />
+                    ) : null}
+                </View>
+            </Pressable>
+            <View
+                className="justify-between gap-3 p-4"
+                style={{ minHeight: textHeight }}
+            >
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${friend.username}'s profile`}
+                    onPress={() => {
+                        onOpenProfile?.();
+                        router.push(`/social/user/${friend.user_id}`);
+                    }}
+                    className="gap-2 active:opacity-80"
+                >
+                    <View>
+                        <MarqueeText className="text-lg font-semibold text-foreground">
+                            {nowPlaying.title}
+                        </MarqueeText>
+                        {nowPlaying.artist ? (
+                            <Text
+                                className="text-sm text-muted-foreground"
+                                numberOfLines={1}
+                            >
+                                {nowPlaying.artist}
+                            </Text>
+                        ) : null}
+                    </View>
+                    <View className="flex-row items-center gap-1.5">
+                        <Initials username={friend.username} size={20} />
+                        <Text
+                            className="min-w-0 flex-shrink text-xs font-medium text-foreground"
+                            numberOfLines={1}
+                        >
+                            {friend.username}
+                        </Text>
+                        <Text
+                            className="text-xs text-muted-foreground"
+                            numberOfLines={1}
+                        >
+                            · {listeners} listening
+                        </Text>
+                    </View>
+                </Pressable>
+                <View className="gap-3">
+                    <LiveProgress nowPlaying={nowPlaying} />
+                    {friend.can_join ? (
+                        <JoinButton
+                            userId={friend.user_id}
+                            username={friend.username}
+                            appearance="outline"
+                        />
+                    ) : null}
+                </View>
+            </View>
+        </View>
     );
 }
 
@@ -257,110 +491,6 @@ function FriendCard({ friend }: { friend: FriendListening }) {
                 canJoin={friend.can_join}
             />
         </Pressable>
-    );
-}
-
-/**
- * One friend in the carousel: square artwork with the title and artist on it,
- * over a soft shade, on a tile that is one gray throughout. The art's bottom
- * edge fades into the gray over a few pixels, below the text. Under it the
- * friend and how many are listening, the live progress, then Join when they
- * can be joined. Tiles in a row stretch to the tallest, so
- * Join lines up across them.
- */
-function ListeningTile({
-    friend,
-    width,
-}: {
-    friend: FriendListening;
-    width: number;
-}) {
-    const router = useRouter();
-    const { muted } = useAppTheme().colors;
-    const { now_playing: nowPlaying, listener_count: listeners } = friend;
-
-    return (
-        <View className="flex-1 overflow-hidden rounded-2xl border border-border bg-muted">
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${friend.username} is playing ${nowPlaying.title}, ${listeners} listening`}
-                onPress={() => router.push(`/social/user/${friend.user_id}`)}
-                className="active:opacity-80"
-            >
-                <View>
-                    <Artwork
-                        url={nowPlaying.artwork_url}
-                        size={width}
-                        rounded={false}
-                    />
-                    <View className="absolute bottom-0 left-0 right-0">
-                        <LinearGradient
-                            colors={TITLE_SHADE}
-                            style={{
-                                gap: 2,
-                                paddingHorizontal: 10,
-                                paddingTop: 24,
-                                // clear of the gray at the art's bottom edge
-                                paddingBottom: TILE_BLEND + 6,
-                            }}
-                        >
-                            <MarqueeText className="text-base font-semibold text-white">
-                                {nowPlaying.title}
-                            </MarqueeText>
-                            {nowPlaying.artist ? (
-                                <Text
-                                    className="text-xs text-white"
-                                    numberOfLines={1}
-                                >
-                                    {nowPlaying.artist}
-                                </Text>
-                            ) : null}
-                        </LinearGradient>
-                    </View>
-                    <LinearGradient
-                        pointerEvents="none"
-                        colors={[withAlpha(muted, 0), muted]}
-                        style={{
-                            position: "absolute",
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            height: TILE_BLEND,
-                        }}
-                    />
-                    {nowPlaying.live_session_id ? (
-                        <LiveChip className="absolute left-2 top-2" />
-                    ) : null}
-                </View>
-                <View className="px-2.5 pt-2">
-                    <View className="flex-row items-center gap-1.5">
-                        <Initials username={friend.username} size={20} />
-                        <Text
-                            className="min-w-0 flex-shrink text-[11px] font-medium text-foreground"
-                            numberOfLines={1}
-                        >
-                            {friend.username}
-                        </Text>
-                        <Text
-                            className="text-[11px] text-muted-foreground"
-                            numberOfLines={1}
-                        >
-                            · {listeners} listening
-                        </Text>
-                    </View>
-                </View>
-            </Pressable>
-            <View className="flex-1 justify-between gap-2.5 px-2.5 pb-2.5 pt-2.5">
-                <LiveProgress nowPlaying={nowPlaying} />
-                {friend.can_join ? (
-                    <JoinButton
-                        userId={friend.user_id}
-                        username={friend.username}
-                        appearance="outline"
-                    />
-                ) : null}
-            </View>
-        </View>
     );
 }
 

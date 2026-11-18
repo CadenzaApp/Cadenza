@@ -1,3 +1,4 @@
+import { DurationInput } from "@/components/custom/duration-input";
 import { useState } from "react";
 import { Modal, Platform, Pressable, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -34,6 +35,14 @@ export function FilterValueInput({
     compact = false,
 }: Props) {
     switch (kind) {
+        case "duration":
+            return (
+                <DurationInput
+                    value={value}
+                    onChange={onChange}
+                    compact={compact}
+                />
+            );
         case "text":
             return (
                 <Input

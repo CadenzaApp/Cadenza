@@ -2,6 +2,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useRef, useState } from "react";
 import {
     ActivityIndicator,
+    Keyboard,
+    Platform,
     Pressable,
     ScrollView,
     TextInput,
@@ -23,6 +25,7 @@ import {
 } from "@/lib/post-comment";
 import { useProfile } from "@/lib/routes/profile";
 import { useAppTheme } from "@/lib/theme";
+import { withAlpha } from "@/lib/artwork-color";
 import {
     useCreateComment,
     useLikeComment,
@@ -85,6 +88,31 @@ export function PostCommentsDialog({
     const sendColor = useAppTheme().colors.primaryForeground;
     const insets = useSafeAreaInsets();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
+    // every post card keeps one of these mounted, so it only follows the
+    // keyboard while open. otherwise any keyboard, like the feed composer's,
+    // re-renders the dialog on every card at once. opening picks up a
+    // keyboard that is already up
+    const [wasOpen, setWasOpen] = useState(open);
+    if (open !== wasOpen) {
+        setWasOpen(open);
+        if (open) setKeyboardHeight(Keyboard.metrics()?.height ?? 0);
+    }
+    useEffect(() => {
+        if (!open) return;
+        const show = Keyboard.addListener(
+            Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+            (event) => setKeyboardHeight(event.endCoordinates.height),
+        );
+        const hide = Keyboard.addListener(
+            Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+            () => setKeyboardHeight(0),
+        );
+        return () => {
+            show.remove();
+            hide.remove();
+        };
+    }, [open]);
     const dialogWidth = Math.min(
         screenWidth - SCREEN_MARGIN * 2,
         MAX_DIALOG_WIDTH,
@@ -169,7 +197,10 @@ export function PostCommentsDialog({
         sortCommentsByLikes(withPostedComments(comments, posted, post.post_id)),
         pinnedIds,
     );
-    const maxDialogHeight = screenHeight - insets.top - insets.bottom - 24;
+    const maxDialogHeight = Math.max(
+        120,
+        screenHeight - keyboardHeight - insets.top - insets.bottom - 24,
+    );
     const emptyLabel = postCommentsLoading
         ? "Loading comments..."
         : postCommentsErr
@@ -181,13 +212,17 @@ export function PostCommentsDialog({
             visible={open}
             onClose={close}
             keyboardAware
-            backdropClassName="justify-start py-0"
+            backdropClassName={
+                keyboardHeight > 0
+                    ? "justify-start py-0"
+                    : "justify-center py-0"
+            }
             contentStyle={{
                 width: dialogWidth,
                 maxWidth: dialogWidth,
                 maxHeight: maxDialogHeight,
                 padding: DIALOG_PADDING,
-                marginTop: insets.top + 12,
+                marginTop: keyboardHeight > 0 ? insets.top + 12 : 0,
             }}
         >
             <DialogCloseButton
@@ -221,7 +256,12 @@ export function PostCommentsDialog({
                     </Text>
 
                     <View className="flex-row items-end gap-2">
-                        <View className="min-h-[44px] flex-1 overflow-hidden rounded-2xl border border-border">
+                        <View
+                            className="min-h-[44px] flex-1 overflow-hidden rounded-2xl border"
+                            style={{
+                                borderColor: withAlpha(mutedForeground, 0.55),
+                            }}
+                        >
                             <TextInput
                                 value={draft}
                                 onChangeText={(text) =>
@@ -392,7 +432,10 @@ function PostSummary({
     }
 
     return (
-        <View className="mt-8 gap-3 overflow-hidden rounded-3xl border border-border p-4">
+        <View
+            className="mt-8 gap-3 overflow-hidden rounded-3xl border p-4"
+            style={{ borderColor: withAlpha(mutedForeground, 0.55) }}
+        >
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`View ${author.username}'s profile`}

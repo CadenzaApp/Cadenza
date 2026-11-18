@@ -144,6 +144,9 @@ export function StartSessionScreen({
             title={current ? "Session settings" : "Go live"}
         >
             <ScrollView
+                // so a drag down scrolls back up before it closes the sheet
+                // on Android, as in the settings sheets
+                nestedScrollEnabled
                 className="flex-1"
                 contentContainerClassName="gap-6 px-5 pb-10 pt-2"
                 keyboardShouldPersistTaps="handled"
@@ -172,17 +175,17 @@ export function StartSessionScreen({
                     />
                     <Text className="text-sm leading-5 text-muted-foreground">
                         {joiningValue === "friends"
-                            ? "Friends can join from Listening now if your privacy settings allow it. Anyone with a code can join either way."
+                            ? "Friends can join from Listening now if your sharing settings allow it. Anyone with a code can join either way."
                             : "Only people you send a code can join."}
                     </Text>
                     {joiningValue === "friends" ? (
                         <Pressable
                             accessibilityRole="link"
-                            onPress={() => router.push("/privacy" as Href)}
+                            onPress={() => router.push("/sharing" as Href)}
                             className="self-start active:opacity-60"
                         >
                             <Text className="text-sm font-semibold text-brand">
-                                Privacy settings
+                                Sharing settings
                             </Text>
                         </Pressable>
                     ) : null}

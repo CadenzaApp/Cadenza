@@ -6,6 +6,7 @@ export type TagType =
     | "text"
     | "datetime"
     | "date"
+    | "duration"
     | "number"
     | "checkbox";
 

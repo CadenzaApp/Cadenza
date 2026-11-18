@@ -2,10 +2,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useRef, useState } from "react";
 import { Keyboard, Pressable, TextInput, View } from "react-native";
 import Animated, {
-    runOnJS,
-    useAnimatedStyle,
-    useSharedValue,
-    withTiming,
+    LinearTransition,
+    ReduceMotion,
 } from "react-native-reanimated";
 
 import { GlassPanel } from "@/components/ui/glass-panel";
@@ -20,109 +18,100 @@ import {
     type PostComposerOptions,
 } from "./PostComposer";
 
-const TIMING = { duration: KEYBOARD_DURATION_MS, easing: KEYBOARD_EASING };
+/**
+ * How the composer grows or folds, on the keyboard's own timing and curve.
+ * The feed hands the same one to its rows, so they slide with it.
+ */
+export const COMPOSER_LAYOUT = LinearTransition.duration(KEYBOARD_DURATION_MS)
+    .easing(KEYBOARD_EASING)
+    .reduceMotion(ReduceMotion.System);
+const HIDDEN = { display: "none" } as const;
 
 /**
  * The feed's new post prompt. Tapping it opens the composer in place, an
- * accordion rather than a dialog: the form grows open on the keyboard's own
- * timing while the keyboard comes up, so the feed's scroll (see
- * `useKeyboardScroll`) and the form move as one. Its height animates on the
- * UI thread, so the posts below slide with it. Cancel or posting folds it
- * back.
+ * accordion rather than a dialog, while the keyboard comes up. The open state
+ * lives here, so opening re-renders only this. It and the rows below animate
+ * with layout transitions on the UI thread (`COMPOSER_LAYOUT`), not a layout
+ * pass every frame. Cancel or posting folds it back.
  */
 export function InlinePostComposer({
-    open,
-    onOpenChange,
+    onOpen,
     onCreate,
 }: Pick<PostComposerOptions, "onCreate"> & {
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
+    /** Called as it opens, for the feed to scroll it into place. */
+    onOpen?: () => void;
 }) {
     const { mutedForeground } = useAppTheme().colors;
     const inputRef = useRef<TextInput>(null);
-    // stays drawn while it folds shut
-    const [shown, setShown] = useState(open);
-    const progress = useSharedValue(open ? 1 : 0);
-    const formHeight = useSharedValue(0);
+    const [open, setOpen] = useState(false);
 
+    // active from the start, so its lookups are loaded before the first tap
+    // rather than starting as it opens
     const composer = usePostComposer({
-        active: open,
+        active: true,
         onCreate,
         onPosted: () => {
             Keyboard.dismiss();
-            onOpenChange(false);
+            setOpen(false);
         },
     });
 
-    // set while rendering, so the form is there to grow on the same frame
-    if (open && !shown) setShown(true);
-
-    useEffect(() => {
-        progress.set(
-            withTiming(open ? 1 : 0, TIMING, (finished) => {
-                if (finished && !open) runOnJS(setShown)(false);
-            }),
-        );
-    }, [open, progress]);
-
     // the keyboard starts up with the form, once the field exists
     useEffect(() => {
-        if (open && shown) inputRef.current?.focus();
-    }, [open, shown]);
-
-    const formStyle = useAnimatedStyle(() => ({
-        height: progress.get() * formHeight.get(),
-        opacity: progress.get(),
-    }));
+        if (open) inputRef.current?.focus();
+    }, [open]);
 
     function cancel() {
         if (composer.isPosting()) return;
         Keyboard.dismiss();
         composer.reset();
-        onOpenChange(false);
+        setOpen(false);
     }
 
     return (
-        <GlassPanel>
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Create a new post"
-                accessibilityState={{ expanded: open }}
-                disabled={open}
-                onPress={() => onOpenChange(true)}
-                className="flex-row items-center gap-3 px-4 py-3 active:opacity-60"
-            >
-                <Ionicons
-                    name="create-outline"
-                    size={20}
-                    color={mutedForeground}
-                />
-                <Text className="flex-1 text-base text-muted-foreground">
-                    {open ? "New post" : "Share what you're listening to..."}
-                </Text>
-            </Pressable>
-            {shown ? (
-                <Animated.View className="overflow-hidden" style={formStyle}>
-                    {/* its own height, read for the animation above */}
-                    <View
-                        className="gap-3 px-4 pb-4"
-                        onLayout={(event) => {
-                            formHeight.set(event.nativeEvent.layout.height);
-                        }}
-                    >
-                        <PostComposerFields
-                            composer={composer}
-                            autoFocus={false}
-                            inputRef={inputRef}
-                            minHeight={96}
-                        />
-                        <PostComposerSubmit
-                            composer={composer}
-                            onCancel={cancel}
-                        />
-                    </View>
-                </Animated.View>
-            ) : null}
-        </GlassPanel>
+        // clips the panel while its frame grows or folds
+        <Animated.View
+            layout={COMPOSER_LAYOUT}
+            className="overflow-hidden rounded-3xl"
+        >
+            <GlassPanel>
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Create a new post"
+                    accessibilityState={{ expanded: open }}
+                    disabled={open}
+                    onPress={() => {
+                        setOpen(true);
+                        onOpen?.();
+                    }}
+                    className="flex-row items-center gap-3 px-4 py-3 active:opacity-60"
+                >
+                    <Ionicons
+                        name="create-outline"
+                        size={20}
+                        color={mutedForeground}
+                    />
+                    <Text className="flex-1 text-base text-muted-foreground">
+                        {open
+                            ? "New post"
+                            : "Talk about you're listening to..."}
+                    </Text>
+                </Pressable>
+                {/* always mounted, hidden while shut, so opening is one layout
+                    change rather than building the whole form on the tap */}
+                <View
+                    className="gap-3 px-4 pb-4"
+                    style={open ? undefined : HIDDEN}
+                >
+                    <PostComposerFields
+                        composer={composer}
+                        autoFocus={false}
+                        inputRef={inputRef}
+                        minHeight={96}
+                    />
+                    <PostComposerSubmit composer={composer} onCancel={cancel} />
+                </View>
+            </GlassPanel>
+        </Animated.View>
     );
 }

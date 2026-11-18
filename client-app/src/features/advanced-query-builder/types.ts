@@ -28,6 +28,7 @@ export type FilterField =
 export type MetadataFieldKind =
     | "metadata_text"
     | "metadata_date"
+    | "metadata_duration"
     | "metadata_number"
     | "metadata_count"
     | "metadata_explicit";
@@ -47,6 +48,7 @@ export type FieldKind =
 export type ValueKind =
     | "none"
     | "text"
+    | "duration"
     | "number"
     | "date"
     | "datetime"

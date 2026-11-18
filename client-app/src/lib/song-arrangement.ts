@@ -57,7 +57,7 @@ export const METADATA_TAG_TYPES: Record<MetadataKey, TagType> = {
     album: "text",
     genre: "text",
     release_date: "date",
-    duration: "number",
+    duration: "duration",
     explicit: "checkbox",
     total_plays: "number",
 };
@@ -108,6 +108,7 @@ export function directionLabels(
     field: ArrangeField,
 ): Record<ArrangeDirection, string> {
     switch (fieldType(field)) {
+        case "duration":
         case "number":
             return { ascending: "Low to high", descending: "High to low" };
         case "date":
@@ -200,6 +201,8 @@ export function groupLabel(
         return formatDuration(Number(value));
     }
     switch (fieldType(field)) {
+        case "duration":
+            return formatDuration(Number(value));
         case "checkbox":
             return value === "true" ? "True" : "False";
         case "date":

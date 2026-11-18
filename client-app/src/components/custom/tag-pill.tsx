@@ -94,6 +94,7 @@ export const TagPill = memo(function TagPill({
     leadingIconName,
     showIcon = true,
     appearance = "solid",
+    outlineWidth = 1,
     suggested = false,
     onRemove,
 }: {
@@ -106,6 +107,7 @@ export const TagPill = memo(function TagPill({
     leadingIconName?: ComponentProps<typeof Ionicons>["name"];
     showIcon?: boolean;
     appearance?: "solid" | "outline";
+    outlineWidth?: number;
     suggested?: boolean;
     onRemove?: () => void;
 }) {
@@ -134,6 +136,7 @@ export const TagPill = memo(function TagPill({
             style={{
                 backgroundColor: outlined ? "transparent" : tag.color,
                 borderColor: outlined ? outlineColor : "transparent",
+                borderWidth: outlined ? outlineWidth : 1,
                 paddingLeft: showIcon ? 0.35 * height : 0.67 * height,
                 paddingRight:
                     count !== undefined ? 0.275 * height : 0.67 * height,

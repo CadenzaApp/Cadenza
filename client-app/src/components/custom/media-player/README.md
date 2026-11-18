@@ -38,12 +38,14 @@ a post-release spring landing also captures. A free tap first returns vertically
 pauses 80ms, then expands. The native accessory is inserted only after expansion completes. Floating glass is hidden
 in that same React commit, before native layout reports, to avoid stacked-material flashes.
 Track and queue changes preserve the current collapsed or expanded state.
+The floating artwork resizes every frame of a collapse, so its `RemoteArtwork` sets
+`animatesSize`: expo-image then skips the per-size reload that blinks it on Android.
 
 On a committed native collapse, the floating renderer owns the width and artwork animation. The screens patch
 removes insertion/removal fades. Movement below the threshold leaves native glass untouched. Run `npx pod-install` and rebuild iOS after changing
 the patch. Scroll minimization remains UIKit-owned.
 
-Sort and the plus actions on Library Tags and Social share `useBottomRowActionButton` (the plus ones through `BottomRowActionBubble`). Their sources own their
+Sort and the plus action on Library Tags share `useBottomRowActionButton` (the plus through `BottomRowActionBubble`). Their sources own their
 sheets; the host owns placement. The assistant button is always the row's rightmost
 control, whenever the row shows except under multiselect; a row action sits one slot to its
 left and both share the same lift, scale, and dock. Floating bottom glass always clips to its radius. Unclipped, it
@@ -234,7 +236,7 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   a time without changing their initial relevance order as choices change. The funnel in Your Tags
   switches between relevance and alphabetical order. Its + control opens tag creation. A tag
   created from it or adopted from Suggested becomes one of the user's tags and is applied to
-  `focusedSong` straight away. Basic tag toggles update
+  `focusedSong` after its value prompt when it is an attribute tag, or straight away when basic. Basic tag toggles update
   optimistically and hold that state until the refreshed backend read arrives.
 - Below the selector, the read-only Metadata Tags card uses the same theme-aware `TagSelectorPanel`
   surface as Your Tags and Suggested and is collapsed by default. Its data is not fetched
@@ -258,3 +260,9 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 
 Touching files in this directory? Update this README in the same change.
 See [../../../../../AGENT_GUIDE.md](../../../../../AGENT_GUIDE.md).
+
+The pager starts loading Tags and Discuss on the next animation frame after mounting.
+The filled multiple-tags icon beside the track heading opens Tags. Favorites stay in Song options.
+
+Expanded compact controls draw a two-point playback progress line from the artwork's left edge to the bar's right edge along the bottom, clipped by the bar. It animates linearly between playback snapshots and snaps to confirmed positions on pause or seek. Expanded artwork is 35 points (31 inline), with equal insets and a radius derived from the outer capsule minus its inset.
+The app-owned expanded bar starts at 52 points, matching the assistant bubble. Native accessory height remains UIKit-owned and is measured for handoff.

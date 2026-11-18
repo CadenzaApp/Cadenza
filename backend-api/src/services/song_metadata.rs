@@ -100,6 +100,74 @@ struct CatalogResourceRef {
     id: String,
 }
 
+// models for the Apple Music catalog search response, songs only
+// https://developer.apple.com/documentation/applemusicapi/search-for-catalog-resources
+#[derive(Deserialize)]
+struct CatalogSearchResponse {
+    #[serde(default)]
+    results: CatalogSearchResults,
+}
+#[derive(Deserialize, Default)]
+struct CatalogSearchResults {
+    songs: Option<CatalogSongsResponse>,
+    artists: Option<CatalogArtistsPage>,
+    albums: Option<CatalogSearchAlbumsPage>,
+}
+#[derive(Deserialize)]
+struct CatalogSearchAlbumsPage {
+    #[serde(default)]
+    data: Vec<CatalogSearchAlbum>,
+}
+#[derive(Deserialize)]
+struct CatalogSearchAlbum {
+    id: String,
+    attributes: Option<CatalogSearchAlbumAttributes>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatalogSearchAlbumAttributes {
+    name: String,
+    artist_name: String,
+    release_date: Option<String>,
+    track_count: Option<u32>,
+}
+
+/// An Apple Music catalog album, as a search finds it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlbumMatch {
+    pub id: String,
+    pub name: String,
+    pub artist_name: String,
+    /// `YYYY-MM-DD`, or just `YYYY`, as Apple sends it.
+    pub release_date: Option<String>,
+    pub track_count: Option<u32>,
+}
+#[derive(Deserialize)]
+struct CatalogArtistsPage {
+    #[serde(default)]
+    data: Vec<CatalogArtist>,
+}
+#[derive(Deserialize)]
+struct CatalogArtist {
+    id: String,
+    attributes: Option<CatalogArtistAttributes>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatalogArtistAttributes {
+    name: String,
+    #[serde(default)]
+    genre_names: Vec<String>,
+}
+
+/// An Apple Music catalog artist, as a search finds it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArtistMatch {
+    pub id: String,
+    pub name: String,
+    pub genre_names: Vec<String>,
+}
+
 // models for the Apple Music catalog albums response
 // https://developer.apple.com/documentation/applemusicapi/get-multiple-catalog-albums
 #[derive(Deserialize)]
@@ -124,25 +192,6 @@ struct CatalogTracksPage {
     data: Vec<CatalogSong>,
     next: Option<String>,
 }
-// models for the Apple Music catalog artists response
-// https://developer.apple.com/documentation/applemusicapi/get-multiple-catalog-artists
-#[derive(Deserialize)]
-struct CatalogArtistsResponse {
-    #[serde(default)]
-    data: Vec<CatalogArtist>,
-}
-#[derive(Deserialize)]
-struct CatalogArtist {
-    id: String,
-    attributes: Option<CatalogArtistAttributes>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CatalogArtistAttributes {
-    #[serde(default)]
-    genre_names: Vec<String>,
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CatalogSongAttributes {
@@ -216,7 +265,7 @@ fn to_album_track(album_id: &str, track: CatalogSong) -> Option<SongMetadata> {
 }
 
 /// Genre names per artist id. An artist Apple returned without attributes is left out.
-fn artist_genres(resp: CatalogArtistsResponse) -> HashMap<String, Vec<String>> {
+fn artist_genres(resp: CatalogArtistsPage) -> HashMap<String, Vec<String>> {
     resp.data
         .into_iter()
         .filter_map(|artist| Some((artist.id, artist.attributes?.genre_names)))
@@ -388,8 +437,108 @@ impl SongMetadataService {
         url.query_pairs_mut()
             .append_pair("ids", &artist_ids.join(","));
 
-        let resp_body: CatalogArtistsResponse = self.get_json(url).await?;
+        let resp_body: CatalogArtistsPage = self.get_json(url).await?;
         Ok(artist_genres(resp_body))
+    }
+
+    /// Searches the catalog for songs matching `term`, best match first, at most `limit`
+    /// (Apple allows 1 to 25). An empty or blank term makes no request.
+    pub async fn search_songs(
+        &self,
+        term: &str,
+        limit: usize,
+    ) -> Result<Vec<SongMetadata>, CadenzaError> {
+        let term = term.trim();
+        if term.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut url = self.catalog_url("search")?;
+        url.query_pairs_mut()
+            .append_pair("term", term)
+            .append_pair("types", "songs")
+            .append_pair("limit", &limit.clamp(1, 25).to_string());
+
+        let resp_body: CatalogSearchResponse = self.get_json(url).await?;
+        Ok(resp_body
+            .results
+            .songs
+            .map(|songs| songs.data)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(to_song_metadata)
+            .collect())
+    }
+
+    /// Searches the catalog for albums matching `term`, best match first, at most `limit`
+    /// (Apple allows 1 to 25). An empty or blank term makes no request.
+    pub async fn search_albums(
+        &self,
+        term: &str,
+        limit: usize,
+    ) -> Result<Vec<AlbumMatch>, CadenzaError> {
+        let term = term.trim();
+        if term.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut url = self.catalog_url("search")?;
+        url.query_pairs_mut()
+            .append_pair("term", term)
+            .append_pair("types", "albums")
+            .append_pair("limit", &limit.clamp(1, 25).to_string());
+
+        let resp_body: CatalogSearchResponse = self.get_json(url).await?;
+        Ok(resp_body
+            .results
+            .albums
+            .map(|albums| albums.data)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|album| {
+                let attributes = album.attributes?;
+                Some(AlbumMatch {
+                    id: album.id,
+                    name: attributes.name,
+                    artist_name: attributes.artist_name,
+                    release_date: attributes.release_date,
+                    track_count: attributes.track_count,
+                })
+            })
+            .collect())
+    }
+
+    /// Searches the catalog for artists matching `term`, best match first, at most `limit`
+    /// (Apple allows 1 to 25). An empty or blank term makes no request.
+    pub async fn search_artists(
+        &self,
+        term: &str,
+        limit: usize,
+    ) -> Result<Vec<ArtistMatch>, CadenzaError> {
+        let term = term.trim();
+        if term.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut url = self.catalog_url("search")?;
+        url.query_pairs_mut()
+            .append_pair("term", term)
+            .append_pair("types", "artists")
+            .append_pair("limit", &limit.clamp(1, 25).to_string());
+
+        let resp_body: CatalogSearchResponse = self.get_json(url).await?;
+        Ok(resp_body
+            .results
+            .artists
+            .map(|artists| artists.data)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|artist| {
+                let attributes = artist.attributes?;
+                Some(ArtistMatch {
+                    id: artist.id,
+                    name: attributes.name,
+                    genre_names: attributes.genre_names,
+                })
+            })
+            .collect())
     }
 
     /// `https://api.music.apple.com/v1/catalog/<storefront>/<resource>`.
@@ -508,7 +657,7 @@ mod tests {
             ]
         }"#;
 
-        let parsed: CatalogArtistsResponse = serde_json::from_str(reply).unwrap();
+        let parsed: CatalogArtistsPage = serde_json::from_str(reply).unwrap();
         let genres = artist_genres(parsed);
 
         assert_eq!(genres.len(), 1);

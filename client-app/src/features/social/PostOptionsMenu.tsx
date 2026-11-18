@@ -31,7 +31,7 @@ export function PostOptionsMenu({
 
     const editAction: MusicListAction<SocialPost> = {
         id: "edit-post",
-        label: "Edit Post",
+        label: "Edit post",
         icon: "pencil-outline",
         onPress: () => {
             onEdit?.();
@@ -41,7 +41,7 @@ export function PostOptionsMenu({
 
     const deleteAction: MusicListAction<SocialPost> = {
         id: "delete-post",
-        label: "Delete Post",
+        label: "Delete post",
         icon: "trash-outline",
         labelColor: "destructive",
         iconColor: "destructive",

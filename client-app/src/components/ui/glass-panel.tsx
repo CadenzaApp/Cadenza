@@ -1,7 +1,11 @@
 import type { ReactNode } from "react";
 import { StyleSheet, View, type ColorValue } from "react-native";
 
-import { GlassLayer, GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassLayer,
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { cn } from "@/lib/utils";
 
 /** A rounded glass card. Every block on the settings sheets sits on one. */
@@ -14,10 +18,12 @@ export function GlassPanel({
     className?: string;
     tintColor?: ColorValue;
 }) {
+    const outlined = shouldShowGlassOutline();
     return (
         <View
             className={cn(
-                "overflow-hidden rounded-3xl border border-border",
+                "overflow-hidden rounded-3xl",
+                outlined && "border border-border",
                 className,
             )}
         >

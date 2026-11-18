@@ -2,7 +2,10 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import type { IoniconName } from "@/components/ui/ionicon-name";
 import { usePressedFill } from "@/components/ui/pressed-fill";
 
@@ -28,10 +31,15 @@ export function GlassIconGroup({ items }: { items: GlassIconGroupItem[] }) {
     const { colors } = useTheme();
     const pressedFill = usePressedFill();
     const itemWidth = items.length > 1 ? GROUP_ITEM_WIDTH : SIZE;
+    const outlined = shouldShowGlassOutline();
 
     return (
         <View
-            className="flex-row overflow-hidden border border-border"
+            className={
+                outlined
+                    ? "flex-row overflow-hidden border border-border"
+                    : "flex-row overflow-hidden"
+            }
             style={{
                 height: SIZE,
                 width: itemWidth * items.length,
@@ -42,7 +50,10 @@ export function GlassIconGroup({ items }: { items: GlassIconGroupItem[] }) {
                 <GlassSurface
                     style={[
                         StyleSheet.absoluteFill,
-                        { borderRadius: SIZE / 2 - 1, overflow: "hidden" },
+                        {
+                            borderRadius: SIZE / 2 - (outlined ? 1 : 0),
+                            overflow: "hidden",
+                        },
                     ]}
                 />
             </View>

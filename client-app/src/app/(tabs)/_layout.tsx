@@ -79,7 +79,10 @@ export default function TabLayout() {
                 blurEffect="systemMaterial"
                 disableTransparentOnScrollEdge
                 indicatorColor={colors.border}
-                tabBarRespectsIMEInsets
+                // No tabBarRespectsIMEInsets: the bars hide whenever the
+                // keyboard is up, and Android only says so once it is all the
+                // way up, so a bar that lifted with it would ride up first and
+                // then vanish. Under the keyboard it is never seen leaving.
                 unstable_nativeProps={{
                     ios: {
                         bottomAccessoryHidden: hidden || !nativePlayer,
@@ -139,11 +142,7 @@ export default function TabLayout() {
                     <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
 
-                <NativeTabs.Trigger
-                    name="(search)"
-                    role="search"
-                    {...TRIGGER_PROPS}
-                >
+                <NativeTabs.Trigger name="(search)" {...TRIGGER_PROPS}>
                     <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />
                     <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>

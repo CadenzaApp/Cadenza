@@ -470,3 +470,38 @@ test("a match count reads as songs, and 999+ from 1000 up", () => {
     assert.equal(matchCountLabel(1, false, "result"), "1 result");
     assert.equal(matchCountLabel(1013, true, "result"), "999+ results");
 });
+
+test("the same advanced tag can bound a range inside one group", () => {
+    const tag: Tag = { ...rainy, type: "number" };
+    const start = appendTag([], tag, false, { op: "ge", value: "0" });
+    const result = addTagToCondition(start, tag, start[0].id, false, {
+        op: "lt",
+        value: "2",
+    });
+    assert.deepEqual(queryToJSON(result), {
+        where: {
+            and: [
+                {
+                    and: [
+                        {
+                            filter: {
+                                field: "tag",
+                                tag_id: tag.id,
+                                op: "ge",
+                                value: "0",
+                            },
+                        },
+                        {
+                            filter: {
+                                field: "tag",
+                                tag_id: tag.id,
+                                op: "lt",
+                                value: "2",
+                            },
+                        },
+                    ],
+                },
+            ],
+        },
+    });
+});

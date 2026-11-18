@@ -13,7 +13,10 @@ import {
     TrackCollectionView,
     type TrackCollectionOption,
 } from "@/components/custom/track-collection-view";
-import { FloatingBackButton } from "@/components/ui/floating-back-button";
+import {
+    FloatingBackButton,
+    HERO_BUTTON_SIZE,
+} from "@/components/ui/floating-back-button";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { GlassInput } from "@/components/ui/glass-input";
@@ -36,8 +39,6 @@ import { Initials } from "../social/MemberRow";
 import { SharedPlaylistPostCard } from "../social/SharedPlaylistPostCard";
 import { usePlaylistTracks } from "./use-playlist-tracks";
 
-/** Diameter of the floating back button, matching other collections. */
-const HERO_BUTTON_SIZE = 52;
 /** Members shown in the header before "+N". */
 const MEMBER_STACK = 4;
 

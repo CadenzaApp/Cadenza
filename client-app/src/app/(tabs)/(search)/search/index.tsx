@@ -162,9 +162,9 @@ export default function SearchScreen() {
                             <SearchField
                                 value=""
                                 onChangeText={() => {}}
-                                onSubmit={() => {}}
-                                onClear={() => {}}
+                                placeholder="Artists and Songs"
                                 editable={false}
+                                className="flex-1"
                             />
                         </View>
                     </Pressable>
@@ -184,9 +184,11 @@ export default function SearchScreen() {
                 <SearchField
                     value={term}
                     onChangeText={setTerm}
+                    placeholder="Artists and Songs"
                     onSubmit={() => void runSearch(term)}
                     onClear={clearTerm}
                     autoFocus
+                    className="flex-1"
                 />
                 <GlassIconButton
                     accessibilityLabel="Close search"

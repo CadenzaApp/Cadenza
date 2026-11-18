@@ -21,8 +21,11 @@ import Animated, {
     type SharedValue,
 } from "react-native-reanimated";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
-import { Input } from "@/components/ui/input";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
+import { SearchField } from "@/components/custom/search-field";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -65,7 +68,6 @@ const MAX_WIDTH = 520;
 const MAX_HEIGHT_RATIO = 0.8;
 const ROW_MIN_HEIGHT = 56;
 const ROW_ICON_SIZE = 24;
-const SEARCH_ICON_SIZE = 18;
 /** Space between the top edge of the popup and its title row. */
 const HEADER_TOP_SPACE = 8;
 /**
@@ -96,7 +98,7 @@ export function OptionPicker({
     onClose,
 }: Props) {
     const { colors } = useTheme();
-    const { colors: palette } = useAppTheme();
+    const outlined = shouldShowGlassOutline();
     const window = useWindowDimensions();
     const [search, setSearch] = useState("");
     const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
@@ -218,7 +220,10 @@ export function OptionPicker({
                     <Pressable
                         accessibilityViewIsModal
                         onPress={(event) => event.stopPropagation()}
-                        className="overflow-hidden rounded-xl border border-border px-4 pb-2 gap-3"
+                        className={cn(
+                            "overflow-hidden rounded-xl px-4 pb-2 gap-3",
+                            outlined && "border border-border",
+                        )}
                         // explicit, so the title always clears the top edge
                         style={{
                             width,
@@ -258,26 +263,12 @@ export function OptionPicker({
                         </View>
 
                         {searchable && (
-                            <View className="relative justify-center">
-                                <Input
-                                    value={search}
-                                    onChangeText={changeSearch}
-                                    placeholder="Search"
-                                    autoCorrect={false}
-                                    autoCapitalize="none"
-                                    className="h-12 pl-10 text-sm"
-                                />
-                                <View
-                                    pointerEvents="none"
-                                    className="absolute left-3"
-                                >
-                                    <Ionicons
-                                        name="search"
-                                        size={SEARCH_ICON_SIZE}
-                                        color={palette.mutedForeground}
-                                    />
-                                </View>
-                            </View>
+                            <SearchField
+                                value={search}
+                                onChangeText={changeSearch}
+                                placeholder="Search"
+                                surface="outline"
+                            />
                         )}
 
                         <Animated.ScrollView
@@ -404,6 +395,7 @@ function OptionRow({
     bounds: SectionBounds | null;
 }) {
     const { colors } = useTheme();
+    const { brand } = useAppTheme().colors;
     const rowY = useSharedValue(0);
     const rowHeight = useSharedValue(0);
     // Gone a little before the row's bottom reaches the header's bottom. The
@@ -443,7 +435,9 @@ function OptionRow({
                     <Ionicons
                         name={option.icon}
                         size={ROW_ICON_SIZE}
-                        color={option.iconColor ?? colors.text}
+                        color={
+                            selected ? brand : (option.iconColor ?? colors.text)
+                        }
                     />
                 )}
                 <Text className="flex-1 shrink text-sm">{option.label}</Text>
@@ -451,7 +445,7 @@ function OptionRow({
                     <Ionicons
                         name="checkmark"
                         size={ROW_ICON_SIZE}
-                        color={colors.text}
+                        color={brand}
                     />
                 )}
             </Pressable>

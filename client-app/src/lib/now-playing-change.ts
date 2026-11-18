@@ -82,7 +82,9 @@ export function nowPlayingAction(
     sample: NowPlayingSample,
 ): NowPlayingAction {
     if (sample.songId === null) {
-        return lastSent?.songId != null ? "clear" : null;
+        // the first sample clears too: an app closed mid song left its row
+        // behind, and nothing else would take it down
+        return lastSent === null || lastSent.songId !== null ? "clear" : null;
     }
     if (!lastSent || lastSent.songId !== sample.songId) return "put";
     if (lastSent.isPlaying !== sample.isPlaying) return "put";

@@ -104,6 +104,9 @@ export function JoinScreen({ initialCode }: { initialCode?: string }) {
         <DetailScreen presentation="sheet" title="Join with a code">
             <View className="gap-4 px-5 pt-2">
                 <Text className="text-sm leading-5 text-muted-foreground">
+                    Join a live listening session with a friend.
+                </Text>
+                <Text className="text-sm leading-5 text-muted-foreground">
                     Enter the 8 character code a friend sent you for a live
                     session or a playlist.
                 </Text>

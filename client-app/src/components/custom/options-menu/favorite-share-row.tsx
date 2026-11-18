@@ -59,7 +59,7 @@ export function FavoriteShareRow<T>({
                     toolbar
                 />
             </View>
-            <Separator className="my-1" />
+            <Separator className="my-1 bg-black/30 dark:bg-white/30" />
         </>
     );
 }

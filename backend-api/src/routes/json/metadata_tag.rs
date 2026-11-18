@@ -9,7 +9,7 @@ use crate::routes::json::{query::MetadataKey, tag::TagType};
 /// query matches on. `type` says how to read `value`, the same as for an attribute tag.
 ///
 /// ```json
-/// {"key": "duration", "type": "number", "value": "225000"}
+/// {"key": "duration", "type": "duration", "value": "225000"}
 /// ```
 #[derive(Serialize, Debug, PartialEq)]
 pub struct MetadataTag {
@@ -25,7 +25,7 @@ pub struct MetadataTag {
 /// - `title`, `artist`, `album`: text
 /// - `genre`: text, every genre joined with `", "`
 /// - `release_date`: date, `YYYY-MM-DD`
-/// - `duration`: number, in milliseconds
+/// - `duration`: duration, in milliseconds
 /// - `explicit`: checkbox. True when Apple rates the song explicit, false otherwise, which
 ///   is what a query's `is_false` matches too
 /// - `total_plays`: number, every user's counted plays of the song
@@ -57,7 +57,7 @@ pub fn metadata_tags_of(row: &metadata_song_tags_applied::Model) -> Vec<Metadata
         ),
         (
             MetadataKey::Duration,
-            TagType::Number,
+            TagType::Duration,
             row.duration_in_millis.map(|millis| millis.to_string()),
         ),
         (
@@ -124,7 +124,7 @@ mod tests {
                 (MetadataKey::Album, TagType::Text, "Purple Rain".into()),
                 (MetadataKey::Genre, TagType::Text, "Pop, R&B/Soul".into()),
                 (MetadataKey::ReleaseDate, TagType::Date, "1984-06-25".into()),
-                (MetadataKey::Duration, TagType::Number, "521000".into()),
+                (MetadataKey::Duration, TagType::Duration, "521000".into()),
                 (MetadataKey::Explicit, TagType::Checkbox, "false".into()),
                 (MetadataKey::TotalPlays, TagType::Number, "12".into()),
             ]
@@ -181,7 +181,7 @@ mod tests {
         let tag = &metadata_tags_of(&row())[5];
         assert_eq!(
             serde_json::to_value(tag).unwrap(),
-            serde_json::json!({"key": "duration", "type": "number", "value": "521000"})
+            serde_json::json!({"key": "duration", "type": "duration", "value": "521000"})
         );
     }
 }

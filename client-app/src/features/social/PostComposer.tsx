@@ -12,9 +12,11 @@ import {
 import { ActivityIndicator, Pressable, TextInput, View } from "react-native";
 
 import { ArtworkMosaic } from "@/components/custom/artwork-mosaic";
+import { SearchField } from "@/components/custom/search-field";
 import { Button } from "@/components/ui/button";
 import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
+import { withAlpha } from "@/lib/artwork-color";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import {
     useCatalogArtistSearch,
@@ -256,15 +258,23 @@ export function PostComposerFields({
     autoFocus = true,
     minHeight = 120,
     inputRef,
+    highContrast = false,
 }: {
     composer: PostComposer;
     autoFocus?: boolean;
     minHeight?: number;
     /** The body field, for a caller that focuses it itself. */
     inputRef?: Ref<TextInput>;
+    /** Uses popup-specific colors for text and supporting chrome. */
+    highContrast?: boolean;
 }) {
-    const { mutedForeground } = useAppTheme().colors;
+    const { foreground, mutedForeground } = useAppTheme().colors;
     const { colors } = useTheme();
+    // Match the feed's dividers so popup controls stay present without
+    // competing with the form's content.
+    const detailColor = highContrast
+        ? withAlpha(mutedForeground, 0.55)
+        : mutedForeground;
     const {
         content,
         setContent,
@@ -303,13 +313,16 @@ export function PostComposerFields({
 
     return (
         <View className="gap-3">
-            <View className="overflow-hidden rounded-2xl border border-border">
+            <View
+                className="overflow-hidden rounded-2xl border"
+                style={{ borderColor: detailColor }}
+            >
                 <TextInput
                     ref={inputRef}
                     value={content}
                     onChangeText={setContent}
                     placeholder="What's on your mind?"
-                    placeholderTextColor={mutedForeground}
+                    placeholderTextColor={detailColor}
                     multiline
                     autoFocus={autoFocus}
                     editable={!posting}
@@ -320,12 +333,15 @@ export function PostComposerFields({
                 />
             </View>
 
-            <Text className="text-right text-xs text-muted-foreground">
+            <Text className="text-right text-xs" style={{ color: detailColor }}>
                 {content.length}/{MAX_POST_LENGTH}
             </Text>
 
             <View className="gap-1.5">
-                <Text className="text-sm font-semibold leading-none">
+                <Text
+                    className="text-sm font-semibold leading-none"
+                    style={{ color: foreground }}
+                >
                     Topic
                 </Text>
                 {lockedAttachment ? (
@@ -345,55 +361,34 @@ export function PostComposerFields({
                         onRemove={posting ? undefined : composer.removePlaylist}
                     />
                 ) : (
-                    <View className="overflow-hidden rounded-2xl border border-border">
-                        <View className="flex-row items-center gap-2 px-3">
-                            <Ionicons
-                                name="search"
-                                size={16}
-                                color={mutedForeground}
-                            />
-                            <TextInput
-                                value={topicQuery}
-                                onChangeText={setTopicQuery}
-                                placeholder="Search songs, artists, etc.."
-                                placeholderTextColor={mutedForeground}
-                                returnKeyType="search"
-                                autoCorrect={false}
-                                autoCapitalize="none"
-                                editable={!posting}
-                                // a font size alone, no line height, and no
-                                // vertical padding, so iOS centers the text
-                                className="h-11 flex-1 text-foreground"
-                                style={{ fontSize: 16, paddingVertical: 0 }}
-                            />
-                            {topicQuery.length > 0 ? (
-                                <Pressable
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Clear topic search"
-                                    onPress={clearSearch}
-                                    hitSlop={8}
-                                    className="active:opacity-60"
-                                >
-                                    <Ionicons
-                                        name="close-circle"
-                                        size={16}
-                                        color={mutedForeground}
-                                    />
-                                </Pressable>
-                            ) : null}
-                        </View>
-                    </View>
+                    <SearchField
+                        value={topicQuery}
+                        onChangeText={setTopicQuery}
+                        placeholder="Search songs, artists, etc."
+                        onClear={clearSearch}
+                        surface="outline"
+                        editable={!posting}
+                        accessibilityLabel="Search for a topic"
+                    />
                 )}
             </View>
 
             {showResults ? (
-                <View className="overflow-hidden rounded-2xl border border-border">
+                <View
+                    className="overflow-hidden rounded-2xl border"
+                    style={{ borderColor: detailColor }}
+                >
                     {searching && results.length === 0 ? (
                         <View className="items-center py-4">
-                            <ActivityIndicator color={colors.text} />
+                            <ActivityIndicator
+                                color={highContrast ? detailColor : colors.text}
+                            />
                         </View>
                     ) : noResults ? (
-                        <Text className="px-3 py-3 text-sm text-muted-foreground">
+                        <Text
+                            className="px-3 py-3 text-sm"
+                            style={{ color: detailColor }}
+                        >
                             No matching songs or artists.
                         </Text>
                     ) : (
@@ -407,6 +402,7 @@ export function PostComposerFields({
                                         .map((id) => artworkById.get(id))
                                         .find((url) => url != null)}
                                     icon="list"
+                                    highContrast={highContrast}
                                     onPress={() =>
                                         composer.selectPlaylist(result.playlist)
                                     }
@@ -418,6 +414,7 @@ export function PostComposerFields({
                                     subtitle="Artist"
                                     artworkUrl={result.artist.artworkUrl}
                                     round
+                                    highContrast={highContrast}
                                     onPress={() =>
                                         composer.selectArtist(result.artist)
                                     }
@@ -428,6 +425,7 @@ export function PostComposerFields({
                                     title={result.song.title}
                                     subtitle={result.song.artistName}
                                     artworkUrl={result.song.artworkUrl}
+                                    highContrast={highContrast}
                                     onPress={() =>
                                         composer.selectSong(result.song)
                                     }
@@ -456,10 +454,12 @@ export function PostComposerSubmit({
     composer,
     submitLabel = "Post",
     onCancel,
+    highContrast = false,
 }: {
     composer: PostComposer;
     submitLabel?: string;
     onCancel?: () => void;
+    highContrast?: boolean;
 }) {
     const { primaryForeground, brandForeground } = useAppTheme().colors;
     const { posting, canPost, postError } = composer;
@@ -474,6 +474,7 @@ export function PostComposerSubmit({
                         ? "text-base font-semibold text-brand-foreground"
                         : undefined
                 }
+                style={{ color }}
             >
                 {submitLabel}
             </Text>
@@ -496,7 +497,7 @@ export function PostComposerSubmit({
                         accessibilityLabel="Cancel"
                         disabled={posting}
                         onPress={onCancel}
-                        className="h-11 flex-1 items-center justify-center rounded-full border border-border bg-muted active:opacity-70"
+                        className="h-11 flex-1 items-center justify-center rounded-full bg-muted active:opacity-70"
                     >
                         <Text className="text-base font-semibold text-foreground">
                             Cancel
@@ -592,6 +593,7 @@ function TopicSearchRow({
     artworkUrl,
     round = false,
     icon,
+    highContrast = false,
     onPress,
 }: {
     title: string;
@@ -599,9 +601,11 @@ function TopicSearchRow({
     artworkUrl?: string;
     round?: boolean;
     icon?: "person" | "musical-notes" | "list";
+    highContrast?: boolean;
     onPress: () => void;
 }) {
-    const { mutedForeground } = useAppTheme().colors;
+    const { foreground, mutedForeground } = useAppTheme().colors;
+    const textColor = highContrast ? foreground : mutedForeground;
     return (
         <Pressable
             accessibilityRole="button"
@@ -620,20 +624,22 @@ function TopicSearchRow({
                     <Ionicons
                         name={icon ?? (round ? "person" : "musical-notes")}
                         size={16}
-                        color={mutedForeground}
+                        color={textColor}
                     />
                 }
             />
             <View className="min-w-0 flex-1">
                 <Text
-                    className="text-sm font-medium text-foreground"
+                    className="text-sm font-medium"
+                    style={{ color: textColor }}
                     numberOfLines={1}
                 >
                     {title}
                 </Text>
                 {subtitle ? (
                     <Text
-                        className="text-xs text-muted-foreground"
+                        className="text-xs"
+                        style={{ color: textColor }}
                         numberOfLines={1}
                     >
                         {subtitle}

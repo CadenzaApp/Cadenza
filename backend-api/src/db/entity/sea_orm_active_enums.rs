@@ -353,4 +353,6 @@ pub enum TagType {
     Checkbox,
     #[sea_orm(string_value = "date")]
     Date,
+    #[sea_orm(string_value = "duration")]
+    Duration,
 }

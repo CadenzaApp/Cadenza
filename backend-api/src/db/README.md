@@ -40,7 +40,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 Most of the tables below are keyed on song ids that come from Apple Music.
 
 - `tags` - `tag_id` (bigserial pk), `name`, `color`, nullable `user_id`, `type` (`tag_type` enum:
-  `basic`, `text`, `datetime`, `number`, `checkbox`, `date`; defaults to `basic`), and `is_activity`
+  `basic`, `text`, `datetime`, `number`, `checkbox`, `date`, `duration`; defaults to `basic`), and `is_activity`
   (bool, defaults to false). A null `user_id` means the tag is not owned by any user: a default tag,
   or an activity tag when `is_activity` is set. A check constraint keeps activity tags ownerless, a
   partial unique index keeps one activity tag per name, and a trigger refuses to delete one.
@@ -731,3 +731,5 @@ from the recorded session count. Pagination fetches one extra row for continuati
 
 The new database integration test uses transaction-local temporary tables and rolls back; it does
 not modify real user data. Run it explicitly with `cargo test listening_filters_and_sessions -- --ignored`.
+
+Duration tags require `sql/duration_tags.sql` before deploying the updated API. The generated enum was regenerated with sea-orm-codegen. Values stay integer milliseconds in the existing value column; duration sorting and comparisons use numeric order.
