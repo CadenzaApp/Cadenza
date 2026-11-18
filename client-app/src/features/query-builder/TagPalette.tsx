@@ -1,12 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-    Keyboard,
-    Platform,
-    Pressable,
-    StyleSheet,
-    View,
-} from "react-native";
+import { Keyboard, Platform, Pressable, StyleSheet, View } from "react-native";
 import { usePanGesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     Easing,
