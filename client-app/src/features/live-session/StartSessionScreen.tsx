@@ -175,17 +175,17 @@ export function StartSessionScreen({
                     />
                     <Text className="text-sm leading-5 text-muted-foreground">
                         {joiningValue === "friends"
-                            ? "Friends can join from Listening now if your privacy settings allow it. Anyone with a code can join either way."
+                            ? "Friends can join from Listening now if your sharing settings allow it. Anyone with a code can join either way."
                             : "Only people you send a code can join."}
                     </Text>
                     {joiningValue === "friends" ? (
                         <Pressable
                             accessibilityRole="link"
-                            onPress={() => router.push("/privacy" as Href)}
+                            onPress={() => router.push("/sharing" as Href)}
                             className="self-start active:opacity-60"
                         >
                             <Text className="text-sm font-semibold text-brand">
-                                Privacy settings
+                                Sharing settings
                             </Text>
                         </Pressable>
                     ) : null}

@@ -93,6 +93,7 @@ function RootStack() {
                 name="listening-preferences"
                 options={sheetScreenOptions(theme)}
             />
+            <Stack.Screen name="sharing" options={sheetScreenOptions(theme)} />
             <Stack.Screen name="privacy" options={sheetScreenOptions(theme)} />
             <Stack.Screen
                 name="account-details"

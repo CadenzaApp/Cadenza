@@ -46,6 +46,7 @@ logic out.
 | `appearance.tsx`                                                                    | `/appearance`                  | Appearance sheet: mode, accent, glass. Wires `AppearanceSettingsScreen`.                                                                  |
 | `apple-music.tsx`                                                                   | `/apple-music`                 | Apple Music sheet: status, sync, connect, disconnect.                                                                                     |
 | `listening-preferences.tsx`                                                         | `/listening-preferences`       | Tag suggestions and Hide explicit content toggles.                                                                                        |
+| `sharing.tsx`                                                                       | `/sharing`                     | Who sees your listening and profile, and who can join or add you. Wires `SharingSettingsScreen`.                                          |
 | `privacy.tsx`                                                                       | `/privacy`                     | What Cadenza stores. Read only.                                                                                                           |
 | `account-details.tsx`                                                               | `/account-details`             | Username and bio editor, Your data, sign out.                                                                                             |
 | `your-data.tsx`                                                                     | `/your-data`                   | Everything Cadenza keeps about you, and Delete account (not wired up yet).                                                                |
@@ -190,7 +191,7 @@ shared suggested-tag matching scope.
 ## Sheets
 
 The settings routes (`/account`, `/apple-music`, `/listening-preferences`, `/appearance`,
-`/privacy`, `/account-details`, `/your-data`, `/apple-music-limits`), the two pickers
+`/sharing`, `/privacy`, `/account-details`, `/your-data`, `/apple-music-limits`), the two pickers
 (`/library-categories`, `/add-to-playlist`), `/player`, the live session sheets
 (`/live-session/new`, `/live-session/:id`), and the join sheets (`/join`, `/join/:code`) are
 sheets. A sheet is a native surface

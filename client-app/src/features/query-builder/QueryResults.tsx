@@ -10,7 +10,10 @@ import type {
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { QueryOptionsMenu } from "@/components/custom/options-menu/query-options-menu";
 import { ModalPopup } from "@/components/custom/modal-popup";
-import { FloatingBackButton } from "@/components/ui/floating-back-button";
+import {
+    FloatingBackButton,
+    HERO_BUTTON_SIZE,
+} from "@/components/ui/floating-back-button";
 import { GlassButton } from "@/components/ui/glass-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,8 +26,6 @@ import { usePlayFromList } from "@/lib/play-from-list";
 import { usePlaybackTrackState } from "@/lib/playback";
 
 import { matchCountLabel } from "./QueryUtils";
-
-const HERO_BUTTON_SIZE = 52;
 
 type Props = {
     /**

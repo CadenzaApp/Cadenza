@@ -411,6 +411,7 @@ function OptionRow({
     bounds: SectionBounds | null;
 }) {
     const { colors } = useTheme();
+    const { brand } = useAppTheme().colors;
     const rowY = useSharedValue(0);
     const rowHeight = useSharedValue(0);
     // Gone a little before the row's bottom reaches the header's bottom. The
@@ -450,7 +451,9 @@ function OptionRow({
                     <Ionicons
                         name={option.icon}
                         size={ROW_ICON_SIZE}
-                        color={option.iconColor ?? colors.text}
+                        color={
+                            selected ? brand : (option.iconColor ?? colors.text)
+                        }
                     />
                 )}
                 <Text className="flex-1 shrink text-sm">{option.label}</Text>
@@ -458,7 +461,7 @@ function OptionRow({
                     <Ionicons
                         name="checkmark"
                         size={ROW_ICON_SIZE}
-                        color={colors.text}
+                        color={brand}
                     />
                 )}
             </Pressable>

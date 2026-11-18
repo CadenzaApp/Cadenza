@@ -10,7 +10,10 @@ import {
     TrackCollectionView,
     type TrackCollectionOption,
 } from "@/components/custom/track-collection-view";
-import { FloatingBackButton } from "@/components/ui/floating-back-button";
+import {
+    FloatingBackButton,
+    HERO_BUTTON_SIZE,
+} from "@/components/ui/floating-back-button";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { useArrangedTrackList } from "@/lib/arranged-track-list";
 import { indexTracksById, useSongInfo } from "@/lib/musickit-hooks";
@@ -24,8 +27,6 @@ import { TAG_TYPE_ICONS } from "@/lib/tag-values";
 import { useRemoveTagsFromSongs } from "@/lib/routes/songs";
 import { useDeleteTag, useTag } from "@/lib/routes/tags";
 import type { Tag } from "@/lib/types";
-
-const HERO_BUTTON_SIZE = 52;
 
 /** One user tag rendered as a playable, shuffleable collection of its songs. */
 export default function TagDetailScreen() {

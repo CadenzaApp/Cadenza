@@ -516,7 +516,7 @@ export function SocialFeedScreen() {
 
     return (
         <View className="flex-1 bg-background">
-            <NebulaBackdrop colors={socialNebula} layout="full" />
+            <NebulaBackdrop colors={socialNebula} layout="float" />
             <Animated.View
                 pointerEvents="box-none"
                 className="absolute left-0 right-0 top-0 z-10"

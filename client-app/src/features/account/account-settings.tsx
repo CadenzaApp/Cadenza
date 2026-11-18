@@ -119,8 +119,16 @@ export function AccountSettingsScreen() {
 
             <SettingsGroup>
                 <SettingsRow
+                    icon="people-outline"
+                    title="Sharing"
+                    description="Who sees your listening and can join you"
+                    chevron
+                    onPress={() => router.push("/sharing" as Href)}
+                />
+                <SettingsRow
                     icon="shield-checkmark-outline"
                     title="Privacy & data"
+                    description="What Cadenza keeps, and how to delete it"
                     chevron
                     onPress={() => router.push("/privacy" as Href)}
                 />

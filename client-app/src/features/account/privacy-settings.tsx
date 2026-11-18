@@ -1,85 +1,15 @@
 import { useRouter, type Href } from "expo-router";
 
 import {
-    SegmentedControl,
-    type SegmentOption,
-} from "@/components/ui/segmented-control";
-import {
-    usePrivacySettings,
-    type Audience,
-    type PrivacySettings,
-} from "@/lib/routes/privacy";
-
-import {
-    SaveError,
     SettingsPoints,
     SettingsSection,
     SettingsSheet,
     type SettingsPoint,
 } from "./settings-ui";
 
-const AUDIENCES: readonly SegmentOption<Audience>[] = [
-    { value: "nobody", label: "Off", icon: "eye-off-outline" },
-    { value: "friends", label: "Friends", icon: "people-outline" },
-    { value: "everyone", label: "Everyone", icon: "globe-outline" },
-];
-
-/** One picker per privacy setting, in the order they show. */
-const FIELDS: readonly {
-    field: keyof PrivacySettings;
-    title: string;
-    footnote: string;
-}[] = [
-    {
-        field: "now_playing",
-        title: "Now playing",
-        footnote: "Who sees the song you are playing right now.",
-    },
-    {
-        field: "listening_history",
-        title: "Recent plays",
-        footnote: "Who sees your recent plays on your profile.",
-    },
-    {
-        field: "session_join",
-        title: "Live sessions",
-        footnote: "Who can join your live session without a code.",
-    },
-    {
-        field: "playlist_add",
-        title: "Shared playlists",
-        footnote: "Who can add you to a shared playlist without a code.",
-    },
-    {
-        field: "listen_along",
-        title: "Listen along",
-        footnote:
-            "Who can join you from Listening now. Joining starts a live session, which stays open until you end it.",
-    },
-    {
-        field: "profile_playlists",
-        title: "Playlists on your profile",
-        footnote:
-            "Who sees your shared playlists on your profile. Opening one still needs an invite.",
-    },
-    {
-        field: "profile_queries",
-        title: "Queries on your profile",
-        footnote:
-            "Who sees the saved queries you share on your profile, and their songs.",
-    },
-];
-
-/** Who sees your listening, then what Cadenza stores and what it does not. */
+/** What Cadenza stores and what it does not, and the way into Your data. */
 export function PrivacySettingsScreen() {
     const router = useRouter();
-    const { privacy, updatePrivacy, updatePrivacyErr } = usePrivacySettings();
-
-    function save(change: Partial<PrivacySettings>) {
-        void updatePrivacy(change).catch((error) =>
-            console.error("Failed to save privacy:", error),
-        );
-    }
 
     const points: SettingsPoint[] = [
         {
@@ -107,16 +37,6 @@ export function PrivacySettingsScreen() {
 
     return (
         <SettingsSheet title="Privacy & data">
-            {FIELDS.map(({ field, title, footnote }) => (
-                <SettingsSection key={field} title={title} footnote={footnote}>
-                    <SegmentedControl
-                        options={AUDIENCES}
-                        value={privacy[field]}
-                        onChange={(audience) => save({ [field]: audience })}
-                    />
-                </SettingsSection>
-            ))}
-            <SaveError error={updatePrivacyErr} />
             <SettingsSection title="Your data">
                 <SettingsPoints points={points} />
             </SettingsSection>

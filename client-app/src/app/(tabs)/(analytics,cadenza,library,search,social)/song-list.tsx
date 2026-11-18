@@ -3,7 +3,10 @@ import { useCallback, useMemo, useState } from "react";
 
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { useCollectionArtworkTint } from "@/components/custom/use-collection-artwork-tint";
-import { FloatingBackButton } from "@/components/ui/floating-back-button";
+import {
+    FloatingBackButton,
+    HERO_BUTTON_SIZE,
+} from "@/components/ui/floating-back-button";
 import { Text } from "@/components/ui/text";
 import { matchCountLabel } from "@/features/query-builder/QueryUtils";
 import {
@@ -18,8 +21,6 @@ import {
     NO_ARRANGEMENT,
     type SongArrangement,
 } from "@/lib/song-arrangement";
-
-const HERO_BUTTON_SIZE = 52;
 
 /**
  * A plain list of songs by id, opened from the AI Assistant's song card

@@ -49,7 +49,8 @@ unusable or fails to load. The caller sizes and rounds it with `className` or `s
 React Native's `Image` for remote art: it has no disk cache and a failed load stays a blank box.
 
 `floating-back-button.tsx` exports `FloatingBackButton`, the back button a pushed screen that
-draws its own hero floats in the top left.
+draws its own hero floats in the top left, and `FloatingTopButton`, the same glass button for
+either top corner. `HERO_BUTTON_SIZE` is their size over a collection's hero.
 
 `glass-surface.tsx` exports `GlassSurface`, the translucent background layer behind app-owned
 glass controls and compatibility surfaces. It renders liquid glass on iOS 26, an `expo-blur` `BlurView` on anything
@@ -96,11 +97,13 @@ focus.
 `nebula-backdrop.tsx` exports `NebulaBackdrop`, soft SVG blobs of up to five colors behind a page.
 `layout="bottom"` (the default) glows up from the lower half, for Analytics and Cadenza.
 `layout="full"` spreads the blobs over the whole screen, for `TrackCollectionView` and
-`DetailScreen`, which color it from their artwork (`useArtworkNebulaColors`). It is fixed to the
+`DetailScreen`, which color it from their artwork (`useArtworkNebulaColors`). `layout="float"`
+scatters eight smaller blobs that float a slow loop across a good part of the screen, for Social.
+It is fixed to the
 screen: mount it behind the scroller. Each blob slowly changes size, brightness and position on the
 UI thread. Every so often a blob fades out, hands its color to the back of a shared queue
 (`src/lib/color-queue.ts`) and fades back in with the one at the front, so colors move around.
-There are always five blobs in fixed places (fewer colors repeat). A new set of colors keeps them
+There are five blobs (eight for `float`) in fixed places (fewer colors repeat). A new set of colors keeps them
 mid motion and crossfades each to its new color, so stepping periods never remounts them. The
 glows are see through, so they pass `Crossfade` their `alpha`, which fades the old layer out at the
 rate that keeps the pair as opaque as one. Without it the overlap flashes brighter mid fade.
@@ -179,20 +182,20 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 
 ### custom/music-list/
 
-| file                               | role                                                                                                                                                         |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `index.tsx`                        | The `MusicList` itself. Owns paging, group headers, selection, density, and the modals.                                                                      |
-| `music-list-item.tsx`              | One row, plus `MusicListItemSkeleton`.                                                                                                                       |
-| `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. Taps and long presses act on the row; horizontal drags scroll its tags. |
-| `row-tags.tsx`                     | The list's tag reads and a per-list store rows read their own song from, so a tag response re-renders only the rows it changes.                              |
-| `music-list-arrange-sheet.tsx`     | The floating Sort by / Group by control and its sheet, picking any tag from a searchable `OptionPicker`.                                                     |
-| `music-list-section-header.tsx`    | A group's header, which opens and closes it.                                                                                                                 |
-| `list-windows.ts`                  | The pure row math: an open group's rows 50 at a time, when a group shows more, and which rows' tags to read. Tested.                                         |
-| `music-list-action-button.tsx`     | One button in the selection toolbar.                                                                                                                         |
-| `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected.                                                                                                              |
-| `use-music-list-selection.ts`      | Selection state, haptics, and pruning. Tested in `use-music-list-selection.test.ts`.                                                                         |
-| `selection-utils.ts`               | `reduceMusicListSelection`, the pure reducer behind the hook.                                                                                                |
-| `types.ts`                         | `MusicListProps`, `MusicListArrangement`, and the section types, so callers do not import from `index.tsx`.                                                  |
+| file                               | role                                                                                                                                                                                                                                   |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.tsx`                        | The `MusicList` itself. Owns paging, group headers, selection, density, and the modals.                                                                                                                                                |
+| `music-list-item.tsx`              | One row, plus `MusicListItemSkeleton`.                                                                                                                                                                                                 |
+| `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. Taps and long presses act on the row; horizontal drags scroll its tags.                                                                           |
+| `row-tags.tsx`                     | The list's tag reads and a per-list store rows read their own song from, so a tag response re-renders only the rows it changes.                                                                                                        |
+| `music-list-arrange-sheet.tsx`     | The Sort by / Group by button and its sheet, picking any tag from a searchable `OptionPicker`. The button sits in the bottom row, or top right (`arrangement.placement`), which `TrackCollectionView` picks when it has a back button. |
+| `music-list-section-header.tsx`    | A group's header, which opens and closes it.                                                                                                                                                                                           |
+| `list-windows.ts`                  | The pure row math: an open group's rows 50 at a time, when a group shows more, and which rows' tags to read. Tested.                                                                                                                   |
+| `music-list-action-button.tsx`     | One button in the selection toolbar.                                                                                                                                                                                                   |
+| `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected.                                                                                                                                                                                        |
+| `use-music-list-selection.ts`      | Selection state, haptics, and pruning. Tested in `use-music-list-selection.test.ts`.                                                                                                                                                   |
+| `selection-utils.ts`               | `reduceMusicListSelection`, the pure reducer behind the hook.                                                                                                                                                                          |
+| `types.ts`                         | `MusicListProps`, `MusicListArrangement`, and the section types, so callers do not import from `index.tsx`.                                                                                                                            |
 
 Multiselect registers its panel in the shared bottom overlay. Sort and the plus on Library Tags and Social (`BottomRowActionBubble`) use
 `useBottomRowActionButton`; sources own their dialogs while the foreground host owns placement.
