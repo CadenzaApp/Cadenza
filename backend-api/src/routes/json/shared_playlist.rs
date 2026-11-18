@@ -108,7 +108,6 @@ impl From<PlaylistMember> for SharedPlaylistMember {
 /// One song in the playlist. Titles come from Apple Music by `song_id`.
 #[derive(Serialize)]
 pub struct SharedPlaylistEntry {
-    pub entry_id: i64,
     pub song_id: String,
     pub position: i32,
     pub added_by: Option<Uuid>,
@@ -118,7 +117,6 @@ pub struct SharedPlaylistEntry {
 impl From<PlaylistEntry> for SharedPlaylistEntry {
     fn from(row: PlaylistEntry) -> Self {
         Self {
-            entry_id: row.entry_id,
             song_id: row.song_id,
             position: row.position,
             added_by: row.added_by,

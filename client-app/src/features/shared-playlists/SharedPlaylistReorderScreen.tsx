@@ -15,7 +15,7 @@ import {
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useAppTheme } from "@/lib/theme";
 
-import { entryIdOf, usePlaylistTracks } from "./use-playlist-tracks";
+import { usePlaylistTracks } from "./use-playlist-tracks";
 
 const ROW_HEIGHT = 60;
 
@@ -43,15 +43,15 @@ export function SharedPlaylistReorderScreen({
 
     /** Moves the song at `from` to where the song at `to` is now. */
     async function move(from: number, to: number) {
-        const entryId = tracks[from] ? entryIdOf(tracks[from]) : null;
-        const target = tracks[to] ? entryIdOf(tracks[to]) : null;
-        // entries Apple Music cannot describe are not rows, so the position
-        // comes from the entry the song lands on
-        const position = entries.find((e) => e.entry_id === target)?.position;
-        if (entryId === null || position === undefined || from === to) return;
+        const songId = tracks[from]?.catalogId ?? tracks[from]?.id;
+        const targetId = tracks[to]?.catalogId ?? tracks[to]?.id;
+        // songs Apple Music cannot describe are not rows, so the position
+        // comes from the song this one lands on
+        const position = entries.find((e) => e.song_id === targetId)?.position;
+        if (!songId || position === undefined || from === to) return;
         setMessage(null);
         try {
-            await writes.moveSong({ entry_id: entryId, position });
+            await writes.moveSong({ song_id: songId, position });
         } catch {
             setMessage("Couldn't move that song.");
         }

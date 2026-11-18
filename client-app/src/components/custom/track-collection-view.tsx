@@ -111,6 +111,11 @@ type Props = {
     subtitle?: string;
     summary?: string;
     header?: ReactNode;
+    /**
+     * Drawn under the play row, inside the standard hero. A `header` replaces
+     * that hero, so this is ignored then.
+     */
+    belowActions?: ReactNode;
     footer?: ReactNode;
     /**
      * The nebula's color when there is no artwork to read one from, and while
@@ -168,6 +173,7 @@ export function TrackCollectionView({
     subtitle,
     summary: summaryOverride,
     header,
+    belowActions,
     footer,
     backgroundColor = null,
     nebulaColors: nebulaColorsOverride,
@@ -416,6 +422,7 @@ export function TrackCollectionView({
                 {titleBlock}
             </View>
             {actions}
+            {belowActions}
             {errorText}
         </View>
     );

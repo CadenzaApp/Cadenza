@@ -95,8 +95,8 @@ async fn social_listening_shared_playlist_flow() {
         Err(CadenzaError::VersionConflict { .. })
     ));
 
-    let first = detail.entries[0].entry_id;
-    playlists::move_entry(&txn, owner, id, first, 2, None)
+    let first = detail.entries[0].song_id.clone();
+    playlists::move_song(&txn, owner, id, &first, 2, None)
         .await
         .unwrap();
     let detail = playlists::get_playlist(&txn, owner, id).await.unwrap();
@@ -135,6 +135,56 @@ async fn social_listening_shared_playlist_flow() {
         Err(CadenzaError::InviteCodeInvalid)
     ));
 
+    // a used up code does not count, and asking again returns the new one
+    let editor = playlists::invite_for_role(
+        &txn,
+        owner,
+        id,
+        NewInvite {
+            grants_role: Some(PlaylistRole::Editor),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_ne!(editor.code, invite.code);
+    let editor_again = playlists::invite_for_role(
+        &txn,
+        owner,
+        id,
+        NewInvite {
+            grants_role: Some(PlaylistRole::Editor),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(editor_again.code, editor.code);
+    let viewer = playlists::invite_for_role(&txn, owner, id, NewInvite::default())
+        .await
+        .unwrap();
+    assert_ne!(viewer.code, editor.code);
+    let viewer_again = playlists::invite_for_role(&txn, owner, id, NewInvite::default())
+        .await
+        .unwrap();
+    assert_eq!(viewer_again.code, viewer.code);
+    let replaced = playlists::invite_for_role(
+        &txn,
+        owner,
+        id,
+        NewInvite {
+            regenerate: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_ne!(replaced.code, viewer.code);
+    assert!(matches!(
+        redeem_invite(&txn, &viewer.code).await,
+        Err(CadenzaError::InviteCodeInvalid)
+    ));
+
     // the editor edits songs but cannot delete or manage
     playlists::add_songs(&txn, friend, id, &["5".into()], None, None)
         .await
@@ -143,12 +193,13 @@ async fn social_listening_shared_playlist_flow() {
         playlists::delete_playlist(&txn, friend, id).await,
         Err(CadenzaError::Forbidden(_))
     ));
-    let entry = playlists::get_playlist(&txn, friend, id)
+    let song = playlists::get_playlist(&txn, friend, id)
         .await
         .unwrap()
         .entries[0]
-        .entry_id;
-    playlists::remove_entry(&txn, friend, id, entry, None)
+        .song_id
+        .clone();
+    playlists::remove_song(&txn, friend, id, &song, None)
         .await
         .unwrap();
 

@@ -19,7 +19,8 @@ function plural(count: number, word: string) {
 /**
  * A shared playlist attached to a post: cover, name, song and member counts.
  * Opens the playlist; someone who is not a member gets its private screen,
- * with a way to enter a code.
+ * with a way to enter a code. A playlist that no longer exists shows as
+ * unavailable and does not open.
  */
 export function SharedPlaylistPostCard({
     playlist,
@@ -28,8 +29,11 @@ export function SharedPlaylistPostCard({
 }) {
     const { colors } = useAppTheme();
     const openScreen = useOpenScreen();
+    const unavailable = !playlist.available;
     const { songInfo } = useSongInfo(
-        playlist.cover_song_ids.length > 0 ? playlist.cover_song_ids : null,
+        !unavailable && playlist.cover_song_ids.length > 0
+            ? playlist.cover_song_ids
+            : null,
     );
     const artworkUrls = useMemo(
         () =>
@@ -41,6 +45,28 @@ export function SharedPlaylistPostCard({
             }),
         [playlist.cover_song_ids, songInfo],
     );
+
+    if (unavailable) {
+        return (
+            <View
+                accessibilityLabel="Unavailable playlist"
+                className="justify-center rounded-lg bg-muted px-3 py-2.5"
+            >
+                <Text
+                    className="text-base font-semibold text-foreground"
+                    numberOfLines={1}
+                >
+                    [unavailable playlist]
+                </Text>
+                <Text
+                    className="text-xs text-muted-foreground"
+                    numberOfLines={1}
+                >
+                    It might have been deleted.
+                </Text>
+            </View>
+        );
+    }
 
     return (
         <Pressable

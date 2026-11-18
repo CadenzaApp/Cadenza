@@ -307,7 +307,7 @@ random spots on the cover, or on the mosaic's covers. `useCollectionArtworkTint`
 representative four-cell sample for the mosaic and its Oklab-averaged fallback color. Routes can also
 append actions to each track's shared options menu; the tag detail uses that to preserve Remove this
 tag. A caller can replace the standard title row, which the tag detail does with `TagPill` and its
-song count.
+song count. `belowActions` draws under the play row without replacing that header.
 
 `BlendedCover` is a centered squircle cover (continuous corners) over a blurred, enlarged copy of itself that bleeds 56pt
 out past every edge. One SVG mask fades the copy with distance from the cover (a linear ramp per

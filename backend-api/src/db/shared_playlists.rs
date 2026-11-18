@@ -8,15 +8,20 @@
 //!
 //! The owner leaving deletes the playlist. Handing it to an editor was the
 //! other option; deleting is simpler and nothing depended on it surviving.
+//!
+//! A catalog song is in a playlist once. The row's key is `(playlist_id, song_id)`.
+
+use std::collections::HashSet;
 
 use chrono::{DateTime, FixedOffset};
 use sea_orm::{ActiveEnum, ConnectionTrait, DatabaseTransaction, FromQueryResult, prelude::Uuid};
 
-use crate::db::collab::{check_name, moved_order, write_order};
+use crate::db::collab::{check_name, moved_order, write_song_order};
 use crate::db::{Db, stmt};
 use crate::db::{
     audience::{PrivacyField, can_see_field},
-    invites::{InviteTargetRef, revoke_invites_for},
+    entity::invite_codes,
+    invites::{InviteTargetRef, NewInvite, create_invite, find_live_invite, revoke_invites_for},
     now_playing::is_catalog_id,
 };
 use crate::err::CadenzaError;
@@ -77,7 +82,6 @@ pub struct PlaylistMember {
 
 #[derive(Clone, Debug, FromQueryResult)]
 pub struct PlaylistEntry {
-    pub entry_id: i64,
     pub song_id: String,
     pub position: i32,
     pub added_by: Option<Uuid>,
@@ -116,7 +120,7 @@ pub struct PlaylistCard {
     pub cover_song_ids: Vec<String>,
 }
 
-/// Cards for these playlists, by id. A deleted one is simply missing.
+/// Cards for these playlists, by id. An id with no row is missing.
 pub async fn playlist_cards<C: ConnectionTrait>(
     db: &C,
     playlist_ids: &[i64],
@@ -132,7 +136,7 @@ pub async fn playlist_cards<C: ConnectionTrait>(
                  WHERE m.playlist_id = p.playlist_id) AS member_count,
                 ARRAY(SELECT s.song_id FROM shared_playlist_songs s
                       WHERE s.playlist_id = p.playlist_id
-                      ORDER BY s.position, s.entry_id LIMIT 4) AS cover_song_ids
+                      ORDER BY s.position, s.song_id LIMIT 4) AS cover_song_ids
          FROM shared_playlists p
          WHERE p.playlist_id = ANY($1)",
         vec![playlist_ids.to_vec().into()],
@@ -216,10 +220,10 @@ async fn renumber(txn: &DatabaseTransaction, playlist_id: i64) -> Result<(), Cad
     txn.execute_raw(stmt(
         "UPDATE shared_playlist_songs s SET position = r.rn - 1
          FROM (
-             SELECT entry_id, row_number() OVER (ORDER BY position, entry_id) AS rn
+             SELECT song_id, row_number() OVER (ORDER BY position, song_id) AS rn
              FROM shared_playlist_songs WHERE playlist_id = $1
          ) r
-         WHERE s.entry_id = r.entry_id AND s.position <> r.rn - 1",
+         WHERE s.playlist_id = $1 AND s.song_id = r.song_id AND s.position <> r.rn - 1",
         vec![playlist_id.into()],
     ))
     .await?;
@@ -344,8 +348,8 @@ pub async fn get_playlist(
     .all(db)
     .await?;
     let entries = PlaylistEntry::find_by_statement(stmt(
-        "SELECT entry_id, song_id, position, added_by, added_at
-         FROM shared_playlist_songs WHERE playlist_id = $1 ORDER BY position, entry_id",
+        "SELECT song_id, position, added_by, added_at
+         FROM shared_playlist_songs WHERE playlist_id = $1 ORDER BY position, song_id",
         vec![playlist_id.into()],
     ))
     .all(db)
@@ -421,16 +425,48 @@ pub async fn delete_playlist(
     Ok(())
 }
 
-/// Inserts songs at `position` (or the end), shifting what was there.
+/// The ids in `song_ids`, first occurrence kept.
+fn unique_in_order(song_ids: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut unique = Vec::with_capacity(song_ids.len());
+    for id in song_ids {
+        if seen.insert(id.as_str()) {
+            unique.push(id.clone());
+        }
+    }
+    unique
+}
+
+/// Inserts songs at `position` (or the end), shifting what was there. A song
+/// already in the playlist is left where it is. Returns whether any row was
+/// inserted.
 async fn insert_songs(
     txn: &DatabaseTransaction,
     playlist_id: i64,
     added_by: Uuid,
     song_ids: &[String],
     position: Option<i32>,
-) -> Result<(), CadenzaError> {
+) -> Result<bool, CadenzaError> {
+    let song_ids = unique_in_order(song_ids);
     if song_ids.is_empty() {
-        return Ok(());
+        return Ok(false);
+    }
+    let present: HashSet<String> = txn
+        .query_all_raw(stmt(
+            "SELECT song_id FROM shared_playlist_songs
+             WHERE playlist_id = $1 AND song_id = ANY($2)",
+            vec![playlist_id.into(), song_ids.clone().into()],
+        ))
+        .await?
+        .iter()
+        .map(|row| row.try_get::<String>("", "song_id"))
+        .collect::<Result<_, _>>()?;
+    let fresh: Vec<String> = song_ids
+        .into_iter()
+        .filter(|id| !present.contains(id))
+        .collect();
+    if fresh.is_empty() {
+        return Ok(false);
     }
     let count_row = txn
         .query_one_raw(stmt(
@@ -440,13 +476,13 @@ async fn insert_songs(
         .await?
         .ok_or_else(|| CadenzaError::DatabaseError("count returned nothing".into()))?;
     let count: i64 = count_row.try_get("", "n")?;
-    if count as usize + song_ids.len() > MAX_PLAYLIST_SONGS {
+    if count as usize + fresh.len() > MAX_PLAYLIST_SONGS {
         return Err(CadenzaError::InvalidRequestBody(format!(
             "a shared playlist holds at most {MAX_PLAYLIST_SONGS} songs"
         )));
     }
     let at = position.unwrap_or(count as i32).clamp(0, count as i32);
-    let added = song_ids.len() as i32;
+    let added = fresh.len() as i32;
     txn.execute_raw(stmt(
         "UPDATE shared_playlist_songs SET position = position + $3
          WHERE playlist_id = $1 AND position >= $2",
@@ -457,19 +493,15 @@ async fn insert_songs(
         "INSERT INTO shared_playlist_songs (playlist_id, song_id, position, added_by)
          SELECT $1, song_id, $2 + ord::int - 1, $3
          FROM unnest($4::text[]) WITH ORDINALITY AS t(song_id, ord)",
-        vec![
-            playlist_id.into(),
-            at.into(),
-            added_by.into(),
-            song_ids.to_vec().into(),
-        ],
+        vec![playlist_id.into(), at.into(), added_by.into(), fresh.into()],
     ))
     .await?;
-    Ok(())
+    Ok(true)
 }
 
-/// Adds songs at `position`, or the end. Editor or owner. Returns the new
-/// version.
+/// Adds songs at `position`, or the end. A song already in the playlist stays
+/// where it is, and a request that adds nothing leaves the version alone.
+/// Editor or owner. Returns the version.
 pub async fn add_songs(
     db: &impl Db,
     user_id: Uuid,
@@ -485,7 +517,7 @@ pub async fn add_songs(
     }
     check_song_ids(song_ids)?;
     let txn = db.begin().await?;
-    lock_for(
+    let (_, version) = lock_for(
         &txn,
         playlist_id,
         user_id,
@@ -493,19 +525,22 @@ pub async fn add_songs(
         expected_version,
     )
     .await?;
-    insert_songs(&txn, playlist_id, user_id, song_ids, position).await?;
+    if !insert_songs(&txn, playlist_id, user_id, song_ids, position).await? {
+        txn.commit().await?;
+        return Ok(version);
+    }
     renumber(&txn, playlist_id).await?;
     let version = bump(&txn, playlist_id).await?;
     txn.commit().await?;
     Ok(version)
 }
 
-/// Removes one entry. Editor or owner. Returns the new version.
-pub async fn remove_entry(
+/// Removes one song. Editor or owner. Returns the new version.
+pub async fn remove_song(
     db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
-    entry_id: i64,
+    song_id: &str,
     expected_version: Option<i64>,
 ) -> Result<i64, CadenzaError> {
     let txn = db.begin().await?;
@@ -519,8 +554,8 @@ pub async fn remove_entry(
     .await?;
     let removed = txn
         .execute_raw(stmt(
-            "DELETE FROM shared_playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
-            vec![playlist_id.into(), entry_id.into()],
+            "DELETE FROM shared_playlist_songs WHERE playlist_id = $1 AND song_id = $2",
+            vec![playlist_id.into(), song_id.into()],
         ))
         .await?;
     if removed.rows_affected() == 0 {
@@ -532,13 +567,13 @@ pub async fn remove_entry(
     Ok(version)
 }
 
-/// Moves one entry to `to_position` (0 based, clamped). Editor or owner.
+/// Moves one song to `to_position` (0 based, clamped). Editor or owner.
 /// Returns the new version.
-pub async fn move_entry(
+pub async fn move_song(
     db: &impl Db,
     user_id: Uuid,
     playlist_id: i64,
-    entry_id: i64,
+    song_id: &str,
     to_position: i32,
     expected_version: Option<i64>,
 ) -> Result<i64, CadenzaError> {
@@ -551,18 +586,19 @@ pub async fn move_entry(
         expected_version,
     )
     .await?;
-    let ids: Vec<i64> = txn
+    let ids: Vec<String> = txn
         .query_all_raw(stmt(
-            "SELECT entry_id FROM shared_playlist_songs
-             WHERE playlist_id = $1 ORDER BY position, entry_id",
+            "SELECT song_id FROM shared_playlist_songs
+             WHERE playlist_id = $1 ORDER BY position, song_id",
             vec![playlist_id.into()],
         ))
         .await?
         .iter()
-        .map(|row| row.try_get::<i64>("", "entry_id"))
+        .map(|row| row.try_get::<String>("", "song_id"))
         .collect::<Result<_, _>>()?;
-    let order = moved_order(&ids, entry_id, to_position).ok_or(CadenzaError::NotFound)?;
-    write_order(
+    let song_id = song_id.to_owned();
+    let order = moved_order(&ids, &song_id, to_position).ok_or(CadenzaError::NotFound)?;
+    write_song_order(
         &txn,
         "shared_playlist_songs",
         "playlist_id",
@@ -730,6 +766,58 @@ pub async fn remove_member(
     let version = bump(&txn, playlist_id).await?;
     txn.commit().await?;
     Ok(MemberRemoved::Removed(version))
+}
+
+/// The live code for this playlist and role. Owner only. `role` is what it
+/// joins as, viewer when omitted. Returns the one that can still be used, and
+/// makes one only when there isn't. A revoked, expired, or used up code does
+/// not count.
+pub async fn invite_for_role(
+    db: &impl Db,
+    user_id: Uuid,
+    playlist_id: i64,
+    options: NewInvite,
+) -> Result<invite_codes::Model, CadenzaError> {
+    let role = match options.grants_role {
+        Some(PlaylistRole::Owner) => {
+            return Err(CadenzaError::InvalidRequestBody(
+                "a playlist code grants viewer or editor".into(),
+            ));
+        }
+        Some(role) => role,
+        None => PlaylistRole::Viewer,
+    };
+    let txn = db.begin().await?;
+    if txn
+        .query_one_raw(stmt(
+            "SELECT 1 FROM shared_playlists WHERE playlist_id = $1 FOR UPDATE",
+            vec![playlist_id.into()],
+        ))
+        .await?
+        .is_none()
+    {
+        return Err(CadenzaError::NotFound);
+    }
+    check_can_invite(&txn, user_id, playlist_id).await?;
+    let target = InviteTargetRef::SharedPlaylist(playlist_id);
+    if !options.regenerate
+        && let Some(existing) = find_live_invite(&txn, &target, Some(role.to_value())).await?
+    {
+        txn.commit().await?;
+        return Ok(existing);
+    }
+    let invite = create_invite(
+        &txn,
+        user_id,
+        &target,
+        NewInvite {
+            grants_role: Some(role),
+            ..options
+        },
+    )
+    .await?;
+    txn.commit().await?;
+    Ok(invite)
 }
 
 /// Locks the playlist for a new invite code and checks the caller may make one.

@@ -514,6 +514,7 @@ async fn invite_handler(
             grants_role: None,
             expires_in: body.expires_in_hours.map(Duration::hours),
             max_uses: body.max_uses,
+            regenerate: body.regenerate,
         },
     )
     .await?;

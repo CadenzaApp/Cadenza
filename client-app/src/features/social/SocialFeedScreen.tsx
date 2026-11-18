@@ -31,6 +31,7 @@ import { Text } from "@/components/ui/text";
 import { invalidateAPIData } from "@/lib/api-actions";
 import { useKeyboardScroll } from "@/lib/keyboard-scroll";
 import { useProfile } from "@/lib/routes/profile";
+import type { SharedPlaylistSummary } from "@/lib/routes/shared-playlists";
 import {
     useCreatePost,
     useFeed,
@@ -198,12 +199,20 @@ export function SocialFeedScreen() {
     }, [navigation, colors.text, router, showRedDot]);
 
     const handleCreate = useCallback(
-        async (content: string, topic?: PostTopic | null) => {
+        async (
+            content: string,
+            topic?: PostTopic | null,
+            playlist?: SharedPlaylistSummary | null,
+        ) => {
             let postId: number | undefined;
             try {
                 postId = await createPost({
                     content,
-                    ...(topic ? topicCreateFields(topic) : {}),
+                    ...(playlist
+                        ? { shared_playlist_id: playlist.playlist_id }
+                        : topic
+                          ? topicCreateFields(topic)
+                          : {}),
                 });
             } catch (error) {
                 console.error("Creating a post failed", error);
@@ -225,12 +234,21 @@ export function SocialFeedScreen() {
                     user_id: profile?.uid ?? "",
                     username: profile?.username ?? "unknown",
                 },
-                topic_mk_id: topic ? topicMkId(topic) : null,
-                shared_playlist: null,
+                topic_mk_id: playlist || !topic ? null : topicMkId(topic),
+                shared_playlist: playlist
+                    ? {
+                          playlist_id: playlist.playlist_id,
+                          name: playlist.name,
+                          song_count: playlist.song_count,
+                          member_count: playlist.member_count,
+                          cover_song_ids: playlist.cover_song_ids,
+                          available: true,
+                      }
+                    : null,
                 comment_count: 0,
             };
             setCreated((current) => [post, ...current]);
-            if (topic) {
+            if (topic && !playlist) {
                 setLocalTopics((current) => ({
                     ...current,
                     [publishedId]: topic,

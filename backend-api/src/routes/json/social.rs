@@ -3,9 +3,9 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::db::shared_playlists::PlaylistCard;
 use crate::db::social::{
-    AuthorComment, PublicProfile, SocialComment as CommentRow, SocialPost as PostRow,
+    AttachedPlaylist, AuthorComment, PublicProfile, SocialComment as CommentRow,
+    SocialPost as PostRow,
 };
 
 /// One post as `/social/feed`, `/social/posts/user/:id`, and
@@ -47,8 +47,12 @@ pub struct SocialPost {
 ///
 /// ```json
 /// { "playlist_id": 7, "name": "Road trip", "song_count": 24, "member_count": 3,
-///   "cover_song_ids": ["1440857781", "1615585008"] }
+///   "cover_song_ids": ["1440857781", "1615585008"], "available": true }
 /// ```
+///
+/// `available` is false when `playlist_id` matches no shared playlist. `name`,
+/// the counts, and `cover_song_ids` are then empty, and the client shows the
+/// playlist as unavailable.
 #[derive(Serialize)]
 pub struct PostSharedPlaylist {
     pub playlist_id: i64,
@@ -57,16 +61,29 @@ pub struct PostSharedPlaylist {
     pub member_count: i64,
     /// The first four songs' catalog ids, for a cover mosaic.
     pub cover_song_ids: Vec<String>,
+    /// False when the playlist row is gone. The id stays on the post.
+    pub available: bool,
 }
 
-impl From<PlaylistCard> for PostSharedPlaylist {
-    fn from(card: PlaylistCard) -> Self {
-        Self {
-            playlist_id: card.playlist_id,
-            name: card.name,
-            song_count: card.song_count,
-            member_count: card.member_count,
-            cover_song_ids: card.cover_song_ids,
+impl From<AttachedPlaylist> for PostSharedPlaylist {
+    fn from(attachment: AttachedPlaylist) -> Self {
+        match attachment {
+            AttachedPlaylist::Card(card) => Self {
+                playlist_id: card.playlist_id,
+                name: card.name,
+                song_count: card.song_count,
+                member_count: card.member_count,
+                cover_song_ids: card.cover_song_ids,
+                available: true,
+            },
+            AttachedPlaylist::Unavailable(playlist_id) => Self {
+                playlist_id,
+                name: String::new(),
+                song_count: 0,
+                member_count: 0,
+                cover_song_ids: Vec::new(),
+                available: false,
+            },
         }
     }
 }

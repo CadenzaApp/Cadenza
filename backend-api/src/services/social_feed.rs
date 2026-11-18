@@ -302,14 +302,12 @@ impl SocialFeedService {
             vector
         };
 
-        let (similar, hot, friends) = tokio::try_join!(
+        let (similar, hot) = tokio::try_join!(
             social::similar_and_recent_posts(db, user_id, exclude, vector.as_deref()),
             social::hot_posts(db, user_id, exclude),
-            social::friend_posts(db, user_id, exclude),
         )?;
 
-        let mut posts =
-            social::merge_feed_candidates(similar.into_iter().chain(hot).chain(friends));
+        let mut posts = social::merge_feed_candidates(similar.into_iter().chain(hot));
         if posts.is_empty() {
             return Ok(Vec::new());
         }
@@ -329,7 +327,6 @@ impl SocialFeedService {
                         post.likes,
                         social::age_days(post.created_at, now),
                         similarities.get(&post.post_id).copied().unwrap_or(0.0),
-                        post.sent_by_friend,
                     ),
                 )
             })

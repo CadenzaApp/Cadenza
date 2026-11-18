@@ -9,19 +9,20 @@ copy". Titles and art come from Apple Music by catalog id.
 | `SharedPlaylistScreen.tsx`        | `/shared-playlist/:id` on `TrackCollectionView`: play, add, remove, invite, rename, share to feed, save a copy, leave or delete.                                                                                                                                            |
 | `SharedPlaylistReorderScreen.tsx` | `/shared-playlist/:id/reorder`: drag songs into a new order, on `ReorderableList`. Editors and the owner.                                                                                                                                                                   |
 | `SharedPlaylistMembersScreen.tsx` | `/shared-playlist/:id/members`: roles, remove, invite, add friends.                                                                                                                                                                                                         |
-| `use-playlist-tracks.ts`          | Entries as playable tracks, titles and art from Apple Music, each with its `entry:{entry_id}` id.                                                                                                                                                                           |
+| `use-playlist-tracks.ts`          | Entries as playable tracks, titles and art from Apple Music. The track id is the catalog song id.                                                                                                                                                                          |
 | `roles.ts`                        | Role labels and the roles an owner can give.                                                                                                                                                                                                                                |
 
 Gotchas:
 
-- One song can be in twice, so each row's track id is `entry:{entry_id}`, with the catalog id
-  kept as `catalogId` and `playbackId` so it still plays.
+- A song is in a playlist once. The track id is that catalog id, and `playbackId` is what plays.
 - Writes send the version they loaded; on `VersionConflict` the screen refetches and says
   "Playlist changed, try again."
 - Other members' changes arrive through the realtime socket (`useSharedPlaylist`).
 - Reorder is its own screen because the detail screen's list is the shared `MusicList`, which
   does not drag. Each drop is one move.
-- Share to feed posts with `shared_playlist_id`. Anyone who sees the post sees the card
+- The ellipsis beside Shuffle is the playlist menu. Share to feed posts with
+  `shared_playlist_id`. Anyone who sees the post sees the card
   (`social/SharedPlaylistPostCard.tsx`); a non member who taps it gets the private screen.
+  Deleting the playlist leaves the id on the post, and the card says it is unavailable.
 - Viewers read and play. Editors change songs. The owner also renames, invites, manages members,
   and deletes. The owner leaving deletes it.

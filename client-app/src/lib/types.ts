@@ -113,7 +113,11 @@ export type SocialPost = {
     comment_count: number;
 };
 
-/** A shared playlist on a post, as anyone who sees the post sees it. */
+/**
+ * A shared playlist on a post, as anyone who sees the post sees it.
+ * `available` is false when the id matches no playlist. The name, counts,
+ * and covers are then empty.
+ */
 export type PostSharedPlaylist = {
     playlist_id: number;
     name: string;
@@ -121,6 +125,8 @@ export type PostSharedPlaylist = {
     member_count: number;
     /** The first four songs' catalog ids, for a cover mosaic. */
     cover_song_ids: string[];
+    /** False when the playlist row is gone. The id stays on the post. */
+    available: boolean;
 };
 
 /**
