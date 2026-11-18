@@ -35,7 +35,8 @@ pub struct SocialPost {
     pub created_at: DateTime<Utc>,
     /// `null` until the author edits the post.
     pub edited_at: Option<DateTime<Utc>>,
-    pub author: SocialAuthor,
+    /// `null` for a spotlight post, which has no author.
+    pub author: Option<SocialAuthor>,
     /// Apple Music catalog id of the attached song or artist, or `null`.
     pub topic_mk_id: Option<String>,
     /// The attached shared playlist, or `null`. Never set with `topic_mk_id`.
@@ -128,10 +129,10 @@ impl From<PostRow> for SocialPost {
             liked: post.liked,
             created_at: post.created_at,
             edited_at: post.edited_at,
-            author: SocialAuthor {
-                user_id: post.author_id.to_string(),
-                username: post.author_username,
-            },
+            author: post.author_id.map(|user_id| SocialAuthor {
+                user_id: user_id.to_string(),
+                username: post.author_username.unwrap_or_else(|| "unknown".to_owned()),
+            }),
             topic_mk_id: post.topic_mk_id,
             shared_playlist: post.shared_playlist.map(Into::into),
             comment_count: post.comment_count,
@@ -223,6 +224,36 @@ impl From<PublicProfile> for SocialUserProfile {
 #[derive(Serialize)]
 pub struct FeedResponse {
     pub feed: Vec<SocialPost>,
+    /// Set by `GET /social/feed`. True when fewer than five of this user's
+    /// spotlight posts are still unviewed. `loaded` still counts as unviewed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_enough_spotlights: Option<bool>,
+    /// Chance after this page. The next `GET /social/feed` passes it as
+    /// `initial_spotlight_chance`. Omitted on the friends feed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spotlight_chance: Option<f64>,
+}
+
+/// One previously viewed post from `GET /social/feed/history`.
+/// `feed_order` is the order it was loaded. `viewed_at` is when this user viewed it.
+#[derive(Serialize)]
+pub struct FeedHistoryItem {
+    #[serde(flatten)]
+    pub post: SocialPost,
+    pub feed_order: i32,
+    pub viewed_at: DateTime<Utc>,
+}
+
+/// `{feed}` from `GET /social/feed/history`, in load order.
+#[derive(Serialize)]
+pub struct FeedHistoryResponse {
+    pub feed: Vec<FeedHistoryItem>,
+}
+
+/// `{added}` from `POST /social/spotlights`. How many queue rows were new.
+#[derive(Serialize)]
+pub struct AddSpotlightsResponse {
+    pub added: i64,
 }
 
 /// `{post_id, tags}` from `POST /social/posts`. `tags` is the stored rows,
@@ -255,7 +286,8 @@ pub struct UserPostsResponse {
 pub struct RepliedPost {
     pub post_id: i64,
     pub content: String,
-    pub author: SocialAuthor,
+    /// `null` when the post is a spotlight and has no author.
+    pub author: Option<SocialAuthor>,
 }
 
 /// One of a user's comments, with its post.
@@ -272,10 +304,12 @@ impl From<AuthorComment> for SocialReply {
             post: RepliedPost {
                 post_id: reply.comment.post_id,
                 content: reply.post_content,
-                author: SocialAuthor {
-                    user_id: reply.post_author_id.to_string(),
-                    username: reply.post_author_username,
-                },
+                author: reply.post_author_id.map(|user_id| SocialAuthor {
+                    user_id: user_id.to_string(),
+                    username: reply
+                        .post_author_username
+                        .unwrap_or_else(|| "unknown".to_owned()),
+                }),
             },
             comment: reply.comment.into(),
         }

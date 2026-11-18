@@ -20,23 +20,24 @@ use crate::{
         notification::{self, NotificationCursor as DbNotificationCursor},
         social::{
             self, CommentsCursor as DbCommentsCursor, FeedExclude, InterestDelta, NewPostTag,
-            POST_TAG_LIMIT, PostTagPatch, TopicPostsCursor as DbTopicPostsCursor,
+            POST_TAG_LIMIT, PostTagPatch, SpotlightInput, TopicPostsCursor as DbTopicPostsCursor,
         },
     },
     err::CadenzaError,
     routes::json::{
         social::{
-            CommentsCursor, CreateCommentResponse, CreatePostResponse, FeedResponse,
-            FriendshipsResponse, NotificationCursor, NotificationsResponse, PostCommentsResponse,
-            PostTagsResponse, SocialAuthor, SocialComment, SocialFriend, SocialNotification,
-            SocialPost, TopicPostsCursor, TopicPostsResponse, UserPostsResponse,
-            UserRepliesResponse, UserSearchPerson, UserSearchResponse,
+            AddSpotlightsResponse, CommentsCursor, CreateCommentResponse, CreatePostResponse,
+            FeedHistoryItem, FeedHistoryResponse, FeedResponse, FriendshipsResponse,
+            NotificationCursor, NotificationsResponse, PostCommentsResponse, PostTagsResponse,
+            SocialAuthor, SocialComment, SocialFriend, SocialNotification, SocialPost,
+            TopicPostsCursor, TopicPostsResponse, UserPostsResponse, UserRepliesResponse,
+            UserSearchPerson, UserSearchResponse,
         },
         vec_into,
     },
     services::{
         realtime::SharedPresence,
-        social_feed::{NewPostTopic, SocialFeedService},
+        social_feed::{InitialSpotlightChance, NewPostTopic, SocialFeedService},
     },
 };
 
@@ -46,13 +47,26 @@ const COMMENT_CONTENT_MAX: usize = 500;
 const TOPIC_MK_ID_MAX: usize = 128;
 const TOPIC_NAME_MAX: usize = 200;
 
-/// Ranked posts for the signed-in user.
+/// Ranked posts for the signed-in user. A spotlight may follow a ranked post.
 ///
-/// `exclude` is `none`, `loaded`, or `viewed` (default `none`). At most 10
-/// posts. Each returned id is marked `loaded`.
+/// `exclude` is `none`, `loaded`, or `viewed` (default `none`).
+/// `initial_spotlight_chance` is `history` or a number from 0 to 1 (default
+/// `0`). `history` reads the 3 newest viewed posts: 0.2 for each leading
+/// non-spotlight, stopping at a spotlight, capped at 0.6. A spotlight viewed
+/// more than two days ago sets that start to 0.6. A number is used as the
+/// starting chance. `spotlight_chance` in the response is the chance after
+/// this page, and the next page sends that number back. Up to 10 similar
+/// and hot posts. After each ranked post,
+/// a roll under the current chance inserts the next unviewed spotlight
+/// behind it and resets the chance to 0, then the chance rises by 0.2.
+/// Spotlights are not appended once those posts run out. Each new id placed on
+/// the page is marked `loaded` and given the next `feed_order` for this user.
+/// `author` is null for a spotlight. `not_enough_spotlights`
+/// is true when fewer than five of this user's spotlight posts are still
+/// unviewed. `loaded` still counts.
 ///
 /// ```json
-/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ] }
+/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ], "not_enough_spotlights": false, "spotlight_chance": 0.4 }
 /// ```
 async fn get_feed(
     State(db): State<DatabaseConnection>,
@@ -60,12 +74,119 @@ async fn get_feed(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Query(query): Query<FeedQuery>,
 ) -> Result<Json<FeedResponse>, CadenzaError> {
-    let posts = social
-        .get_feed(&db, claims.user_id, query.exclude()?)
+    let page = social
+        .get_feed(
+            &db,
+            claims.user_id,
+            query.exclude()?,
+            query.initial_spotlight_chance()?,
+        )
         .await?;
     Ok(Json(FeedResponse {
-        feed: posts.into_iter().map(SocialPost::from).collect(),
+        feed: page.posts.into_iter().map(SocialPost::from).collect(),
+        not_enough_spotlights: Some(page.not_enough_spotlights),
+        spotlight_chance: Some(page.spotlight_chance),
     }))
+}
+
+/// Posts this user viewed, in the order they were loaded.
+///
+/// The first page omits `after_feed_order` and starts at the smallest
+/// `feed_order`. The next page passes the last row's `feed_order`, and only
+/// higher numbers are returned. `limit` defaults to 10 and caps at 50. Each
+/// item is a `SocialPost` plus `feed_order` and `viewed_at`. A viewed row
+/// that was never loaded is left out. Blocked authors are left out.
+///
+/// ```json
+/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0, "feed_order": 4, "viewed_at": "2026-11-01T18:00:00Z" } ] }
+/// ```
+async fn get_feed_history(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(query): Query<HistoryQuery>,
+) -> Result<Json<FeedHistoryResponse>, CadenzaError> {
+    let limit = query.limit()?;
+    let posts = social::feed_history(&db, claims.user_id, query.after_feed_order, limit).await?;
+    Ok(Json(FeedHistoryResponse {
+        feed: posts
+            .into_iter()
+            .map(|row| FeedHistoryItem {
+                post: row.post.into(),
+                feed_order: row.feed_order,
+                viewed_at: row.viewed_at,
+            })
+            .collect(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct HistoryQuery {
+    after_feed_order: Option<i32>,
+    limit: Option<i64>,
+}
+
+impl HistoryQuery {
+    fn limit(&self) -> Result<i64, CadenzaError> {
+        match self.limit {
+            None => Ok(social::HISTORY_DEFAULT_LIMIT),
+            Some(limit) if limit < 1 => Err(CadenzaError::InvalidRequestBody(
+                "limit must be at least 1".into(),
+            )),
+            Some(limit) => Ok(limit.min(social::HISTORY_MAX_LIMIT)),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct SpotlightsBody {
+    spotlights: Vec<SpotlightItem>,
+}
+
+#[derive(Deserialize)]
+struct SpotlightItem {
+    #[serde(rename = "type")]
+    kind: String,
+    id: String,
+}
+
+/// Queues catalog ids as spotlight posts for the signed-in user. At most 5.
+/// `type` is `artist` or `song`. `id` is a non-empty catalog id, at most 128
+/// characters. A catalog id shares one null-author post. `added` is how many
+/// queue rows were new.
+///
+/// ```json
+/// { "added": 2 }
+/// ```
+async fn add_spotlights(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(body): Json<SpotlightsBody>,
+) -> Result<Json<AddSpotlightsResponse>, CadenzaError> {
+    if body.spotlights.len() > social::SPOTLIGHT_QUEUE as usize {
+        return Err(CadenzaError::InvalidRequestBody(
+            "at most 5 spotlights".into(),
+        ));
+    }
+    let mut items = Vec::with_capacity(body.spotlights.len());
+    for item in body.spotlights {
+        if item.kind != "artist" && item.kind != "song" {
+            return Err(CadenzaError::InvalidRequestBody(
+                "type must be artist or song".into(),
+            ));
+        }
+        let id = item.id.trim();
+        if id.is_empty() || id.chars().count() > TOPIC_MK_ID_MAX {
+            return Err(CadenzaError::InvalidRequestBody(
+                "id must be a non-empty catalog id of at most 128 characters".into(),
+            ));
+        }
+        items.push(SpotlightInput {
+            spotlight_type: item.kind,
+            musickit_id: id.to_owned(),
+        });
+    }
+    let added = social::add_spotlights(&db, claims.user_id, &items).await?;
+    Ok(Json(AddSpotlightsResponse { added }))
 }
 
 /// Posts by completed friends and the caller, newest first, 20 a page.
@@ -83,6 +204,8 @@ async fn get_friends_feed(
     let posts = social::get_friends_feed(&db, claims.user_id, query.before).await?;
     Ok(Json(FeedResponse {
         feed: posts.into_iter().map(SocialPost::from).collect(),
+        not_enough_spotlights: None,
+        spotlight_chance: None,
     }))
 }
 
@@ -94,6 +217,7 @@ struct FriendsFeedQuery {
 #[derive(Deserialize)]
 struct FeedQuery {
     exclude: Option<String>,
+    initial_spotlight_chance: Option<String>,
 }
 
 impl FeedQuery {
@@ -106,6 +230,30 @@ impl FeedQuery {
                 "exclude must be none, loaded, or viewed, not {other}"
             ))),
         }
+    }
+
+    fn initial_spotlight_chance(&self) -> Result<InitialSpotlightChance, CadenzaError> {
+        let Some(raw) = self.initial_spotlight_chance.as_deref() else {
+            return Ok(InitialSpotlightChance::Fixed(0.0));
+        };
+        let raw = raw.trim();
+        if raw.is_empty() || raw == "0" {
+            return Ok(InitialSpotlightChance::Fixed(0.0));
+        }
+        if raw == "history" {
+            return Ok(InitialSpotlightChance::History);
+        }
+        let chance: f64 = raw.parse().map_err(|_| {
+            CadenzaError::InvalidRequestBody(
+                "initial_spotlight_chance must be history or a number from 0 to 1".into(),
+            )
+        })?;
+        if !(0.0..=1.0).contains(&chance) {
+            return Err(CadenzaError::InvalidRequestBody(
+                "initial_spotlight_chance must be history or a number from 0 to 1".into(),
+            ));
+        }
+        Ok(InitialSpotlightChance::Fixed(chance))
     }
 }
 
@@ -1010,7 +1158,9 @@ async fn unlike_comment(
 pub fn get_social_router() -> Router<AppState> {
     Router::new()
         .route("/feed", get(get_feed))
+        .route("/feed/history", get(get_feed_history))
         .route("/feed/friends", get(get_friends_feed))
+        .route("/spotlights", post(add_spotlights))
         .route("/interests/update", patch(update_interests))
         .route("/interests/decay", patch(decay_interests))
         .route("/posts", post(create_post))

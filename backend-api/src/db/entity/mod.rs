@@ -39,4 +39,5 @@ pub mod tags;
 pub mod user_blocks;
 pub mod user_settings;
 pub mod user_songs;
+pub mod user_spotlights;
 pub mod user_tags_applied;

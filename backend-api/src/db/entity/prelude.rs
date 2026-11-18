@@ -36,4 +36,5 @@ pub use super::tags::Entity as Tags;
 pub use super::user_blocks::Entity as UserBlocks;
 pub use super::user_settings::Entity as UserSettings;
 pub use super::user_songs::Entity as UserSongs;
+pub use super::user_spotlights::Entity as UserSpotlights;
 pub use super::user_tags_applied::Entity as UserTagsApplied;

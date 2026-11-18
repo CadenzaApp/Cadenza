@@ -7,11 +7,16 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub post_id: i64,
-    pub user_id: Uuid,
+    pub user_id: Option<Uuid>,
     #[sea_orm(column_type = "Text")]
     pub content: String,
-    #[sea_orm(ignore, column_type = "custom(\"vector\")", select_as = "text")]
-    pub embedding: String,
+    #[sea_orm(
+        ignore,
+        column_type = "custom(\"vector\")",
+        select_as = "text",
+        nullable
+    )]
+    pub embedding: Option<String>,
     pub likes: i64,
     pub created_at: DateTimeWithTimeZone,
     pub hot_score: i64,
@@ -22,7 +27,7 @@ pub struct Model {
         nullable
     )]
     pub embedding_w_bday: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
+    #[sea_orm(column_type = "Text", nullable, unique)]
     pub topic_mk_id: Option<String>,
     pub comments: i64,
     pub edited_at: Option<DateTimeWithTimeZone>,
@@ -54,6 +59,8 @@ pub enum Relation {
         on_delete = "SetNull"
     )]
     SharedPlaylists,
+    #[sea_orm(has_many = "super::user_spotlights::Entity")]
+    UserSpotlights,
 }
 
 impl Related<super::comments::Entity> for Entity {
@@ -83,6 +90,12 @@ impl Related<super::post_view_status::Entity> for Entity {
 impl Related<super::shared_playlists::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::SharedPlaylists.def()
+    }
+}
+
+impl Related<super::user_spotlights::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UserSpotlights.def()
     }
 }
 
