@@ -44,9 +44,6 @@ pub struct SocialPost {
     pub comment_count: i64,
     /// Decorative labels on this post, sorted by `tag_id`. Not song tags.
     pub tags: Vec<SocialPostTag>,
-    /// Temporary debug. This viewer's view order, once the post is viewed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub view_order: Option<i32>,
 }
 
 /// One decorative label on a post.
@@ -140,7 +137,6 @@ impl From<PostRow> for SocialPost {
             shared_playlist: post.shared_playlist.map(Into::into),
             comment_count: post.comment_count,
             tags: post.tags.into_iter().map(Into::into).collect(),
-            view_order: post.view_order,
         }
     }
 }
@@ -274,8 +270,6 @@ pub struct AddSpotlightsResponse {
 pub struct CreatePostResponse {
     pub post_id: i64,
     pub tags: Vec<SocialPostTag>,
-    /// Temporary debug. The author's view order for the new post.
-    pub view_order: i32,
 }
 
 /// `{tags}` from `PATCH /social/posts/:id`. The post's tags after the edit,

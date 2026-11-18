@@ -64,7 +64,6 @@ export function topicFromArtist(artist: {
     artworkColor?: string;
     catalogId?: string;
     editorialNote?: string;
-    bio?: string;
 }): PostTopic {
     return {
         kind: "artist",
@@ -74,7 +73,6 @@ export function topicFromArtist(artist: {
         artworkColor: artist.artworkColor,
         catalogId: artist.catalogId ?? artist.id,
         editorialNote: artist.editorialNote,
-        bio: artist.bio,
     };
 }
 

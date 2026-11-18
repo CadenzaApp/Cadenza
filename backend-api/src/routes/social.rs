@@ -120,15 +120,10 @@ async fn get_feed_history(
     Ok(Json(FeedHistoryResponse {
         feed: posts
             .into_iter()
-            .map(|row| {
-                let mut post = row.post;
-                // History already sends `view_order` beside the post.
-                post.view_order = None;
-                FeedHistoryItem {
-                    post: post.into(),
-                    view_order: row.view_order,
-                    viewed_at: row.viewed_at,
-                }
+            .map(|row| FeedHistoryItem {
+                post: row.post.into(),
+                view_order: row.view_order,
+                viewed_at: row.viewed_at,
             })
             .collect(),
     }))
@@ -401,13 +396,12 @@ async fn create_post(
         (None, None) => NewPostTopic::None,
     };
     let tags = parse_new_tags(&body.tags)?;
-    let (post_id, tags, view_order) = social
+    let (post_id, tags) = social
         .create_post(&db, claims.user_id, &body.content, topic, &tags)
         .await?;
     Ok(Json(CreatePostResponse {
         post_id,
         tags: tags.into_iter().map(Into::into).collect(),
-        view_order,
     }))
 }
 

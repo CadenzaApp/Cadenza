@@ -452,7 +452,6 @@ type NewPostPayload = {
 type NewPostResponse = {
     post_id: number;
     tags: SocialPostTag[];
-    view_order: number;
 };
 
 /**
@@ -476,7 +475,6 @@ export function useCreatePost() {
             return {
                 post_id: created.post_id,
                 tags: created.tags ?? [],
-                view_order: created.view_order,
             };
         },
     };

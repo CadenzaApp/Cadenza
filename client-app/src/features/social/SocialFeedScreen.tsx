@@ -242,11 +242,7 @@ export function SocialFeedScreen() {
             tags?: { text: string; color: string }[],
         ) => {
             let created:
-                | {
-                      post_id: number;
-                      tags: SocialPost["tags"];
-                      view_order?: number;
-                  }
+                | { post_id: number; tags: SocialPost["tags"] }
                 | undefined;
             try {
                 created = await createPost({
@@ -291,7 +287,6 @@ export function SocialFeedScreen() {
                     : null,
                 comment_count: 0,
                 tags: created.tags ?? [],
-                view_order: created.view_order,
             };
             setCreated((current) => [post, ...current]);
             if (topic && !playlist) {

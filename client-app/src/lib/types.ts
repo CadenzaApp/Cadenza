@@ -87,8 +87,6 @@ export type PostTopic =
           catalogId?: string;
           /** Apple's short note, when the catalog has one. */
           editorialNote?: string;
-          /** Biography from the artist's Apple Music page, when it has one. */
-          bio?: string;
       };
 
 /**
@@ -128,8 +126,6 @@ export type SocialPost = {
     comment_count: number;
     /** Decorative labels, sorted by `tag_id`. Empty when the post has none. */
     tags: SocialPostTag[];
-    /** Temporary debug. This viewer's view order, once the post is viewed. */
-    view_order?: number;
 };
 
 /**

@@ -65,8 +65,8 @@ type Props = {
  * plays a song's preview, or opens an artist's page. Likes and comments stay
  * on the bar underneath. The cover keeps that height while its image loads.
  * While a preview plays, the cover shows pause, a
- * progress bar, and a visualizer. An artist shows the biography from their
- * Apple Music page, or the short catalog note when that page has none.
+ * progress bar, and a visualizer. An artist has Apple's short note when the
+ * catalog has one.
  */
 export function SpotlightPost({
     topic,
@@ -91,9 +91,7 @@ export function SpotlightPost({
     const title = topic ? topicTitle(topic) : "";
     const subtitle = topic ? topicSubtitle(topic) : "";
     const bio =
-        topic?.kind === "artist"
-            ? topic.bio?.trim() || topic.editorialNote?.trim() || ""
-            : "";
+        topic?.kind === "artist" ? topic.editorialNote?.trim() || "" : "";
     const artworkUrl = heroArtworkUrl(topic);
     const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
     const [failedUrl, setFailedUrl] = useState<string | null>(null);

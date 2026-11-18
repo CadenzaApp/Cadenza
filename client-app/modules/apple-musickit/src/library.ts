@@ -310,18 +310,11 @@ export const MusicKit = {
         );
     },
 
-    /**
-     * Returns a catalog artist with their top songs and albums. The biography
-     * is read from the public artist page when the catalog result has none.
-     */
+    /** Returns a catalog artist with their top songs and albums. */
     getArtist: async (artistId: string): Promise<ArtistDetail> => {
-        const artist = await requireNative().getArtist(
+        return requireNative().getArtist(
             requireIdentifier(artistId, "artist ID"),
         );
-        if (!artist.bio && artist.shareUrl) {
-            artist.bio = await artistPageBio(artist.shareUrl);
-        }
-        return artist;
     },
 
     /**
@@ -549,53 +542,4 @@ function requireIdentifier(value: string, label: string): string {
     const normalized = value.trim();
     if (!normalized) throw new Error(`Apple Music ${label} cannot be empty.`);
     return normalized;
-}
-
-/**
- * The biography on the public artist page. The catalog artist resource does
- * not include it. A failed read leaves it unset.
- */
-async function artistPageBio(pageUrl: string): Promise<string | undefined> {
-    try {
-        const response = await fetch(pageUrl, {
-            signal: AbortSignal.timeout(8000),
-        });
-        if (!response.ok) return undefined;
-        return biographyFromPage(await response.text());
-    } catch {
-        return undefined;
-    }
-}
-
-/** `description` from the MusicGroup JSON-LD in the artist page, tags stripped. */
-function biographyFromPage(html: string): string | undefined {
-    const marker = html.indexOf("schema:music-group");
-    if (marker < 0) return undefined;
-    const brace = html.indexOf("{", marker);
-    if (brace < 0) return undefined;
-    const end = html.indexOf("</script>", brace);
-    if (end < 0) return undefined;
-    try {
-        const parsed = JSON.parse(html.slice(brace, end)) as {
-            description?: unknown;
-        };
-        return typeof parsed.description === "string"
-            ? plainText(parsed.description)
-            : undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-function plainText(raw: string): string | undefined {
-    const text = raw
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&amp;/g, "&")
-        .replace(/&nbsp;/g, " ")
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&apos;/g, "'")
-        .replace(/\s+/g, " ")
-        .trim();
-    return text.length > 0 ? text : undefined;
 }

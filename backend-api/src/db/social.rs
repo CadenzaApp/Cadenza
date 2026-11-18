@@ -81,8 +81,6 @@ pub struct SocialPost {
     pub comment_count: i64,
     /// Decorative labels on this post, sorted by `tag_id`. Not song tags.
     pub tags: Vec<PostTag>,
-    /// Temporary debug. This viewer's view order, once the post is viewed.
-    pub view_order: Option<i32>,
 }
 
 /// One decorative label on a post. `tag_id` stays put when the text changes.
@@ -1032,7 +1030,7 @@ pub async fn get_posts(
         .iter()
         .filter_map(|post_id| by_id.remove(post_id))
         .collect();
-    to_posts(db, viewer_id, &ordered).await
+    to_posts(db, &ordered).await
 }
 
 /// The author's profile row, when they have one.
@@ -1531,7 +1529,7 @@ pub async fn get_topic_posts(
             post_id: row.post_id,
         });
     Ok(TopicPostPage {
-        posts: to_posts(db, viewer_id, &rows).await?,
+        posts: to_posts(db, &rows).await?,
         next,
     })
 }
@@ -1656,7 +1654,7 @@ pub async fn get_friends_feed(
     ))
     .all(db)
     .await?;
-    to_posts(db, viewer_id, &rows).await
+    to_posts(db, &rows).await
 }
 
 /// One author's posts, newest first.
@@ -1694,7 +1692,7 @@ pub async fn get_author_posts(
     ))
     .all(db)
     .await?;
-    to_posts(db, viewer_id, &rows).await
+    to_posts(db, &rows).await
 }
 
 /// How many replies a profile shows.
@@ -2536,7 +2534,6 @@ struct PostRow {
 /// [`AttachedPlaylist::Unavailable`].
 async fn to_posts(
     db: &impl ConnectionTrait,
-    viewer_id: Uuid,
     rows: &[PostRow],
 ) -> Result<Vec<SocialPost>, CadenzaError> {
     let ids: Vec<i64> = rows
@@ -2546,8 +2543,7 @@ async fn to_posts(
     let cards = playlist_cards(db, &ids).await?;
     let post_ids: Vec<i64> = rows.iter().map(|row| row.post_id).collect();
     let mut tags = tags_for_posts(db, &post_ids).await?;
-    let orders = viewer_view_orders(db, viewer_id, &post_ids).await?;
-    let mut posts: Vec<SocialPost> = rows
+    let posts = rows
         .iter()
         .map(|row| SocialPost {
             shared_playlist: row.shared_playlist_id.map(|id| match cards.get(&id) {
@@ -2558,36 +2554,7 @@ async fn to_posts(
             ..row.to_post()
         })
         .collect();
-    for post in &mut posts {
-        post.view_order = orders.get(&post.post_id).copied();
-    }
     Ok(posts)
-}
-
-/// This viewer's view order for each post that has one.
-async fn viewer_view_orders(
-    db: &impl ConnectionTrait,
-    viewer_id: Uuid,
-    post_ids: &[i64],
-) -> Result<HashMap<i64, i32>, CadenzaError> {
-    if post_ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-    let rows = PostOrderRow::find_by_statement(Statement::from_sql_and_values(
-        DbBackend::Postgres,
-        "SELECT post_id, view_order
-         FROM post_view_status
-         WHERE user_id = $1
-           AND post_id = ANY($2::bigint[])
-           AND view_order IS NOT NULL",
-        vec![viewer_id.into(), post_ids.to_vec().into()],
-    ))
-    .all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| (row.post_id, row.view_order))
-        .collect())
 }
 
 impl PostRow {
@@ -2607,7 +2574,6 @@ impl PostRow {
             shared_playlist: None,
             comment_count: self.comment_count,
             tags: Vec::new(),
-            view_order: None,
         }
     }
 }
@@ -2892,12 +2858,6 @@ struct ViewedPostRow {
 
 #[derive(Debug, FromQueryResult)]
 struct ViewOrderRow {
-    view_order: i32,
-}
-
-#[derive(Debug, FromQueryResult)]
-struct PostOrderRow {
-    post_id: i64,
     view_order: i32,
 }
 

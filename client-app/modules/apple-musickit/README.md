@@ -296,7 +296,7 @@ album/playlist equivalent needed elsewhere in this module.
 | call                                        | returns                                                                                                 |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `getSongArtists(songId)`                    | Catalog artist ids credited on a song, most prominent first.                                            |
-| `getArtist(artistId)`                       | An `ArtistDetail`: name, artwork, genres, a short editorial note when Apple has one, the biography, top songs, albums. |
+| `getArtist(artistId)`                       | An `ArtistDetail`: name, artwork, genres, a short editorial note when Apple has one, top songs, albums. |
 | `getLibraryArtists(options)`                | A page of `ArtistItem`s from the user's library.                                                        |
 | `searchLibraryArtists(term, options)`       | Library artists matching a term.                                                                        |
 | `catalogSearch(term, ["artists"], options)` | Catalog artists, on `SearchResult.artists`.                                                             |
@@ -306,12 +306,6 @@ still has no `"artist"` and `PlaybackQueueType` still has no artist case,
 because an artist is not a thing you can queue, and `MusicItem.playbackType` is
 required. `ArtistItem` follows the same `id` / `catalogId` / `libraryId`
 convention as `MusicItem` otherwise.
-
-The TypeScript `getArtist` reads the biography from the artist's public Apple
-Music page when the native result has none, and sets `bio`. The catalog artist
-resource does not include that text. The page is the HTML document, and the
-biography is the MusicGroup `description` in its head. A failed read leaves
-`bio` unset.
 
 `getArtist` asks Apple for 1200x1200 artwork, because the artist screen runs it
 full bleed behind its header, and for 300x300 alongside it as

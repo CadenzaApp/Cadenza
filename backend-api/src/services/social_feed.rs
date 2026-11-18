@@ -202,7 +202,7 @@ impl SocialFeedService {
         content: &str,
         topic: NewPostTopic<'_>,
         tags: &[NewPostTag],
-    ) -> Result<(i64, Vec<PostTag>, i32), CadenzaError> {
+    ) -> Result<(i64, Vec<PostTag>), CadenzaError> {
         let prefix = match topic {
             NewPostTopic::None => None,
             NewPostTopic::Apple {
@@ -254,7 +254,7 @@ impl SocialFeedService {
                         order,
                         Utc::now(),
                     );
-                    return Ok((post_id, tags, order));
+                    return Ok((post_id, tags));
                 }
                 Err(LoadedOrderError::Taken) => {
                     self.view_orders

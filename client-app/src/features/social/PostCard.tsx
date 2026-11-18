@@ -318,9 +318,6 @@ export function PostCard({
 
     return (
         <>
-            <Text className="px-1 text-xs text-muted-foreground">
-                view order: {post.view_order ?? "none"}
-            </Text>
             {spotlight ? (
                 <SpotlightPost
                     topic={topic}

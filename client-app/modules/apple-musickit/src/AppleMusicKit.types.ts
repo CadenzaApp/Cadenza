@@ -278,11 +278,6 @@ export interface ArtistDetail {
     genres?: string[];
     /** Apple's short note, plain text, when the catalog has one. */
     editorialNote?: string;
-    /**
-     * Biography from the artist's public Apple Music page, plain text.
-     * The catalog artist resource does not include it.
-     */
-    bio?: string;
     /** The artist's most popular songs, in Apple's order. */
     topSongs: MusicItem[];
     /** The artist's albums, in Apple's order. */
