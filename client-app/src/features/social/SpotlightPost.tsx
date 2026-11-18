@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
     Easing,
     useAnimatedStyle,
@@ -61,9 +61,12 @@ type Props = {
 };
 
 /**
- * A spotlight post: no author, so the cover is the post. A song has a play
- * control and, while its preview plays, a progress bar and visualizer. An
- * artist has neither, and Apple's short note when there is one.
+ * A spotlight post: no author, so the cover is the post. Tapping the cover
+ * plays a song's preview, or opens an artist's page. Likes and comments stay
+ * on the bar underneath. The cover keeps that height while its image loads.
+ * While a preview plays, the cover shows pause, a
+ * progress bar, and a visualizer. An artist has Apple's short note when the
+ * catalog has one.
  */
 export function SpotlightPost({
     topic,
@@ -90,6 +93,15 @@ export function SpotlightPost({
     const bio =
         topic?.kind === "artist" ? topic.editorialNote?.trim() || "" : "";
     const artworkUrl = heroArtworkUrl(topic);
+    const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+    const [failedUrl, setFailedUrl] = useState<string | null>(null);
+    const artworkReady = Boolean(artworkUrl) && loadedUrl === artworkUrl;
+    const artworkFailed = Boolean(artworkUrl) && failedUrl === artworkUrl;
+    // No url yet means the topic is still resolving. A url keeps the same
+    // frame and only swaps the spinner for the bitmap.
+    const artworkLoading = artworkUrl
+        ? !artworkReady && !artworkFailed
+        : !topic;
 
     function onPlay() {
         if (topic?.kind !== "song") return;
@@ -102,8 +114,7 @@ export function SpotlightPost({
 
     function onArtPress() {
         if (topic?.kind === "song") {
-            if (onOpenComments) onOpenComments();
-            else onPlay();
+            onPlay();
             return;
         }
         if (topic?.kind !== "artist") return;
@@ -124,7 +135,7 @@ export function SpotlightPost({
     return (
         <View className="overflow-hidden rounded-3xl bg-[#111111]">
             <View
-                className="relative"
+                className="relative overflow-hidden"
                 style={{ height: isArtist ? ART_ARTIST : ART_SONG }}
             >
                 <RemoteArtwork
@@ -132,25 +143,43 @@ export function SpotlightPost({
                     className="absolute inset-0 h-full w-full"
                     style={{
                         backgroundColor: topic?.artworkColor ?? "#111111",
+                        opacity: artworkLoading ? 0 : 1,
+                    }}
+                    onLoad={() => {
+                        if (artworkUrl) setLoadedUrl(artworkUrl);
+                    }}
+                    onError={() => {
+                        if (artworkUrl) setFailedUrl(artworkUrl);
                     }}
                     fallback={
-                        <Ionicons
-                            name={isArtist ? "person" : "musical-notes"}
-                            size={36}
-                            color="rgba(255,255,255,0.7)"
-                        />
+                        artworkFailed || (topic && !artworkUrl) ? (
+                            <Ionicons
+                                name={isArtist ? "person" : "musical-notes"}
+                                size={36}
+                                color="rgba(255,255,255,0.7)"
+                            />
+                        ) : null
                     }
                 />
+                {artworkLoading ? (
+                    <View
+                        pointerEvents="none"
+                        className="absolute inset-0 z-10 items-center justify-center"
+                    >
+                        <ActivityIndicator color="#ffffff" />
+                    </View>
+                ) : null}
                 <HeroShade artist={isArtist} />
                 {topic ? (
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={
                             isSong
-                                ? `View comments on ${title || "song"}`
+                                ? playing
+                                    ? `Pause ${title || "song"}`
+                                    : `Play ${title || "song"}`
                                 : `View ${title}`
                         }
-                        accessible={!isSong || Boolean(onOpenComments)}
                         onPress={onArtPress}
                         style={StyleSheet.absoluteFill}
                         className="z-10"
@@ -198,18 +227,8 @@ export function SpotlightPost({
                             ) : null}
                         </View>
                         {isSong ? (
-                            <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={
-                                    playing
-                                        ? `Pause ${title || "song"}`
-                                        : `Play ${title || "song"}`
-                                }
-                                onPress={(event) => {
-                                    event.stopPropagation();
-                                    onPlay();
-                                }}
-                                hitSlop={12}
+                            <View
+                                pointerEvents="none"
                                 className="absolute right-4 top-3 z-20"
                             >
                                 {loading ? (
@@ -226,7 +245,7 @@ export function SpotlightPost({
                                         style={{ marginLeft: playing ? 0 : 2 }}
                                     />
                                 )}
-                            </Pressable>
+                            </View>
                         ) : null}
                     </Pressable>
                 ) : null}
