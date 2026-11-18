@@ -98,6 +98,7 @@ impl ToolRunner for DbTools<'_> {
             "top_items" => self.top_items(args).await,
             "listening_summary" => self.listening_summary(args).await,
             "list_saved_queries" => self.list_saved_queries().await,
+            "get_saved_query_songs" => self.get_saved_query_songs(args).await,
             "get_song_tags" => self.get_song_tags(args).await,
             "list_playlists" => self.list_playlists().await,
             "get_playlist_songs" => self.get_playlist_songs(args).await,
@@ -158,6 +159,7 @@ fn label_for(name: &str) -> &'static str {
         "top_items" => "Checked your top plays",
         "listening_summary" => "Checked your listening stats",
         "list_saved_queries" => "Looked up your saved queries",
+        "get_saved_query_songs" => "Opened a saved query",
         "get_song_tags" => "Looked up song tags",
         "list_playlists" => "Looked up your playlists",
         "get_playlist_songs" => "Looked up a playlist's songs",
@@ -305,6 +307,11 @@ fn describe_applied(tags: Vec<(tags::Model, Option<String>)>) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+#[derive(Deserialize)]
+struct SavedQueryArgs {
+    saved_query_id: i64,
 }
 
 #[derive(Deserialize)]
@@ -463,6 +470,58 @@ impl DbTools<'_> {
             json!({ "total": total, "queries": queries }),
             "",
         ))
+    }
+
+    /// The songs a saved query holds, exactly as its screen lists them: the stored
+    /// songs in stored order, not a fresh run of its query.
+    async fn get_saved_query_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: SavedQueryArgs = parse_args(args)?;
+        let stored = crate::services::saved_queries::saved_songs(
+            self.db,
+            self.user_id,
+            args.saved_query_id,
+        )
+        .await
+        .map_err(|err| match err {
+            CadenzaError::NotFound => ToolError::Arguments(format!(
+                "the user has no saved query with id {}; call list_saved_queries for their ids",
+                args.saved_query_id
+            )),
+            other => ToolError::Cadenza(other),
+        })?;
+        let songs: Vec<QueryMatch> = stored
+            .into_iter()
+            .map(|song| QueryMatch {
+                song_id: song.song_id,
+                certain: song.certain,
+            })
+            .collect();
+        let (yours, elsewhere) = count_yours(&songs);
+        let described = self.describe_songs(&songs).await?;
+        let song_ids: Vec<String> = songs
+            .iter()
+            .take(MAX_CARD_SONGS)
+            .map(|song| song.song_id.clone())
+            .collect();
+        let mut outcome = ToolOutcome::ok(
+            json!({
+                "total": songs.len(),
+                "yours": yours,
+                "elsewhere": elsewhere,
+                "songs": described,
+                "songs_shown": described.len(),
+                "card_shows": song_ids.len(),
+            }),
+            "",
+        );
+        if !song_ids.is_empty() {
+            outcome.songs = Some(SongsCard {
+                total: songs.len(),
+                capped: false,
+                song_ids,
+            });
+        }
+        Ok(outcome)
     }
 
     async fn get_song_tags(&self, args: Value) -> Result<ToolOutcome, ToolError> {
@@ -768,8 +827,20 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "list_saved_queries",
-            "description": "The queries the user saved by name (under Queries in the Library tab), favorites first: id, name, the query JSON, its scope, and how many songs it stored when it was saved or last rerun. The stored songs are a snapshot, not a live result. To find what a saved query matches now, pass its query and scope to run_query.",
+            "description": "The queries the user saved by name (under Queries in the Library tab), favorites first: id, name, the query JSON, its scope, and how many songs it holds. A saved query holds a stored list: the songs it matched when it was saved or last rerun, plus any added since by tagging. That list is what its screen shows; get_saved_query_songs reads it.",
             "parameters": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "type": "function",
+            "name": "get_saved_query_songs",
+            "description": "The songs one saved query holds, in order, exactly as its screen in the app lists them. Returns how many, how many are the user's own, and the first 25 with title and artist; the user sees them as a card under your answer, so do not list more than a few. Get the id from list_saved_queries.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "saved_query_id": { "type": "integer" }
+                },
+                "required": ["saved_query_id"]
+            }
         }),
         json!({
             "type": "function",
