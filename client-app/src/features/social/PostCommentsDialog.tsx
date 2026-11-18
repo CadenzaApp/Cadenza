@@ -384,6 +384,7 @@ function PostSummary({
                     liked={liked}
                     likes={likes}
                     commentCount={commentCount ?? post.comment_count ?? 0}
+                    tags={post.tags}
                     onToggleLike={toggleLike}
                 />
             </View>

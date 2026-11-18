@@ -1,7 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import {
+    ActivityIndicator,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    View,
+} from "react-native";
 import Animated, {
     Easing,
     useAnimatedStyle,
@@ -16,7 +22,8 @@ import { Text } from "@/components/ui/text";
 import { useOpenScreen } from "@/lib/open-screen";
 import { toggleTopicPreview, useTopicPreview } from "@/lib/topic-preview";
 import { useAppTheme } from "@/lib/theme";
-import type { PostTopic } from "@/lib/types";
+import type { PostTopic, SocialPostTag } from "@/lib/types";
+import { PostTagRow } from "./PostTags";
 import { topicSubtitle, topicTitle } from "./topic";
 
 /** Apple cover urls end in a size like `200x200bb`. The hero wants the large one. */
@@ -31,6 +38,8 @@ function heroArtworkUrl(topic: PostTopic | null): string | undefined {
 const ART_SONG = 220;
 const ART_ARTIST = 260;
 const VIZ_HEIGHT = 90;
+/** Gap between the visualizer and whatever it sits on. */
+const VIZ_GAP = 6;
 const IDLE = "#a1a1a1";
 
 /** Bar heights from the spotlight design, quiet on the left. */
@@ -53,6 +62,8 @@ type Props = {
     liked: boolean;
     likes: number;
     commentCount: number;
+    /** The shared post's tags, shown along the bottom of the cover. */
+    tags?: SocialPostTag[];
     onToggleLike: () => void;
     /** Opens comments. Omitted when the comments are already open. */
     onOpenComments?: () => void;
@@ -64,7 +75,9 @@ type Props = {
  * on the bar underneath. The cover keeps that height while its image loads.
  * While a preview plays, the cover shows pause, a
  * progress bar, and a visualizer. An artist has Apple's short note when the
- * catalog has one.
+ * catalog has one. The post's tags sit along the bottom of the cover, under
+ * the name, in a row that scrolls sideways. Tapping a tag does nothing. The
+ * visualizer sits above them.
  */
 export function SpotlightPost({
     topic,
@@ -72,6 +85,7 @@ export function SpotlightPost({
     liked,
     likes,
     commentCount,
+    tags,
     onToggleLike,
     onOpenComments,
 }: Props) {
@@ -93,6 +107,13 @@ export function SpotlightPost({
     const artworkUrl = heroArtworkUrl(topic);
     const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
     const [failedUrl, setFailedUrl] = useState<string | null>(null);
+    const [tagsHeight, setTagsHeight] = useState(0);
+    const hasTags = Boolean(tags && tags.length > 0);
+    const heroPaddingBottom = isArtist ? 10 : 14;
+    // the name and bio sit above the tags row, which is laid over the cover
+    const textPaddingBottom = hasTags
+        ? heroPaddingBottom + tagsHeight + 8
+        : heroPaddingBottom;
     const artworkReady = Boolean(artworkUrl) && loadedUrl === artworkUrl;
     const artworkFailed = Boolean(artworkUrl) && failedUrl === artworkUrl;
     // No url yet means the topic is still resolving. A url keeps the same
@@ -183,46 +204,48 @@ export function SpotlightPost({
                         className="z-10"
                     >
                         <View
-                            className="flex-1 justify-end px-4"
-                            style={{
-                                paddingBottom: isArtist ? 10 : 14,
-                                paddingRight: playing ? 160 : 16,
-                            }}
+                            className="flex-1 justify-end"
+                            style={{ paddingBottom: textPaddingBottom }}
                         >
-                            {title ? (
-                                <Text
-                                    className="text-[22px] font-semibold text-white"
-                                    numberOfLines={1}
-                                    style={{ letterSpacing: -0.4 }}
-                                >
-                                    {title}
-                                </Text>
-                            ) : null}
-                            {subtitle ? (
-                                <Text
-                                    className="text-[13px]"
-                                    numberOfLines={1}
-                                    style={{
-                                        color: "rgba(255,255,255,0.78)",
-                                        marginTop: 1,
-                                    }}
-                                >
-                                    {subtitle}
-                                </Text>
-                            ) : null}
-                            {bio ? (
-                                <Text
-                                    className="text-[13px]"
-                                    numberOfLines={3}
-                                    style={{
-                                        color: "rgba(255,255,255,0.82)",
-                                        marginTop: 8,
-                                        lineHeight: 18,
-                                    }}
-                                >
-                                    {bio}
-                                </Text>
-                            ) : null}
+                            <View
+                                className="px-4"
+                                style={{ paddingRight: playing ? 160 : 16 }}
+                            >
+                                {title ? (
+                                    <Text
+                                        className="text-[22px] font-semibold text-white"
+                                        numberOfLines={1}
+                                        style={{ letterSpacing: -0.4 }}
+                                    >
+                                        {title}
+                                    </Text>
+                                ) : null}
+                                {subtitle ? (
+                                    <Text
+                                        className="text-[13px]"
+                                        numberOfLines={1}
+                                        style={{
+                                            color: "rgba(255,255,255,0.78)",
+                                            marginTop: 1,
+                                        }}
+                                    >
+                                        {subtitle}
+                                    </Text>
+                                ) : null}
+                                {bio ? (
+                                    <Text
+                                        className="text-[13px]"
+                                        numberOfLines={3}
+                                        style={{
+                                            color: "rgba(255,255,255,0.82)",
+                                            marginTop: 8,
+                                            lineHeight: 18,
+                                        }}
+                                    >
+                                        {bio}
+                                    </Text>
+                                ) : null}
+                            </View>
                         </View>
                         {isSong ? (
                             <View
@@ -247,6 +270,22 @@ export function SpotlightPost({
                         ) : null}
                     </Pressable>
                 ) : null}
+                {hasTags ? (
+                    // a sibling over the cover, not inside its Pressable, so a
+                    // tap on a tag does not play the song or open the artist
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={{ paddingHorizontal: 16 }}
+                        className="absolute left-0 right-0 z-20"
+                        style={{ bottom: heroPaddingBottom, flexGrow: 0 }}
+                        onLayout={(event) =>
+                            setTagsHeight(event.nativeEvent.layout.height)
+                        }
+                    >
+                        <PostTagRow tags={tags} compact />
+                    </ScrollView>
+                ) : null}
                 <Text
                     pointerEvents="none"
                     className="absolute left-4 top-3.5 z-20 text-[11px] font-semibold text-white"
@@ -254,7 +293,15 @@ export function SpotlightPost({
                 >
                     {label}
                 </Text>
-                {playing ? <Visualizer /> : null}
+                {playing ? (
+                    <Visualizer
+                        bottom={
+                            hasTags
+                                ? heroPaddingBottom + tagsHeight + VIZ_GAP
+                                : VIZ_GAP
+                        }
+                    />
+                ) : null}
                 {playing || (isThisPreview && preview.progress > 0) ? (
                     <ProgressBar ratio={preview.progress} />
                 ) : null}
@@ -342,12 +389,13 @@ function HeroShade({ artist }: { artist: boolean }) {
     );
 }
 
-function Visualizer() {
+/** `bottom` is the offset from the cover's bottom edge, above the tags when there are any. */
+function Visualizer({ bottom }: { bottom: number }) {
     return (
         <View
             pointerEvents="none"
-            className="absolute bottom-1.5 right-4 z-20 flex-row items-end gap-2"
-            style={{ height: VIZ_HEIGHT }}
+            className="absolute right-4 z-20 flex-row items-end gap-2"
+            style={{ height: VIZ_HEIGHT, bottom }}
         >
             {BARS.map((bar, index) => (
                 <VizBar key={index} {...bar} />

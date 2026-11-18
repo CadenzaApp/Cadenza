@@ -196,18 +196,43 @@ export function PostTagFields({
 }
 
 /** Read-only tags on a post card. */
-export function PostTagRow({ tags }: { tags: SocialPostTag[] | undefined }) {
+/**
+ * A post's tags as colored pills. `compact` is one smaller row that clips
+ * rather than wraps, for laying over a spotlight cover.
+ */
+export function PostTagRow({
+    tags,
+    compact = false,
+}: {
+    tags: SocialPostTag[] | undefined;
+    compact?: boolean;
+}) {
     if (!tags || tags.length === 0) return null;
     return (
-        <View className="flex-row flex-wrap gap-2">
+        <View
+            className={
+                compact
+                    ? "flex-row gap-1.5 overflow-hidden"
+                    : "flex-row flex-wrap gap-2"
+            }
+        >
             {tags.map((tag) => (
                 <View
                     key={tag.tag_id}
-                    className="rounded-full px-3 py-1"
+                    className={
+                        compact
+                            ? "shrink-0 rounded-full px-2.5 py-0.5"
+                            : "rounded-full px-3 py-1"
+                    }
                     style={{ backgroundColor: tag.color }}
                 >
                     <Text
-                        className="text-sm font-medium"
+                        className={
+                            compact
+                                ? "text-xs font-medium"
+                                : "text-sm font-medium"
+                        }
+                        numberOfLines={compact ? 1 : undefined}
                         style={{ color: tagForeground(tag.color) }}
                     >
                         {tag.text}

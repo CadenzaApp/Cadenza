@@ -324,6 +324,7 @@ export function PostCard({
                     liked={liked}
                     likes={likes}
                     commentCount={commentCount}
+                    tags={displayPost.tags}
                     onToggleLike={toggleLike}
                     onOpenComments={openComments}
                 />
