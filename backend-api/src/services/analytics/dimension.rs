@@ -115,10 +115,12 @@ impl Dimension {
             name: "live_session",
             // one row per host, not per session: every session someone
             // hosted bins together. Sessions are kept once ended, so the
-            // host is always there to read
+            // host is always there to read. A session the user hosted is
+            // left out: they count as its listener, but it is their own music
             key_expr: "case when payload->>'source_kind' = 'live_session' \
                        then (select ls.host_id::text from live_sessions ls \
-                             where ls.session_id::text = payload->>'source_id') end",
+                             where ls.session_id::text = payload->>'source_id' \
+                               and ls.host_id <> listening_events.user_id) end",
             // the host's current username, since a session's own name goes
             // stale. The client words it as their session
             label_expr: "(select p.username from live_sessions ls \
