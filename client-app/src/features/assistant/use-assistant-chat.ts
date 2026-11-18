@@ -6,13 +6,24 @@ import { getErrorDetails } from "@/lib/error-utils";
 import { logHandledError } from "@/lib/log";
 
 import {
+    askConfirmation,
     newEntryId,
     resetConversation,
     updateConversation,
     updateConversationIfCurrent,
     useConversation,
 } from "./assistant-store";
+import { confirmationFor, usePhoneTools } from "./phone-tools";
 import type { AssistantRequest, AssistantResponse, ChatEntry } from "./types";
+
+/**
+ * The most phone tools one message may run. The backend's step cap ends a
+ * loop first; this is only a backstop against a reply that never settles.
+ */
+const MAX_PHONE_TOOLS = 10;
+
+const UNFINISHED_REPLY =
+    "Sorry, I couldn't finish that one. Try asking in a simpler way, or one part at a time.";
 
 /**
  * The assistant chat: the conversation, and `send`, `retry`, and `reset`.
@@ -20,11 +31,18 @@ import type { AssistantRequest, AssistantResponse, ChatEntry } from "./types";
  * Sending is a write-like, one-off request rather than an idempotent read, so
  * it goes through `useAPIMutation` and invalidates nothing. The whole
  * conversation goes with every message; the backend keeps none of it.
+ *
+ * A reply can instead be a `client_tool_call`: a tool only the phone can run,
+ * like playback. It runs here (after the user confirms, for the ones that
+ * change their Apple Music library), and its output goes back with the same
+ * conversation and the call's `continuation`, until the backend answers.
  */
 export function useAssistantChat() {
     const { account } = useAccount();
     const accountId = account?.id ?? null;
-    const { entries, sending, error } = useConversation(accountId);
+    const { entries, sending, error, confirmation } =
+        useConversation(accountId);
+    const runPhoneTool = usePhoneTools();
     const { trigger } = useAPIMutation<AssistantRequest, AssistantResponse>(
         "POST",
         "/assistant/messages",
@@ -39,7 +57,7 @@ export function useAssistantChat() {
                 error: null,
             }));
             try {
-                const response = await trigger({
+                const request: AssistantRequest = {
                     messages: conversation.map((entry) => ({
                         role: entry.role,
                         content: entry.text,
@@ -50,7 +68,27 @@ export function useAssistantChat() {
                     })),
                     time_zone: deviceTimeZone(),
                     now: localNow(),
-                });
+                };
+                let response = await trigger(request);
+                for (
+                    let ran = 0;
+                    response.type === "client_tool_call" &&
+                    ran < MAX_PHONE_TOOLS;
+                    ran += 1
+                ) {
+                    const { name, arguments: args, continuation } = response;
+                    const asked = confirmationFor(name, args);
+                    const confirmed = asked
+                        ? await askConfirmation(accountId, asked)
+                        : true;
+                    const output = confirmed
+                        ? await runPhoneTool(name, args)
+                        : { cancelled: true, note: "The user cancelled it." };
+                    response = await trigger({
+                        ...request,
+                        resume: { continuation, output },
+                    });
+                }
                 const reply: ChatEntry =
                     response.type === "reply"
                         ? {
@@ -61,10 +99,9 @@ export function useAssistantChat() {
                               songs: response.songs,
                           }
                         : {
-                              // phone-side tools come later; say so rather than hang
                               id: newEntryId(),
                               role: "assistant",
-                              text: "I can't do that from here yet.",
+                              text: UNFINISHED_REPLY,
                               steps: [],
                           };
                 updateConversationIfCurrent(accountId, (current) => ({
@@ -79,7 +116,7 @@ export function useAssistantChat() {
                 }));
             }
         },
-        [accountId, trigger],
+        [accountId, runPhoneTool, trigger],
     );
 
     const send = useCallback(
@@ -107,7 +144,7 @@ export function useAssistantChat() {
         resetConversation(accountId);
     }, [accountId, sending]);
 
-    return { entries, sending, error, send, retry, reset };
+    return { entries, sending, error, confirmation, send, retry, reset };
 }
 
 function describeError(error: unknown) {

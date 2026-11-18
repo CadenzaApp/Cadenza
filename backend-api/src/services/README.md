@@ -22,12 +22,14 @@ in-app notification for a user, and the definitions the listening analytics are 
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation of `TagGenerator`. Unit tested, plus ignored integration tests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `openai.rs` | The Responses API url and timeout, and `rate_limit_wait`, which reads a 429's headers for the wait. Shared by tag generation and the assistant. Unit tested. |
 | `rate_limit.rs` | `RateLimiter`, an in-memory sliding window limiter per key. The assistant uses it per user. Unit tested. |
-| `assistant/mod.rs`                       | `AssistantService` (the model plus the per-user message limit), `answer`, and `run_loop`: the in-app assistant's tool loop. Unit tested with a scripted model. |
+| `assistant/mod.rs`                       | `AssistantService` (the model plus the per-user request limit), `answer`, and `run_loop` with its `LoopState`: the in-app assistant's tool loop, which stops at a phone tool and picks up again from a `resume`. Unit tested with a scripted model. |
+| `assistant/phone_tools.rs`               | The tools only the phone runs (`now_playing`, `play`, `playback`, `queue_songs`, `set_shuffle`, `set_repeat`, `search_apple_music`, `apple_music_playlists`, `apple_music_playlist_songs`, `apple_music_library`, `favorite_song`, `favorite_collection`, `create_apple_music_playlist`, `add_to_apple_music_playlist`, `open_screen`): their schemas and labels, `songs: "card"` swapped for the card's ids, and a `card` in the phone's output taken out for the answer. The phone side is `client-app/src/features/assistant/phone-tools.ts`. Unit tested. |
 | `assistant/model.rs`                     | The `AssistantModel` trait and `OpenAiAssistantModel` on the Responses API with function calling. Unit tested. |
-| `assistant/tools.rs`                     | The read-only tools (`list_tags`, `run_query`, `get_song_metadata`, `top_items`, `listening_summary`), their JSON schemas, and the `ToolRunner` trait. Unit tested. |
-| `assistant/prompt.rs`                    | The system prompt: the user's time, their tags, the rules, and the query format with examples. Unit tested. |
+| `assistant/tools.rs`                     | The read-only tools (`list_tags`, `run_query`, `get_song_metadata`, `top_items`, `listening_summary`, `list_saved_queries`, `get_saved_query_songs`, `get_song_tags`, `list_playlists`, `get_playlist_songs`, `find_songs`, `find_artist`, `find_album`, `get_album_songs`), their JSON schemas, and the `ToolRunner` trait. `find_songs` looks up songs the model names itself in the Apple Music catalog, one search each, and keeps only a result whose title and artist match. Unit tested. |
+| `assistant/prompt.rs`                    | Builds the system prompt: fills `prompt.txt`'s `{{name}}` markers with the user's time, their tags, and the activity tag examples. Unit tested. |
+| `assistant/prompt.txt`                   | The system prompt's text (rules and the query format with examples), embedded with `include_str!`. Edit the wording here. |
 | `tag_values.rs`                          | `canonicalize_tag_value`: validates a tag value string against the tag's `TagType` and returns its canonical stored form (or `CadenzaError::InvalidTagValue`). Unit tested.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `song_metadata.rs`                       | `SongMetadataService`: song ids to Apple Music catalog metadata, and album ids to every song on them, developer token only. Unit tested, plus ignored integration tests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `song_metadata.rs`                       | `SongMetadataService`: song ids to Apple Music catalog metadata, album ids to every song on them, and `search_songs` / `search_artists` / `search_albums` (catalog search), developer token only. Unit tested, plus ignored integration tests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `metadata_tags.rs`                       | Keeps the copy of song metadata for queries and metadata tags in `metadata_song_tags_applied` filled: stores listed and opened songs, queues opened songs' albums, and the background crawl that walks libraries and crawls queued albums. Unit tested.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `notification.rs`                        | `push_notification`: writes one unread row on `notifications`. `type` is `friend_req_received`, `friend_req_accepted`, or `comment`. `metadata` is `{}`, or `{"sender_id", "resolution"}` for a friend request. Returns the new `notif_id`. The insert is `db::notification::insert_notification`. `spawn_notification_cleanup` deletes rows older than 30 days, once a day. |
 | `saved_queries.rs`                       | Storing a saved query's songs: `store_saved_songs` runs it as saved and replaces them, `saved_songs` reads them (storing them first for an old query), `add_retagged_songs` / `spawn_add_retagged_songs` add retagged songs to the queries they now match when `auto_update_queries` is on. Only queries `db::queries::query_reads_tags` says the change can affect are run.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -372,7 +374,60 @@ are delayed, so a slow pass is followed by a full day of quiet.
 append each call and its output, and repeat until the model answers with text. It stops after
 `MAX_STEPS` (8) model calls with a short apology.
 
-- Every tool only reads and runs as the JWT's user. The model never supplies a user id.
+- Every server tool only reads and runs as the JWT's user. The model never supplies a user id.
+- A phone tool (`phone_tools.rs`) stops the loop. The response is a `client_tool_call` with a
+  `Continuation`: this answer's calls and outputs so far, its steps and card, and how many model
+  calls it has used. The phone runs the tool and posts the same conversation with
+  `resume: {continuation, output}`, and `run_loop` carries on from there, so the server still
+  keeps nothing between requests. `validate_resume` refuses a continuation that is not the
+  server's shape (only tool calls and outputs, ending with the call it answers, within the step
+  budget), so the phone cannot slip a message with another role in. The request is
+  `parallel_tool_calls: false`; a second call in the same turn as a phone tool is answered with
+  an error so the model asks again.
+- No id from memory reaches the phone. Before a phone tool runs, every id it names
+  (`phone_tools::ids_named`: a screen's id, an album, artist, or playlist id, song ids) must be
+  one this answer's tool outputs returned, a card's, or one of the user's tag ids from the
+  prompt (`LoopState::sourced_ids`). An album or artist id must also have come under an
+  `album_id` / `artist_id` field (`phone_tools::typed_ids_named`), so a song id passed as an
+  album is caught. `play` and `queue_songs` keep one thing to play (`keep_one_source`): empty
+  ids are dropped and `songs` wins over the rest. Any other id is answered with an error that sends the
+  model to look it up (`find_album`, `find_artist`, `apple_music_playlists`, ...), so a page
+  is never opened on a remembered or made-up id. The phone checks too: an artist, an album
+  (and that it has songs), and an Apple Music playlist are confirmed with Apple before
+  opening.
+- `songs: "card"` on `play`, `queue_songs`, and the Apple Music playlist tools becomes the ids on
+  this answer's card, or else the last card shown, since the model only sees the first 25. A
+  `card` in a phone tool's output (search, an Apple Music playlist) becomes the answer's card
+  and is taken out of what the model reads.
+- `find_songs` is for lists no query can express ("iconic video game songs", "songs like
+  Redbone"): the model names the songs, and each is a `SongMetadataService::search_songs` call,
+  four at a time, retrying once after a rate limit. A result counts only when its title
+  (brackets and " - Remastered" suffixes aside, or a whole-word prefix) and artist both match,
+  so a song Apple lacks comes back in `not_found` rather than as a lookalike, with
+  `apple_music_has` (Apple's results under that title) so the model can correct an artist
+  credit and retry once. With no title and artist match, it also searches the title alone,
+  and takes a result with exactly that title (at least 8 characters, and not a remix, piano,
+  lofi, or other novelty version) whoever Apple credits, flagged `you_named_artist`: often the
+  only version Apple has, as with Nintendo's music. These extra searches are Apple calls on the
+  developer token, not model calls. With `from` (the game, film, show, or artist every song
+  comes from), a title-only match must name it in its album or artist, so an unrelated song
+  that shares a title stays off the card. A failed search is `lookup_failed`, not
+  `not_found`. With
+  `count` (how many the user asked for) the model names about half again as many, best first;
+  the search stops once it has `count` usable songs and keeps the first `count`, and
+  `short_by` says how many it could not find. The card note states exactly how many songs the
+  card holds, so the reply's count matches it. Every lookup is
+  logged as `[assistant] find_songs "<term>"` with what it matched or what Apple returned. The found songs' metadata is stored in the background
+  (`spawn_store_song_metadata`) so follow-up questions and queries know them.
+- The card shows its songs, so a reply should not list them again. A tool output that makes a
+  card carries `shown_as_card`, a note saying so next to the songs. As a backstop,
+  `strip_card_listing` takes out of the reply any sentence naming three or more of them, and
+  any lines (two or more) that only name songs this answer's tools returned, like `1. "Megalovania" by Toby Fox`; a line that says more about a song
+  stays, and a lead-in left ending in a colon gets a period.
+- The two Apple Music library writes are confirmed by the user on the phone, which Cadenza
+  cannot undo; the backend does not know the difference. The prompt lists what the assistant
+  cannot do (tags, account, settings, social, live sessions, single queue edits) and has it say
+  so plainly.
 - A tool never fails the request. Bad JSON, a query the compiler rejects, or a failed read comes
   back to the model as `{"error": ...}` so it can fix the call.
 - `run_query` searches every song Cadenza knows (`QuerySongs::Everything`), the user's own first,

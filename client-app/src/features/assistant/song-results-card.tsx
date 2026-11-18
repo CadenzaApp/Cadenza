@@ -1,24 +1,30 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ShuffleMode, type MusicItem } from "@apple-musickit";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
 import { logHandledError } from "@/lib/log";
+import { useOpenScreen } from "@/lib/open-screen";
 import { usePagedTracksForSongIds } from "@/lib/musickit-hooks";
-import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
+import { usePlaybackCommands } from "@/lib/playback";
 import { useAppTheme } from "@/lib/theme";
 
+import { currentPlayback } from "./playback-snapshot";
+import { shuffledCopy } from "./phone-tools";
 import type { AssistantSongs } from "./types";
 
 /** How many songs the card lists. Play still queues every one. */
 const SHOWN_SONGS = 5;
 
 /**
- * The songs a tool found, under the answer: the first few rows, how many more,
- * and Play / Shuffle for all of them. Tapping a row plays just that song.
+ * The songs a tool found, under the answer: the first few rows, a button with
+ * the total, and Play / Shuffle for all of them. Tapping a row plays just that
+ * song. The total button closes the assistant and shows every song the card
+ * holds on the song list screen, titled with the card's name, where they can
+ * be sorted, selected and tagged.
  *
  * Once anything starts playing, the assistant sheet gives way to the now
  * playing sheet, showing the song that started. `replace` rather than `push`,
@@ -35,9 +41,8 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
         resolveTracks,
     } = usePagedTracksForSongIds(songs.song_ids);
     const router = useRouter();
-    const { playQueue, playNext, skipToNext, setShuffleMode } =
-        usePlaybackCommands();
-    const { activeTrack } = usePlaybackTrackState();
+    const openScreen = useOpenScreen();
+    const { playQueue, setShuffleMode } = usePlaybackCommands();
     // a ref as well as state, so two taps in one frame cannot both start
     const running = useRef(false);
     const [pending, setPending] = useState(false);
@@ -45,6 +50,21 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     const openNowPlaying = useCallback(() => {
         router.replace("/player");
     }, [router]);
+
+    const openList = useCallback(() => {
+        openScreen(
+            {
+                pathname: "/song-list",
+                params: {
+                    ids: songs.song_ids.join(","),
+                    total: String(songs.total),
+                    capped: songs.capped ? "1" : "0",
+                    ...(songs.title ? { title: songs.title } : {}),
+                },
+            } as Href,
+            { closing: "assistant" },
+        );
+    }, [openScreen, songs]);
 
     /**
      * Plays every song on the card, in order or shuffled, then opens the now
@@ -97,22 +117,29 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     // ids Apple could not turn into a track are dropped, not counted as more
     const skipped = loadedCount - tracks.length;
     const available = songs.total - skipped;
-    const more = available - (stillLoading ? expectedRows : shown.length);
 
     /**
-     * Plays just the tapped song, queueing none of the card's others. With
-     * something already playing it goes in next and is skipped to, so whatever
-     * was queued after the old song is still there after this one. With
-     * nothing playing it starts a queue of one.
+     * Plays the tapped song now, queueing none of the card's others. The song
+     * that was playing goes to the top of Up Next, ahead of whatever was
+     * queued after it, so it comes back once this one ends. Tapping the song
+     * already playing just opens the player.
      */
     const playOne = useCallback(
         async (track: MusicItem) => {
+            const playback = currentPlayback();
+            const current = playback?.activeTrack ?? null;
             try {
-                if (activeTrack) {
-                    await playNext([track]);
-                    await skipToNext();
-                } else {
-                    await playQueue({ tracks: [track], chosenStart: true });
+                if (current?.id !== track.id) {
+                    // one new queue, so the tapped song is what plays when the
+                    // player opens: it, then the song that was playing, then
+                    // everything that was queued after that
+                    await playQueue({
+                        tracks: current
+                            ? [track, current, ...(playback?.upcoming ?? [])]
+                            : [track],
+                        startIndex: 0,
+                        chosenStart: true,
+                    });
                 }
             } catch (error) {
                 logHandledError("Assistant could not play the song", error);
@@ -120,7 +147,7 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
             }
             openNowPlaying();
         },
-        [activeTrack, openNowPlaying, playNext, playQueue, skipToNext],
+        [openNowPlaying, playQueue],
     );
 
     if (!stillLoading && shown.length === 0) return null;
@@ -175,11 +202,11 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
             ))}
 
             <View className="flex-row items-center gap-2 border-t border-border px-3 py-2">
-                <Text className="flex-1 text-[13px] text-muted-foreground">
-                    {more > 0
-                        ? `${more.toLocaleString()}${songs.capped ? "+" : ""} more`
-                        : `${available.toLocaleString()} ${available === 1 ? "song" : "songs"}`}
-                </Text>
+                <SongsButton
+                    label={`${available.toLocaleString()}${songs.capped ? "+" : ""} ${available === 1 && !songs.capped ? "song" : "songs"}`}
+                    onPress={openList}
+                />
+                <View className="flex-1" />
                 {pending ? (
                     <ActivityIndicator
                         size="small"
@@ -198,6 +225,38 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
                 />
             </View>
         </View>
+    );
+}
+
+/**
+ * The total, as a button that opens the full list. Outlined in the accent
+ * color, with a chevron, so it reads as a way in rather than another playback
+ * control like Play and Shuffle beside it.
+ */
+function SongsButton({
+    label,
+    onPress,
+}: {
+    label: string;
+    onPress: () => void;
+}) {
+    const { colors } = useAppTheme();
+    return (
+        <Pressable
+            onPress={onPress}
+            accessibilityRole="button"
+            accessibilityLabel={`Open the list of ${label}`}
+            className="flex-row items-center gap-1 rounded-full border border-primary px-3 py-1.5 active:opacity-60"
+        >
+            <Ionicons name="list" size={14} color={colors.primary} />
+            <Text
+                className="text-[13px] font-medium text-primary"
+                numberOfLines={1}
+            >
+                {label}
+            </Text>
+            <Ionicons name="chevron-forward" size={13} color={colors.primary} />
+        </Pressable>
     );
 }
 
@@ -240,14 +299,4 @@ function SongRowSkeleton({ divided }: { divided: boolean }) {
             </View>
         </View>
     );
-}
-
-/** A shuffled copy of `items` (Fisher-Yates). */
-function shuffledCopy<T>(items: readonly T[]): T[] {
-    const copy = [...items];
-    for (let i = copy.length - 1; i > 0; i -= 1) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-    return copy;
 }

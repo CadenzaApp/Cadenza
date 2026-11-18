@@ -17,7 +17,15 @@ import { DetailScreen } from "@/components/ui/detail-screen";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { useAppTheme } from "@/lib/theme";
 
-import { EmptyChat, ErrorRow, MessageRow, TypingIndicator } from "./chat-parts";
+import { answerConfirmation } from "./assistant-store";
+import {
+    ConfirmCard,
+    EmptyChat,
+    ErrorRow,
+    MessageRow,
+    TypingIndicator,
+} from "./chat-parts";
+import { PlaybackSnapshotBridge } from "./playback-snapshot";
 import { useAssistantChat } from "./use-assistant-chat";
 
 /** The most a user can type into one message. The backend cuts at 4000. */
@@ -33,7 +41,8 @@ const COMPOSER_BOTTOM_GAP = 10;
 export function AssistantChat() {
     const { colors } = useAppTheme();
     const insets = useSafeAreaInsets();
-    const { entries, sending, error, send, retry, reset } = useAssistantChat();
+    const { entries, sending, error, confirmation, send, retry, reset } =
+        useAssistantChat();
     const [draft, setDraft] = useState("");
     const scrollRef = useRef<ScrollView>(null);
     const bodyRef = useRef<View>(null);
@@ -77,6 +86,7 @@ export function AssistantChat() {
                 ) : null
             }
         >
+            <PlaybackSnapshotBridge />
             <View ref={bodyRef} className="flex-1" collapsable={false}>
                 <ScrollView
                     ref={scrollRef}
@@ -99,7 +109,14 @@ export function AssistantChat() {
                             <MessageRow key={entry.id} entry={entry} />
                         ))
                     )}
-                    {sending ? <TypingIndicator /> : null}
+                    {confirmation ? (
+                        <ConfirmCard
+                            confirmation={confirmation}
+                            onAnswer={answerConfirmation}
+                        />
+                    ) : sending ? (
+                        <TypingIndicator />
+                    ) : null}
                     {error && !sending ? (
                         <ErrorRow message={error} onRetry={retry} />
                     ) : null}
