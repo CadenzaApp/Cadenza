@@ -4,15 +4,19 @@
 //! Ranking math that does not need the database lives here too. Turning text
 //! into vectors is `services::social_feed`, which calls the python model.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::db::entity::{comment_likes, comments, post_likes, posts, profile};
+use crate::db::entity::{
+    comment_likes, comments, post_likes, post_tags_applied, posts, profile, user_spotlights,
+};
 use crate::db::friend_relations::{
     NOT_BLOCKED_AUTHOR, blocked_either_way, clear_favorites_between,
 };
 use crate::db::shared_playlists::{PlaylistCard, playlist_cards};
+use crate::db::tags::shared_default_tag_labels;
 use crate::err::CadenzaError;
 use crate::services::notification::{NewNotification, NotificationType, push_notification};
+use crate::services::tag_generation::openai_tag_generator::random_suggested_tag_color;
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
@@ -20,7 +24,7 @@ use sea_orm::{
     ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
     FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect, QueryTrait, RuntimeErr,
     Statement, TransactionTrait, Value,
-    sea_query::{Expr, ExprTrait, Func, OnConflict},
+    sea_query::{Expr, ExprTrait, Func, LockType, OnConflict},
 };
 
 /// How many posts one `/feed` call returns. A shorter page means that exclude
@@ -1905,6 +1909,15 @@ pub struct HistoryPost {
     pub viewed_at: DateTime<Utc>,
 }
 
+/// How many decorative tags a spotlight post is given.
+const SPOTLIGHT_TAG_LIMIT: usize = 5;
+
+/// Matches `post_tags_applied.text`.
+const SPOTLIGHT_TAG_TEXT_MAX: usize = 24;
+
+/// Apple tags nearly every artist with this as well as its real genres.
+const CATCH_ALL_GENRE: &str = "Music";
+
 /// One catalog id to queue for this user.
 pub struct SpotlightInput {
     pub spotlight_type: String,
@@ -1914,69 +1927,307 @@ pub struct SpotlightInput {
 /// Inserts a shared spotlight post per catalog id, then queues it for `user_id`.
 /// `added` is how many queue rows were new. An id that already has a spotlight
 /// post reuses it. A queue row that already exists is left alone.
+///
+/// When the shared post has no tags, a song gets up to five of its default
+/// tags and an artist gets up to five of its entry in `artist_genres`, keyed
+/// by artist id. A post that already has tags is left alone. A repeated
+/// catalog id uses its first item.
+///
+/// A fixed number of statements, whatever the number of items: posts, tags,
+/// and queue rows are each read or written for every item at once.
 pub async fn add_spotlights(
     db: &DatabaseConnection,
     user_id: Uuid,
     items: &[SpotlightInput],
+    artist_genres: &HashMap<String, Vec<String>>,
 ) -> Result<i64, CadenzaError> {
+    let mut seen = HashSet::new();
+    let items: Vec<&SpotlightInput> = items
+        .iter()
+        .filter(|item| seen.insert((item.spotlight_type.as_str(), item.musickit_id.as_str())))
+        .collect();
     if items.is_empty() {
         return Ok(0);
     }
+    let musickit_ids: Vec<String> = items.iter().map(|item| item.musickit_id.clone()).collect();
     let txn = db.begin().await?;
-    let mut added = 0i64;
-    for item in items {
-        let post_id = ensure_spotlight_post(&txn, &item.musickit_id).await?;
-        let inserted = txn
-            .query_one_raw(Statement::from_sql_and_values(
-                DbBackend::Postgres,
-                "INSERT INTO user_spotlights (user_id, spotlight_type, musickit_id, post_id)
-                 VALUES ($1, $2, $3, $4)
-                 ON CONFLICT (user_id, spotlight_type, musickit_id) DO NOTHING
-                 RETURNING user_id",
-                vec![
-                    user_id.into(),
-                    item.spotlight_type.clone().into(),
-                    item.musickit_id.clone().into(),
-                    post_id.into(),
-                ],
-            ))
-            .await?;
-        if inserted.is_some() {
-            added += 1;
-        }
-    }
+    let post_ids = ensure_spotlight_posts(&txn, &musickit_ids).await?;
+    fill_spotlight_tags(&txn, &items, &post_ids, artist_genres).await?;
+    let rows = items.iter().map(|item| user_spotlights::ActiveModel {
+        user_id: Set(user_id),
+        spotlight_type: Set(item.spotlight_type.clone()),
+        musickit_id: Set(item.musickit_id.clone()),
+        post_id: Set(post_ids[&item.musickit_id]),
+    });
+    let added = user_spotlights::Entity::insert_many(rows)
+        .on_conflict(
+            OnConflict::columns([
+                user_spotlights::Column::UserId,
+                user_spotlights::Column::SpotlightType,
+                user_spotlights::Column::MusickitId,
+            ])
+            .do_nothing()
+            .to_owned(),
+        )
+        .exec_without_returning(&txn)
+        .await?;
     txn.commit().await?;
-    Ok(added)
+    Ok(added as i64)
 }
 
-/// The shared spotlight post for this catalog id, inserting it when missing.
-async fn ensure_spotlight_post(
+/// Of `musickit_ids`, the ones whose shared spotlight post is missing or has
+/// no tags yet, in the order given.
+pub async fn spotlight_ids_without_tags(
     db: &impl ConnectionTrait,
-    musickit_id: &str,
-) -> Result<i64, CadenzaError> {
-    let row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            "WITH inserted AS (
-                 INSERT INTO posts (user_id, content, embedding, embedding_w_bday, topic_mk_id)
-                 VALUES (NULL, '', NULL, NULL, $1)
-                 ON CONFLICT (topic_mk_id) WHERE user_id IS NULL AND topic_mk_id IS NOT NULL
-                 DO NOTHING
-                 RETURNING post_id
-             )
-             SELECT post_id FROM inserted
-             UNION ALL
-             SELECT post_id FROM posts
-             WHERE user_id IS NULL AND topic_mk_id = $1
-               AND NOT EXISTS (SELECT 1 FROM inserted)
-             LIMIT 1",
-            vec![musickit_id.to_owned().into()],
-        ))
-        .await?
-        .ok_or_else(|| {
-            CadenzaError::DatabaseError("inserting a spotlight post returned no id".into())
-        })?;
-    Ok(row.try_get_by_index(0)?)
+    musickit_ids: &[String],
+) -> Result<Vec<String>, CadenzaError> {
+    if musickit_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let posts: Vec<(i64, Option<String>)> = posts::Entity::find()
+        .select_only()
+        .column(posts::Column::PostId)
+        .column(posts::Column::TopicMkId)
+        .filter(posts::Column::UserId.is_null())
+        .filter(posts::Column::TopicMkId.is_in(musickit_ids.iter().cloned()))
+        .into_tuple()
+        .all(db)
+        .await?;
+    let post_ids: Vec<i64> = posts.iter().map(|(post_id, _)| *post_id).collect();
+    let tagged = tags_for_posts(db, &post_ids).await?;
+    let tagged: HashSet<String> = posts
+        .into_iter()
+        .filter(|(post_id, _)| tagged.contains_key(post_id))
+        .filter_map(|(_, topic_mk_id)| topic_mk_id)
+        .collect();
+    Ok(musickit_ids
+        .iter()
+        .filter(|id| !tagged.contains(*id))
+        .cloned()
+        .collect())
+}
+
+/// Tags every spotlight post in `post_ids` that has none yet.
+///
+/// Only empty posts are locked, so the usual case, a post that already has
+/// tags, takes no lock. They are locked in one statement in `post_id` order,
+/// so two requests that share posts take the locks in the same order and
+/// cannot deadlock. `NO KEY UPDATE` still lets likes, comments, and queue rows
+/// that reference the post go through.
+async fn fill_spotlight_tags(
+    db: &impl ConnectionTrait,
+    items: &[&SpotlightInput],
+    post_ids: &HashMap<String, i64>,
+    artist_genres: &HashMap<String, Vec<String>>,
+) -> Result<(), CadenzaError> {
+    let all: Vec<i64> = post_ids.values().copied().collect();
+    let tagged = tags_for_posts(db, &all).await?;
+    let mut empty: Vec<i64> = all
+        .into_iter()
+        .filter(|post_id| !tagged.contains_key(post_id))
+        .collect();
+    if empty.is_empty() {
+        return Ok(());
+    }
+    empty.sort_unstable();
+    posts::Entity::find()
+        .select_only()
+        .column(posts::Column::PostId)
+        .filter(posts::Column::PostId.is_in(empty.clone()))
+        .order_by_asc(posts::Column::PostId)
+        .lock(LockType::NoKeyUpdate)
+        .into_tuple::<i64>()
+        .all(db)
+        .await?;
+    // another request may have tagged some of them while this one waited
+    let filled = tags_for_posts(db, &empty).await?;
+    let empty: HashSet<i64> = empty
+        .into_iter()
+        .filter(|post_id| !filled.contains_key(post_id))
+        .collect();
+    if empty.is_empty() {
+        return Ok(());
+    }
+
+    let mut claimed = HashSet::new();
+    let todo: Vec<(i64, &SpotlightInput)> = items
+        .iter()
+        .map(|item| (post_ids[&item.musickit_id], *item))
+        .filter(|(post_id, _)| empty.contains(post_id) && claimed.insert(*post_id))
+        .collect();
+    let song_ids: Vec<String> = todo
+        .iter()
+        .filter(|(_, item)| item.spotlight_type == "song")
+        .map(|(_, item)| item.musickit_id.clone())
+        .collect();
+    let labels = shared_default_tag_labels(db, &song_ids).await?;
+
+    let rows: Vec<post_tags_applied::ActiveModel> = todo
+        .iter()
+        .flat_map(|(post_id, item)| {
+            let tags = if item.spotlight_type == "song" {
+                spotlight_song_tags(labels.get(&item.musickit_id).map_or(&[], Vec::as_slice))
+            } else {
+                spotlight_genre_tags(
+                    artist_genres
+                        .get(&item.musickit_id)
+                        .map_or(&[], Vec::as_slice),
+                )
+            };
+            tags.into_iter().map(|tag| post_tags_applied::ActiveModel {
+                tag_id: NotSet,
+                post_id: Set(*post_id),
+                text: Set(tag.text),
+                color: Set(tag.color),
+            })
+        })
+        .collect();
+    // a word the lowercase check above let through but postgres `lower()`
+    // still counts as a repeat is dropped rather than failing every spotlight
+    post_tags_applied::Entity::insert_many(rows)
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(db)
+        .await?;
+    Ok(())
+}
+
+/// Up to five default-tag labels that fit on a post. A name longer than 24
+/// characters, a color that is not `#rrggbb`, an empty name, or a repeated
+/// word is skipped. The rest stay in the order they were given.
+fn spotlight_song_tags(tags: &[(String, String)]) -> Vec<NewPostTag> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for (name, color) in tags {
+        if out.len() == SPOTLIGHT_TAG_LIMIT {
+            break;
+        }
+        let Some(text) = spotlight_tag_text(name) else {
+            continue;
+        };
+        let Some(color) = spotlight_tag_color(color) else {
+            continue;
+        };
+        if !seen.insert(text.to_lowercase()) {
+            continue;
+        }
+        out.push(NewPostTag { text, color });
+    }
+    out
+}
+
+/// Up to five artist genres that fit on a post, in the order Apple sent them.
+/// `Music`, an empty name, a name longer than 24 characters, or a repeated
+/// word is skipped. Each kept genre gets a random palette color.
+fn spotlight_genre_tags(genres: &[String]) -> Vec<NewPostTag> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for genre in genres {
+        if out.len() == SPOTLIGHT_TAG_LIMIT {
+            break;
+        }
+        let Some(text) = spotlight_tag_text(genre) else {
+            continue;
+        };
+        if text == CATCH_ALL_GENRE || !seen.insert(text.to_lowercase()) {
+            continue;
+        }
+        out.push(NewPostTag {
+            text,
+            color: random_suggested_tag_color(),
+        });
+    }
+    out
+}
+
+/// Trimmed tag text, or nothing when it is empty or longer than 24 characters.
+fn spotlight_tag_text(raw: &str) -> Option<String> {
+    let text = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() || text.chars().count() > SPOTLIGHT_TAG_TEXT_MAX {
+        return None;
+    }
+    Some(text)
+}
+
+/// `#rrggbb`, lowercased, or nothing.
+fn spotlight_tag_color(raw: &str) -> Option<String> {
+    let color = raw.trim().to_ascii_lowercase();
+    let hex = color.as_bytes();
+    let valid =
+        hex.len() == 7 && hex[0] == b'#' && hex[1..].iter().all(|byte| byte.is_ascii_hexdigit());
+    valid.then_some(color)
+}
+
+/// The shared spotlight post for each catalog id, keyed by that id. Missing
+/// posts are inserted in one statement, in catalog id order, so two requests
+/// that insert the same new ids wait on each other in the same order.
+async fn ensure_spotlight_posts(
+    db: &impl ConnectionTrait,
+    musickit_ids: &[String],
+) -> Result<HashMap<String, i64>, CadenzaError> {
+    let mut ids = musickit_ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    let rows = SpotlightPostRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "WITH ids AS (SELECT unnest($1::text[]) AS musickit_id),
+         inserted AS (
+             INSERT INTO posts (user_id, content, embedding, embedding_w_bday, topic_mk_id)
+             SELECT NULL, '', NULL, NULL, musickit_id FROM ids ORDER BY musickit_id
+             ON CONFLICT (topic_mk_id) WHERE user_id IS NULL AND topic_mk_id IS NOT NULL
+             DO NOTHING
+             RETURNING post_id, topic_mk_id
+         )
+         SELECT post_id, topic_mk_id FROM inserted
+         UNION ALL
+         SELECT p.post_id, p.topic_mk_id
+         FROM posts p
+         JOIN ids ON ids.musickit_id = p.topic_mk_id
+         WHERE p.user_id IS NULL
+           AND NOT EXISTS (SELECT 1 FROM inserted i WHERE i.topic_mk_id = p.topic_mk_id)",
+        vec![ids.clone().into()],
+    ))
+    .all(db)
+    .await?;
+    let mut found: HashMap<String, i64> = rows
+        .into_iter()
+        .map(|row| (row.topic_mk_id, row.post_id))
+        .collect();
+
+    // a post another request inserted while this statement waited on it was
+    // committed after this statement's snapshot, so only a new statement sees it
+    let missing: Vec<String> = ids
+        .iter()
+        .filter(|id| !found.contains_key(*id))
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        let late: Vec<(i64, Option<String>)> = posts::Entity::find()
+            .select_only()
+            .column(posts::Column::PostId)
+            .column(posts::Column::TopicMkId)
+            .filter(posts::Column::UserId.is_null())
+            .filter(posts::Column::TopicMkId.is_in(missing))
+            .into_tuple()
+            .all(db)
+            .await?;
+        for (post_id, topic_mk_id) in late {
+            if let Some(topic_mk_id) = topic_mk_id {
+                found.insert(topic_mk_id, post_id);
+            }
+        }
+    }
+    if found.len() != ids.len() {
+        return Err(CadenzaError::DatabaseError(
+            "inserting a spotlight post returned no id".into(),
+        ));
+    }
+    Ok(found)
+}
+
+#[derive(Debug, FromQueryResult)]
+struct SpotlightPostRow {
+    post_id: i64,
+    topic_mk_id: String,
 }
 
 /// Spotlight posts to mix into this page, and whether the unviewed pool is short.
@@ -2635,18 +2886,15 @@ async fn insert_tags(
     post_id: i64,
     tags: &[NewPostTag],
 ) -> Result<(), CadenzaError> {
-    for tag in tags {
-        db.execute_raw(Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            "INSERT INTO post_tags_applied (post_id, text, color) VALUES ($1, $2, $3)",
-            vec![
-                post_id.into(),
-                tag.text.clone().into(),
-                tag.color.clone().into(),
-            ],
-        ))
+    let rows = tags.iter().map(|tag| post_tags_applied::ActiveModel {
+        tag_id: NotSet,
+        post_id: Set(post_id),
+        text: Set(tag.text.clone()),
+        color: Set(tag.color.clone()),
+    });
+    post_tags_applied::Entity::insert_many(rows)
+        .exec_without_returning(db)
         .await?;
-    }
     Ok(())
 }
 
@@ -3176,5 +3424,48 @@ mod tests {
         assert_eq!(values[3], Value::from(created_at));
         assert_eq!(values[4], Value::from(12_i64));
         assert_eq!(values[5], Value::from(TOPIC_POST_LIMIT));
+    }
+
+    #[test]
+    fn spotlight_song_tags_keep_five_that_fit() {
+        let long = "n".repeat(25);
+        let tags = vec![
+            ("one".into(), "#111111".into()),
+            ("two".into(), "#222222".into()),
+            (long, "#333333".into()),
+            ("three".into(), "red".into()),
+            ("One".into(), "#444444".into()),
+            ("four".into(), "#0000FF".into()),
+            ("five".into(), "#555555".into()),
+            ("six".into(), "#666666".into()),
+            ("seven".into(), "#777777".into()),
+        ];
+        let kept = spotlight_song_tags(&tags);
+        let names: Vec<_> = kept.iter().map(|tag| tag.text.as_str()).collect();
+        assert_eq!(names, ["one", "two", "four", "five", "six"]);
+        assert_eq!(kept[2].color, "#0000ff");
+    }
+
+    #[test]
+    fn spotlight_genre_tags_drop_music_and_use_palette_colors() {
+        use crate::services::tag_generation::openai_tag_generator::is_suggested_tag_color;
+
+        let long = "g".repeat(25);
+        let genres = vec![
+            "Music".into(),
+            "  Alt   Rock ".into(),
+            " ".into(),
+            "Pop".into(),
+            " pop ".into(),
+            long,
+            "Jazz".into(),
+            "Soul".into(),
+            "Metal".into(),
+            "Folk".into(),
+        ];
+        let kept = spotlight_genre_tags(&genres);
+        let names: Vec<_> = kept.iter().map(|tag| tag.text.as_str()).collect();
+        assert_eq!(names, ["Alt Rock", "Pop", "Jazz", "Soul", "Metal"]);
+        assert!(kept.iter().all(|tag| is_suggested_tag_color(&tag.color)));
     }
 }

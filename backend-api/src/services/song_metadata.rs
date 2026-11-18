@@ -18,6 +18,9 @@ const MAX_IDS_PER_REQUEST: usize = 300;
 /// Apple caps the `ids` filter at 100 per catalog albums request.
 pub const MAX_ALBUM_IDS_PER_REQUEST: usize = 100;
 
+/// The most ids one catalog artists request is given. Apple documents 25.
+pub const MAX_ARTIST_IDS_PER_REQUEST: usize = 25;
+
 /// Pages of one album's tracks followed past the first, which already holds 300. No real
 /// album gets near this; it stops a `next` link that never ends from looping forever.
 const MAX_EXTRA_TRACK_PAGES: usize = 10;
@@ -121,6 +124,25 @@ struct CatalogTracksPage {
     data: Vec<CatalogSong>,
     next: Option<String>,
 }
+// models for the Apple Music catalog artists response
+// https://developer.apple.com/documentation/applemusicapi/get-multiple-catalog-artists
+#[derive(Deserialize)]
+struct CatalogArtistsResponse {
+    #[serde(default)]
+    data: Vec<CatalogArtist>,
+}
+#[derive(Deserialize)]
+struct CatalogArtist {
+    id: String,
+    attributes: Option<CatalogArtistAttributes>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatalogArtistAttributes {
+    #[serde(default)]
+    genre_names: Vec<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CatalogSongAttributes {
@@ -191,6 +213,14 @@ fn to_album_track(album_id: &str, track: CatalogSong) -> Option<SongMetadata> {
     let mut song = to_song_metadata(track)?;
     song.album_id = Some(album_id.to_owned());
     Some(song)
+}
+
+/// Genre names per artist id. An artist Apple returned without attributes is left out.
+fn artist_genres(resp: CatalogArtistsResponse) -> HashMap<String, Vec<String>> {
+    resp.data
+        .into_iter()
+        .filter_map(|artist| Some((artist.id, artist.attributes?.genre_names)))
+        .collect()
 }
 
 /// Reads catalog song metadata from Apple Music with a developer token and no user token.
@@ -331,6 +361,37 @@ impl SongMetadataService {
         Ok(res)
     }
 
+    /// Apple's genre names for each artist, keyed by artist id, in the order Apple lists
+    /// them. One request. An id Apple has no catalog artist for, a song id included, is
+    /// absent from the map. An empty input makes no request.
+    ///
+    /// # Panics
+    ///
+    /// If `artist_ids` is longer than [`MAX_ARTIST_IDS_PER_REQUEST`], for the same reason
+    /// [`Self::get_songs_metadata`] panics past its cap.
+    pub async fn get_artists_genres(
+        &self,
+        artist_ids: &[String],
+    ) -> Result<HashMap<String, Vec<String>>, CadenzaError> {
+        assert!(
+            artist_ids.len() <= MAX_ARTIST_IDS_PER_REQUEST,
+            "artist genres lookup takes at most {} ids, got {}",
+            MAX_ARTIST_IDS_PER_REQUEST,
+            artist_ids.len()
+        );
+
+        if artist_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut url = self.catalog_url("artists")?;
+        url.query_pairs_mut()
+            .append_pair("ids", &artist_ids.join(","));
+
+        let resp_body: CatalogArtistsResponse = self.get_json(url).await?;
+        Ok(artist_genres(resp_body))
+    }
+
     /// `https://api.music.apple.com/v1/catalog/<storefront>/<resource>`.
     fn catalog_url(&self, resource: &str) -> Result<Url, CadenzaError> {
         Url::parse(&format!(
@@ -436,6 +497,23 @@ mod tests {
     }
 
     // ----- parsing apple's reply, no api calls -----
+
+    #[test]
+    fn parses_the_catalog_artists_shape() {
+        let reply = r#"{
+            "data": [
+                { "id": "3996865", "type": "artists",
+                  "attributes": { "name": "Metallica", "genreNames": ["Metal"] } },
+                { "id": "1", "type": "artists" }
+            ]
+        }"#;
+
+        let parsed: CatalogArtistsResponse = serde_json::from_str(reply).unwrap();
+        let genres = artist_genres(parsed);
+
+        assert_eq!(genres.len(), 1);
+        assert_eq!(genres["3996865"], ["Metal"]);
+    }
 
     #[test]
     fn parses_the_catalog_songs_shape() {

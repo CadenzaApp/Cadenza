@@ -23,10 +23,15 @@ const SUGGESTED_TAG_COLORS: &[&str] = &[
     "#2061f1", "#6d35d5", "#ae6ff1", "#dd34e5", "#f83ca0", "#8c5939", "#6b7281",
 ];
 
-/** Chooses an accessible color for one suggested tag. */
-fn random_suggested_tag_color() -> String {
+/// Chooses an accessible color for one suggested tag.
+pub fn random_suggested_tag_color() -> String {
     let index = (Uuid::new_v4().as_u128() % SUGGESTED_TAG_COLORS.len() as u128) as usize;
     SUGGESTED_TAG_COLORS[index].to_owned()
+}
+
+/// Whether `color` is one of the accessible suggested-tag colors.
+pub fn is_suggested_tag_color(color: &str) -> bool {
+    SUGGESTED_TAG_COLORS.contains(&color)
 }
 
 fn get_tag_generation_req_body(song_descs: &[String], requested_tag_count: usize) -> Value {

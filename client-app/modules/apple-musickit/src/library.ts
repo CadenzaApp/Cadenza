@@ -36,7 +36,8 @@ export const MusicKit = {
      * Songs and artists from the user's Apple Music recommendations.
      * Albums and playlists become one random song from their first track page,
      * or, one time in three, that song's artist.
-     * The list may be shorter than five. Stations are left out.
+     * At most five, and it stops reading Apple once it has them. Stations are
+     * left out.
      */
     getRecommendations: async (): Promise<MusicRecommendation[]> => {
         return requireNative().getRecommendations();

@@ -1010,10 +1010,11 @@ class AppleMusicKitModule : Module() {
     }
 
     /**
-     * Songs and artists from `/v1/me/recommendations`. An album or playlist
-     * becomes one random song from its first track page, or, one time in
-     * three, that song's artist. Stations are skipped. Track fetches stop
-     * after a dozen so a long list does not stampede Apple.
+     * Up to five songs and artists from `/v1/me/recommendations`. An album or
+     * playlist becomes one random song from its first track page, or, one
+     * time in three, that song's artist. Stations are skipped. It returns as
+     * soon as it has five, so later rows cost no catalog reads. Track fetches
+     * stop after a dozen so a long list does not stampede Apple.
      */
     private fun recommendationSpotlights(): List<Map<String, String>> {
         val response = makeApiRequest("/v1/me/recommendations")
@@ -1024,6 +1025,7 @@ class AppleMusicKitModule : Module() {
             val relationships = group["relationships"] as? Map<*, *>
             val contents = relationships?.get("contents") as? Map<*, *>
             for (item in objectList(contents?.get("data"))) {
+                if (out.size >= MAX_RECOMMENDATIONS) return out
                 val id = item["id"]?.toString()?.takeIf { it.isNotBlank() } ?: continue
                 when (val type = item["type"]?.toString()) {
                     "songs" -> appendRecommendation(
@@ -1483,6 +1485,9 @@ class AppleMusicKitModule : Module() {
 
         /** The store used when the device region has none. */
         private const val FALLBACK_STOREFRONT = "us"
+
+        /** The most spotlights one recommendations read returns, same as iOS. */
+        private const val MAX_RECOMMENDATIONS = 5
 
         /** Paths that need only the developer token, same rule as iOS. */
         private fun isDeveloperTokenPath(path: String) =

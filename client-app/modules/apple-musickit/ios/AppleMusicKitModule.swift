@@ -648,10 +648,15 @@ public class AppleMusicKitModule: Module {
         return response.isEmpty ? Self.fallbackStorefront : region
     }
 
-    /// Songs and artists from `/v1/me/recommendations`. An album or playlist
-    /// becomes one random song from its first track page, or, one time in
-    /// three, that song's artist. Stations are skipped. Track fetches stop
-    /// after a dozen so a long list does not stampede Apple.
+    /// The most spotlights one recommendations read returns, the most the
+    /// backend queues at once.
+    private static let maxRecommendations = 5
+
+    /// Up to five songs and artists from `/v1/me/recommendations`. An album or
+    /// playlist becomes one random song from its first track page, or, one
+    /// time in three, that song's artist. Stations are skipped. It returns as
+    /// soon as it has five, so later rows cost no catalog reads. Track fetches
+    /// stop after a dozen so a long list does not stampede Apple.
     private func recommendationSpotlights() async throws -> [[String: Any]] {
         let response = try await makeAPIRequest(path: "/v1/me/recommendations")
         let groups = response["data"] as? [[String: Any]] ?? []
@@ -663,6 +668,7 @@ public class AppleMusicKitModule: Module {
             let contents = relationships?["contents"] as? [String: Any]
             let items = contents?["data"] as? [[String: Any]] ?? []
             for item in items {
+                if out.count >= Self.maxRecommendations { return out }
                 guard let id = item["id"] as? String, !id.isEmpty else { continue }
                 switch item["type"] as? String {
                 case "songs":
