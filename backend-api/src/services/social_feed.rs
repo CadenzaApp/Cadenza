@@ -193,7 +193,8 @@ impl SocialFeedService {
     /// A topic prefixes the embedding with what it is about: the song or
     /// artist names from the request, or the shared playlist's name. Stored
     /// `content` is the user's text. Only a member can attach a shared
-    /// playlist; anyone else gets `NotFound`, so an id does not leak.
+    /// playlist; anyone else gets `NotFound`, so an id does not leak. The
+    /// author is marked `viewed` on the new post with their next `feed_order`.
     pub async fn create_post(
         &self,
         db: &DatabaseConnection,
@@ -232,17 +233,41 @@ impl SocialFeedService {
             NewPostTopic::Apple { mk_id, .. } => (Some(mk_id), None),
             NewPostTopic::SharedPlaylist(id) => (None, Some(id)),
         };
-        social::insert_post_with_tags(
-            db,
-            user_id,
-            content,
-            &embedding,
-            &with_bday,
-            topic_mk_id,
-            shared_playlist_id,
-            tags,
-        )
-        .await
+        for _ in 0..FEED_ORDER_ATTEMPTS {
+            let latest = self.latest_feed_order(db, user_id).await?;
+            match social::insert_post_with_tags(
+                db,
+                user_id,
+                content,
+                &embedding,
+                &with_bday,
+                topic_mk_id,
+                shared_playlist_id,
+                tags,
+                latest,
+            )
+            .await
+            {
+                Ok((post_id, tags, order)) => {
+                    self.feed_orders.lock().expect("feed order cache").set(
+                        user_id,
+                        order,
+                        Utc::now(),
+                    );
+                    return Ok((post_id, tags));
+                }
+                Err(LoadedOrderError::Taken) => {
+                    self.feed_orders
+                        .lock()
+                        .expect("feed order cache")
+                        .invalidate(user_id);
+                }
+                Err(LoadedOrderError::Other(err)) => return Err(err),
+            }
+        }
+        Err(CadenzaError::DatabaseError(
+            "feed order was updated by another server".into(),
+        ))
     }
 
     /// Replaces the author's post text. When the post has a topic, the
@@ -631,13 +656,41 @@ impl SocialFeedService {
         Ok(())
     }
 
+    /// Sets `viewed`. A post with no row yet gets the next `feed_order`. A row
+    /// that already has one keeps it.
     pub async fn mark_posts_viewed(
         &self,
         db: &DatabaseConnection,
         user_id: Uuid,
         post_ids: &[i64],
     ) -> Result<(), CadenzaError> {
-        social::mark_posts_viewed(db, user_id, post_ids).await
+        if post_ids.is_empty() {
+            return Ok(());
+        }
+        for _ in 0..FEED_ORDER_ATTEMPTS {
+            let latest = self.latest_feed_order(db, user_id).await?;
+            match social::mark_posts_viewed(db, user_id, post_ids, latest).await {
+                Ok(None) => return Ok(()),
+                Ok(Some(newest)) => {
+                    self.feed_orders.lock().expect("feed order cache").set(
+                        user_id,
+                        newest,
+                        Utc::now(),
+                    );
+                    return Ok(());
+                }
+                Err(LoadedOrderError::Taken) => {
+                    self.feed_orders
+                        .lock()
+                        .expect("feed order cache")
+                        .invalidate(user_id);
+                }
+                Err(LoadedOrderError::Other(err)) => return Err(err),
+            }
+        }
+        Err(CadenzaError::DatabaseError(
+            "feed order was updated by another server".into(),
+        ))
     }
 
     /// One page of comments on `post_id`, most liked first.

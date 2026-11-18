@@ -1,9 +1,10 @@
 -- Load order for one user's feed, used as the previously viewed cursor.
 --
--- `feed_order` is assigned when a post is first marked `loaded`, increasing
--- from that user's current maximum. A row marked `viewed` without being
--- loaded has no number. Existing rows are numbered by their old view time so
--- the section has an order before any new page is loaded.
+-- `feed_order` is assigned when a row is first written, increasing from that
+-- user's current maximum: a loaded feed page, a post the author just created
+-- (marked `viewed`), or a view of a post that had no row yet. Existing rows
+-- are numbered by their old view time so the section has an order before any
+-- new page is loaded. The column is not null.
 --
 -- Additive and idempotent. Applied by hand against Supabase.
 --
@@ -38,3 +39,6 @@ where v.user_id = ranked.user_id
 
 create unique index if not exists post_view_status_user_feed_order_idx
     on post_view_status (user_id, feed_order);
+
+alter table post_view_status
+    alter column feed_order set not null;

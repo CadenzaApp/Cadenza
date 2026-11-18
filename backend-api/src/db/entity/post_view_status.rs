@@ -12,7 +12,7 @@ pub struct Model {
     pub user_id: Uuid,
     pub date: DateTimeWithTimeZone,
     pub status: PostViewStatusKind,
-    pub feed_order: Option<i32>,
+    pub feed_order: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

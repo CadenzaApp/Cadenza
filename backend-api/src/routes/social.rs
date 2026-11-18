@@ -94,8 +94,8 @@ async fn get_feed(
 /// The first page omits `after_feed_order` and starts at the smallest
 /// `feed_order`. The next page passes the last row's `feed_order`, and only
 /// higher numbers are returned. `limit` defaults to 10 and caps at 50. Each
-/// item is a `SocialPost` plus `feed_order` and `viewed_at`. A viewed row
-/// that was never loaded is left out. Blocked authors are left out.
+/// item is a `SocialPost` plus `feed_order` and `viewed_at`. Every viewed row
+/// has a `feed_order`. Blocked authors are left out.
 ///
 /// ```json
 /// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0, "feed_order": 4, "viewed_at": "2026-11-01T18:00:00Z" } ] }
@@ -342,7 +342,8 @@ struct IncomingPostTag {
 ///
 /// `tags` is optional, at most 10. Each is `{text, color}`. Text is trimmed,
 /// internal whitespace is collapsed, and it is at most 24 characters. Color
-/// is `#` plus 6 hex digits. A repeated word, ignoring case, is 422.
+/// is `#` plus 6 hex digits. A repeated word, ignoring case, is 422. The
+/// author is marked `viewed` on the new post with their next `feed_order`.
 async fn create_post(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
@@ -590,7 +591,8 @@ struct MarkViewedBody {
     post_ids: Vec<i64>,
 }
 
-/// Marks posts `viewed` for the signed-in user. Responds with `null`.
+/// Marks posts `viewed` for the signed-in user. A post with no row yet gets
+/// the next `feed_order`. An existing row keeps its number. Responds with `null`.
 async fn mark_viewed(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
