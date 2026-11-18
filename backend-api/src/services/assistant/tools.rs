@@ -373,7 +373,7 @@ struct WantedSong {
 
 /// Lowercase letters, digits, and single spaces, with anything in brackets and any
 /// " - Remastered" style suffix dropped, for comparing titles and artist names.
-fn match_key(text: &str) -> String {
+pub(super) fn match_key(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut depth = 0usize;
     // a suffix like " - Remastered 2011" or " - From \"Halo\"" is not part of the title

@@ -312,6 +312,7 @@ impl LoopState {
         };
         if let Some(card) = phone_tools::take_card(&mut output) {
             state.songs = Some(card);
+            output = with_card_note(output);
         }
         state.items.push(json!({
             "type": "function_call_output",
@@ -349,12 +350,144 @@ impl LoopState {
     }
 
     fn reply(self, text: String) -> AssistantResponse {
+        // the card already shows its songs; a reply that lists them again only repeats it
+        let text = if self.songs.is_some() {
+            strip_card_listing(&text, &songs_named_in(&self.items))
+        } else {
+            text
+        };
         AssistantResponse::Reply {
             text,
             steps: self.steps,
             songs: self.songs,
         }
     }
+}
+
+/// What a tool output that makes a card tells the model, next to the songs, where it
+/// weighs more than a rule in the instructions.
+const CARD_NOTE: &str = "These songs are shown to the user as a card under your answer, with titles, artists, and artwork. Do not list them in your reply; say in one sentence what the card holds.";
+
+/// `output` with [`CARD_NOTE`] added, when it is an object.
+fn with_card_note(mut output: Value) -> Value {
+    if let Some(object) = output.as_object_mut() {
+        object.insert("shown_as_card".to_owned(), Value::from(CARD_NOTE));
+    }
+    output
+}
+
+/// Every song this answer's tool outputs named, as (title, artist), for telling a reply
+/// that repeats the card from one that says something about its songs.
+fn songs_named_in(items: &[Value]) -> Vec<(String, Option<String>)> {
+    fn walk(value: &Value, found: &mut Vec<(String, Option<String>)>) {
+        match value {
+            Value::Object(object) => {
+                if let Some(title) = object.get("title").and_then(Value::as_str) {
+                    let artist = object
+                        .get("artist")
+                        .or_else(|| object.get("artist_name"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    found.push((title.to_owned(), artist));
+                }
+                object.values().for_each(|value| walk(value, found));
+            }
+            Value::Array(values) => values.iter().for_each(|value| walk(value, found)),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    for item in items {
+        if item["type"] != "function_call_output" {
+            continue;
+        }
+        if let Some(output) = item["output"].as_str()
+            && let Ok(value) = serde_json::from_str::<Value>(output)
+        {
+            walk(&value, &mut found);
+        }
+    }
+    found
+}
+
+/// The most words a line may keep, once a song's title, its artist, and list marks are
+/// taken out, and still count as only naming the song.
+const MAX_LISTING_EXTRA_WORDS: usize = 3;
+
+/// `text` without the lines that only name songs the card shows, like `1. "Megalovania"
+/// by Toby Fox` or `- Baba Yetu (Christopher Tin)`. A line that says more about a song
+/// (why it fits, what game it is from in a sentence, its play count) stays. A lead-in
+/// left ending in a colon ends in a period instead. Only when two or more such lines
+/// are found, so a sentence that happens to name one song is left alone.
+fn strip_card_listing(text: &str, songs: &[(String, Option<String>)]) -> String {
+    use tools::match_key;
+    let songs: Vec<(String, Option<String>)> = songs
+        .iter()
+        .map(|(title, artist)| (match_key(title), artist.as_deref().map(match_key)))
+        .filter(|(title, _)| !title.is_empty())
+        .collect();
+    let names_only = |line: &str| -> bool {
+        let key = match_key(line);
+        songs.iter().any(|(title, artist)| {
+            let Some(rest) = remove_words(&key, title) else {
+                return false;
+            };
+            let rest = match artist {
+                Some(artist) if !artist.is_empty() => remove_words(&rest, artist).unwrap_or(rest),
+                _ => rest,
+            };
+            let extra = rest
+                .split_whitespace()
+                .filter(|word| !matches!(*word, "by" | "from" | "the" | "and" | "feat" | "ft"))
+                .filter(|word| !word.chars().all(|c| c.is_ascii_digit()))
+                .count();
+            extra <= MAX_LISTING_EXTRA_WORDS
+        })
+    };
+
+    let lines: Vec<&str> = text.lines().collect();
+    let listing: Vec<bool> = lines
+        .iter()
+        .map(|line| !line.trim().is_empty() && names_only(line))
+        .collect();
+    if listing.iter().filter(|&&is| is).count() < 2 {
+        return text.to_owned();
+    }
+    let kept: Vec<&str> = lines
+        .iter()
+        .zip(&listing)
+        .filter(|(_, is)| !**is)
+        .map(|(line, _)| *line)
+        .collect();
+    let mut out = kept.join("\n").trim().to_owned();
+    // "Here are 10 iconic songs:" with its list gone
+    while out.contains("\n\n\n") {
+        out = out.replace("\n\n\n", "\n\n");
+    }
+    let mut out_lines: Vec<String> = out.lines().map(str::to_owned).collect();
+    for line in &mut out_lines {
+        let trimmed = line.trim_end();
+        if let Some(lead_in) = trimmed.strip_suffix(':') {
+            *line = format!("{lead_in}.");
+        }
+    }
+    let out = out_lines.join("\n").trim().to_owned();
+    if out.is_empty() {
+        "Here they are.".to_owned()
+    } else {
+        out
+    }
+}
+
+/// `haystack` with the words of `needle` taken out where they appear in a run, or None
+/// when they do not.
+fn remove_words(haystack: &str, needle: &str) -> Option<String> {
+    let padded = format!(" {haystack} ");
+    let target = format!(" {needle} ");
+    padded
+        .find(&target)
+        .map(|at| format!("{} {}", &padded[..at], &padded[at + target.len()..]))
+        .map(|rest| rest.split_whitespace().collect::<Vec<_>>().join(" "))
 }
 
 /// The tool loop. `history` is the conversation; `state` this answer so far.
@@ -385,7 +518,12 @@ pub async fn run_loop(
 
             if !phone_tools::is_phone_tool(&call.name) {
                 let outcome = runner.run(&call.name, &call.arguments).await;
-                state.push_output(&call.call_id, &outcome.output);
+                let output = if outcome.songs.is_some() {
+                    with_card_note(outcome.output.clone())
+                } else {
+                    outcome.output.clone()
+                };
+                state.push_output(&call.call_id, &output);
                 state.add_step(&call.name, &outcome.label);
                 if outcome.songs.is_some() {
                     state.songs = outcome.songs;
@@ -663,7 +801,9 @@ mod tests {
         assert_eq!(songs.unwrap().song_ids, ["7"]);
         // and the model read the output without it
         let inputs = second.inputs.lock().unwrap();
-        assert_eq!(inputs[0][2]["output"], r#"{"songs":[]}"#);
+        let output: Value = serde_json::from_str(inputs[0][2]["output"].as_str().unwrap()).unwrap();
+        assert_eq!(output["songs"], json!([]));
+        assert!(output.get("card").is_none());
     }
 
     #[tokio::test]
@@ -727,6 +867,64 @@ mod tests {
         }
     }
 
+    fn named() -> Vec<(String, Option<String>)> {
+        vec![
+            ("Megalovania".into(), Some("Toby Fox".into())),
+            ("Baba Yetu".into(), Some("Christopher Tin".into())),
+            ("Still Alive".into(), Some("Jonathan Coulton".into())),
+        ]
+    }
+
+    #[test]
+    fn a_plain_listing_of_the_card_is_taken_out() {
+        let reply = "Here are 3 iconic video game songs:\n1. \"Megalovania\" by Toby Fox\n2. Baba Yetu (Christopher Tin)\n- Still Alive by Jonathan Coulton from Portal";
+        assert_eq!(
+            strip_card_listing(reply, &named()),
+            "Here are 3 iconic video game songs."
+        );
+    }
+
+    #[test]
+    fn lines_that_say_more_than_the_card_stay() {
+        let reply = "Two picks:\n1. Megalovania by Toby Fox, the boss theme that made Undertale's last fight famous\n2. Baba Yetu by Christopher Tin, the first game song to win a Grammy";
+        assert_eq!(strip_card_listing(reply, &named()), reply);
+    }
+
+    #[test]
+    fn one_song_named_in_a_sentence_stays() {
+        let reply = "Megalovania by Toby Fox is the most played of these.";
+        assert_eq!(strip_card_listing(reply, &named()), reply);
+    }
+
+    #[test]
+    fn songs_are_read_from_this_answers_tool_outputs() {
+        let items = vec![
+            json!({ "type": "function_call", "call_id": "c", "name": "find_songs", "arguments": "{}" }),
+            json!({
+                "type": "function_call_output",
+                "call_id": "c",
+                "output": json!({ "songs": [{ "title": "Megalovania", "artist": "Toby Fox" }] }).to_string(),
+            }),
+        ];
+        assert_eq!(
+            songs_named_in(&items),
+            vec![("Megalovania".to_owned(), Some("Toby Fox".to_owned()))]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_card_tool_tells_the_model_not_to_list_it() {
+        let model = ScriptedModel::new(vec![call("run_query", "{}"), text("Done.")]);
+        run(&model).await;
+        let inputs = model.inputs.lock().unwrap();
+        assert!(
+            inputs[1][2]["output"]
+                .as_str()
+                .unwrap()
+                .contains("shown_as_card")
+        );
+    }
+
     #[test]
     fn a_resume_must_be_the_servers_own_shape() {
         let phone_call =
@@ -786,7 +984,8 @@ mod tests {
         assert_eq!(second[1]["call_id"], "call_run_query");
         assert_eq!(second[2]["type"], "function_call_output");
         assert_eq!(second[2]["call_id"], "call_run_query");
-        assert_eq!(second[2]["output"], r#"{"ran":"run_query"}"#);
+        let output: Value = serde_json::from_str(second[2]["output"].as_str().unwrap()).unwrap();
+        assert_eq!(output["ran"], "run_query");
     }
 
     #[tokio::test]

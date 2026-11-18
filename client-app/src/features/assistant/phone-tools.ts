@@ -57,6 +57,15 @@ const SHEETS: Record<string, Href> = {
     your_data: "/your-data",
 };
 
+/** The tabs `open_screen` can switch to, by the name the model uses. */
+const TABS: Record<string, Href> = {
+    social: "/social",
+    analytics: "/analytics",
+    cadenza: "/cadenza",
+    library: "/library",
+    search: "/search",
+};
+
 /** Names of the Apple Music playlists listed so far, by id, for card titles. */
 const playlistNames = new Map<string, string>();
 
@@ -410,6 +419,13 @@ async function openScreenFor(
 ): Promise<ToolOutput> {
     const screen = stringOf(args.screen) ?? "";
     const id = stringOf(args.id);
+    const tab = TABS[screen];
+    if (tab) {
+        // close the assistant sheet, then switch tabs underneath it
+        if (router.canDismiss()) router.dismiss();
+        router.navigate(tab);
+        return { opened: screen };
+    }
     const sheet = SHEETS[screen];
     if (sheet) {
         // a settings sheet takes the assistant sheet's place

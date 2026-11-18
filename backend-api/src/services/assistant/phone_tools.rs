@@ -282,13 +282,13 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "open_screen",
-            "description": "Opens a screen in the app, closing the chat. Settings sheets and now_playing (the player) need no id. Every other screen needs an id from a tool result in this conversation, never one you remember or guess: tag a tag id, saved_query an id from list_saved_queries, shared_playlist an id from list_playlists, apple_music_playlist an id from apple_music_playlists, artist an artist_id from find_artist or now_playing, album an album_id from find_album, now_playing, or find_songs, song_discussion (the posts about one song) a song_id from any tool.",
+            "description": "Opens a screen in the app, closing the chat. The tabs (social, analytics, cadenza, library, search), the settings sheets, and now_playing (the player) need no id. Every other screen needs an id from a tool result in this conversation, never one you remember or guess: tag a tag id, saved_query an id from list_saved_queries, shared_playlist an id from list_playlists, apple_music_playlist an id from apple_music_playlists, artist an artist_id from find_artist or now_playing, album an album_id from find_album, now_playing, or find_songs, song_discussion (the posts about one song) a song_id from any tool.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "screen": {
                         "type": "string",
-                        "enum": ["account", "appearance", "apple_music", "listening_preferences", "privacy", "your_data", "now_playing", "tag", "saved_query", "shared_playlist", "apple_music_playlist", "artist", "album", "song_discussion"]
+                        "enum": ["social", "analytics", "cadenza", "library", "search", "account", "appearance", "apple_music", "listening_preferences", "privacy", "your_data", "now_playing", "tag", "saved_query", "shared_playlist", "apple_music_playlist", "artist", "album", "song_discussion"]
                     },
                     "id": { "type": "string" }
                 },

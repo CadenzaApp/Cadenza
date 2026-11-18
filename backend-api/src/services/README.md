@@ -397,6 +397,11 @@ append each call and its output, and repeat until the model answers with text. I
   credit and retry once. A failed search is `lookup_failed`, not `not_found`. Every lookup is
   logged as `[assistant] find_songs "<term>"` with what it matched or what Apple returned. The found songs' metadata is stored in the background
   (`spawn_store_song_metadata`) so follow-up questions and queries know them.
+- The card shows its songs, so a reply should not list them again. A tool output that makes a
+  card carries `shown_as_card`, a note saying so next to the songs. As a backstop,
+  `strip_card_listing` takes out of the reply any lines (two or more) that only name songs this
+  answer's tools returned, like `1. "Megalovania" by Toby Fox`; a line that says more about a song
+  stays, and a lead-in left ending in a colon gets a period.
 - The two Apple Music library writes are confirmed by the user on the phone, which Cadenza
   cannot undo; the backend does not know the difference. The prompt lists what the assistant
   cannot do (tags, account, settings, social, live sessions, single queue edits) and has it say
