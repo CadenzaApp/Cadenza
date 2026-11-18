@@ -76,7 +76,14 @@ pub trait ToolRunner: Send + Sync {
 /// The most songs `find_songs` looks up in one call.
 const MAX_FOUND_SONGS: usize = 25;
 /// How many catalog results `find_songs` weighs for each song it looks up.
-const FIND_CANDIDATES: usize = 5;
+const FIND_CANDIDATES: usize = 8;
+/// How many `find_songs` catalog searches run at once. All at once can trip Apple's rate
+/// limit, which the background metadata crawl shares.
+const FIND_PARALLEL_SEARCHES: usize = 4;
+/// How long a rate limited search waits before its one retry.
+const FIND_RETRY_WAIT: std::time::Duration = std::time::Duration::from_millis(1200);
+/// How many of Apple's results go back to the model for a song with no match.
+const MAX_CLOSE_MATCHES: usize = 3;
 
 /// The tools, run against the database as one user.
 pub struct DbTools<'a> {
@@ -172,7 +179,7 @@ fn label_for(name: &str) -> &'static str {
         "get_song_tags" => "Looked up song tags",
         "list_playlists" => "Looked up your playlists",
         "get_playlist_songs" => "Looked up a playlist's songs",
-        "find_songs" => "Found songs on Apple Music",
+        "find_songs" => "Looking for songs on Apple Music",
         _ => "Tried a tool",
     }
 }
@@ -384,16 +391,103 @@ fn artists_match(wanted: &str, found: &str) -> bool {
 /// The catalog song that is the one the model named: the first result whose title and
 /// artist both match, or with no artist named, the first whose title matches. None
 /// rather than a guess, so a wrong song never lands on the card.
-fn pick_match(wanted: &WantedSong, candidates: Vec<SongMetadata>) -> Option<SongMetadata> {
+fn pick_match(wanted: &WantedSong, candidates: &[SongMetadata]) -> Option<SongMetadata> {
     let artist = wanted
         .artist
         .as_deref()
         .map(str::trim)
         .filter(|a| !a.is_empty());
-    candidates.into_iter().find(|song| {
-        titles_match(&wanted.title, &song.title)
-            && artist.is_none_or(|artist| artists_match(artist, &song.artist_name))
-    })
+    candidates
+        .iter()
+        .find(|song| {
+            titles_match(&wanted.title, &song.title)
+                && artist.is_none_or(|artist| artists_match(artist, &song.artist_name))
+        })
+        .cloned()
+}
+
+/// What Apple returned for a song with no match, for the model to judge: the results
+/// whose title matches (usually the right song under another artist credit, or covers),
+/// or failing that the top results.
+fn close_matches(wanted: &WantedSong, candidates: &[SongMetadata]) -> Vec<Value> {
+    let titled: Vec<&SongMetadata> = candidates
+        .iter()
+        .filter(|song| titles_match(&wanted.title, &song.title))
+        .collect();
+    let shown: Vec<&SongMetadata> = if titled.is_empty() {
+        candidates.iter().collect()
+    } else {
+        titled
+    };
+    shown
+        .into_iter()
+        .take(MAX_CLOSE_MATCHES)
+        .map(|song| json!({ "title": song.title, "artist": song.artist_name, "album": song.album_name }))
+        .collect()
+}
+
+/// One `find_songs` lookup: the match, or what Apple returned instead.
+enum Lookup {
+    Found(Box<SongMetadata>),
+    /// Apple answered, but nothing matched.
+    Missing(Vec<Value>),
+    /// The search itself failed, with why.
+    Failed(String),
+}
+
+/// What the model is told when every `find_songs` search failed: that the lookup itself is
+/// broken, not the songs, so it says so instead of trying again.
+fn apple_music_down_message(why: &str) -> String {
+    let cause = if why.contains("returned 401") || why.contains("returned 403") {
+        "Apple Music rejected the server's credentials (its developer token may have expired)"
+    } else {
+        "Apple Music did not answer"
+    };
+    format!(
+        "Searching Apple Music is not working right now: {cause}. None of the songs were looked up, so this says nothing about whether they exist. Do not call find_songs again in this answer. Tell the user plainly that looking songs up on Apple Music is not working right now, and offer to try their own library with run_query instead."
+    )
+}
+
+/// Searches the catalog for one song the model named, retrying once on a rate limit.
+/// Every outcome is logged, so a song that did not land can be checked against Apple.
+async fn look_up(service: &SongMetadataService, song: &WantedSong) -> Lookup {
+    let term = match song.artist.as_deref() {
+        Some(artist) if !artist.trim().is_empty() => format!("{} {}", song.title, artist),
+        _ => song.title.clone(),
+    };
+    let mut result = service.search_songs(&term, FIND_CANDIDATES).await;
+    if matches!(result, Err(CadenzaError::SongMetadataRateLimited)) {
+        tokio::time::sleep(FIND_RETRY_WAIT).await;
+        result = service.search_songs(&term, FIND_CANDIDATES).await;
+    }
+    let candidates = match result {
+        Ok(candidates) => candidates,
+        Err(err) => {
+            println!("[assistant] find_songs \"{term}\" failed: {err}");
+            return Lookup::Failed(err.to_string());
+        }
+    };
+    match pick_match(song, &candidates) {
+        Some(found) => {
+            println!(
+                "[assistant] find_songs \"{term}\" -> {} / {}",
+                found.title, found.artist_name
+            );
+            Lookup::Found(Box::new(found))
+        }
+        None => {
+            let returned: Vec<String> = candidates
+                .iter()
+                .take(MAX_CLOSE_MATCHES)
+                .map(|song| format!("{} / {}", song.title, song.artist_name))
+                .collect();
+            println!(
+                "[assistant] find_songs \"{term}\" no match among {} results: {returned:?}",
+                candidates.len()
+            );
+            Lookup::Missing(close_matches(song, &candidates))
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -762,40 +856,59 @@ impl DbTools<'_> {
             ));
         }
 
-        let mut searches = tokio::task::JoinSet::new();
-        for (index, song) in wanted.iter().cloned().enumerate() {
-            let service = self.song_meta.clone();
-            searches.spawn(async move {
-                let term = match song.artist.as_deref() {
-                    Some(artist) if !artist.trim().is_empty() => {
-                        format!("{} {}", song.title, artist)
-                    }
-                    _ => song.title.clone(),
-                };
-                let found = service
-                    .search_songs(&term, FIND_CANDIDATES)
-                    .await
-                    .ok()
-                    .and_then(|candidates| pick_match(&song, candidates));
-                (index, found)
-            });
-        }
-        let mut matches: Vec<Option<SongMetadata>> = vec![None; wanted.len()];
-        while let Some(joined) = searches.join_next().await {
-            if let Ok((index, found)) = joined {
-                matches[index] = found;
+        // a few at a time, in order
+        let mut lookups: Vec<Lookup> = Vec::with_capacity(wanted.len());
+        for batch in wanted.chunks(FIND_PARALLEL_SEARCHES) {
+            let mut searches = tokio::task::JoinSet::new();
+            for (index, song) in batch.iter().cloned().enumerate() {
+                let service = self.song_meta.clone();
+                searches.spawn(async move { (index, look_up(&service, &song).await) });
             }
+            let mut results: Vec<Option<Lookup>> = (0..batch.len()).map(|_| None).collect();
+            while let Some(joined) = searches.join_next().await {
+                if let Ok((index, lookup)) = joined {
+                    results[index] = Some(lookup);
+                }
+            }
+            lookups.extend(results.into_iter().map(|lookup| {
+                lookup.unwrap_or_else(|| Lookup::Failed("the search stopped".to_owned()))
+            }));
+            // a first batch that failed whole means Apple is refusing every search, like an
+            // expired developer token; the rest would only fail the same way
+            if lookups
+                .iter()
+                .all(|lookup| matches!(lookup, Lookup::Failed(_)))
+            {
+                break;
+            }
+        }
+        if let Some(Lookup::Failed(why)) = lookups.first()
+            && lookups
+                .iter()
+                .all(|lookup| matches!(lookup, Lookup::Failed(_)))
+        {
+            return Err(ToolError::Arguments(apple_music_down_message(why)));
         }
 
         let mut seen = std::collections::HashSet::new();
         let mut found = Vec::new();
         let mut missing = Vec::new();
-        for (song, matched) in wanted.iter().zip(matches) {
-            match matched {
-                Some(metadata) if seen.insert(metadata.id.clone()) => found.push(metadata),
+        let mut failed = Vec::new();
+        for (song, lookup) in wanted.iter().zip(lookups) {
+            match lookup {
+                Lookup::Found(metadata) if seen.insert(metadata.id.clone()) => {
+                    found.push(*metadata)
+                }
                 // the same song named twice
-                Some(_) => {}
-                None => missing.push(json!({ "title": song.title, "artist": song.artist })),
+                Lookup::Found(_) => {}
+                Lookup::Missing(close) => missing.push(json!({
+                    "title": song.title,
+                    "artist": song.artist,
+                    "apple_music_has": close,
+                })),
+                Lookup::Failed(_) => {
+                    failed.push(json!({ "title": song.title, "artist": song.artist }))
+                }
             }
         }
         if self.hide_explicit {
@@ -821,8 +934,11 @@ impl DbTools<'_> {
             json!({
                 "found": described.len(),
                 "songs": described,
-                // named but not on Apple Music here, or only under another title
+                // no match: Apple's closest results, which may be the right song under
+                // another credit, or only covers
                 "not_found": missing,
+                // the search failed, not the song: worth one more try
+                "lookup_failed": failed,
             }),
             "",
         );
@@ -1135,7 +1251,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "find_songs",
-            "description": "Shows specific songs you name yourself, from what you know about music, as a card: for a request no tag or metadata query can express, like \"10 iconic video game songs\", \"songs like Redbone\", \"the best 90s one-hit wonders\", or \"songs from the Interstellar soundtrack\". Each is looked up on Apple Music; only exact matches are kept, and not_found lists the rest. Name real, well-known recordings with their main artist.",
+            "description": "Shows specific songs you name yourself, from what you know about music, as a card: for a request no tag or metadata query can express, like \"10 iconic video game songs\", \"songs like Redbone\", \"the best 90s one-hit wonders\", or \"songs from the Interstellar soundtrack\". Each is looked up on Apple Music; only songs whose title and artist match are kept. not_found lists the rest with what Apple Music has under that title (apple_music_has), and lookup_failed the ones whose search failed. Name real, well-known recordings with the artist Apple Music credits.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1359,24 +1475,38 @@ mod tests {
             song("Megalovania (Metal Cover)", "Some Band"),
             song("Megalovania", "Toby Fox"),
         ];
-        let picked = pick_match(&wanted("Megalovania", Some("Toby Fox")), candidates).unwrap();
+        let picked = pick_match(&wanted("Megalovania", Some("Toby Fox")), &candidates).unwrap();
         assert_eq!(picked.artist_name, "Toby Fox");
 
         // a cover by someone else is not the song
         let covers = vec![song("Megalovania", "Some Band")];
         assert_eq!(
-            pick_match(&wanted("Megalovania", Some("Toby Fox")), covers),
+            pick_match(&wanted("Megalovania", Some("Toby Fox")), &covers),
             None
         );
+
+        // and goes back to the model as what Apple has
+        let close = close_matches(&wanted("Megalovania", Some("Toby Fox")), &covers);
+        assert_eq!(close[0]["artist"], "Some Band");
 
         // with no artist named, the first title match
         let any = vec![song("Other", "A"), song("Megalovania", "B")];
         assert_eq!(
-            pick_match(&wanted("Megalovania", None), any)
+            pick_match(&wanted("Megalovania", None), &any)
                 .unwrap()
                 .artist_name,
             "B"
         );
+    }
+
+    #[test]
+    fn a_rejected_token_reads_as_apple_music_being_down() {
+        let message = apple_music_down_message(
+            r#"{"error_type":"SongMetadataErr","message":"apple music returned 401: "}"#,
+        );
+        assert!(message.contains("credentials"));
+        assert!(message.contains("Do not call find_songs again"));
+        assert!(apple_music_down_message("timed out").contains("did not answer"));
     }
 
     #[test]

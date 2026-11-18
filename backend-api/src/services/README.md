@@ -390,9 +390,12 @@ append each call and its output, and repeat until the model answers with text. I
   and is taken out of what the model reads.
 - `find_songs` is for lists no query can express ("iconic video game songs", "songs like
   Redbone"): the model names the songs, and each is a `SongMetadataService::search_songs` call,
-  all at once. A result counts only when its title (brackets and " - Remastered" suffixes
-  aside, or a whole-word prefix) and artist both match, so a song Apple lacks comes back in
-  `not_found` rather than as a lookalike. The found songs' metadata is stored in the background
+  four at a time, retrying once after a rate limit. A result counts only when its title
+  (brackets and " - Remastered" suffixes aside, or a whole-word prefix) and artist both match,
+  so a song Apple lacks comes back in `not_found` rather than as a lookalike, with
+  `apple_music_has` (Apple's results under that title) so the model can correct an artist
+  credit and retry once. A failed search is `lookup_failed`, not `not_found`. Every lookup is
+  logged as `[assistant] find_songs "<term>"` with what it matched or what Apple returned. The found songs' metadata is stored in the background
   (`spawn_store_song_metadata`) so follow-up questions and queries know them.
 - The two Apple Music library writes are confirmed by the user on the phone, which Cadenza
   cannot undo; the backend does not know the difference. The prompt lists what the assistant
