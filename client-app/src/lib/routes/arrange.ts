@@ -35,6 +35,7 @@ export type ArrangeSource =
 type ArrangedBody = {
     sort?: ArrangeFieldJSON;
     group?: ArrangeFieldJSON;
+    limit?: number;
     time_zone?: string;
 } & (
     | {
@@ -118,6 +119,7 @@ export function useArrangedSongs(
                       time_zone: deviceTimeZone(),
                   }
                 : {}),
+            ...(arrangement.limit !== null ? { limit: arrangement.limit } : {}),
         };
         return source.kind === "query"
             ? {
@@ -131,6 +133,7 @@ export function useArrangedSongs(
     }, [
         arranged,
         arrangement.group,
+        arrangement.limit,
         arrangement.sort,
         hideExplicit,
         source,

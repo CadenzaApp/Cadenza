@@ -16,6 +16,7 @@ import {
     type PickerSection,
 } from "@/components/custom/option-picker";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
     FloatingTopButton,
     HERO_BUTTON_SIZE,
@@ -34,6 +35,7 @@ import {
     fieldType,
     hasDirection,
     isArranged,
+    parseSongLimit,
     type ArrangeDirection,
     type ArrangeField,
     type ArrangeTagSource,
@@ -71,11 +73,12 @@ type Props = {
 };
 
 /**
- * The button that opens a list's Sort by and Group by choices, in the bottom
- * row or the top right corner (`placement`). Both pick any tag at all, the
- * song's metadata tags included, from a searchable list, or None. Picking a
- * field starts it in its natural direction; the direction buttons below it
- * flip that.
+ * The button that opens a list's Sort by, Group by and Show top choices, in
+ * the bottom row or the top right corner (`placement`). Sort and group both
+ * pick any tag at all, the song's metadata tags included, from a searchable
+ * list, or None. Picking a field starts it in its natural direction; the
+ * direction buttons below it flip that. Show top keeps only the first songs,
+ * in the sort's order, before they are grouped.
  */
 export function MusicListArrangeButton({
     value,
@@ -215,6 +218,11 @@ function ArrangeSheet({
                         Sort by orders the songs inside each.
                     </Text>
                 ) : null}
+                <LimitRow
+                    limit={value.limit}
+                    grouped={value.group !== null}
+                    onChange={(limit) => onChange({ ...value, limit })}
+                />
             </View>
 
             {/* inside the popup, so it presents over it rather than beside it */}
@@ -298,6 +306,82 @@ function ChoiceRow({
             ) : choice ? (
                 <Text className="text-xs text-muted-foreground">
                     Songs with this tag come first.
+                </Text>
+            ) : null}
+        </View>
+    );
+}
+
+/**
+ * How many songs the list keeps, typed as a number. Empty is every song. The
+ * list only changes once typing is done (the keyboard's Done, or leaving the
+ * field), so each digit does not fetch it again.
+ */
+function LimitRow({
+    limit,
+    grouped,
+    onChange,
+}: {
+    limit: number | null;
+    grouped: boolean;
+    onChange: (limit: number | null) => void;
+}) {
+    const { colors } = useTheme();
+    const [draft, setDraft] = useState(limit === null ? "" : String(limit));
+    // a limit changed from outside the field shows in it. set while
+    // rendering, React's way of keeping a value from an earlier render
+    const [shownLimit, setShownLimit] = useState(limit);
+    if (shownLimit !== limit) {
+        setShownLimit(limit);
+        setDraft(limit === null ? "" : String(limit));
+    }
+
+    function commit() {
+        const next = parseSongLimit(draft);
+        setDraft(next === null ? "" : String(next));
+        if (next !== limit) onChange(next);
+    }
+
+    return (
+        <View className="gap-2">
+            <Text className="text-sm font-semibold uppercase text-muted-foreground">
+                Show top
+            </Text>
+            <View className="flex-row items-center gap-2">
+                <Input
+                    value={draft}
+                    onChangeText={(text) => setDraft(text.replace(/\D/g, ""))}
+                    onEndEditing={commit}
+                    onSubmitEditing={commit}
+                    placeholder="All songs"
+                    keyboardType="number-pad"
+                    returnKeyType="done"
+                    accessibilityLabel="Show top, number of songs"
+                    className="h-12 flex-1 rounded-lg border border-border bg-background"
+                />
+                {limit !== null || draft !== "" ? (
+                    <Pressable
+                        onPress={() => {
+                            setDraft("");
+                            if (limit !== null) onChange(null);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Show all songs"
+                        hitSlop={8}
+                        className="h-12 w-12 items-center justify-center rounded-lg active:bg-accent"
+                    >
+                        <Ionicons
+                            name="close-circle"
+                            size={22}
+                            color={colors.text}
+                        />
+                    </Pressable>
+                ) : null}
+            </View>
+            {limit !== null ? (
+                <Text className="text-xs text-muted-foreground">
+                    Only the first {limit} {limit === 1 ? "song" : "songs"}
+                    {grouped ? ", then grouped." : "."}
                 </Text>
             ) : null}
         </View>

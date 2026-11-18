@@ -9,7 +9,9 @@ import {
     groupLabel,
     hasDirection,
     isArranged,
+    MAX_SONG_LIMIT,
     NO_ARRANGEMENT,
+    parseSongLimit,
     releaseDay,
     sameField,
     sectionsOf,
@@ -30,15 +32,28 @@ const tag = (
     source,
 });
 
-test("none is no sort and no group", () => {
+test("none is no sort, no group, and no limit", () => {
     assert.equal(isArranged(NO_ARRANGEMENT), false);
     assert.equal(
         isArranged({
             sort: { field: artist, direction: "ascending" },
             group: null,
+            limit: null,
         }),
         true,
     );
+    assert.equal(isArranged({ ...NO_ARRANGEMENT, limit: 10 }), true);
+});
+
+test("a limit is a whole number above zero, at most the most there is", () => {
+    assert.equal(parseSongLimit("25"), 25);
+    assert.equal(parseSongLimit(" 7 "), 7);
+    assert.equal(parseSongLimit(""), null);
+    assert.equal(parseSongLimit("0"), null);
+    assert.equal(parseSongLimit("-3"), null);
+    assert.equal(parseSongLimit("2.5"), null);
+    assert.equal(parseSongLimit("ten"), null);
+    assert.equal(parseSongLimit("99999999"), MAX_SONG_LIMIT);
 });
 
 test("play counts and the latest play start with the most and the newest", () => {

@@ -584,6 +584,12 @@ Song id breaks every tie, compared byte by byte (`COLLATE "C"`), so the order is
 same request over the same data comes back in the same order every time. Each half's cap and the
 final sort use one `order_by` string, so they always agree.
 
+A `limit` keeps the first that many songs after the cap, in the sort's order (the list's own order
+unsorted), and counts as arranging the list, so a limited query takes the 1000 cap and its songs
+carry rows. Because a group orders first, a limited and grouped list runs in two passes: the first
+without the group picks the top `limit`, then `group_picked` groups just those as a list of ids,
+keeping each song's `certain`. A list cut to its limit is not capped.
+
 `arrange_song_ids` runs the same fields over a list of ids the caller sent, for a list only the
 phone knows (a playlist, an album, a tag's songs). The ids come in as one JSON array read with
 `json_array_elements_text ... WITH ORDINALITY`, every one is `certain`, none is capped, and

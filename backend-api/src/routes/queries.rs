@@ -15,6 +15,7 @@ use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 
 #[derive(Deserialize)]
 struct QueryResultsBody {
@@ -40,6 +41,9 @@ struct QueryResultsBody {
     /// Omitted for no groups.
     #[serde(default)]
     group: Option<QueryGroup>,
+    /// Only the first this many songs, grouped afterwards. Omitted for every song.
+    #[serde(default)]
+    limit: Option<NonZeroUsize>,
     /// The IANA zone a datetime group counts its days in. UTC when omitted.
     #[serde(default)]
     time_zone: Option<String>,
@@ -60,6 +64,12 @@ struct QueryResultsBody {
 /// first `db::queries::MAX_DISCOVERED_SONGS` of the rest. With either, only the first
 /// `db::queries::MAX_ARRANGED_SONGS` songs in that order come back, the caller's or not.
 /// `capped` says when more matched.
+///
+/// `limit` keeps only the first that many songs in that order. It counts as arranging the
+/// list, so the first `db::queries::MAX_ARRANGED_SONGS` apply and every song carries `row`.
+/// With a `group` too, the first `limit` songs are picked in the sort's order across the
+/// whole list and only then grouped. A list cut to its `limit` is not `capped`. A `limit`
+/// of 0 is refused.
 ///
 /// A sorted or grouped query first stores the metadata of the caller's songs that have none,
 /// so the sort has a row for each. It waits on Apple for a few; any more are stored on their
@@ -92,6 +102,7 @@ struct QueryResultsBody {
 ///   "hide_explicit": false,
 ///   "sort": { "field": "metadata", "key": "title", "direction": "ascending" },
 ///   "group": { "field": "tag", "tag_id": 9, "direction": "ascending" },
+///   "limit": 50,
 ///   "time_zone": "America/Denver"
 /// }
 /// ```
@@ -128,6 +139,7 @@ async fn query_results_handler(
     let arrangement = Arrangement {
         sort: body.sort,
         group: body.group,
+        limit: body.limit.map(NonZeroUsize::get),
         time_zone: body.time_zone,
     };
     // the saved setting applies whatever the caller sends, so a caller that
@@ -148,7 +160,7 @@ async fn query_results_handler(
     };
     let sorted_by = sorted_metadata_key(&arrangement);
     let arranged = !arrangement.is_none();
-    if arranged {
+    if arrangement.reorders() {
         let own = db::queries::get_own_song_ids(&db, claims.user_id, songs).await?;
         store_metadata_before_sorting(&db, &song_meta_service, &own).await;
     }
@@ -183,13 +195,16 @@ struct ArrangeBody {
     #[serde(default)]
     group: Option<QueryGroup>,
     #[serde(default)]
+    limit: Option<NonZeroUsize>,
+    #[serde(default)]
     time_zone: Option<String>,
 }
 
-/// Returns the given songs sorted, grouped, or both, for a list whose songs only the phone
-/// knows, like a playlist or the songs on a tag. Takes the same `sort`, `group` and
-/// `time_zone` as `POST /queries/results` and returns the same shape. Every song comes back
-/// once, `certain`, and nothing is capped. Without a `sort` the songs keep the order given.
+/// Returns the given songs sorted, grouped, limited, or a mix, for a list whose songs only
+/// the phone knows, like a playlist or the songs on a tag. Takes the same `sort`, `group`,
+/// `limit` and `time_zone` as `POST /queries/results` and returns the same shape. Every song
+/// comes back once, `certain`, and nothing is capped. Without a `sort` the songs keep the
+/// order given. With a `limit`, only the first that many, grouped afterwards.
 ///
 /// First stores the metadata of every song that has none, waiting for Apple, so the sort
 /// has a row for each.
@@ -229,9 +244,10 @@ async fn arrange_handler(
     let arrangement = Arrangement {
         sort: body.sort,
         group: body.group,
+        limit: body.limit.map(NonZeroUsize::get),
         time_zone: body.time_zone,
     };
-    if !arrangement.is_none() {
+    if arrangement.reorders() {
         store_metadata_before_sorting(&db, &song_meta_service, &body.song_ids).await;
     }
 

@@ -216,18 +216,42 @@ struct ArrangedRow {
     group_label: Option<String>,
 }
 
-/// How a song list is ordered and grouped. Both empty keeps the list's own order.
+/// How a song list is ordered, grouped and cut short. All empty keeps the list's own order,
+/// every song of it.
 #[derive(Debug, Clone, Default)]
 pub struct Arrangement {
     pub sort: Option<QuerySort>,
     pub group: Option<QueryGroup>,
+    /// Only the first this many songs, in the sort's order (the list's own order when
+    /// unsorted), and only then grouped. At least 1.
+    pub limit: Option<usize>,
     /// The IANA zone a datetime tag's days are counted in. UTC when left out.
     pub time_zone: Option<String>,
 }
 
 impl Arrangement {
+    /// Neither sorted, grouped, nor limited.
     pub fn is_none(&self) -> bool {
-        self.sort.is_none() && self.group.is_none()
+        self.sort.is_none() && self.group.is_none() && self.limit.is_none()
+    }
+
+    /// Sorted or grouped, so the order reads stored metadata.
+    pub fn reorders(&self) -> bool {
+        self.sort.is_some() || self.group.is_some()
+    }
+
+    /// Limited and grouped. The first `limit` songs are picked in the sort's order across
+    /// the whole list, so these lists run in two passes: see [`group_picked`].
+    fn groups_a_limit(&self) -> bool {
+        self.limit.is_some() && self.group.is_some()
+    }
+
+    /// The same arrangement without its group: the first pass of a limited, grouped list.
+    fn ungrouped(&self) -> Arrangement {
+        Arrangement {
+            group: None,
+            ..self.clone()
+        }
     }
 
     fn tag_ids(&self) -> HashSet<i64> {
@@ -313,6 +337,12 @@ enum CapRule {
 /// grouped, only the first [`MAX_ARRANGED_SONGS`] in that order come back, the user's own
 /// or not. Song id breaks every tie, so the same query over the same data comes back in
 /// the same order every time.
+///
+/// With a `limit` only the first that many songs in that order come back. Limited and
+/// grouped, those first songs are then grouped, so a group holds only the songs that made
+/// the cut. A limit counts as arranging the list, so only the first
+/// [`MAX_ARRANGED_SONGS`] are considered, and `capped` is only true when fewer than
+/// `limit` came back because of that cap.
 pub async fn run_query(
     db: &DatabaseConnection,
     query: &Query,
@@ -320,6 +350,17 @@ pub async fn run_query(
     options: QueryOptions,
     arrangement: &Arrangement,
 ) -> Result<QueryMatches, CadenzaError> {
+    if arrangement.groups_a_limit() {
+        let picked = Box::pin(run_query(
+            db,
+            query,
+            user_id,
+            options,
+            &arrangement.ungrouped(),
+        ))
+        .await?;
+        return group_picked(db, user_id, picked, arrangement).await;
+    }
     check_size(&query.root)?;
 
     let mut tag_ids = HashSet::new();
@@ -346,17 +387,33 @@ pub async fn run_query(
     } else {
         CapRule::Total
     };
-    Ok(finish(rows, rule, arrangement.group.is_some()))
+    Ok(finish(
+        rows,
+        rule,
+        arrangement.group.is_some(),
+        arrangement.limit,
+    ))
 }
 
-/// Returns `song_ids` arranged: sorted, grouped, or both. Every id comes back once, the
-/// first time it was given, and none is capped. Unsorted, they keep the order given.
+/// Returns `song_ids` arranged: sorted, grouped, limited, or a mix. Every id comes back
+/// once, the first time it was given, and none is capped. Unsorted, they keep the order
+/// given. With a `limit`, only the first that many in that order, grouped afterwards.
 pub async fn arrange_song_ids(
     db: &DatabaseConnection,
     user_id: Uuid,
     song_ids: &[String],
     arrangement: &Arrangement,
 ) -> Result<QueryMatches, CadenzaError> {
+    if arrangement.groups_a_limit() {
+        let picked = Box::pin(arrange_song_ids(
+            db,
+            user_id,
+            song_ids,
+            &arrangement.ungrouped(),
+        ))
+        .await?;
+        return group_picked(db, user_id, picked, arrangement).await;
+    }
     let song_ids = unique_song_ids(song_ids)?;
     let arrange = arrange_context(db, user_id, arrangement).await?;
     let (sql, values) = compile_song_ids(&song_ids, user_id, &arrange)?;
@@ -368,7 +425,54 @@ pub async fn arrange_song_ids(
     .all(db)
     .await?;
 
-    Ok(finish(rows, CapRule::None, arrangement.group.is_some()))
+    Ok(finish(
+        rows,
+        CapRule::None,
+        arrangement.group.is_some(),
+        arrangement.limit,
+    ))
+}
+
+/// The second pass of a limited, grouped list: `picked`, the first `limit` songs in the
+/// sort's order, grouped by `arrangement`'s group. Inside a group the songs keep the sort's
+/// order, or the order picked when unsorted. Each song keeps whether it is the user's own,
+/// and the list is as capped as the pick was.
+async fn group_picked(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    picked: QueryMatches,
+    arrangement: &Arrangement,
+) -> Result<QueryMatches, CadenzaError> {
+    let grouped = Arrangement {
+        limit: None,
+        ..arrangement.clone()
+    };
+    let song_ids: Vec<String> = picked
+        .songs
+        .iter()
+        .map(|song| song.song_id.clone())
+        .collect();
+    let certain: HashMap<String, bool> = picked
+        .songs
+        .into_iter()
+        .map(|song| (song.song_id, song.certain))
+        .collect();
+    let arrange = arrange_context(db, user_id, &grouped).await?;
+    let (sql, values) = compile_song_ids(&song_ids, user_id, &arrange)?;
+    let rows = ArrangedRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        sql,
+        values,
+    ))
+    .all(db)
+    .await?;
+
+    let mut matches = finish(rows, CapRule::None, true, None);
+    for song in &mut matches.songs {
+        song.certain = certain.get(&song.song_id).copied().unwrap_or(true);
+    }
+    matches.capped = picked.capped;
+    Ok(matches)
 }
 
 /// Every song a query over `songs` treats as the user's own. See [`QuerySongs`].
@@ -409,10 +513,16 @@ fn unique_song_ids(song_ids: &[String]) -> Result<Vec<String>, CadenzaError> {
         .collect())
 }
 
-/// Cuts the rows off by `rule`, then reads the groups and the songs missing metadata off
-/// what is left.
-fn finish(mut rows: Vec<ArrangedRow>, rule: CapRule, grouped: bool) -> QueryMatches {
-    let capped = match rule {
+/// Cuts the rows off by `rule`, then to `limit`, then reads the groups and the songs
+/// missing metadata off what is left. A list cut to its limit is not capped: it is as long
+/// as was asked. It is only capped when the cap left fewer than `limit`.
+fn finish(
+    mut rows: Vec<ArrangedRow>,
+    rule: CapRule,
+    grouped: bool,
+    limit: Option<usize>,
+) -> QueryMatches {
+    let mut capped = match rule {
         CapRule::None => false,
         CapRule::Discovered => cap_discovered(&mut rows),
         CapRule::Total => {
@@ -421,6 +531,10 @@ fn finish(mut rows: Vec<ArrangedRow>, rule: CapRule, grouped: bool) -> QueryMatc
             capped
         }
     };
+    if let Some(limit) = limit {
+        rows.truncate(limit);
+        capped = capped && rows.len() < limit;
+    }
 
     let groups = grouped.then(|| groups_of(&rows));
     let missing_metadata = rows
@@ -2908,6 +3022,7 @@ mod tests {
             arrangement: Arrangement {
                 sort,
                 group,
+                limit: None,
                 time_zone: Some("America/Denver".to_string()),
             },
             tags: HashMap::from([
@@ -3309,7 +3424,7 @@ mod tests {
             .map(|index| row(&index.to_string(), false))
             .chain([row("mine", true)])
             .collect();
-        let matches = finish(rows, CapRule::Discovered, false);
+        let matches = finish(rows, CapRule::Discovered, false, None);
         assert!(!matches.capped);
         assert_eq!(matches.songs.len(), MAX_DISCOVERED_SONGS + 1);
         assert_eq!(matches.groups, None);
@@ -3325,7 +3440,7 @@ mod tests {
         rows.push(row("extra", false));
         rows.push(row("mine-2", true));
 
-        let matches = finish(rows, CapRule::Discovered, false);
+        let matches = finish(rows, CapRule::Discovered, false, None);
         assert!(matches.capped);
         assert_eq!(matches.songs.len(), MAX_DISCOVERED_SONGS + 2);
         assert!(!matches.songs.iter().any(|song| song.song_id == "extra"));
@@ -3338,13 +3453,55 @@ mod tests {
         let rows: Vec<ArrangedRow> = (0..=MAX_ARRANGED_SONGS)
             .map(|index| row(&format!("s{index}"), index % 2 == 0))
             .collect();
-        let matches = finish(rows, CapRule::Total, false);
+        let matches = finish(rows, CapRule::Total, false, None);
         assert!(matches.capped);
         assert_eq!(matches.songs.len(), MAX_ARRANGED_SONGS);
         assert_eq!(
             matches.songs.last().unwrap().song_id,
             format!("s{}", MAX_ARRANGED_SONGS - 1)
         );
+    }
+
+    #[test]
+    fn a_limit_keeps_the_first_songs_and_is_not_capped() {
+        let rows: Vec<ArrangedRow> = (0..=MAX_ARRANGED_SONGS)
+            .map(|index| row(&format!("s{index}"), false))
+            .collect();
+        let matches = finish(rows, CapRule::Total, false, Some(3));
+        assert!(!matches.capped);
+        assert_eq!(
+            matches.songs,
+            vec![song("s0", false), song("s1", false), song("s2", false)]
+        );
+    }
+
+    #[test]
+    fn a_limit_past_the_cap_is_still_capped() {
+        let rows: Vec<ArrangedRow> = (0..=MAX_ARRANGED_SONGS)
+            .map(|index| row(&format!("s{index}"), false))
+            .collect();
+        let matches = finish(rows, CapRule::Total, false, Some(MAX_ARRANGED_SONGS + 5));
+        assert!(matches.capped);
+        assert_eq!(matches.songs.len(), MAX_ARRANGED_SONGS);
+    }
+
+    #[test]
+    fn a_limit_longer_than_the_list_keeps_it_all() {
+        let rows = vec![row("a", true), row("b", false)];
+        let matches = finish(rows, CapRule::None, false, Some(10));
+        assert!(!matches.capped);
+        assert_eq!(matches.songs, vec![song("a", true), song("b", false)]);
+    }
+
+    #[test]
+    fn a_limit_counts_as_arranging() {
+        let limited = Arrangement {
+            limit: Some(5),
+            ..Arrangement::default()
+        };
+        assert!(!limited.is_none());
+        assert!(!limited.reorders());
+        assert!(!limited.groups_a_limit());
     }
 
     #[test]
@@ -3367,6 +3524,7 @@ mod tests {
             ],
             CapRule::None,
             true,
+            None,
         );
         assert_eq!(
             matches.groups.unwrap(),
@@ -3768,7 +3926,7 @@ mod tests {
         } else {
             CapRule::Total
         };
-        let mut matches = finish(rows, rule, arrangement.group.is_some());
+        let mut matches = finish(rows, rule, arrangement.group.is_some(), arrangement.limit);
         matches
             .songs
             .retain(|song| song.song_id.starts_with("test-q-"));
@@ -4615,6 +4773,7 @@ mod tests {
                     },
                     direction: SortDirection::Ascending,
                 }),
+                limit: None,
                 time_zone: None,
             },
         )
@@ -4662,6 +4821,7 @@ mod tests {
                 field: ArrangeField::Tag { tag_id: seen },
                 direction: SortDirection::Ascending,
             }),
+            limit: None,
             time_zone: Some(time_zone.to_string()),
         };
 
@@ -4715,7 +4875,7 @@ mod tests {
                 .all(txn)
                 .await
                 .unwrap();
-                finish(rows, CapRule::None, false)
+                finish(rows, CapRule::None, false, None)
             }
         };
 

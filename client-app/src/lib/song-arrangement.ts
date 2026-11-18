@@ -38,16 +38,49 @@ export type ArrangeField =
 export type SongSort = { field: ArrangeField; direction: ArrangeDirection };
 export type SongGrouping = { field: ArrangeField; direction: ArrangeDirection };
 
-/** Both null is "None" for each: the list's own order, ungrouped. */
+/**
+ * All null is "None" for each: the list's own order, ungrouped, every song.
+ * `limit` keeps only the first that many songs in the sort's order (the
+ * list's own order when unsorted), and groups only those.
+ */
 export type SongArrangement = {
     sort: SongSort | null;
     group: SongGrouping | null;
+    limit: number | null;
 };
 
-export const NO_ARRANGEMENT: SongArrangement = { sort: null, group: null };
+export const NO_ARRANGEMENT: SongArrangement = {
+    sort: null,
+    group: null,
+    limit: null,
+};
 
+/**
+ * Sorted, grouped, or limited. Any of them makes the backend hand the list
+ * back, with its stored rows for a query.
+ */
 export function isArranged(arrangement: SongArrangement): boolean {
-    return arrangement.sort !== null || arrangement.group !== null;
+    return (
+        arrangement.sort !== null ||
+        arrangement.group !== null ||
+        arrangement.limit !== null
+    );
+}
+
+/** The most a limit can be. Longer than any list the backend arranges. */
+export const MAX_SONG_LIMIT = 20_000;
+
+/**
+ * A limit typed by the user as a limit, or null for every song. Anything
+ * that is not a whole number above zero is no limit; past the most there is,
+ * it is the most.
+ */
+export function parseSongLimit(text: string): number | null {
+    const trimmed = text.trim();
+    if (!/^\d+$/.test(trimmed)) return null;
+    const limit = Number(trimmed);
+    if (!Number.isSafeInteger(limit) || limit < 1) return null;
+    return Math.min(limit, MAX_SONG_LIMIT);
 }
 
 /** The type each metadata tag reads as, the same as the query builder's. */
