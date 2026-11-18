@@ -282,7 +282,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "open_screen",
-            "description": "Opens a screen in the app, closing the chat. Settings sheets need no id. tag takes a tag id, saved_query a saved query id, shared_playlist a shared playlist id, apple_music_playlist an id from apple_music_playlists, artist an artist id from now_playing.",
+            "description": "Opens a screen in the app, closing the chat. Settings sheets need no id. Every other screen needs an id from a tool result in this conversation, never one you remember or guess: tag a tag id, saved_query an id from list_saved_queries, shared_playlist an id from list_playlists, apple_music_playlist an id from apple_music_playlists, artist an artist_id from find_artist or now_playing.",
             "parameters": {
                 "type": "object",
                 "properties": {

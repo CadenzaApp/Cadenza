@@ -371,7 +371,7 @@ export function usePhoneTools() {
                         };
                     }
                     case "open_screen":
-                        return openScreenFor(args, openScreen, router);
+                        return await openScreenFor(args, openScreen, router);
                     default:
                         return {
                             error: `The phone has no tool named ${name}.`,
@@ -397,12 +397,16 @@ export function usePhoneTools() {
     );
 }
 
-/** Opens the screen `open_screen` names, closing the assistant sheet. */
-function openScreenFor(
+/**
+ * Opens the screen `open_screen` names, closing the assistant sheet. An artist
+ * id is checked with Apple first, so an id the model got wrong comes back as an
+ * error it can fix instead of a page that cannot load.
+ */
+async function openScreenFor(
     args: ToolArgs,
     openScreen: ReturnType<typeof useOpenScreen>,
     router: ReturnType<typeof useRouter>,
-): ToolOutput {
+): Promise<ToolOutput> {
     const screen = stringOf(args.screen) ?? "";
     const id = stringOf(args.id);
     const sheet = SHEETS[screen];
@@ -412,6 +416,15 @@ function openScreenFor(
         return { opened: screen };
     }
     if (!id) return { error: `${screen} needs an id.` };
+    if (screen === "artist") {
+        try {
+            await readAppleMusic(() => MusicKit.getArtist(id));
+        } catch {
+            return {
+                error: "Apple Music has no artist with that id. Look the artist up with find_artist and use its artist_id.",
+            };
+        }
+    }
     const href: Href | null =
         screen === "tag"
             ? (`/tag/${encodeURIComponent(id)}` as Href)

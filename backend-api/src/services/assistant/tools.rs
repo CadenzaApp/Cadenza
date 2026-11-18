@@ -118,6 +118,7 @@ impl ToolRunner for DbTools<'_> {
             "list_playlists" => self.list_playlists().await,
             "get_playlist_songs" => self.get_playlist_songs(args).await,
             "find_songs" => self.find_songs(args).await,
+            "find_artist" => self.find_artist(args).await,
             _ => return ToolOutcome::error(format!("there is no tool named {name}"), label),
         };
         let outcome = match result {
@@ -180,6 +181,7 @@ fn label_for(name: &str) -> &'static str {
         "list_playlists" => "Looked up your playlists",
         "get_playlist_songs" => "Looked up a playlist's songs",
         "find_songs" => "Looking for songs on Apple Music",
+        "find_artist" => "Looked up an artist on Apple Music",
         _ => "Tried a tool",
     }
 }
@@ -333,6 +335,14 @@ fn describe_applied(tags: Vec<(tags::Model, Option<String>)>) -> Vec<Value> {
 struct SavedQueryArgs {
     saved_query_id: i64,
 }
+
+#[derive(Deserialize)]
+struct FindArtistArgs {
+    name: String,
+}
+
+/// How many artists `find_artist` hands back.
+const MAX_ARTISTS: usize = 5;
 
 #[derive(Deserialize)]
 struct FindSongsArgs {
@@ -953,6 +963,37 @@ impl DbTools<'_> {
         Ok(outcome)
     }
 
+    /// Apple Music artists matching a name, with their catalog ids, for opening an artist's
+    /// page. The model must never invent an id, and this is where a real one comes from.
+    async fn find_artist(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: FindArtistArgs = parse_args(args)?;
+        let name = args.name.trim();
+        if name.is_empty() {
+            return Err(ToolError::Arguments("name is required".to_owned()));
+        }
+        let artists = self
+            .song_meta
+            .search_artists(name, MAX_ARTISTS)
+            .await
+            .map_err(|err| {
+                println!("[assistant] find_artist \"{name}\" failed: {err}");
+                ToolError::Arguments(
+                    apple_music_down_message(&err.to_string()).replace("find_songs", "find_artist"),
+                )
+            })?;
+        let artists: Vec<Value> = artists
+            .into_iter()
+            .map(|artist| {
+                json!({
+                    "artist_id": artist.id,
+                    "name": artist.name,
+                    "genres": artist.genre_names,
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok(json!({ "artists": artists }), ""))
+    }
+
     async fn get_playlist_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
         let args: PlaylistArgs = parse_args(args)?;
         let detail = db::shared_playlists::get_playlist(self.db, self.user_id, args.playlist_id)
@@ -1247,6 +1288,18 @@ pub fn definitions() -> Vec<Value> {
             "name": "list_playlists",
             "description": "The Cadenza shared playlists the user is a member of, most recently changed first: id, name, description, owner, the user's role (owner, editor, viewer), song and member counts. These are not the user's Apple Music playlists; for those, use apple_music_playlists. For a playlist's songs, call get_playlist_songs.",
             "parameters": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "type": "function",
+            "name": "find_artist",
+            "description": "Apple Music artists whose name matches, best match first, with their artist_id, name, and genres. Use it to get the id for open_screen with screen artist, or to check how Apple Music spells an artist's name. Pick the one whose name is the artist the user meant; if none is, say so.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "The artist's name, like \"Kikuo\"." }
+                },
+                "required": ["name"]
+            }
         }),
         json!({
             "type": "function",

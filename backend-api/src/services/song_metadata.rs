@@ -107,6 +107,32 @@ struct CatalogSearchResponse {
 #[derive(Deserialize, Default)]
 struct CatalogSearchResults {
     songs: Option<CatalogSongsResponse>,
+    artists: Option<CatalogArtistsPage>,
+}
+#[derive(Deserialize)]
+struct CatalogArtistsPage {
+    #[serde(default)]
+    data: Vec<CatalogArtist>,
+}
+#[derive(Deserialize)]
+struct CatalogArtist {
+    id: String,
+    attributes: Option<CatalogArtistAttributes>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatalogArtistAttributes {
+    name: String,
+    #[serde(default)]
+    genre_names: Vec<String>,
+}
+
+/// An Apple Music catalog artist, as a search finds it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArtistMatch {
+    pub id: String,
+    pub name: String,
+    pub genre_names: Vec<String>,
 }
 
 // models for the Apple Music catalog albums response
@@ -368,6 +394,41 @@ impl SongMetadataService {
             .unwrap_or_default()
             .into_iter()
             .filter_map(to_song_metadata)
+            .collect())
+    }
+
+    /// Searches the catalog for artists matching `term`, best match first, at most `limit`
+    /// (Apple allows 1 to 25). An empty or blank term makes no request.
+    pub async fn search_artists(
+        &self,
+        term: &str,
+        limit: usize,
+    ) -> Result<Vec<ArtistMatch>, CadenzaError> {
+        let term = term.trim();
+        if term.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut url = self.catalog_url("search")?;
+        url.query_pairs_mut()
+            .append_pair("term", term)
+            .append_pair("types", "artists")
+            .append_pair("limit", &limit.clamp(1, 25).to_string());
+
+        let resp_body: CatalogSearchResponse = self.get_json(url).await?;
+        Ok(resp_body
+            .results
+            .artists
+            .map(|artists| artists.data)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|artist| {
+                let attributes = artist.attributes?;
+                Some(ArtistMatch {
+                    id: artist.id,
+                    name: attributes.name,
+                    genre_names: attributes.genre_names,
+                })
+            })
             .collect())
     }
 
