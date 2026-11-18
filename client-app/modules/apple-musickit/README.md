@@ -15,6 +15,7 @@ Import `Auth`, `MusicKit`, `Playback`, and their public types from
   `MusicUserTokenProvider` with cache bypass after the user grants access. The old
   `SKCloudServiceController.requestUserToken` path is deprecated and could return an opaque
   StoreKit client-invalid error after a developer-token change.
+- `MusicKit.getRecommendations()` reads `/v1/me/recommendations` and returns songs and artists. An album or playlist becomes one random song from its first track page, or, one time in three, that song's artist. A later call can pick a different song. Stations are skipped. The list can be shorter than five.
 - `MusicKit` searches the catalog, reads library pages and playlist tracks,
   reads or changes favorite state for songs, albums, and playlists, writes to
   library playlists, and reads catalog and library artists.

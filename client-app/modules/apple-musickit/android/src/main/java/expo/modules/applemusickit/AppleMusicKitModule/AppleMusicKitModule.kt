@@ -686,6 +686,10 @@ class AppleMusicKitModule : Module() {
                 makeApiRequest("/v1/me/library/recently-added?${pageQuery(options)}")
             )
         }
+        AsyncFunction("getRecommendations") {
+            recommendationSpotlights()
+        }
+
         AsyncFunction("getAlbumSongs") { albumId: String, options: Map<String, Int> ->
             // Library album ids carry a prefix; a bare one came from the
             // catalog, which is what a song's albumID is, and lives elsewhere.
@@ -961,6 +965,143 @@ class AppleMusicKitModule : Module() {
         val song = (response["data"] as? List<*>)?.firstOrNull() as? Map<*, *>
         val attributes = song?.get("attributes") as? Map<*, *>
         return mapOf("isFavorite" to (attributes?.get("inFavorites") as? Boolean ?: false))
+    }
+
+    /**
+     * Songs and artists from `/v1/me/recommendations`. An album or playlist
+     * becomes one random song from its first track page, or, one time in
+     * three, that song's artist. Stations are skipped. Track fetches stop
+     * after a dozen so a long list does not stampede Apple.
+     */
+    private fun recommendationSpotlights(): List<Map<String, String>> {
+        val response = makeApiRequest("/v1/me/recommendations")
+        val out = mutableListOf<Map<String, String>>()
+        val seen = mutableSetOf<String>()
+        var fetches = 0
+        for (group in objectList(response["data"])) {
+            val relationships = group["relationships"] as? Map<*, *>
+            val contents = relationships?.get("contents") as? Map<*, *>
+            for (item in objectList(contents?.get("data"))) {
+                val id = item["id"]?.toString()?.takeIf { it.isNotBlank() } ?: continue
+                when (val type = item["type"]?.toString()) {
+                    "songs" -> appendRecommendation(
+                        out, seen, "song", id,
+                        resourceName(item) ?: catalogResourceName("songs", id),
+                    )
+                    "artists" -> appendRecommendation(
+                        out, seen, "artist", id,
+                        resourceName(item) ?: catalogResourceName("artists", id),
+                    )
+                    "albums", "playlists" -> {
+                        if (fetches >= 12 || type == null) continue
+                        fetches += 1
+                        randomCatalogTrack(type, id)?.let { track ->
+                            val artist = if (kotlin.random.Random.nextInt(3) == 0) {
+                                catalogArtist(track.first)
+                            } else {
+                                null
+                            }
+                            if (artist != null) {
+                                appendRecommendation(out, seen, "artist", artist.first, artist.second)
+                            } else {
+                                appendRecommendation(out, seen, "song", track.first, track.second)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    private fun appendRecommendation(
+        out: MutableList<Map<String, String>>,
+        seen: MutableSet<String>,
+        type: String,
+        id: String,
+        name: String?,
+    ) {
+        if (seen.add("$type:$id")) {
+            val row = mutableMapOf("type" to type, "id" to id)
+            if (!name.isNullOrBlank()) row["name"] = name
+            out.add(row)
+        }
+    }
+
+    /** "Title by Artist" for a song, or the name alone. Null without attributes. */
+    private fun resourceName(item: Map<String, Any>): String? {
+        val attributes = item["attributes"] as? Map<*, *> ?: return null
+        val name = attributes["name"]?.toString()?.takeIf { it.isNotBlank() } ?: return null
+        val artist = attributes["artistName"]?.toString()?.takeIf { it.isNotBlank() }
+        return if (artist != null) "$name by $artist" else name
+    }
+
+    /** One catalog read for a song or artist whose recommendation row had no name. */
+    private fun catalogResourceName(kind: String, id: String): String? {
+        val response = try {
+            makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/$kind/${encode(id)}",
+                allowNotFound = true,
+            )
+        } catch (_: Exception) {
+            return null
+        }
+        val item = objectList(response["data"]).firstOrNull() ?: return null
+        return resourceName(item)
+    }
+
+    /** One song from the first page of a catalog album or playlist. */
+    private fun randomCatalogTrack(resource: String, id: String): Pair<String, String?>? {
+        val response = try {
+            makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/$resource/${encode(id)}/tracks?limit=25",
+                allowNotFound = true,
+            )
+        } catch (_: Exception) {
+            return null
+        }
+        if (response.isEmpty()) return null
+        val songs = objectList(response["data"]).filter { track ->
+            val type = track["type"]?.toString()
+            type == null || type == "songs"
+        }
+        if (songs.isEmpty()) return null
+        val track = songs[kotlin.random.Random.nextInt(songs.size)]
+        val songId = track["id"]?.toString()?.takeIf { it.isNotBlank() } ?: return null
+        return songId to resourceName(track)
+    }
+
+    /** The first artist on a catalog song. Null when Apple does not name one. */
+    private fun catalogArtist(songId: String): Pair<String, String?>? {
+        val response = try {
+            makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/songs/${encode(songId)}?include=artists",
+                allowNotFound = true,
+            )
+        } catch (_: Exception) {
+            return null
+        }
+        val song = objectList(response["data"]).firstOrNull() ?: return null
+        val included = objectList(response["included"])
+        return artistOf(song, included)
+    }
+
+    /** The song's first artist. The name is inlined, or found in `included`. */
+    private fun artistOf(
+        song: Map<String, Any>,
+        included: List<Map<String, Any>>,
+    ): Pair<String, String?>? {
+        val relationships = song["relationships"] as? Map<*, *>
+        val artists = relationships?.get("artists") as? Map<*, *>
+        val data = (artists?.get("data") as? List<*>)?.firstOrNull() as? Map<*, *> ?: return null
+        val id = data["id"]?.toString()?.takeIf { it.isNotBlank() } ?: return null
+        val inlined = (data["attributes"] as? Map<*, *>)?.get("name")?.toString()
+            ?.takeIf { it.isNotBlank() }
+        if (inlined != null) return id to inlined
+        val match = included.firstOrNull {
+            it["id"]?.toString() == id && it["type"]?.toString() == "artists"
+        }
+        return id to match?.let { resourceName(it) }
     }
 
     /** The user's storefront, or with no user token, the device's region. */

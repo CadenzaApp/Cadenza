@@ -130,3 +130,10 @@ export function activityLabel(topic: PostTopic | null | undefined): string {
     if (!topic) return "";
     return topic.kind === "song" ? "Shared a song" : "Shared an artist";
 }
+
+/** The line under a spotlight card's "For you" title. */
+export function spotlightSubtitle(topic: PostTopic | null | undefined): string {
+    if (topic?.kind === "song") return "Suggested song";
+    if (topic?.kind === "artist") return "Suggested artist";
+    return "";
+}

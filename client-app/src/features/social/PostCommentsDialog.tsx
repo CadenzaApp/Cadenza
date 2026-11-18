@@ -43,7 +43,7 @@ import { EditContentDialog } from "./EditContentDialog";
 import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostTagRow } from "./PostTags";
 import { PostTopicCard } from "./PostTopicCard";
-import { useResolvedTopic } from "./topic";
+import { spotlightSubtitle, useResolvedTopic } from "./topic";
 import type { PostTopic, SocialComment, SocialPost } from "./types";
 
 const MAX_DIALOG_WIDTH = 420;
@@ -366,32 +366,56 @@ function PostSummary({
             });
     }
 
+    const author = post.author;
     return (
         <View className="mt-8 gap-3 overflow-hidden rounded-3xl border border-border p-4">
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`View ${post.author.username}'s profile`}
-                onPress={() => onAuthorPress?.(post.author.user_id)}
-                disabled={!post.author.user_id}
-                className="flex-row items-center gap-3 active:opacity-60"
-            >
-                <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
-                    <Text className="text-sm font-semibold text-foreground">
-                        {initialsFromUsername(post.author.username)}
-                    </Text>
+            {author == null ? (
+                <View className="flex-row items-center gap-3">
+                    <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
+                        <Text className="text-sm font-semibold text-foreground">
+                            {initialsFromUsername("For you")}
+                        </Text>
+                    </View>
+                    <View className="min-w-0 flex-1">
+                        <Text
+                            className="font-semibold text-foreground"
+                            numberOfLines={1}
+                        >
+                            For you
+                        </Text>
+                        {spotlightSubtitle(topic) ? (
+                            <Text className="text-xs text-muted-foreground">
+                                {spotlightSubtitle(topic)}
+                            </Text>
+                        ) : null}
+                    </View>
                 </View>
-                <View className="min-w-0 flex-1">
-                    <Text
-                        className="font-semibold text-foreground"
-                        numberOfLines={1}
-                    >
-                        {post.author.username}
-                    </Text>
-                    <Text className="text-xs text-muted-foreground">
-                        {formatRelativeTime(post.created_at)}
-                    </Text>
-                </View>
-            </Pressable>
+            ) : (
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${author.username}'s profile`}
+                    onPress={() => onAuthorPress?.(author.user_id)}
+                    disabled={!author.user_id}
+                    className="flex-row items-center gap-3 active:opacity-60"
+                >
+                    <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
+                        <Text className="text-sm font-semibold text-foreground">
+                            {initialsFromUsername(author.username)}
+                        </Text>
+                    </View>
+                    <View className="min-w-0 flex-1">
+                        <Text
+                            className="font-semibold text-foreground"
+                            numberOfLines={1}
+                        >
+                            {author.username}
+                        </Text>
+                        <Text className="text-xs text-muted-foreground">
+                            {formatRelativeTime(post.created_at)}
+                        </Text>
+                    </View>
+                </Pressable>
+            )}
 
             {topic ? (
                 <PostTopicCard
@@ -400,9 +424,11 @@ function PostSummary({
                 />
             ) : null}
 
-            <Text className="text-base leading-6 text-foreground">
-                {post.content}
-            </Text>
+            {post.author == null && post.content.trim().length === 0 ? null : (
+                <Text className="text-base leading-6 text-foreground">
+                    {post.content}
+                </Text>
+            )}
             <PostTagRow tags={post.tags} />
 
             <View className="flex-row items-center gap-4 self-start">

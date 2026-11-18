@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MusicKit, type MusicRecommendation } from "@apple-musickit";
 import { useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
 
@@ -38,6 +39,15 @@ import type {
 
 /** Matches the backend feed page size. A shorter page means this mode is done. */
 const FEED_PAGE_SIZE = 10;
+
+/** Matches `GET /social/feed/history`'s default limit. */
+const HISTORY_PAGE_SIZE = 10;
+
+/**
+ * Fresh feed pages already sent to `POST /social/spotlights`. A new response
+ * is a new object, so a later page or a refresh searches again.
+ */
+const refilledFeedPages = new WeakSet<object>();
 
 const EMPTY_POSTS: SocialPost[] = [];
 
@@ -113,6 +123,19 @@ export function useEditInterestScores() {
 
 type FeedResponse = {
     feed: SocialPost[];
+    not_enough_spotlights?: boolean;
+    /** Chance after this page. The next fresh page sends it back. */
+    spotlight_chance?: number;
+};
+
+type HistoryPost = SocialPost & { viewed_at: string; feed_order: number };
+
+type HistoryResponse = {
+    feed: HistoryPost[];
+};
+
+type SpotlightResponse = {
+    added: number;
 };
 
 type FeedPageKey = {
@@ -208,11 +231,25 @@ export function useFriendsFeed(enabled: boolean) {
  *
  * First page uses `exclude=viewed` (skip only fully viewed posts). Later
  * pages use `exclude=loaded` (skip anything /feed already returned). The
- * service marks returned ids as `loaded`. When never-loaded posts run out,
- * continues with `exclude=none` after the caught-up separator.
+ * service marks returned ids as `loaded` and numbers them with `feed_order`.
+ * When the fresh pages run out, the next pages are `GET /social/feed/history`
+ * in that load order. The next page starts after the last row's `feed_order`.
+ *
+ * A fresh page with `not_enough_spotlights` asks MusicKit for recommendations
+ * and posts up to five. A short page waits out that refill before the caught-up
+ * divider.
  */
 export function useFeed() {
     const { account } = useAccount();
+    const inflightShort = useRef(0);
+    const [refillPending, setRefillPending] = useState(false);
+    const skipRefillOnce = useRef(false);
+    const postSpotlights = useAPIMutation<
+        { spotlights: MusicRecommendation[] },
+        SpotlightResponse
+    >("POST", "/social/spotlights");
+    const postSpotlightsRef = useRef(postSpotlights.trigger);
+    postSpotlightsRef.current = postSpotlights.trigger;
 
     // Do not revalidate earlier pages when size grows: /feed's ranking shifts
     // as rows are marked loaded/viewed, so refetching page 0 would replace the
@@ -230,7 +267,13 @@ export function useFeed() {
                 keyType: "api-data",
                 path: "/social/feed",
                 // first paint: anything not viewed; scroll: only never-loaded
-                params: { exclude: pageIndex === 0 ? "viewed" : "loaded" },
+                params: {
+                    exclude: pageIndex === 0 ? "viewed" : "loaded",
+                    initial_spotlight_chance:
+                        pageIndex === 0
+                            ? "history"
+                            : (previousPage?.spotlight_chance ?? 0),
+                },
                 accountId: account.id,
                 pageIndex,
             };
@@ -239,60 +282,145 @@ export function useFeed() {
         feedSwrOptions,
     );
 
-    const freshExhausted =
-        fresh.data != null &&
-        (fresh.data.length === 0 ||
-            !feedPageIsFull(fresh.data[fresh.data.length - 1]));
+    useEffect(() => {
+        const pages = fresh.data;
+        if (!pages) return;
+        if (skipRefillOnce.current) {
+            skipRefillOnce.current = false;
+            return;
+        }
+        const todo = pages.filter(
+            (page) =>
+                page.not_enough_spotlights === true &&
+                !refilledFeedPages.has(page),
+        );
+        if (todo.length === 0) return;
+        for (const page of todo) refilledFeedPages.add(page);
 
-    const caughtUp = useSWRInfinite<FeedResponse>(
-        (pageIndex, previousPage): FeedPageKey | null => {
+        let cancelled = false;
+        void (async () => {
+            for (const page of todo) {
+                if (cancelled) return;
+                const short = page.feed.length < FEED_PAGE_SIZE;
+                if (short) {
+                    inflightShort.current += 1;
+                    setRefillPending(true);
+                }
+                try {
+                    const recommendations = await MusicKit.getRecommendations();
+                    const spotlights = recommendations.slice(0, 5);
+                    if (cancelled || spotlights.length === 0) continue;
+                    const result = await postSpotlightsRef.current({
+                        spotlights,
+                    });
+                    if (cancelled) return;
+                    if ((result?.added ?? 0) > 0 && short) {
+                        skipRefillOnce.current = true;
+                        await fresh.mutate();
+                    }
+                } catch (error) {
+                    console.error("Spotlight refill failed", error);
+                } finally {
+                    if (short) {
+                        inflightShort.current = Math.max(
+                            0,
+                            inflightShort.current - 1,
+                        );
+                        if (inflightShort.current === 0)
+                            setRefillPending(false);
+                    }
+                }
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [fresh.data, fresh.mutate]);
+
+    const lastFresh = fresh.data?.at(-1);
+    const freshShort =
+        fresh.data != null &&
+        (fresh.data.length === 0 || !feedPageIsFull(lastFresh));
+    const refillBlocksCaughtUp =
+        refillPending ||
+        (lastFresh != null &&
+            !feedPageIsFull(lastFresh) &&
+            lastFresh.not_enough_spotlights === true &&
+            !refilledFeedPages.has(lastFresh));
+    const freshExhausted = freshShort && !refillBlocksCaughtUp;
+
+    const history = useSWRInfinite<HistoryResponse>(
+        (pageIndex, previousPage) => {
             if (!account || !freshExhausted) return null;
-            if (pageIndex > 0 && !feedPageIsFull(previousPage)) return null;
+            if (pageIndex > 0) {
+                const last = previousPage?.feed.at(-1);
+                if (!last || previousPage.feed.length < HISTORY_PAGE_SIZE) {
+                    return null;
+                }
+                return {
+                    keyType: "api-data",
+                    path: "/social/feed/history",
+                    params: {
+                        after_feed_order: last.feed_order,
+                        limit: HISTORY_PAGE_SIZE,
+                    },
+                    accountId: account.id,
+                    pageIndex,
+                };
+            }
             return {
                 keyType: "api-data",
-                path: "/social/feed",
-                params: { exclude: "none" },
+                path: "/social/feed/history",
+                params: {
+                    limit: HISTORY_PAGE_SIZE,
+                },
                 accountId: account.id,
                 pageIndex,
             };
         },
-        (key: FeedPageKey) => fetchAPIData<FeedResponse>(key.path, key.params),
+        (key: FeedPageKey) =>
+            fetchAPIData<HistoryResponse>(key.path, key.params),
         feedSwrOptions,
     );
 
     const freshPosts = useMemo(() => feedPagePosts(fresh.data), [fresh.data]);
-    const caughtUpPosts = useMemo(
-        () => feedPagePosts(caughtUp.data),
-        [caughtUp.data],
-    );
-    const posts = useMemo(() => {
+    const historyPosts = useMemo(() => {
         const seen = new Set(freshPosts.map((post) => post.post_id));
-        return [
-            ...freshPosts,
-            ...caughtUpPosts.filter((post) => !seen.has(post.post_id)),
-        ];
-    }, [freshPosts, caughtUpPosts]);
+        const posts: SocialPost[] = [];
+        for (const page of history.data ?? []) {
+            for (const post of page.feed) {
+                if (seen.has(post.post_id)) continue;
+                seen.add(post.post_id);
+                posts.push(post);
+            }
+        }
+        return posts;
+    }, [freshPosts, history.data]);
+    const posts = useMemo(
+        () => [...freshPosts, ...historyPosts],
+        [freshPosts, historyPosts],
+    );
 
     const freshLoadingNext = isLoadingNextFeedPage(
         fresh.size,
         fresh.data,
         fresh.isValidating,
     );
-    const caughtUpLoadingNext = isLoadingNextFeedPage(
-        caughtUp.size,
-        caughtUp.data,
-        caughtUp.isValidating,
+    const historyLoadingNext = isLoadingNextFeedPage(
+        history.size,
+        history.data,
+        history.isValidating,
     );
 
+    const historyLast = history.data?.at(-1);
     const hasNextPage = !freshExhausted
-        ? feedPageIsFull(fresh.data?.[fresh.data.length - 1])
-        : caughtUp.data == null
-          ? !caughtUp.error
-          : feedPageIsFull(caughtUp.data[caughtUp.data.length - 1]);
+        ? feedPageIsFull(lastFresh)
+        : (historyLast?.feed.length ?? 0) >= HISTORY_PAGE_SIZE;
 
     const isLoadingNextPage = !freshExhausted
         ? freshLoadingNext
-        : caughtUp.isLoading || caughtUpLoadingNext;
+        : history.isLoading || historyLoadingNext;
 
     const loadNextPage = useCallback(async () => {
         if (!hasNextPage || isLoadingNextPage) return;
@@ -300,19 +428,22 @@ export function useFeed() {
             await fresh.setSize((size) => size + 1);
             return;
         }
-        await caughtUp.setSize((size) => size + 1);
+        await history.setSize((size) => size + 1);
     }, [
-        caughtUp.setSize,
         fresh.setSize,
         freshExhausted,
         hasNextPage,
+        history.setSize,
         isLoadingNextPage,
     ]);
 
     const refreshFeed = useCallback(async () => {
-        await Promise.all([fresh.setSize(1), caughtUp.setSize(1)]);
-        await Promise.all([fresh.mutate(), caughtUp.mutate()]);
-    }, [caughtUp.mutate, caughtUp.setSize, fresh.mutate, fresh.setSize]);
+        inflightShort.current = 0;
+        skipRefillOnce.current = false;
+        setRefillPending(false);
+        await Promise.all([fresh.setSize(1), history.setSize(1)]);
+        await Promise.all([fresh.mutate(), history.mutate()]);
+    }, [fresh.mutate, fresh.setSize, history.mutate, history.setSize]);
 
     return {
         posts,
@@ -325,8 +456,8 @@ export function useFeed() {
         refreshFeed,
         feedLoading:
             fresh.isLoading ||
-            (freshExhausted && caughtUp.isLoading && !caughtUp.data),
-        feedErr: fresh.error ?? (freshExhausted ? caughtUp.error : undefined),
+            (freshExhausted && history.isLoading && !history.data),
+        feedErr: fresh.error ?? (freshExhausted ? history.error : undefined),
     };
 }
 
@@ -470,7 +601,13 @@ export function useUpdateCachedPostContent() {
             const apply = (current: unknown) =>
                 current == null
                     ? current
-                    : applyPostContent(current, postId, content, editedAt, tags);
+                    : applyPostContent(
+                          current,
+                          postId,
+                          content,
+                          editedAt,
+                          tags,
+                      );
             const writes: Promise<unknown>[] = [
                 mutate(isSocialPostListKey, apply, { revalidate: false }),
             ];

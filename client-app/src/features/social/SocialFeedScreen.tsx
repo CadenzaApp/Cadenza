@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
-import { useTheme } from "expo-router/react-navigation";
+import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import {
     useCallback,
     useEffect,
@@ -12,6 +12,7 @@ import {
 } from "react";
 import {
     ActivityIndicator,
+    AppState,
     FlatList,
     RefreshControl,
     View,
@@ -62,14 +63,15 @@ const MARK_VIEWED_FLUSH_MS = 3000;
 /**
  * The Social tab. Loads the ranked feed with full post payloads.
  * A post you just wrote stays at the top until the feed includes it.
- * Posts that are at least half-visible are queued and marked viewed in
- * batches every few seconds.
+ * Posts at least half on screen are queued only while this tab is focused
+ * and the app is in the foreground, then marked viewed in batches.
  */
 export function SocialFeedScreen() {
     const { listBottomInset } = useScreenOverlayInsets();
     const railInset = useTopRailInset() ?? 0;
     const scroll = useScreenScroll<FlatList<FeedRow>>();
     const navigation = useNavigation();
+    const isFocused = useIsFocused();
     const { colors } = useTheme();
     const {
         posts,
@@ -92,8 +94,32 @@ export function SocialFeedScreen() {
     const router = useRouter();
     const markedViewedIds = useRef(new Set<number>());
     const pendingViewedIds = useRef(new Set<number>());
+    const viewablePostIds = useRef(new Set<number>());
+    const screenVisibleRef = useRef(false);
     const markPostsViewedRef = useRef(markPostsViewed);
     markPostsViewedRef.current = markPostsViewed;
+
+    const queueViewablePosts = useCallback(() => {
+        if (!screenVisibleRef.current) return;
+        for (const id of viewablePostIds.current) {
+            if (markedViewedIds.current.has(id)) continue;
+            markedViewedIds.current.add(id);
+            pendingViewedIds.current.add(id);
+        }
+    }, []);
+    const queueViewablePostsRef = useRef(queueViewablePosts);
+    queueViewablePostsRef.current = queueViewablePosts;
+
+    useEffect(() => {
+        const sync = () => {
+            screenVisibleRef.current =
+                isFocused && AppState.currentState === "active";
+            if (screenVisibleRef.current) queueViewablePosts();
+        };
+        sync();
+        const subscription = AppState.addEventListener("change", sync);
+        return () => subscription.remove();
+    }, [isFocused, queueViewablePosts]);
 
     const flushPendingViewed = useCallback(() => {
         if (pendingViewedIds.current.size === 0) return;
@@ -160,9 +186,10 @@ export function SocialFeedScreen() {
             if (hiddenIds.has(post.post_id)) continue;
             rows.push({ kind: "post", post });
         }
-        // Never-loaded pages ran dry: separator, then exclude=none pages
+        // Fresh pages ran dry: separator, then previously viewed posts.
         if (showingSeen && seenPosts.length > 0) {
             rows.push({ kind: "caught-up" });
+            rows.push({ kind: "history-heading" });
         }
         for (const post of seenPosts) {
             if (hiddenIds.has(post.post_id)) continue;
@@ -205,7 +232,9 @@ export function SocialFeedScreen() {
             playlist?: SharedPlaylistSummary | null,
             tags?: { text: string; color: string }[],
         ) => {
-            let created: { post_id: number; tags: SocialPost["tags"] } | undefined;
+            let created:
+                | { post_id: number; tags: SocialPost["tags"] }
+                | undefined;
             try {
                 created = await createPost({
                     content,
@@ -306,21 +335,21 @@ export function SocialFeedScreen() {
 
     const onViewableItemsChanged = useRef(
         ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+            const next = new Set<number>();
             for (const token of viewableItems) {
                 const row = token.item as FeedRow | undefined;
                 if (!token.isViewable || row?.kind !== "post") continue;
-                const id = row.post.post_id;
-                if (markedViewedIds.current.has(id)) continue;
-                markedViewedIds.current.add(id);
-                pendingViewedIds.current.add(id);
+                next.add(row.post.post_id);
             }
+            viewablePostIds.current = next;
+            queueViewablePostsRef.current();
         },
     ).current;
 
     const keyExtractor = useCallback((item: FeedRow, index: number) => {
-        return item.kind === "caught-up"
-            ? "caught-up"
-            : `${item.post.post_id}-${index}`;
+        if (item.kind === "caught-up") return "caught-up";
+        if (item.kind === "history-heading") return "history-heading";
+        return `${item.post.post_id}-${index}`;
     }, []);
 
     const removedCreated = useRef(
@@ -384,6 +413,9 @@ export function SocialFeedScreen() {
             if (item.kind === "caught-up") {
                 return <ListDivider label="You're all caught up" />;
             }
+            if (item.kind === "history-heading") {
+                return <PreviouslyViewedHeading />;
+            }
             return (
                 <PostCard
                     post={item.post}
@@ -421,6 +453,7 @@ export function SocialFeedScreen() {
             }
             return;
         }
+        if (rows.length === 0) return;
         if (hasNextPage && !isLoadingNextPage) {
             void loadNextPage();
         }
@@ -429,6 +462,7 @@ export function SocialFeedScreen() {
         hasNextPage,
         isLoadingNextPage,
         loadNextPage,
+        rows.length,
         showingFriends,
     ]);
 
@@ -519,7 +553,18 @@ export function SocialFeedScreen() {
     );
 }
 
-type FeedRow = { kind: "post"; post: SocialPost } | { kind: "caught-up" };
+type FeedRow =
+    | { kind: "post"; post: SocialPost }
+    | { kind: "caught-up" }
+    | { kind: "history-heading" };
+
+function PreviouslyViewedHeading() {
+    return (
+        <Text className="px-1 pt-1 text-sm font-semibold text-foreground">
+            Previously viewed
+        </Text>
+    );
+}
 
 function PostSeparator() {
     return <View className="h-3" />;

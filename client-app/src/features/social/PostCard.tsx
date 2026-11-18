@@ -29,7 +29,12 @@ import {
 } from "./PostTags";
 import { PostTopicCard } from "./PostTopicCard";
 import { SharedPlaylistPostCard } from "./SharedPlaylistPostCard";
-import { activityLabel, topicCreateFields, useResolvedTopic } from "./topic";
+import {
+    activityLabel,
+    spotlightSubtitle,
+    topicCreateFields,
+    useResolvedTopic,
+} from "./topic";
 import type { PostTopic, SocialPost } from "./types";
 import type { SocialPostTag } from "@/lib/types";
 
@@ -87,7 +92,9 @@ export function PostCard({
     const updateCachedPostLike = useUpdateCachedPostLike();
     const { updatePost } = useUpdatePost();
     const updateCachedPostContent = useUpdateCachedPostContent();
-    const isOwnPost = account?.id === post.author.user_id;
+    const author = post.author;
+    const spotlight = author == null;
+    const isOwnPost = account?.id != null && account.id === author?.user_id;
     // Resolved even when the card hides the topic, so an edit can send the
     // same title and artist the create request uses for the embedding.
     const topic = useResolvedTopic(post.topic_mk_id, topicHint);
@@ -272,17 +279,28 @@ export function PostCard({
     }
 
     function openAuthor(userId?: string) {
-        const id = userId || post.author.user_id;
+        const id = userId || author?.user_id;
         if (!id) return;
         if (onAuthorPress) onAuthorPress(id);
         else router.push(`/social/user/${id}`);
     }
 
+    const authorName = spotlight ? "For you" : (author?.username ?? "");
+    const authorSubtitle = spotlight
+        ? spotlightSubtitle(topic)
+        : `${formatRelativeTime(post.created_at)}${
+              topic
+                  ? ` · ${activityLabel(topic)}`
+                  : post.shared_playlist
+                    ? " · Shared a playlist"
+                    : ""
+          }`;
+
     const authorRow = (
         <>
             <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
                 <Text className="text-sm font-semibold text-foreground">
-                    {initialsFromUsername(post.author.username)}
+                    {initialsFromUsername(authorName)}
                 </Text>
             </View>
             <View className="min-w-0 flex-1">
@@ -290,16 +308,13 @@ export function PostCard({
                     className="font-semibold text-foreground"
                     numberOfLines={1}
                 >
-                    {post.author.username}
+                    {authorName}
                 </Text>
-                <Text className="text-xs text-muted-foreground">
-                    {formatRelativeTime(post.created_at)}
-                    {topic
-                        ? ` · ${activityLabel(topic)}`
-                        : post.shared_playlist
-                          ? " · Shared a playlist"
-                          : ""}
-                </Text>
+                {authorSubtitle ? (
+                    <Text className="text-xs text-muted-foreground">
+                        {authorSubtitle}
+                    </Text>
+                ) : null}
             </View>
         </>
     );
@@ -320,17 +335,23 @@ export function PostCard({
                 </View>
 
                 <View className="flex-row items-center">
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`View ${post.author.username}'s profile`}
-                        onPress={(event) => {
-                            event.stopPropagation();
-                            openAuthor();
-                        }}
-                        className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-60"
-                    >
-                        {authorRow}
-                    </Pressable>
+                    {spotlight ? (
+                        <View className="min-w-0 flex-1 flex-row items-center gap-3">
+                            {authorRow}
+                        </View>
+                    ) : (
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`View ${authorName}'s profile`}
+                            onPress={(event) => {
+                                event.stopPropagation();
+                                openAuthor();
+                            }}
+                            className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-60"
+                        >
+                            {authorRow}
+                        </Pressable>
+                    )}
                     {isOwnPost ? (
                         <Button
                             size="icon"
@@ -361,9 +382,11 @@ export function PostCard({
                     <SharedPlaylistPostCard playlist={post.shared_playlist} />
                 ) : null}
 
-                <Text className="text-base leading-6 text-foreground">
-                    {displayPost.content}
-                </Text>
+                {spotlight && displayPost.content.trim().length === 0 ? null : (
+                    <Text className="text-base leading-6 text-foreground">
+                        {displayPost.content}
+                    </Text>
+                )}
                 <PostTagRow tags={displayPost.tags} />
 
                 <View className="flex-row items-center gap-4 self-start">

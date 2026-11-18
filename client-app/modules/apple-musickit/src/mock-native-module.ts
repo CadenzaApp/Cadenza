@@ -913,6 +913,31 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
         getRecentlyAdded: (options?: MusicKitOptions) =>
             respond(paginatedResult(MOCK_RECENTLY_ADDED, options)),
 
+        // Shorter than five on purpose. The feed refill posts whatever comes back.
+        getRecommendations: () =>
+            respond([
+                {
+                    type: "song" as const,
+                    id: "1490401244",
+                    name: "Blinding Lights by The Weeknd",
+                },
+                {
+                    type: "artist" as const,
+                    id: "a.the%20weeknd",
+                    name: "The Weeknd",
+                },
+                {
+                    type: "song" as const,
+                    id: "1615585008",
+                    name: "As It Was by Harry Styles",
+                },
+                {
+                    type: "song" as const,
+                    id: "1544319711",
+                    name: "Good Days by SZA",
+                },
+            ]),
+
         getAlbumSongs: (albumId: string, options?: MusicKitOptions) =>
             respond(
                 paginatedResult(

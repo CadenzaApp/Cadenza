@@ -247,6 +247,18 @@ export interface ArtistResult {
     nextOffset?: number;
 }
 
+/**
+ * One song or artist from `MusicKit.getRecommendations`. An album or playlist
+ * in Apple's list has already been reduced to one song, or, one time in three,
+ * that song's artist.
+ */
+export type MusicRecommendation = {
+    type: "song" | "artist";
+    id: string;
+    /** Title, or artist name, from the recommendation. A song is "Title by Artist". */
+    name?: string;
+};
+
 /** An Apple Music catalog artist and the resources Apple returns alongside it. */
 export interface ArtistDetail {
     /** Apple Music catalog identifier for the artist. */
