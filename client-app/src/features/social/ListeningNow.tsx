@@ -1,5 +1,4 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -56,11 +55,8 @@ const RECENT_PLAYS_PER_COLUMN = 4;
 
 /** Artwork size on a full card. The progress and up next sit beside it. */
 const CARD_ARTWORK_SIZE = 104;
-/** How far a tile's gray fades up into the bottom of its artwork. */
-const TILE_BLEND = 6;
-
-/** The shade under the title and artist on the art, clear at its top. */
-const TITLE_SHADE = ["rgba(0,0,0,0)", "rgba(0,0,0,0.45)"] as const;
+/** The share of the listening card the artwork fills; the text takes the rest. */
+const CARD_ART_SHARE = 3 / 5;
 
 /** The gray ring on a bubble that is not live. */
 function neutralRing(mutedForeground: string) {
@@ -72,53 +68,9 @@ const STORY_GAP = 16;
 const STORY_PEEK = 12;
 const STORY_TARGET_SIZE = 70;
 
-const PLACEHOLDER_STORIES = [
-    {
-        user_id: "placeholder-live-friend",
-        username: "Maya",
-        can_join: true,
-        listener_count: 3,
-        now_playing: {
-            song_id: "placeholder-live-song",
-            title: "Midnight City",
-            artist: "M83",
-            album: null,
-            artwork_url:
-                "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=256&q=80",
-            duration_ms: null,
-            is_playing: true,
-            position_ms: 0,
-            as_of: new Date(0).toISOString(),
-            live_session_id: "placeholder-live-session",
-            up_next: [],
-        },
-    },
-    {
-        user_id: "placeholder-listening-friend",
-        username: "Noah",
-        can_join: false,
-        listener_count: 1,
-        now_playing: {
-            song_id: "placeholder-listening-song",
-            title: "Blue in Green",
-            artist: "Miles Davis",
-            album: null,
-            artwork_url:
-                "https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=256&q=80",
-            duration_ms: null,
-            is_playing: true,
-            position_ms: 0,
-            as_of: new Date(0).toISOString(),
-            live_session_id: null,
-            up_next: [],
-        },
-    },
-] satisfies FriendListening[];
-
 /**
- * The compact Listening now shelf on the feed. It intentionally begins with
- * two visual placeholders while real presence data is being connected to this
- * new treatment. A ring in the user's accent marks a session that can be
+ * The compact Listening now shelf on the feed: Your listening, then every
+ * friend playing now. A ring in the user's accent marks a session that can be
  * joined without a code; the neutral rim marks ordinary listening.
  */
 export function ListeningNowStrip() {
@@ -142,7 +94,7 @@ export function ListeningNowStrip() {
     const { profile } = useProfile();
     const { account } = useAccount();
     const myStory = useMyStory(account?.id ?? null);
-    const stories = [...PLACEHOLDER_STORIES, ...(friendsListening ?? [])];
+    const stories = friendsListening ?? [];
 
     return (
         <View
@@ -404,10 +356,9 @@ export function ListeningStoryDialog({
         <ModalPopup
             visible={open}
             onClose={onClose}
-            variant="transparent"
             contentStyle={{ padding: 0 }}
         >
-            {/* the tile's art is square at the popup's width, so wait for it */}
+            {/* the art is square at the popup's width, so wait for it */}
             <View
                 onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
             >
@@ -424,12 +375,11 @@ export function ListeningStoryDialog({
 }
 
 /**
- * One friend's listening as a tile: square artwork with the title and artist
- * on it, over a soft shade, on a tile that is one gray throughout. The art's
- * bottom edge fades into the gray over a few pixels, below the text. Under it
- * the friend and how many are listening, the live progress, then Join when
- * they can be joined. Tapping the art or name opens their profile, after
- * `onOpenProfile`.
+ * One friend's listening on the popup's glass: the artwork fills the top three
+ * fifths, square, and everything else sits on the glass in the bottom two:
+ * the song, the friend and how many are listening, the live progress, then
+ * Join when they can be joined. Tapping the art or the text above the progress
+ * opens their profile, after `onOpenProfile`.
  */
 function ListeningTile({
     friend,
@@ -441,11 +391,12 @@ function ListeningTile({
     onOpenProfile?: () => void;
 }) {
     const router = useRouter();
-    const { muted } = useAppTheme().colors;
     const { now_playing: nowPlaying, listener_count: listeners } = friend;
+    // the art is square, so the text's share follows from the width
+    const textHeight = (width / CARD_ART_SHARE) * (1 - CARD_ART_SHARE);
 
     return (
-        <View className="overflow-hidden rounded-2xl border border-border bg-muted">
+        <View>
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`${friend.username} is playing ${nowPlaying.title}, ${listeners} listening`}
@@ -461,72 +412,63 @@ function ListeningTile({
                         size={width}
                         rounded={false}
                     />
-                    <View className="absolute bottom-0 left-0 right-0">
-                        <LinearGradient
-                            colors={TITLE_SHADE}
-                            style={{
-                                gap: 2,
-                                paddingHorizontal: 10,
-                                paddingTop: 24,
-                                // clear of the gray at the art's bottom edge
-                                paddingBottom: TILE_BLEND + 6,
-                            }}
-                        >
-                            <MarqueeText className="text-base font-semibold text-white">
-                                {nowPlaying.title}
-                            </MarqueeText>
-                            {nowPlaying.artist ? (
-                                <Text
-                                    className="text-xs text-white"
-                                    numberOfLines={1}
-                                >
-                                    {nowPlaying.artist}
-                                </Text>
-                            ) : null}
-                        </LinearGradient>
-                    </View>
-                    <LinearGradient
-                        pointerEvents="none"
-                        colors={[withAlpha(muted, 0), muted]}
-                        style={{
-                            position: "absolute",
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            height: TILE_BLEND,
-                        }}
-                    />
                     {nowPlaying.live_session_id ? (
-                        <LiveChip className="absolute left-2 top-2" />
+                        <LiveChip className="absolute left-3 top-3" />
                     ) : null}
                 </View>
-                <View className="px-2.5 pt-2">
+            </Pressable>
+            <View
+                className="justify-between gap-3 p-4"
+                style={{ minHeight: textHeight }}
+            >
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${friend.username}'s profile`}
+                    onPress={() => {
+                        onOpenProfile?.();
+                        router.push(`/social/user/${friend.user_id}`);
+                    }}
+                    className="gap-2 active:opacity-80"
+                >
+                    <View>
+                        <MarqueeText className="text-lg font-semibold text-foreground">
+                            {nowPlaying.title}
+                        </MarqueeText>
+                        {nowPlaying.artist ? (
+                            <Text
+                                className="text-sm text-muted-foreground"
+                                numberOfLines={1}
+                            >
+                                {nowPlaying.artist}
+                            </Text>
+                        ) : null}
+                    </View>
                     <View className="flex-row items-center gap-1.5">
                         <Initials username={friend.username} size={20} />
                         <Text
-                            className="min-w-0 flex-shrink text-[11px] font-medium text-foreground"
+                            className="min-w-0 flex-shrink text-xs font-medium text-foreground"
                             numberOfLines={1}
                         >
                             {friend.username}
                         </Text>
                         <Text
-                            className="text-[11px] text-muted-foreground"
+                            className="text-xs text-muted-foreground"
                             numberOfLines={1}
                         >
                             · {listeners} listening
                         </Text>
                     </View>
+                </Pressable>
+                <View className="gap-3">
+                    <LiveProgress nowPlaying={nowPlaying} />
+                    {friend.can_join ? (
+                        <JoinButton
+                            userId={friend.user_id}
+                            username={friend.username}
+                            appearance="outline"
+                        />
+                    ) : null}
                 </View>
-            </Pressable>
-            <View className="gap-2.5 px-2.5 pb-2.5 pt-2.5">
-                <LiveProgress nowPlaying={nowPlaying} />
-                {friend.can_join ? (
-                    <JoinButton
-                        userId={friend.user_id}
-                        username={friend.username}
-                        appearance="outline"
-                    />
-                ) : null}
             </View>
         </View>
     );
