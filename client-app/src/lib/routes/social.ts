@@ -241,14 +241,11 @@ export function useFriendsFeed(enabled: boolean) {
  * row's `view_order`.
  *
  * A fresh page with `not_enough_spotlights` asks MusicKit for recommendations
- * and posts up to five. A short page waits out that refill before the caught-up
- * divider.
+ * and posts up to five. This page stays as it is. Those spotlights can appear
+ * on a later page.
  */
 export function useFeed() {
     const { account } = useAccount();
-    const inflightShort = useRef(0);
-    const [refillPending, setRefillPending] = useState(false);
-    const skipRefillOnce = useRef(false);
     const postSpotlights = useAPIMutation<
         { spotlights: MusicRecommendation[] },
         SpotlightResponse
@@ -291,10 +288,6 @@ export function useFeed() {
     useEffect(() => {
         const pages = fresh.data;
         if (!pages) return;
-        if (skipRefillOnce.current) {
-            skipRefillOnce.current = false;
-            return;
-        }
         const todo = pages.filter(
             (page) =>
                 page.not_enough_spotlights === true &&
@@ -305,36 +298,22 @@ export function useFeed() {
 
         let cancelled = false;
         void (async () => {
-            for (const page of todo) {
+            for (let i = 0; i < todo.length; i++) {
                 if (cancelled) return;
-                const short = page.feed.length < FEED_PAGE_SIZE;
-                if (short) {
-                    inflightShort.current += 1;
-                    setRefillPending(true);
-                }
                 try {
                     const recommendations = await MusicKit.getRecommendations();
                     const spotlights = recommendations.slice(0, 5);
                     if (cancelled || spotlights.length === 0) continue;
-                    const result = await postSpotlightsRef.current({
-                        spotlights,
-                    });
-                    if (cancelled) return;
-                    if ((result?.added ?? 0) > 0 && short) {
-                        skipRefillOnce.current = true;
-                        await fresh.mutate();
-                    }
+                    await postSpotlightsRef.current({ spotlights });
+                    const songs = spotlights.filter(
+                        (item) => item.type === "song",
+                    ).length;
+                    const artists = spotlights.length - songs;
+                    console.log(
+                        `uploaded MusicKit recommendations: ${songs} song${songs === 1 ? "" : "s"}, ${artists} artist${artists === 1 ? "" : "s"}`,
+                    );
                 } catch (error) {
                     console.error("Spotlight refill failed", error);
-                } finally {
-                    if (short) {
-                        inflightShort.current = Math.max(
-                            0,
-                            inflightShort.current - 1,
-                        );
-                        if (inflightShort.current === 0)
-                            setRefillPending(false);
-                    }
                 }
             }
         })();
@@ -342,19 +321,12 @@ export function useFeed() {
         return () => {
             cancelled = true;
         };
-    }, [fresh.data, fresh.mutate]);
+    }, [fresh.data]);
 
     const lastFresh = fresh.data?.at(-1);
-    const freshShort =
+    const freshExhausted =
         fresh.data != null &&
         (fresh.data.length === 0 || !feedPageIsFull(lastFresh));
-    const refillBlocksCaughtUp =
-        refillPending ||
-        (lastFresh != null &&
-            !feedPageIsFull(lastFresh) &&
-            lastFresh.not_enough_spotlights === true &&
-            !refilledFeedPages.has(lastFresh));
-    const freshExhausted = freshShort && !refillBlocksCaughtUp;
 
     const historyStart = fresh.data?.[0]?.latest_view_order;
 
@@ -447,9 +419,6 @@ export function useFeed() {
     ]);
 
     const refreshFeed = useCallback(async () => {
-        inflightShort.current = 0;
-        skipRefillOnce.current = false;
-        setRefillPending(false);
         await Promise.all([fresh.setSize(1), history.setSize(1)]);
         await Promise.all([fresh.mutate(), history.mutate()]);
     }, [fresh.mutate, fresh.setSize, history.mutate, history.setSize]);

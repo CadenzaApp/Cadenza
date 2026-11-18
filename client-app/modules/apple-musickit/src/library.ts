@@ -39,16 +39,7 @@ export const MusicKit = {
      * The list may be shorter than five. Stations are left out.
      */
     getRecommendations: async (): Promise<MusicRecommendation[]> => {
-        const recommendations = await requireNative().getRecommendations();
-        const lines = recommendations.map((item) =>
-            item.name
-                ? `${item.type} ${item.name} (${item.id})`
-                : `${item.type} ${item.id}`,
-        );
-        console.log(
-            `[spotlight] MusicKit recommendations:\n${lines.join("\n") || "none"}`,
-        );
-        return recommendations;
+        return requireNative().getRecommendations();
     },
 
     /**
