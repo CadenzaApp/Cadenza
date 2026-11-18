@@ -117,8 +117,9 @@ export interface AppleMusicKitNativeModule {
         id: string,
         isFavorite: boolean,
     ): Promise<FavoriteStatus>;
+    /** Any catalog or library resource type Apple reads by `ids`. */
     getCollectionInfo(
-        kind: CollectionFavoriteKind,
+        kind: CollectionFavoriteKind | "artists",
         ids: string[],
     ): Promise<MusicItem[]>;
 }

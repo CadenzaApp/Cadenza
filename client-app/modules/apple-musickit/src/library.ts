@@ -1,5 +1,6 @@
 import type {
     ArtistDetail,
+    ArtistItem,
     ArtistResult,
     CatalogSearchType,
     CollectionFavoriteKind,
@@ -345,6 +346,31 @@ export const MusicKit = {
         );
         return requireNative().getCollectionInfo(kind, normalizedIds);
     },
+
+    /**
+     * Name and artwork for catalog or library artist IDs, in the requested
+     * order, minus any Apple could not find. Reads through the native
+     * `getCollectionInfo`, which fetches any resource type by ids.
+     */
+    getArtistsInfo: async (ids: string[]): Promise<ArtistItem[]> => {
+        if (ids.length === 0) return [];
+        const normalizedIds = ids.map((id) =>
+            requireIdentifier(id, "artist ID"),
+        );
+        const items = await requireNative().getCollectionInfo(
+            "artists",
+            normalizedIds,
+        );
+        return items.map((item) => ({
+            id: item.libraryId ?? item.catalogId ?? item.id,
+            name: item.title,
+            artworkUrl: item.artworkUrl,
+            artworkColor: item.artworkColor,
+            source: item.source,
+            catalogId: item.catalogId,
+            libraryId: item.libraryId,
+        }));
+    },
 };
 
 /** @internal Supplies the native catalog and library implementation. */
@@ -425,8 +451,9 @@ interface LibraryNativeModule {
         id: string,
         isFavorite: boolean,
     ): Promise<FavoriteStatus>;
+    /** Any catalog or library resource type Apple reads by `ids`. */
     getCollectionInfo(
-        kind: CollectionFavoriteKind,
+        kind: CollectionFavoriteKind | "artists",
         ids: string[],
     ): Promise<MusicItem[]>;
 }
