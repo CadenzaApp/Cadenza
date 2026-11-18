@@ -119,6 +119,7 @@ impl ToolRunner for DbTools<'_> {
             "get_playlist_songs" => self.get_playlist_songs(args).await,
             "find_songs" => self.find_songs(args).await,
             "find_artist" => self.find_artist(args).await,
+            "find_album" => self.find_album(args).await,
             _ => return ToolOutcome::error(format!("there is no tool named {name}"), label),
         };
         let outcome = match result {
@@ -182,6 +183,7 @@ fn label_for(name: &str) -> &'static str {
         "get_playlist_songs" => "Looked up a playlist's songs",
         "find_songs" => "Looking for songs on Apple Music",
         "find_artist" => "Looked up an artist on Apple Music",
+        "find_album" => "Looked up an album on Apple Music",
         _ => "Tried a tool",
     }
 }
@@ -340,6 +342,16 @@ struct SavedQueryArgs {
 struct FindArtistArgs {
     name: String,
 }
+
+#[derive(Deserialize)]
+struct FindAlbumArgs {
+    name: String,
+    #[serde(default)]
+    artist: Option<String>,
+}
+
+/// How many albums `find_album` hands back.
+const MAX_ALBUMS: usize = 5;
 
 /// How many artists `find_artist` hands back.
 const MAX_ARTISTS: usize = 5;
@@ -936,6 +948,7 @@ impl DbTools<'_> {
                     "title": song.title,
                     "artist": song.artist_name,
                     "album": song.album_name,
+                    "album_id": song.album_id,
                     "release_date": song.release_date,
                 })
             })
@@ -992,6 +1005,43 @@ impl DbTools<'_> {
             })
             .collect();
         Ok(ToolOutcome::ok(json!({ "artists": artists }), ""))
+    }
+
+    /// Apple Music albums matching a name, and an artist when given, with their catalog
+    /// ids, for opening an album's page.
+    async fn find_album(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: FindAlbumArgs = parse_args(args)?;
+        let name = args.name.trim();
+        if name.is_empty() {
+            return Err(ToolError::Arguments("name is required".to_owned()));
+        }
+        let term = match args.artist.as_deref().map(str::trim) {
+            Some(artist) if !artist.is_empty() => format!("{name} {artist}"),
+            _ => name.to_owned(),
+        };
+        let albums = self
+            .song_meta
+            .search_albums(&term, MAX_ALBUMS)
+            .await
+            .map_err(|err| {
+                println!("[assistant] find_album \"{term}\" failed: {err}");
+                ToolError::Arguments(
+                    apple_music_down_message(&err.to_string()).replace("find_songs", "find_album"),
+                )
+            })?;
+        let albums: Vec<Value> = albums
+            .into_iter()
+            .map(|album| {
+                json!({
+                    "album_id": album.id,
+                    "name": album.name,
+                    "artist": album.artist_name,
+                    "release_date": album.release_date,
+                    "tracks": album.track_count,
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok(json!({ "albums": albums }), ""))
     }
 
     async fn get_playlist_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
@@ -1297,6 +1347,19 @@ pub fn definitions() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "name": { "type": "string", "description": "The artist's name, like \"Kikuo\"." }
+                },
+                "required": ["name"]
+            }
+        }),
+        json!({
+            "type": "function",
+            "name": "find_album",
+            "description": "Apple Music albums whose name matches, best match first, with album_id, name, artist, release date, and track count. Use it to get the id for open_screen with screen album. Pass the artist too when you know it. Pick the one the user meant (the original album, not a deluxe or live edition unless asked); if none is, say so.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "The album's name." },
+                    "artist": { "type": "string", "description": "Its artist, when known." }
                 },
                 "required": ["name"]
             }

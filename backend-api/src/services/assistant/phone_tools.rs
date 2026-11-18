@@ -143,7 +143,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "now_playing",
-            "description": "What is playing on the phone right now: the song (id, title, artist, album, artist id), whether it is playing or paused, how far in, the next songs in the queue, and shuffle and repeat. Use for \"what is this song\", \"what's next\", or anything about \"this song\". Also says when playback is locked, like in a live session the user cannot control.",
+            "description": "What is playing on the phone right now: the song (id, title, artist, album, artist id, album id), whether it is playing or paused, how far in, the next songs in the queue, and shuffle and repeat. Use for \"what is this song\", \"what's next\", or anything about \"this song\". Also says when playback is locked, like in a live session the user cannot control.",
             "parameters": { "type": "object", "properties": {} }
         }),
         json!({
@@ -282,13 +282,13 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "open_screen",
-            "description": "Opens a screen in the app, closing the chat. Settings sheets need no id. Every other screen needs an id from a tool result in this conversation, never one you remember or guess: tag a tag id, saved_query an id from list_saved_queries, shared_playlist an id from list_playlists, apple_music_playlist an id from apple_music_playlists, artist an artist_id from find_artist or now_playing.",
+            "description": "Opens a screen in the app, closing the chat. Settings sheets and now_playing (the player) need no id. Every other screen needs an id from a tool result in this conversation, never one you remember or guess: tag a tag id, saved_query an id from list_saved_queries, shared_playlist an id from list_playlists, apple_music_playlist an id from apple_music_playlists, artist an artist_id from find_artist or now_playing, album an album_id from find_album, now_playing, or find_songs, song_discussion (the posts about one song) a song_id from any tool.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "screen": {
                         "type": "string",
-                        "enum": ["account", "appearance", "apple_music", "listening_preferences", "privacy", "your_data", "tag", "saved_query", "shared_playlist", "apple_music_playlist", "artist"]
+                        "enum": ["account", "appearance", "apple_music", "listening_preferences", "privacy", "your_data", "now_playing", "tag", "saved_query", "shared_playlist", "apple_music_playlist", "artist", "album", "song_discussion"]
                     },
                     "id": { "type": "string" }
                 },

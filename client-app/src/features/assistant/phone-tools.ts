@@ -11,6 +11,7 @@ import { useSWRConfig } from "swr";
 import { readAppleMusic } from "@/lib/apple-music-read";
 import { useListeningEvents } from "@/lib/listening-events";
 import { logHandledError } from "@/lib/log";
+import { collectionRoute } from "@/lib/music-routes";
 import { usePlaylistMutations, useTrackLookup } from "@/lib/musickit-hooks";
 import { useOpenScreen } from "@/lib/open-screen";
 import { usePlaybackCommands } from "@/lib/playback";
@@ -415,6 +416,15 @@ async function openScreenFor(
         router.replace(sheet);
         return { opened: screen };
     }
+    if (screen === "now_playing") {
+        if (!currentPlayback()?.activeTrack) {
+            return {
+                error: "Nothing is playing, so there is no player to open.",
+            };
+        }
+        router.replace("/player");
+        return { opened: screen };
+    }
     if (!id) return { error: `${screen} needs an id.` };
     if (screen === "artist") {
         try {
@@ -425,6 +435,20 @@ async function openScreenFor(
             };
         }
     }
+    if (screen === "album") {
+        // Apple's own album item, which proves the id and carries the title and
+        // artwork the album page draws before its own fetch lands
+        const album = await readAppleMusic(() =>
+            MusicKit.getCollectionInfo("albums", [id]),
+        ).catch(() => []);
+        if (album.length === 0) {
+            return {
+                error: "Apple Music has no album with that id. Look the album up with find_album and use its album_id.",
+            };
+        }
+        openScreen(collectionRoute(album[0]) as Href, { closing: "assistant" });
+        return { opened: screen, id, name: album[0].title };
+    }
     const href: Href | null =
         screen === "tag"
             ? (`/tag/${encodeURIComponent(id)}` as Href)
@@ -432,18 +456,23 @@ async function openScreenFor(
               ? ({ pathname: "/query-results", params: { saved: id } } as Href)
               : screen === "shared_playlist"
                 ? (`/shared-playlist/${encodeURIComponent(id)}` as Href)
-                : screen === "artist"
-                  ? (`/artist/${encodeURIComponent(id)}` as Href)
-                  : screen === "apple_music_playlist"
-                    ? ({
-                          pathname: "/collection/[kind]/[id]",
-                          params: {
-                              kind: "playlist",
-                              id,
-                              title: playlistNames.get(id) ?? "",
-                          },
-                      } as Href)
-                    : null;
+                : screen === "song_discussion"
+                  ? ({
+                        pathname: "/discuss/[songId]",
+                        params: { songId: id },
+                    } as Href)
+                  : screen === "artist"
+                    ? (`/artist/${encodeURIComponent(id)}` as Href)
+                    : screen === "apple_music_playlist"
+                      ? ({
+                            pathname: "/collection/[kind]/[id]",
+                            params: {
+                                kind: "playlist",
+                                id,
+                                title: playlistNames.get(id) ?? "",
+                            },
+                        } as Href)
+                      : null;
     if (!href) return { error: `There is no screen called ${screen}.` };
     openScreen(href, { closing: "assistant" });
     return { opened: screen, id };
@@ -457,6 +486,7 @@ function describe(track: MusicItem) {
         artist: track.artistName ?? null,
         album: track.albumName ?? null,
         artist_id: track.artistId ?? null,
+        album_id: track.albumID ?? null,
     };
 }
 

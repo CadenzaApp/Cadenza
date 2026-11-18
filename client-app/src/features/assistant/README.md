@@ -72,6 +72,8 @@ Assistant section of [backend-api/src/services/README.md](../../../../backend-ap
   `set_shuffle` turns Apple's shuffle on, the same as the queue's toggle.
 - Playback tools refuse while `controlsLocked` (a live session the user cannot control), and
   go through the same commands as a tap otherwise, so a live session's rules apply.
-- `open_screen` closes the assistant: a settings sheet replaces it, a detail screen opens in the
-  tab underneath (`useOpenScreen` with `closing: "assistant"`). The reply still lands in the
-  store.
+- `open_screen` closes the assistant: a settings sheet or the player replaces it, a detail screen
+  (tag, saved query, shared playlist, Apple Music playlist, artist, album, a song's posts) opens
+  in the tab underneath (`useOpenScreen` with `closing: "assistant"`). The reply still lands in
+  the store. An artist or album id is checked with Apple first, so a wrong id is an error the
+  model can fix rather than a page that cannot load.
