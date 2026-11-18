@@ -20,11 +20,12 @@ use crate::db::{
 };
 use crate::err::CadenzaError;
 use crate::routes::json::{
-    assistant::SongsCard,
-    query::{Query, QuerySort},
+    assistant::{BuilderSettings, CardQuery, SongsCard},
+    query::{Query, QueryGroup, QuerySort},
     tag::TagType,
 };
 use crate::services::analytics::{Dimension, TimeWindow};
+use crate::services::assistant::builder::{Builder, builder_for, simple_blocker};
 use crate::services::metadata_tags::spawn_store_song_metadata;
 use crate::services::song_metadata::{SongMetadata, SongMetadataService};
 
@@ -94,6 +95,11 @@ pub struct DbTools<'a> {
     pub song_meta: &'a SongMetadataService,
     pub user_id: Uuid,
     pub hide_explicit: bool,
+    /// The phone's query builder settings, which `run_query` runs with unless the model
+    /// asks otherwise, so its songs match what the builder shows.
+    pub builder_settings: BuilderSettings,
+    /// The phone's IANA zone, which a datetime group counts its days in.
+    pub time_zone: String,
 }
 
 #[async_trait]
@@ -258,21 +264,31 @@ fn activity_meaning(tag: ActivityTag) -> &'static str {
 #[derive(Deserialize)]
 struct RunQueryArgs {
     query: Value,
-    /// `everything` (the default) or `mine`.
+    /// `everything` or `mine`. Left out, whichever the phone's "library or tagged"
+    /// setting says.
     #[serde(default)]
     scope: Option<String>,
     /// How to order the songs, as a `QuerySort`. Left out, the query's own
     /// order: the user's songs first, most relevant first.
     #[serde(default)]
     sort: Option<Value>,
+    /// How to split the songs into sections, as a `QueryGroup`. The sort orders the songs
+    /// inside each.
+    #[serde(default)]
+    group: Option<Value>,
     /// How many songs to hand back, in order, when the user asked for a number
     /// of them. Left out, all of them (the card still lists at most
-    /// [`MAX_CARD_SONGS`]).
+    /// [`MAX_CARD_SONGS`]). Grouped, the first this many are picked in the sort's order,
+    /// then grouped.
     #[serde(default)]
     limit: Option<u64>,
     /// The model's short name for the list, for the card's title.
     #[serde(default)]
     title: Option<String>,
+    /// The query builder the user asked for, `simple` or `advanced`. Left out, the simple
+    /// one when it can hold the query.
+    #[serde(default)]
+    builder: Option<String>,
 }
 
 /// The `limit` the model asked for, kept to 1 through [`MAX_CARD_SONGS`].
@@ -280,23 +296,64 @@ fn picked_count(limit: Option<u64>) -> Option<usize> {
     limit.map(|limit| (limit.min(MAX_CARD_SONGS as u64) as usize).max(1))
 }
 
-/// The arrangement for `run_query`: sorted by `sort` when the model gave one,
-/// otherwise the query's own order. Never grouped.
-fn arrangement_for(sort: Option<Value>) -> Result<Arrangement, ToolError> {
-    let Some(sort) = sort.filter(|sort| !sort.is_null()) else {
-        return Ok(Arrangement::default());
-    };
-    let sort: QuerySort = serde_json::from_value(sort)
+/// The sort or group the model gave, unless it left it out or sent null.
+fn given(value: Option<Value>) -> Option<Value> {
+    value.filter(|value| !value.is_null())
+}
+
+/// The arrangement for `run_query`: sorted by `sort` and grouped by `group` when the model
+/// gave them, otherwise the query's own order, and cut to `limit`. A datetime group counts
+/// its days in `time_zone`.
+fn arrangement_for(
+    sort: Option<Value>,
+    group: Option<Value>,
+    limit: Option<usize>,
+    time_zone: &str,
+) -> Result<Arrangement, ToolError> {
+    let sort = given(sort)
+        .map(serde_json::from_value::<QuerySort>)
+        .transpose()
         .map_err(|err| ToolError::Arguments(format!("the sort is not valid: {err}")))?;
+    let group = given(group)
+        .map(serde_json::from_value::<QueryGroup>)
+        .transpose()
+        .map_err(|err| ToolError::Arguments(format!("the group is not valid: {err}")))?;
     Ok(Arrangement {
-        sort: Some(sort),
-        ..Arrangement::default()
+        sort,
+        time_zone: group.is_some().then(|| time_zone.to_owned()),
+        group,
+        limit,
     })
 }
 
-/// Which songs `run_query` searches. Every song Cadenza knows unless the model
-/// asks for `mine`, the user's library and tagged songs. The app's own "Show
-/// songs only in library or tagged" setting does not apply here.
+/// The builder the model says the user asked for.
+fn wanted_builder(builder: Option<&str>) -> Result<Option<Builder>, ToolError> {
+    match builder {
+        None => Ok(None),
+        Some("simple") => Ok(Some(Builder::Simple)),
+        Some("advanced") => Ok(Some(Builder::Advanced)),
+        Some(other) => Err(ToolError::Arguments(format!(
+            "builder must be simple or advanced, not {other}"
+        ))),
+    }
+}
+
+/// What the model tells the user when they asked for the simple builder and the query
+/// needs the advanced one.
+const SIMPLE_BUILDER_NOTE: &str = "The user asked for the simple query builder, but this query only fits the advanced one, so tapping the card opens it there. Say so in one short sentence, with why: ";
+
+/// The scope `run_query` uses when the model leaves it out: what the phone's "library or
+/// tagged" setting says, so the songs match what the query builder shows.
+fn default_scope(settings: BuilderSettings) -> &'static str {
+    if settings.library_or_tagged {
+        "mine"
+    } else {
+        "everything"
+    }
+}
+
+/// Which songs `run_query` searches: every song Cadenza knows, or for `mine` the user's
+/// library and tagged songs.
 fn query_songs_for(scope: Option<&str>) -> Result<QuerySongs, ToolError> {
     match scope {
         None | Some("everything") => Ok(QuerySongs::Everything),
@@ -794,13 +851,23 @@ impl DbTools<'_> {
 
     async fn run_query(&self, args: Value) -> Result<ToolOutcome, ToolError> {
         let args: RunQueryArgs = parse_args(args)?;
+        let query_json = args.query.clone();
         let query: Query = serde_json::from_value(args.query)
             .map_err(|err| ToolError::Arguments(format!("the query is not valid: {err}")))?;
-        let songs = query_songs_for(args.scope.as_deref())?;
-        let arrangement = arrangement_for(args.sort)?;
+        let scope = args
+            .scope
+            .as_deref()
+            .unwrap_or(default_scope(self.builder_settings));
+        let songs = query_songs_for(Some(scope))?;
+        let wanted = wanted_builder(args.builder.as_deref())?;
+        let limit = picked_count(args.limit);
+        let sort = given(args.sort);
+        let group = given(args.group);
+        let arrangement = arrangement_for(sort.clone(), group.clone(), limit, &self.time_zone)?;
         let sorted = arrangement.sort.is_some();
+        let include_suggested = self.builder_settings.include_suggested;
         let options = QueryOptions {
-            consider_default_tags: false,
+            consider_default_tags: include_suggested,
             songs,
             hide_explicit: self.hide_explicit,
         };
@@ -813,45 +880,58 @@ impl DbTools<'_> {
             })?;
 
         let (yours, elsewhere) = count_yours(&matches.songs);
+        // with a limit the database already kept only the first `limit` in order: the
+        // card holds just those, and Play queues just those
         let total = matches.songs.len();
-        // with a limit, only the first `limit` in order are the answer: the card
-        // holds just those, and Play queues just those
-        let limit = picked_count(args.limit);
-        let picked = &matches.songs[..limit.map_or(total, |limit| limit.min(total))];
-        let described = self.describe_songs(picked).await?;
-        let song_ids: Vec<String> = picked
+        let described = self.describe_songs(&matches.songs).await?;
+        let song_ids: Vec<String> = matches
+            .songs
             .iter()
             .take(MAX_CARD_SONGS)
             .map(|song| song.song_id.clone())
             .collect();
-        let mut outcome = ToolOutcome::ok(
-            json!({
-                "scope": if songs == QuerySongs::Everything { "everything" } else { "mine" },
-                "total": total,
-                "yours": yours,
-                "elsewhere": elsewhere,
-                "sorted": sorted,
-                // unsorted, only the songs from elsewhere are cut off; sorted,
-                // every song counts toward the limit
-                "capped": matches.capped,
-                "limit": limit,
-                // how many songs this answer is made of: `limit` of them, or all
-                "returned": picked.len(),
-                "songs": described,
-                "songs_shown": described.len(),
-                // how many the song card under the answer lists
-                "card_shows": song_ids.len(),
-            }),
-            "",
-        );
+        let (builder, gave_way) = builder_for(&query, wanted);
+        let mut output = json!({
+            "scope": if songs == QuerySongs::Everything { "everything" } else { "mine" },
+            "total": total,
+            "yours": yours,
+            "elsewhere": elsewhere,
+            "sorted": sorted,
+            // only true when the search stopped counting songs before it found them all,
+            // never because of the limit
+            "capped": matches.capped,
+            "limit": limit,
+            "groups": matches.groups.as_ref().map(Vec::len),
+            "songs": described,
+            "songs_shown": described.len(),
+            // how many the song card under the answer lists
+            "card_shows": song_ids.len(),
+            // the query builder tapping the card opens it in
+            "builder": builder.as_str(),
+        });
+        if gave_way {
+            output["builder_note"] = format!(
+                "{SIMPLE_BUILDER_NOTE}{}.",
+                simple_blocker(&query).unwrap_or("its shape needs the advanced builder")
+            )
+            .into();
+        }
+        let mut outcome = ToolOutcome::ok(output, "");
         if !song_ids.is_empty() {
             outcome.songs = Some(SongsCard {
-                // a limited answer is complete at its own size, so the card
-                // shows no "more" for the songs left out on purpose
-                total: if limit.is_some() { picked.len() } else { total },
-                capped: limit.is_none() && matches.capped,
+                total,
+                capped: matches.capped,
                 song_ids,
                 title: card_title(args.title),
+                query: Some(CardQuery {
+                    query: query_json,
+                    builder: builder.as_str().to_owned(),
+                    library_or_tagged: songs != QuerySongs::Everything,
+                    include_suggested,
+                    sort,
+                    group,
+                    limit,
+                }),
             });
         }
         Ok(outcome)
@@ -962,6 +1042,7 @@ impl DbTools<'_> {
                 capped: false,
                 song_ids,
                 title: Some(saved.name),
+                query: None,
             });
         }
         Ok(outcome)
@@ -1159,6 +1240,7 @@ impl DbTools<'_> {
                 capped: false,
                 song_ids,
                 title: card_title(args.title),
+                query: None,
             });
         }
         Ok(outcome)
@@ -1301,6 +1383,7 @@ impl DbTools<'_> {
                 capped: false,
                 song_ids,
                 title: card_title(args.title).or(album_name),
+                query: None,
             });
         }
         Ok(outcome)
@@ -1366,6 +1449,7 @@ impl DbTools<'_> {
                 capped: false,
                 song_ids,
                 title: Some(detail.header.name.clone()),
+                query: None,
             });
         }
         Ok(outcome)
@@ -1421,6 +1505,7 @@ impl DbTools<'_> {
                     song_ids,
                     capped: false,
                     title: card_title(args.title).or_else(|| Some("Your Top Songs".to_owned())),
+                    query: None,
                 });
             }
             return Ok(outcome);
@@ -1508,7 +1593,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "run_query",
-            "description": "Finds songs matching a Cadenza query among every song Cadenza knows, the user's own first. Returns how many matched, how many of those are the user's own (in their library or tagged) and how many come from elsewhere, and the first 25 with title, artist, and a yours flag. The user sees the songs as a card under your answer, so do not list them in your text.",
+            "description": "Finds songs matching a Cadenza query, the user's own first, sorted, grouped, and cut to a number when asked. Returns how many matched, how many of those are the user's own (in their library or tagged) and how many come from elsewhere, the first 25 with title, artist, and a yours flag, and which query builder the card opens the query in. The user sees the songs as a card under your answer, so do not list them in your text. Tapping the card's song count loads the query into the Cadenza query builder and shows its results.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1520,9 +1605,13 @@ pub fn definitions() -> Vec<Value> {
                         "type": "object",
                         "description": "Optional order. {\"field\": \"metadata\", \"key\": <title, artist, album, genre, release_date, duration, explicit, or total_plays>, \"direction\": \"ascending\" or \"descending\"}, or {\"field\": \"tag\", \"tag_id\": <id>, \"direction\": ...} for one of the user's tags or an activity tag. Ascending is A to Z, low to high, oldest first. Leave out for the default order (the user's own songs first, most relevant first)."
                     },
+                    "group": {
+                        "type": "object",
+                        "description": "Optional sections, the same shape as sort: {\"field\": \"metadata\", \"key\": ..., \"direction\": ...} or {\"field\": \"tag\", \"tag_id\": <id>, \"direction\": ...}. One section per value (per day for a date), in the direction's order; sort then orders the songs inside each. Only when the user asks to group, split, or section the songs (\"grouped by artist\", \"by genre\"). Leave out otherwise."
+                    },
                     "limit": {
                         "type": "integer",
-                        "description": "Optional. When the user asks for a number of songs (\"10 songs\", \"my top 5\", \"a few\"), how many to hand back, 1 to 250, taken in order after sort. The card and Play then hold exactly these. Leave out to return every match."
+                        "description": "Optional. When the user asks for a number of songs (\"10 songs\", \"my top 5\", \"a few\"), how many to hand back, 1 to 250, taken in order after sort. With group, those first songs are picked in sort's order and then grouped. The card and Play then hold exactly these. Leave out to return every match."
                     },
                     "title": {
                         "type": "string",
@@ -1531,7 +1620,12 @@ pub fn definitions() -> Vec<Value> {
                     "scope": {
                         "type": "string",
                         "enum": ["everything", "mine"],
-                        "description": "everything (default): every song Cadenza knows, the user's own first. mine: only the user's library and tagged songs. Use mine only when the user asks for songs in their library, songs they have, or their own songs."
+                        "description": "everything: every song Cadenza knows, the user's own first. mine: only the user's library and tagged songs. Leave out to follow the user's query builder setting, so the card matches what the builder shows. Pass mine when the user asks for songs in their library, songs they have, or their own songs; pass everything when they ask for songs beyond their own."
+                    },
+                    "builder": {
+                        "type": "string",
+                        "enum": ["simple", "advanced"],
+                        "description": "Only when the user names a query builder (\"in the advanced builder\", \"use the simple query builder\"). Tapping the card opens the query there. Left out, it opens in the simple builder when the query fits, otherwise the advanced one."
                     }
                 },
                 "required": ["query"]
@@ -1720,28 +1814,86 @@ mod tests {
 
     #[test]
     fn sorts_only_when_asked() {
-        assert!(arrangement_for(None).unwrap().is_none());
-        assert!(arrangement_for(Some(Value::Null)).unwrap().is_none());
+        let plain = |sort| arrangement_for(sort, None, None, "UTC").unwrap();
+        assert!(plain(None).is_none());
+        assert!(plain(Some(Value::Null)).is_none());
 
-        let newest = arrangement_for(Some(json!({
+        let newest = plain(Some(json!({
             "field": "metadata",
             "key": "release_date",
             "direction": "descending"
-        })))
-        .unwrap();
+        })));
         assert!(newest.sort.is_some() && newest.group.is_none());
+        assert_eq!(newest.time_zone, None);
 
-        let most_played = arrangement_for(Some(json!({
+        let most_played = plain(Some(json!({
             "field": "tag",
             "tag_id": 41,
             "direction": "descending"
-        })))
-        .unwrap();
+        })));
         assert!(most_played.sort.is_some());
 
         // a sort the query engine cannot read is the model's to fix
         assert!(matches!(
-            arrangement_for(Some(json!({ "field": "metadata", "key": "mood" }))),
+            arrangement_for(
+                Some(json!({ "field": "metadata", "key": "mood" })),
+                None,
+                None,
+                "UTC"
+            ),
+            Err(ToolError::Arguments(_))
+        ));
+    }
+
+    #[test]
+    fn groups_and_limits_when_asked() {
+        let grouped = arrangement_for(
+            None,
+            Some(json!({ "field": "metadata", "key": "artist", "direction": "ascending" })),
+            Some(20),
+            "America/Denver",
+        )
+        .unwrap();
+        assert!(grouped.group.is_some() && grouped.sort.is_none());
+        assert_eq!(grouped.limit, Some(20));
+        // a datetime group counts its days in the phone's zone
+        assert_eq!(grouped.time_zone.as_deref(), Some("America/Denver"));
+
+        let limited = arrangement_for(None, None, Some(5), "UTC").unwrap();
+        assert!(!limited.is_none());
+        assert_eq!(limited.limit, Some(5));
+
+        assert!(matches!(
+            arrangement_for(None, Some(json!({ "field": "nope" })), None, "UTC"),
+            Err(ToolError::Arguments(_))
+        ));
+    }
+
+    #[test]
+    fn the_scope_follows_the_builder_setting_unless_asked() {
+        assert_eq!(default_scope(BuilderSettings::default()), "everything");
+        assert_eq!(
+            default_scope(BuilderSettings {
+                library_or_tagged: true,
+                include_suggested: false,
+            }),
+            "mine"
+        );
+    }
+
+    #[test]
+    fn a_builder_is_simple_or_advanced() {
+        assert_eq!(wanted_builder(None).ok(), Some(None));
+        assert_eq!(
+            wanted_builder(Some("simple")).ok(),
+            Some(Some(Builder::Simple))
+        );
+        assert_eq!(
+            wanted_builder(Some("advanced")).ok(),
+            Some(Some(Builder::Advanced))
+        );
+        assert!(matches!(
+            wanted_builder(Some("fancy")),
             Err(ToolError::Arguments(_))
         ));
     }

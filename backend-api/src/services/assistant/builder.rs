@@ -53,6 +53,32 @@ pub fn builder_for(query: &Query, wanted: Option<Builder>) -> (Builder, bool) {
     }
 }
 
+/// Why the simple builder cannot hold `query`, in words for the user, or None when it can.
+pub fn simple_blocker(query: &Query) -> Option<&'static str> {
+    if fits_simple(query) {
+        None
+    } else if has_cross_tag_filter(&query.root) {
+        Some(
+            "it filters on tag names, tag values, or tag types, which only the advanced builder has",
+        )
+    } else {
+        Some(
+            "it nests groups inside groups or negates part of a group, and the simple builder only holds one level of any, all, or none groups",
+        )
+    }
+}
+
+/// A tag name, tag value, or tag type filter anywhere in `node`.
+fn has_cross_tag_filter(node: &QueryNode) -> bool {
+    match node {
+        QueryNode::Filter(_) => !is_plain_filter(node),
+        QueryNode::Not(inner) => has_cross_tag_filter(inner),
+        QueryNode::And(children) | QueryNode::Or(children) => {
+            children.iter().any(has_cross_tag_filter)
+        }
+    }
+}
+
 fn is_plain_filter(node: &QueryNode) -> bool {
     matches!(
         node,
@@ -100,6 +126,20 @@ mod tests {
 
     fn query(json: &str) -> Query {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn says_why_a_query_needs_the_advanced_builder() {
+        let simple = query(r#"{"where":{"filter":{"field":"tag","tag_id":1,"op":"is_applied"}}}"#);
+        assert_eq!(simple_blocker(&simple), None);
+        let cross = query(
+            r#"{"where":{"and":[{"filter":{"field":"tag_type","op":"is","value":"text"}}]}}"#,
+        );
+        assert!(simple_blocker(&cross).unwrap().contains("tag names"));
+        let nested = query(
+            r#"{"where":{"and":[{"or":[{"filter":{"field":"tag","tag_id":1,"op":"is_applied"}},{"and":[{"filter":{"field":"tag","tag_id":2,"op":"is_applied"}}]}]}]}}"#,
+        );
+        assert!(simple_blocker(&nested).unwrap().contains("nests groups"));
     }
 
     #[test]

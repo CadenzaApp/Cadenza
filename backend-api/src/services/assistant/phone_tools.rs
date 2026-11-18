@@ -87,6 +87,9 @@ pub fn prepare_arguments(
     if matches!(name, "play" | "queue_songs") {
         keep_one_source(&mut args);
     }
+    if name == "open_screen" {
+        builder_mode_only_for_cadenza(&mut args)?;
+    }
     if !TAKES_SONGS.contains(&name) {
         return Ok(args);
     }
@@ -125,6 +128,27 @@ pub fn prepare_arguments(
         .map(Value::from)
         .collect();
     Ok(args)
+}
+
+/// Keeps `open_screen`'s `mode` only for the Cadenza tab, where it picks the simple or the
+/// advanced query builder. Anywhere else it means nothing, so it goes rather than reach the
+/// phone. An empty one goes too.
+fn builder_mode_only_for_cadenza(args: &mut Value) -> Result<(), String> {
+    let Some(object) = args.as_object_mut() else {
+        return Ok(());
+    };
+    let cadenza = object.get("screen").and_then(Value::as_str) == Some("cadenza");
+    match object.get("mode") {
+        None | Some(Value::Null) => {
+            object.remove("mode");
+        }
+        Some(Value::String(mode)) if mode.trim().is_empty() || !cadenza => {
+            object.remove("mode");
+        }
+        Some(Value::String(mode)) if mode == "simple" || mode == "advanced" => {}
+        Some(_) => return Err("mode must be simple or advanced".to_owned()),
+    }
+    Ok(())
 }
 
 /// The ways `play` and `queue_songs` can name what to play, besides `songs`.
@@ -442,7 +466,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "open_screen",
-            "description": "Opens a screen in the app, closing the chat. The tabs (social, analytics, cadenza, library, search), the settings sheets, now_playing (the player), song_tags (the player's Tags page for the song playing, where the user tags it), friends (friend requests and friends), notifications, and friends_listening (every friend listening now) need no id. analytics_ranking (a full Most Played list) and library_category (a Library section) take kind instead. Every other screen needs an id from a tool result in this conversation, never one you remember or guess: tag a tag id, saved_query an id from list_saved_queries, shared_playlist an id from list_playlists, apple_music_playlist an id from apple_music_playlists, artist an artist_id from find_artist or now_playing, album an album_id from find_album, now_playing, or find_songs, song_discussion (the posts about one song) a song_id from any tool.",
+            "description": "Opens a screen in the app, closing the chat. The tabs (social, analytics, cadenza, library, search; cadenza is the query builder, and mode picks simple or advanced), the settings sheets, now_playing (the player), song_tags (the player's Tags page for the song playing, where the user tags it), friends (friend requests and friends), notifications, and friends_listening (every friend listening now) need no id. analytics_ranking (a full Most Played list) and library_category (a Library section) take kind instead. Every other screen needs an id from a tool result in this conversation, never one you remember or guess: tag a tag id, saved_query an id from list_saved_queries, shared_playlist an id from list_playlists, apple_music_playlist an id from apple_music_playlists, artist an artist_id from find_artist or now_playing, album an album_id from find_album, now_playing, or find_songs, song_discussion (the posts about one song) a song_id from any tool.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -454,6 +478,11 @@ pub fn definitions() -> Vec<Value> {
                     "kind": {
                         "type": "string",
                         "description": "For analytics_ranking: song, artist, album, playlist, query, shared_playlist, live_session, or tag. For library_category: playlist, artist, album, song, query, or tag."
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["simple", "advanced"],
+                        "description": "For cadenza only: which query builder to show, when the user names one (\"open the advanced query builder\"). Leave out to keep the one the user had. Switching never changes their query."
                     }
                 },
                 "required": ["screen"]
@@ -476,6 +505,24 @@ mod tests {
         for name in PHONE_TOOLS {
             assert_ne!(label_for(name), "Tried a tool", "{name} has no label");
         }
+    }
+
+    #[test]
+    fn a_builder_mode_is_only_for_the_cadenza_tab() {
+        let open = |args: &str| prepare_arguments("open_screen", args, None);
+        assert_eq!(
+            open(r#"{"screen":"cadenza","mode":"advanced"}"#).unwrap(),
+            json!({ "screen": "cadenza", "mode": "advanced" })
+        );
+        assert_eq!(
+            open(r#"{"screen":"library","mode":"advanced"}"#).unwrap(),
+            json!({ "screen": "library" })
+        );
+        assert_eq!(
+            open(r#"{"screen":"cadenza","mode":""}"#).unwrap(),
+            json!({ "screen": "cadenza" })
+        );
+        assert!(open(r#"{"screen":"cadenza","mode":"fancy"}"#).is_err());
     }
 
     #[test]

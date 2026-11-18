@@ -29,7 +29,8 @@ use crate::{
 ///     { "role": "user", "content": "which of those are explicit?" }
 ///   ],
 ///   "time_zone": "America/Denver",
-///   "now": "2026-11-11T17:53:00-07:00"
+///   "now": "2026-11-11T17:53:00-07:00",
+///   "query_settings": { "library_or_tagged": false, "include_suggested": false }
 /// }
 /// ```
 ///
@@ -43,7 +44,10 @@ use crate::{
 /// }
 /// ```
 ///
-/// `songs` is left out when no tool found songs. A later `type` of
+/// `songs` is left out when no tool found songs. A card from `run_query` also carries
+/// `query` (see `json::assistant::CardQuery`), so tapping it can load the query into the
+/// phone's query builder. `query_settings` is the builder's settings; `run_query` runs with
+/// them unless the user asks otherwise. A later `type` of
 /// `client_tool_call` will ask the phone to run a tool only it can, like
 /// playback.
 async fn post_message_handler(

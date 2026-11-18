@@ -22,6 +22,22 @@ pub struct AssistantRequest {
     /// what the tool did. `messages` is the same conversation as before.
     #[serde(default)]
     pub resume: Option<Resume>,
+    /// The phone's query builder settings as they are now, so the songs a query finds
+    /// match what the builder would show for it. Both off when left out.
+    #[serde(default)]
+    pub query_settings: BuilderSettings,
+}
+
+/// The query builder settings that change which songs a query matches.
+#[derive(Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BuilderSettings {
+    /// Show songs only in library or tagged: a query runs over the user's library and
+    /// tagged songs alone.
+    #[serde(default)]
+    pub library_or_tagged: bool,
+    /// Include suggested tags: a song's shared default tags count as tags on it.
+    #[serde(default)]
+    pub include_suggested: bool,
 }
 
 /// A phone tool's result, sent back to carry on the answer it was part of.
@@ -116,4 +132,42 @@ pub struct SongsCard {
     /// or playlist. Absent when there is none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// The query behind a card from `run_query`, so tapping the card loads it into the
+    /// query builder. Absent for every other card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<CardQuery>,
+}
+
+/// A `run_query` card's query, and everything that decided its songs, so the phone can
+/// load it into the query builder and show the same results there.
+///
+/// ```json
+/// {
+///   "query": { "where": { "and": [{ "filter": { "field": "tag", "tag_id": 4, "op": "is_applied" } }] } },
+///   "builder": "simple",
+///   "library_or_tagged": false,
+///   "include_suggested": false,
+///   "sort": { "field": "metadata", "key": "release_date", "direction": "descending" },
+///   "limit": 20
+/// }
+/// ```
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct CardQuery {
+    /// The query in the wire format of `POST /queries/results`, as the model wrote it.
+    pub query: Value,
+    /// The builder it loads into: `simple` when that one can hold it, otherwise `advanced`.
+    pub builder: String,
+    /// It ran over the user's library and tagged songs alone.
+    pub library_or_tagged: bool,
+    /// A song's shared default tags counted as tags on it.
+    pub include_suggested: bool,
+    /// The sort it ran with, in the `sort` shape of `POST /queries/results`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort: Option<Value>,
+    /// The group it ran with, in the same shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<Value>,
+    /// How many songs it kept, when it kept only the first ones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
 }

@@ -146,6 +146,8 @@ async fn answer(
         song_meta,
         user_id,
         hide_explicit,
+        builder_settings: request.query_settings,
+        time_zone: time_zone.to_owned(),
     };
     let mut tool_definitions = definitions();
     tool_definitions.extend(phone_tools::definitions());
@@ -864,6 +866,7 @@ mod tests {
                     total: 2,
                     capped: false,
                     title: None,
+                    query: None,
                 }),
             }
         }
@@ -914,6 +917,7 @@ mod tests {
             time_zone: None,
             now: None,
             resume: None,
+            query_settings: Default::default(),
         }
     }
 
@@ -1297,6 +1301,7 @@ mod tests {
                     total: 2,
                     capped: false,
                     title: None,
+                    query: None,
                 }),
             }
         );
