@@ -81,6 +81,8 @@ pub struct SocialPost {
     pub comment_count: i64,
     /// Decorative labels on this post, sorted by `tag_id`. Not song tags.
     pub tags: Vec<PostTag>,
+    /// Temporary debug. This viewer's view order, once the post is viewed.
+    pub view_order: Option<i32>,
 }
 
 /// One decorative label on a post. `tag_id` stays put when the text changes.
@@ -204,7 +206,7 @@ pub async fn insert_post(
 }
 
 /// Inserts a post, its tags, and the author's `viewed` row in one transaction.
-/// Tags are returned sorted by `tag_id`. `feed_order` is `latest + 1`.
+/// Tags are returned sorted by `tag_id`. `view_order` is `latest + 1`.
 /// [`LoadedOrderError::Taken`] rolls the post back.
 pub async fn insert_post_with_tags(
     db: &DatabaseConnection,
@@ -258,25 +260,25 @@ async fn insert_author_view(
     post_id: i64,
     latest: i32,
 ) -> Result<i32, LoadedOrderError> {
-    let row = FeedOrderRow::find_by_statement(Statement::from_sql_and_values(
+    let row = ViewOrderRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "INSERT INTO post_view_status (post_id, user_id, status, feed_order)
+        "INSERT INTO post_view_status (post_id, user_id, status, view_order)
          VALUES ($1, $2, 'viewed', $3 + 1)
-         RETURNING feed_order",
+         RETURNING view_order",
         vec![post_id.into(), user_id.into(), latest.into()],
     ))
     .one(db)
     .await
     .map_err(|err| {
-        if is_feed_order_conflict(&err) {
+        if is_view_order_conflict(&err) {
             LoadedOrderError::Taken
         } else {
             LoadedOrderError::Other(err.into())
         }
     })?;
-    row.map(|row| row.feed_order).ok_or_else(|| {
+    row.map(|row| row.view_order).ok_or_else(|| {
         LoadedOrderError::Other(CadenzaError::DatabaseError(
-            "marking a new post viewed returned no feed order".into(),
+            "marking a new post viewed returned no view order".into(),
         ))
     })
 }
@@ -882,76 +884,53 @@ pub async fn unlike_comment(
     Ok(())
 }
 
-/// Why [`insert_loaded_orders`] did not store the page.
+/// Why a `view_order` write did not store the number.
 pub enum LoadedOrderError {
-    /// `(user_id, feed_order)` was already taken. The caller drops its cached
+    /// `(user_id, view_order)` was already taken. The caller drops its cached
     /// maximum and tries again.
     Taken,
     Other(CadenzaError),
 }
 
-/// This user's highest `feed_order`, or 0 when none of their rows are numbered.
-pub async fn max_feed_order(db: &DatabaseConnection, user_id: Uuid) -> Result<i32, CadenzaError> {
-    let row = FeedOrderRow::find_by_statement(Statement::from_sql_and_values(
+/// This user's highest `view_order`, or 0 when none of their rows are numbered.
+pub async fn max_view_order(db: &DatabaseConnection, user_id: Uuid) -> Result<i32, CadenzaError> {
+    let row = ViewOrderRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT COALESCE(MAX(feed_order), 0)::int AS feed_order
+        "SELECT COALESCE(MAX(view_order), 0)::int AS view_order
          FROM post_view_status
          WHERE user_id = $1",
         vec![user_id.into()],
     ))
     .one(db)
     .await?
-    .ok_or_else(|| CadenzaError::DatabaseError("feed order max returned no row".into()))?;
-    Ok(row.feed_order)
+    .ok_or_else(|| CadenzaError::DatabaseError("view order max returned no row".into()))?;
+    Ok(row.view_order)
 }
 
-/// Inserts `loaded` for ids that have no row yet, numbered in `post_ids` order
-/// starting at `latest + 1`. Never downgrades `viewed`.
-///
-/// `Ok(None)` means every id already had a row. `Ok(Some(n))` is the highest
-/// `feed_order` this insert stored. A `(user_id, feed_order)` conflict returns
-/// [`LoadedOrderError::Taken`] and writes nothing.
-pub async fn insert_loaded_orders(
+/// Inserts `loaded` for ids that have no row yet. Does not set `view_order`
+/// and never downgrades `viewed`.
+pub async fn mark_posts_loaded(
     db: &DatabaseConnection,
     user_id: Uuid,
     post_ids: &[i64],
-    latest: i32,
-) -> Result<Option<i32>, LoadedOrderError> {
+) -> Result<(), CadenzaError> {
     if post_ids.is_empty() {
-        return Ok(None);
+        return Ok(());
     }
-    let rows = FeedOrderRow::find_by_statement(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "WITH fresh AS (
-             SELECT t.post_id,
-                    row_number() OVER (ORDER BY t.ord)::int AS rn
-             FROM unnest($2::bigint[]) WITH ORDINALITY AS t(post_id, ord)
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM post_view_status v
-                 WHERE v.user_id = $1 AND v.post_id = t.post_id
-             )
-         )
-         INSERT INTO post_view_status (post_id, user_id, status, feed_order)
-         SELECT post_id, $1, 'loaded', $3 + rn
-         FROM fresh
-         ON CONFLICT (post_id, user_id) DO NOTHING
-         RETURNING feed_order",
-        vec![user_id.into(), post_ids.to_vec().into(), latest.into()],
+        "INSERT INTO post_view_status (post_id, user_id, status)
+         SELECT post_id, $1, 'loaded'
+         FROM unnest($2::bigint[]) AS post_id
+         ON CONFLICT (post_id, user_id) DO NOTHING",
+        vec![user_id.into(), post_ids.to_vec().into()],
     ))
-    .all(db)
-    .await
-    .map_err(|err| {
-        if is_feed_order_conflict(&err) {
-            LoadedOrderError::Taken
-        } else {
-            LoadedOrderError::Other(err.into())
-        }
-    })?;
-    Ok(rows.into_iter().map(|row| row.feed_order).max())
+    .await?;
+    Ok(())
 }
 
-/// True when the insert lost the `(user_id, feed_order)` unique index.
-fn is_feed_order_conflict(err: &DbErr) -> bool {
+/// True when the insert lost the `(user_id, view_order)` unique index.
+fn is_view_order_conflict(err: &DbErr) -> bool {
     let DbErr::Query(RuntimeErr::SqlxError(sqlx_err)) = err else {
         return false;
     };
@@ -959,15 +938,16 @@ fn is_feed_order_conflict(err: &DbErr) -> bool {
         return false;
     };
     db_err.code().as_deref() == Some("23505")
-        && (db_err.constraint() == Some("post_view_status_user_feed_order_idx")
+        && (db_err.constraint() == Some("post_view_status_user_view_order_idx")
             || db_err.table() == Some("post_view_status"))
 }
 
-/// Sets `viewed`. A post with no row yet is inserted at `latest + 1` and up,
-/// in `post_ids` order. A row that already exists keeps its `feed_order`.
+/// Sets `viewed`. Every id takes the next `view_order`, in `post_ids` order,
+/// including a row that already had one. The new numbers are higher than
+/// `latest`.
 ///
-/// `Ok(None)` means no new row was inserted. `Ok(Some(n))` is the highest
-/// `feed_order` this insert stored. A `(user_id, feed_order)` conflict returns
+/// `Ok(None)` means `post_ids` was empty. `Ok(Some(n))` is the highest
+/// `view_order` stored. A `(user_id, view_order)` conflict returns
 /// [`LoadedOrderError::Taken`] and writes nothing.
 pub async fn mark_posts_viewed(
     db: &DatabaseConnection,
@@ -978,59 +958,35 @@ pub async fn mark_posts_viewed(
     if post_ids.is_empty() {
         return Ok(None);
     }
-    let txn = db
-        .begin()
-        .await
-        .map_err(|err| LoadedOrderError::Other(err.into()))?;
-    let inserted = FeedOrderRow::find_by_statement(Statement::from_sql_and_values(
+    let inserted = ViewOrderRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "WITH fresh AS (
-             SELECT t.post_id,
-                    row_number() OVER (ORDER BY t.ord)::int AS rn
-             FROM unnest($2::bigint[]) WITH ORDINALITY AS t(post_id, ord)
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM post_view_status v
-                 WHERE v.user_id = $1 AND v.post_id = t.post_id
-             )
-         )
-         INSERT INTO post_view_status (post_id, user_id, status, feed_order)
+        "INSERT INTO post_view_status (post_id, user_id, status, view_order)
          SELECT post_id, $1, 'viewed', $3 + rn
-         FROM fresh
-         ON CONFLICT (post_id, user_id) DO NOTHING
-         RETURNING feed_order",
+         FROM (
+             SELECT post_id, row_number() OVER (ORDER BY ord)::int AS rn
+             FROM (
+                 SELECT DISTINCT ON (post_id) post_id, ord
+                 FROM unnest($2::bigint[]) WITH ORDINALITY AS t(post_id, ord)
+                 ORDER BY post_id, ord
+             ) AS ids
+         ) AS page
+         ON CONFLICT (post_id, user_id) DO UPDATE
+         SET status = 'viewed',
+             date = now(),
+             view_order = EXCLUDED.view_order
+         RETURNING view_order",
         vec![user_id.into(), post_ids.to_vec().into(), latest.into()],
     ))
-    .all(&txn)
+    .all(db)
     .await
     .map_err(|err| {
-        if is_feed_order_conflict(&err) {
+        if is_view_order_conflict(&err) {
             LoadedOrderError::Taken
         } else {
             LoadedOrderError::Other(err.into())
         }
-    });
-    let inserted = match inserted {
-        Ok(rows) => rows,
-        Err(err) => return Err(err),
-    };
-    if let Err(err) = txn
-        .execute_raw(Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            "UPDATE post_view_status
-             SET status = 'viewed',
-                 date = now()
-             WHERE user_id = $1
-               AND post_id = ANY($2::bigint[])",
-            vec![user_id.into(), post_ids.to_vec().into()],
-        ))
-        .await
-    {
-        return Err(LoadedOrderError::Other(err.into()));
-    }
-    txn.commit()
-        .await
-        .map_err(|err| LoadedOrderError::Other(err.into()))?;
-    Ok(inserted.into_iter().map(|row| row.feed_order).max())
+    })?;
+    Ok(inserted.into_iter().map(|row| row.view_order).max())
 }
 
 /// Display fields for `post_ids`, in that order. Missing ids are skipped.
@@ -1076,7 +1032,7 @@ pub async fn get_posts(
         .iter()
         .filter_map(|post_id| by_id.remove(post_id))
         .collect();
-    to_posts(db, &ordered).await
+    to_posts(db, viewer_id, &ordered).await
 }
 
 /// The author's profile row, when they have one.
@@ -1575,7 +1531,7 @@ pub async fn get_topic_posts(
             post_id: row.post_id,
         });
     Ok(TopicPostPage {
-        posts: to_posts(db, &rows).await?,
+        posts: to_posts(db, viewer_id, &rows).await?,
         next,
     })
 }
@@ -1700,7 +1656,7 @@ pub async fn get_friends_feed(
     ))
     .all(db)
     .await?;
-    to_posts(db, &rows).await
+    to_posts(db, viewer_id, &rows).await
 }
 
 /// One author's posts, newest first.
@@ -1738,7 +1694,7 @@ pub async fn get_author_posts(
     ))
     .all(db)
     .await?;
-    to_posts(db, &rows).await
+    to_posts(db, viewer_id, &rows).await
 }
 
 /// How many replies a profile shows.
@@ -1934,20 +1890,20 @@ pub struct SpotlightCandidates {
     pub not_enough: bool,
 }
 
-/// One viewed post in load order, before it is hydrated.
+/// One viewed post in view order, before it is hydrated.
 #[derive(Clone, Debug)]
 pub struct ViewedPostRef {
     pub post_id: i64,
-    /// Order this post was loaded for this user. History pages by this.
-    pub feed_order: i32,
+    /// Order this post was viewed for this user. History pages by this.
+    pub view_order: i32,
     pub viewed_at: DateTime<Utc>,
 }
 
-/// A history row: the post, its load order, and when this user viewed it.
+/// A history row: the post, its view order, and when this user viewed it.
 #[derive(Clone, Debug)]
 pub struct HistoryPost {
     pub post: SocialPost,
-    pub feed_order: i32,
+    pub view_order: i32,
     pub viewed_at: DateTime<Utc>,
 }
 
@@ -2106,31 +2062,32 @@ fn spotlight_view_filter(exclude: FeedExclude) -> &'static str {
     }
 }
 
-/// Viewed posts in the order they were loaded.
+/// Viewed posts from `before_view_order` downward.
 ///
-/// `after_feed_order` is an exclusive lower bound. The first page omits it and
-/// starts at the smallest `feed_order`. Every viewed row has a number. Blocked
-/// authors are left out.
+/// `before_view_order` is the highest number included. Previously viewed
+/// passes the `latest_view_order` from the first feed page, then one less
+/// than the last row. Blocked authors are left out.
 pub async fn viewed_posts(
     db: &DatabaseConnection,
     user_id: Uuid,
-    after_feed_order: Option<i32>,
+    before_view_order: i32,
     limit: i64,
 ) -> Result<Vec<ViewedPostRef>, CadenzaError> {
     let rows = ViewedPostRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
         format!(
-            "SELECT p.post_id, v.feed_order, v.date AS viewed_at
+            "SELECT p.post_id, v.view_order, v.date AS viewed_at
              FROM post_view_status v
              JOIN posts p ON p.post_id = v.post_id
              WHERE v.user_id = $1
                AND v.status = 'viewed'
-               AND ($2::int IS NULL OR v.feed_order > $2)
+               AND v.view_order IS NOT NULL
+               AND v.view_order <= $2
                AND {NOT_BLOCKED_AUTHOR}
-             ORDER BY v.feed_order ASC
+             ORDER BY v.view_order DESC
              LIMIT $3"
         ),
-        vec![user_id.into(), after_feed_order.into(), limit.into()],
+        vec![user_id.into(), before_view_order.into(), limit.into()],
     ))
     .all(db)
     .await?;
@@ -2138,7 +2095,7 @@ pub async fn viewed_posts(
         .into_iter()
         .map(|row| ViewedPostRef {
             post_id: row.post_id,
-            feed_order: row.feed_order,
+            view_order: row.view_order,
             viewed_at: row.viewed_at.with_timezone(&Utc),
         })
         .collect())
@@ -2149,10 +2106,10 @@ pub async fn viewed_posts(
 pub async fn feed_history(
     db: &DatabaseConnection,
     user_id: Uuid,
-    after_feed_order: Option<i32>,
+    before_view_order: i32,
     limit: i64,
 ) -> Result<Vec<HistoryPost>, CadenzaError> {
-    let refs = viewed_posts(db, user_id, after_feed_order, limit).await?;
+    let refs = viewed_posts(db, user_id, before_view_order, limit).await?;
     let ids: Vec<i64> = refs.iter().map(|row| row.post_id).collect();
     let posts = get_posts(db, user_id, &ids).await?;
     let mut by_id: HashMap<i64, SocialPost> =
@@ -2162,7 +2119,7 @@ pub async fn feed_history(
         if let Some(post) = by_id.remove(&row.post_id) {
             out.push(HistoryPost {
                 post,
-                feed_order: row.feed_order,
+                view_order: row.view_order,
                 viewed_at: row.viewed_at,
             });
         }
@@ -2579,6 +2536,7 @@ struct PostRow {
 /// [`AttachedPlaylist::Unavailable`].
 async fn to_posts(
     db: &impl ConnectionTrait,
+    viewer_id: Uuid,
     rows: &[PostRow],
 ) -> Result<Vec<SocialPost>, CadenzaError> {
     let ids: Vec<i64> = rows
@@ -2588,7 +2546,8 @@ async fn to_posts(
     let cards = playlist_cards(db, &ids).await?;
     let post_ids: Vec<i64> = rows.iter().map(|row| row.post_id).collect();
     let mut tags = tags_for_posts(db, &post_ids).await?;
-    Ok(rows
+    let orders = viewer_view_orders(db, viewer_id, &post_ids).await?;
+    let mut posts: Vec<SocialPost> = rows
         .iter()
         .map(|row| SocialPost {
             shared_playlist: row.shared_playlist_id.map(|id| match cards.get(&id) {
@@ -2598,6 +2557,36 @@ async fn to_posts(
             tags: tags.remove(&row.post_id).unwrap_or_default(),
             ..row.to_post()
         })
+        .collect();
+    for post in &mut posts {
+        post.view_order = orders.get(&post.post_id).copied();
+    }
+    Ok(posts)
+}
+
+/// This viewer's view order for each post that has one.
+async fn viewer_view_orders(
+    db: &impl ConnectionTrait,
+    viewer_id: Uuid,
+    post_ids: &[i64],
+) -> Result<HashMap<i64, i32>, CadenzaError> {
+    if post_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = PostOrderRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT post_id, view_order
+         FROM post_view_status
+         WHERE user_id = $1
+           AND post_id = ANY($2::bigint[])
+           AND view_order IS NOT NULL",
+        vec![viewer_id.into(), post_ids.to_vec().into()],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.post_id, row.view_order))
         .collect())
 }
 
@@ -2618,6 +2607,7 @@ impl PostRow {
             shared_playlist: None,
             comment_count: self.comment_count,
             tags: Vec::new(),
+            view_order: None,
         }
     }
 }
@@ -2896,13 +2886,19 @@ struct IdRow {
 #[derive(Debug, FromQueryResult)]
 struct ViewedPostRow {
     post_id: i64,
-    feed_order: i32,
+    view_order: i32,
     viewed_at: DateTime<chrono::FixedOffset>,
 }
 
 #[derive(Debug, FromQueryResult)]
-struct FeedOrderRow {
-    feed_order: i32,
+struct ViewOrderRow {
+    view_order: i32,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct PostOrderRow {
+    post_id: i64,
+    view_order: i32,
 }
 
 #[derive(Debug, FromQueryResult)]

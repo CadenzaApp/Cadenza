@@ -33,9 +33,9 @@ const MODEL_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
 const LIKE_MEMORY: usize = 2000;
 /// Users whose interest vector is kept in memory. The least recently read entry is dropped.
 const USER_VECTOR_CACHE: usize = 2000;
-/// How long a user's latest `feed_order` stays cached. A write starts this again.
+/// How long a user's latest `view_order` stays cached. A write starts this again.
 const FEED_ORDER_TTL: TimeDelta = TimeDelta::minutes(10);
-/// Insert attempts after a stale `feed_order` cache loses the unique index.
+/// Insert attempts after a stale `view_order` cache loses the unique index.
 const FEED_ORDER_ATTEMPTS: usize = 4;
 
 /// Where `GET /social/feed` takes its starting spotlight chance.
@@ -164,8 +164,8 @@ pub struct SocialFeedService {
     likes: Arc<Mutex<LikeMemory>>,
     comment_likes: Arc<Mutex<LikeMemory>>,
     vectors: Arc<Mutex<UserVectorCache>>,
-    /// `user_id` -> (latest `feed_order`, when that number was stored).
-    feed_orders: Arc<Mutex<FeedOrderCache>>,
+    /// `user_id` -> (latest `view_order`, when that number was stored).
+    view_orders: Arc<Mutex<ViewOrderCache>>,
 }
 
 impl SocialFeedService {
@@ -184,7 +184,7 @@ impl SocialFeedService {
             likes: Arc::new(Mutex::new(LikeMemory::default())),
             comment_likes: Arc::new(Mutex::new(LikeMemory::default())),
             vectors: Arc::new(Mutex::new(UserVectorCache::default())),
-            feed_orders: Arc::new(Mutex::new(FeedOrderCache::default())),
+            view_orders: Arc::new(Mutex::new(ViewOrderCache::default())),
         }
     }
 
@@ -194,7 +194,7 @@ impl SocialFeedService {
     /// artist names from the request, or the shared playlist's name. Stored
     /// `content` is the user's text. Only a member can attach a shared
     /// playlist; anyone else gets `NotFound`, so an id does not leak. The
-    /// author is marked `viewed` on the new post with their next `feed_order`.
+    /// author is marked `viewed` on the new post with their next `view_order`.
     pub async fn create_post(
         &self,
         db: &DatabaseConnection,
@@ -202,7 +202,7 @@ impl SocialFeedService {
         content: &str,
         topic: NewPostTopic<'_>,
         tags: &[NewPostTag],
-    ) -> Result<(i64, Vec<PostTag>), CadenzaError> {
+    ) -> Result<(i64, Vec<PostTag>, i32), CadenzaError> {
         let prefix = match topic {
             NewPostTopic::None => None,
             NewPostTopic::Apple {
@@ -234,7 +234,7 @@ impl SocialFeedService {
             NewPostTopic::SharedPlaylist(id) => (None, Some(id)),
         };
         for _ in 0..FEED_ORDER_ATTEMPTS {
-            let latest = self.latest_feed_order(db, user_id).await?;
+            let latest = self.latest_view_order(db, user_id).await?;
             match social::insert_post_with_tags(
                 db,
                 user_id,
@@ -249,24 +249,24 @@ impl SocialFeedService {
             .await
             {
                 Ok((post_id, tags, order)) => {
-                    self.feed_orders.lock().expect("feed order cache").set(
+                    self.view_orders.lock().expect("view order cache").set(
                         user_id,
                         order,
                         Utc::now(),
                     );
-                    return Ok((post_id, tags));
+                    return Ok((post_id, tags, order));
                 }
                 Err(LoadedOrderError::Taken) => {
-                    self.feed_orders
+                    self.view_orders
                         .lock()
-                        .expect("feed order cache")
+                        .expect("view order cache")
                         .invalidate(user_id);
                 }
                 Err(LoadedOrderError::Other(err)) => return Err(err),
             }
         }
         Err(CadenzaError::DatabaseError(
-            "feed order was updated by another server".into(),
+            "view order was updated by another server".into(),
         ))
     }
 
@@ -333,7 +333,7 @@ impl SocialFeedService {
     }
 
     /// Ranked posts for `user_id`. A spotlight may be inserted after one.
-    /// Marks the ids placed on the page `loaded`.
+    /// The posts returned are marked `loaded`. `view_order` is left unset.
     ///
     /// `initial` is `History` to derive the starting chance from the newest
     /// viewed posts, or `Fixed` to use the given chance in `0..=1`.
@@ -417,13 +417,13 @@ impl SocialFeedService {
             ),
         };
         let mut rng = UnitRng::seeded(now);
-        let (page_ids, spotlight_chance) =
+        let (mut page_ids, spotlight_chance) =
             social::mix_feed(&ranked_ids, &spotlights.post_ids, start, || rng.next_unit());
+        page_ids.truncate(social::FEED_SIZE as usize);
 
-        let (_, page) = tokio::try_join!(
-            self.mark_page_loaded(db, user_id, &page_ids),
-            social::get_posts(db, user_id, &page_ids),
-        )?;
+        let page = social::get_posts(db, user_id, &page_ids).await?;
+        let returned_ids: Vec<i64> = page.iter().map(|post| post.post_id).collect();
+        self.mark_page_loaded(db, user_id, &returned_ids).await?;
         Ok(FeedPage {
             posts: page,
             not_enough_spotlights: spotlights.not_enough,
@@ -431,66 +431,37 @@ impl SocialFeedService {
         })
     }
 
-    /// Marks `post_ids` loaded and gives each new row the next `feed_order`.
-    ///
-    /// The cached maximum is reused for ten minutes. A unique conflict means
-    /// another server moved the number, so the cache entry is dropped and the
-    /// insert is tried again from the database maximum.
+    /// Marks `post_ids` `loaded`. Does not set `view_order`. Never downgrades
+    /// `viewed`.
     async fn mark_page_loaded(
         &self,
         db: &DatabaseConnection,
         user_id: Uuid,
         post_ids: &[i64],
     ) -> Result<(), CadenzaError> {
-        if post_ids.is_empty() {
-            return Ok(());
-        }
-        for _ in 0..FEED_ORDER_ATTEMPTS {
-            let latest = self.latest_feed_order(db, user_id).await?;
-            match social::insert_loaded_orders(db, user_id, post_ids, latest).await {
-                Ok(None) => return Ok(()),
-                Ok(Some(newest)) => {
-                    self.feed_orders.lock().expect("feed order cache").set(
-                        user_id,
-                        newest,
-                        Utc::now(),
-                    );
-                    return Ok(());
-                }
-                Err(LoadedOrderError::Taken) => {
-                    self.feed_orders
-                        .lock()
-                        .expect("feed order cache")
-                        .invalidate(user_id);
-                }
-                Err(LoadedOrderError::Other(err)) => return Err(err),
-            }
-        }
-        Err(CadenzaError::DatabaseError(
-            "feed order was updated by another server".into(),
-        ))
+        social::mark_posts_loaded(db, user_id, post_ids).await
     }
 
-    /// Cached latest `feed_order`, or the database maximum when the cache is
+    /// Cached latest `view_order`, or the database maximum when the cache is
     /// missing or older than ten minutes. Reading it does not extend the TTL.
-    async fn latest_feed_order(
+    async fn latest_view_order(
         &self,
         db: &DatabaseConnection,
         user_id: Uuid,
     ) -> Result<i32, CadenzaError> {
         let now = Utc::now();
         if let Some(order) = self
-            .feed_orders
+            .view_orders
             .lock()
-            .expect("feed order cache")
+            .expect("view order cache")
             .get(user_id, now)
         {
             return Ok(order);
         }
-        let order = social::max_feed_order(db, user_id).await?;
-        self.feed_orders
+        let order = social::max_view_order(db, user_id).await?;
+        self.view_orders
             .lock()
-            .expect("feed order cache")
+            .expect("view order cache")
             .set(user_id, order, Utc::now());
         Ok(order)
     }
@@ -656,8 +627,8 @@ impl SocialFeedService {
         Ok(())
     }
 
-    /// Sets `viewed`. A post with no row yet gets the next `feed_order`. A row
-    /// that already has one keeps it.
+    /// Sets `viewed`. Every id takes the next `view_order`, in `post_ids`
+    /// order. A row that already had a number gets a new, higher one.
     pub async fn mark_posts_viewed(
         &self,
         db: &DatabaseConnection,
@@ -668,11 +639,11 @@ impl SocialFeedService {
             return Ok(());
         }
         for _ in 0..FEED_ORDER_ATTEMPTS {
-            let latest = self.latest_feed_order(db, user_id).await?;
+            let latest = self.latest_view_order(db, user_id).await?;
             match social::mark_posts_viewed(db, user_id, post_ids, latest).await {
                 Ok(None) => return Ok(()),
                 Ok(Some(newest)) => {
-                    self.feed_orders.lock().expect("feed order cache").set(
+                    self.view_orders.lock().expect("view order cache").set(
                         user_id,
                         newest,
                         Utc::now(),
@@ -680,16 +651,16 @@ impl SocialFeedService {
                     return Ok(());
                 }
                 Err(LoadedOrderError::Taken) => {
-                    self.feed_orders
+                    self.view_orders
                         .lock()
-                        .expect("feed order cache")
+                        .expect("view order cache")
                         .invalidate(user_id);
                 }
                 Err(LoadedOrderError::Other(err)) => return Err(err),
             }
         }
         Err(CadenzaError::DatabaseError(
-            "feed order was updated by another server".into(),
+            "view order was updated by another server".into(),
         ))
     }
 
@@ -962,13 +933,13 @@ impl UserVectorCache {
     }
 }
 
-/// `user_id` -> (latest `feed_order`, when that number was stored).
+/// `user_id` -> (latest `view_order`, when that number was stored).
 #[derive(Default)]
-struct FeedOrderCache {
+struct ViewOrderCache {
     entries: HashMap<Uuid, (i32, DateTime<Utc>)>,
 }
 
-impl FeedOrderCache {
+impl ViewOrderCache {
     /// The stored number when it is younger than [`FEED_ORDER_TTL`].
     fn get(&mut self, user_id: Uuid, now: DateTime<Utc>) -> Option<i32> {
         let Some((order, stored_at)) = self.entries.get(&user_id).copied() else {
@@ -1108,8 +1079,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn feed_order_cache_expires_and_a_write_resets_the_ttl() {
-        let mut cache = FeedOrderCache::default();
+    fn view_order_cache_expires_and_a_write_resets_the_ttl() {
+        let mut cache = ViewOrderCache::default();
         let user = Uuid::nil();
         let start = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
         assert_eq!(cache.get(user, start), None);

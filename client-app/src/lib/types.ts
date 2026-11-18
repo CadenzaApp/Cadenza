@@ -126,6 +126,8 @@ export type SocialPost = {
     comment_count: number;
     /** Decorative labels, sorted by `tag_id`. Empty when the post has none. */
     tags: SocialPostTag[];
+    /** Temporary debug. This viewer's view order, once the post is viewed. */
+    view_order?: number;
 };
 
 /**

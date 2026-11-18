@@ -319,7 +319,7 @@ export function PostCard({
     return (
         <>
             <Text className="px-1 text-xs text-muted-foreground">
-                feed number: {post.feed_order ?? "none"}
+                view order: {post.view_order ?? "none"}
             </Text>
             {spotlight ? (
                 <SpotlightPost

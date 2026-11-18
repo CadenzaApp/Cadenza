@@ -32,7 +32,7 @@ create index if not exists user_spotlights_post_id_idx
     on user_spotlights (post_id);
 
 -- Three newest viewed posts for the starting spotlight chance. History pages
--- by `feed_order` (`sql/post_view_status_feed_order.sql`), not by this index.
+-- by `view_order` (`sql/post_view_status_view_order.sql`), not by this index.
 create index if not exists post_view_status_viewed_idx
     on post_view_status (user_id, date desc, post_id desc)
     where status = 'viewed';

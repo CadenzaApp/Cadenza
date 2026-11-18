@@ -50,6 +50,9 @@ const TOPIC_NAME_MAX: usize = 200;
 /// Ranked posts for the signed-in user. A spotlight may follow a ranked post.
 ///
 /// `exclude` is `none`, `loaded`, or `viewed` (default `none`).
+/// `first_page` is true on the first page. That response includes
+/// `latest_view_order`, the highest `view_order` when the page was fetched.
+/// Previously viewed starts at that number and goes down. Later pages omit it.
 /// `initial_spotlight_chance` is `history` or a number from 0 to 1 (default
 /// `0`). `history` reads the 3 newest viewed posts: 0.2 for each leading
 /// non-spotlight, stopping at a spotlight, capped at 0.6. A spotlight viewed
@@ -59,14 +62,14 @@ const TOPIC_NAME_MAX: usize = 200;
 /// and hot posts. After each ranked post,
 /// a roll under the current chance inserts the next unviewed spotlight
 /// behind it and resets the chance to 0, then the chance rises by 0.2.
-/// Spotlights are not appended once those posts run out. Each new id placed on
-/// the page is marked `loaded` and given the next `feed_order` for this user.
+/// Spotlights are not appended once those posts run out. The posts returned
+/// are marked `loaded` and get no `view_order`.
 /// `author` is null for a spotlight. `not_enough_spotlights`
 /// is true when fewer than five of this user's spotlight posts are still
 /// unviewed. `loaded` still counts.
 ///
 /// ```json
-/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ], "not_enough_spotlights": false, "spotlight_chance": 0.4 }
+/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ], "not_enough_spotlights": false, "spotlight_chance": 0.4, "latest_view_order": 12 }
 /// ```
 async fn get_feed(
     State(db): State<DatabaseConnection>,
@@ -74,6 +77,11 @@ async fn get_feed(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Query(query): Query<FeedQuery>,
 ) -> Result<Json<FeedResponse>, CadenzaError> {
+    let latest_view_order = if query.first_page() {
+        Some(social::max_view_order(&db, claims.user_id).await?)
+    } else {
+        None
+    };
     let page = social
         .get_feed(
             &db,
@@ -86,19 +94,20 @@ async fn get_feed(
         feed: page.posts.into_iter().map(SocialPost::from).collect(),
         not_enough_spotlights: Some(page.not_enough_spotlights),
         spotlight_chance: Some(page.spotlight_chance),
+        latest_view_order,
     }))
 }
 
-/// Posts this user viewed, in the order they were loaded.
+/// Posts this user viewed, from `before_view_order` downward.
 ///
-/// The first page omits `after_feed_order` and starts at the smallest
-/// `feed_order`. The next page passes the last row's `feed_order`, and only
-/// higher numbers are returned. `limit` defaults to 10 and caps at 50. Each
-/// item is a `SocialPost` plus `feed_order` and `viewed_at`. Every viewed row
-/// has a `feed_order`. Blocked authors are left out.
+/// `before_view_order` is the highest number included. The first page passes
+/// `latest_view_order` from `GET /social/feed?first_page=true`. The next page
+/// passes one less than the last row's `view_order`. `limit` defaults to 10
+/// and caps at 50. Each item is a `SocialPost` plus `view_order` and
+/// `viewed_at`. Blocked authors are left out.
 ///
 /// ```json
-/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0, "feed_order": 4, "viewed_at": "2026-11-01T18:00:00Z" } ] }
+/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0, "view_order": 4, "viewed_at": "2026-11-01T18:00:00Z" } ] }
 /// ```
 async fn get_feed_history(
     State(db): State<DatabaseConnection>,
@@ -106,14 +115,20 @@ async fn get_feed_history(
     Query(query): Query<HistoryQuery>,
 ) -> Result<Json<FeedHistoryResponse>, CadenzaError> {
     let limit = query.limit()?;
-    let posts = social::feed_history(&db, claims.user_id, query.after_feed_order, limit).await?;
+    let posts =
+        social::feed_history(&db, claims.user_id, query.before_view_order()?, limit).await?;
     Ok(Json(FeedHistoryResponse {
         feed: posts
             .into_iter()
-            .map(|row| FeedHistoryItem {
-                post: row.post.into(),
-                feed_order: row.feed_order,
-                viewed_at: row.viewed_at,
+            .map(|row| {
+                let mut post = row.post;
+                // History already sends `view_order` beside the post.
+                post.view_order = None;
+                FeedHistoryItem {
+                    post: post.into(),
+                    view_order: row.view_order,
+                    viewed_at: row.viewed_at,
+                }
             })
             .collect(),
     }))
@@ -121,11 +136,16 @@ async fn get_feed_history(
 
 #[derive(Deserialize)]
 struct HistoryQuery {
-    after_feed_order: Option<i32>,
+    before_view_order: Option<i32>,
     limit: Option<i64>,
 }
 
 impl HistoryQuery {
+    fn before_view_order(&self) -> Result<i32, CadenzaError> {
+        self.before_view_order
+            .ok_or_else(|| CadenzaError::InvalidRequestBody("before_view_order is required".into()))
+    }
+
     fn limit(&self) -> Result<i64, CadenzaError> {
         match self.limit {
             None => Ok(social::HISTORY_DEFAULT_LIMIT),
@@ -206,6 +226,7 @@ async fn get_friends_feed(
         feed: posts.into_iter().map(SocialPost::from).collect(),
         not_enough_spotlights: None,
         spotlight_chance: None,
+        latest_view_order: None,
     }))
 }
 
@@ -218,9 +239,14 @@ struct FriendsFeedQuery {
 struct FeedQuery {
     exclude: Option<String>,
     initial_spotlight_chance: Option<String>,
+    first_page: Option<bool>,
 }
 
 impl FeedQuery {
+    fn first_page(&self) -> bool {
+        self.first_page.unwrap_or(false)
+    }
+
     fn exclude(&self) -> Result<FeedExclude, CadenzaError> {
         match self.exclude.as_deref().unwrap_or("none") {
             "none" => Ok(FeedExclude::None),
@@ -343,7 +369,7 @@ struct IncomingPostTag {
 /// `tags` is optional, at most 10. Each is `{text, color}`. Text is trimmed,
 /// internal whitespace is collapsed, and it is at most 24 characters. Color
 /// is `#` plus 6 hex digits. A repeated word, ignoring case, is 422. The
-/// author is marked `viewed` on the new post with their next `feed_order`.
+/// author is marked `viewed` on the new post with their next `view_order`.
 async fn create_post(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
@@ -375,12 +401,13 @@ async fn create_post(
         (None, None) => NewPostTopic::None,
     };
     let tags = parse_new_tags(&body.tags)?;
-    let (post_id, tags) = social
+    let (post_id, tags, view_order) = social
         .create_post(&db, claims.user_id, &body.content, topic, &tags)
         .await?;
     Ok(Json(CreatePostResponse {
         post_id,
         tags: tags.into_iter().map(Into::into).collect(),
+        view_order,
     }))
 }
 
@@ -591,8 +618,9 @@ struct MarkViewedBody {
     post_ids: Vec<i64>,
 }
 
-/// Marks posts `viewed` for the signed-in user. A post with no row yet gets
-/// the next `feed_order`. An existing row keeps its number. Responds with `null`.
+/// Marks posts `viewed` for the signed-in user. Every id takes the next
+/// `view_order`, in `post_ids` order. A row that already had a number gets a
+/// new, higher one. Responds with `null`.
 async fn mark_viewed(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,

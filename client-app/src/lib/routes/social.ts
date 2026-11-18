@@ -126,9 +126,11 @@ type FeedResponse = {
     not_enough_spotlights?: boolean;
     /** Chance after this page. The next fresh page sends it back. */
     spotlight_chance?: number;
+    /** Highest view number when this was the first page. History starts here. */
+    latest_view_order?: number;
 };
 
-type HistoryPost = SocialPost & { viewed_at: string; feed_order: number };
+type HistoryPost = SocialPost & { viewed_at: string; view_order: number };
 
 type HistoryResponse = {
     feed: HistoryPost[];
@@ -229,11 +231,14 @@ export function useFriendsFeed(enabled: boolean) {
  * Ranked posts for the signed-in user, paged like the library lists. Each
  * page already includes everything needed to render a card.
  *
- * First page uses `exclude=viewed` (skip only fully viewed posts). Later
- * pages use `exclude=loaded` (skip anything /feed already returned). The
- * service marks returned ids as `loaded` and numbers them with `feed_order`.
+ * First page uses `exclude=viewed` (skip only fully viewed posts) and
+ * `first_page=true`. The response's `latest_view_order` is where previously
+ * viewed starts. Later pages use `exclude=loaded` (skip anything /feed already
+ * returned) and do not ask for that number. The service marks returned ids as
+ * `loaded` and does not set `view_order`.
  * When the fresh pages run out, the next pages are `GET /social/feed/history`
- * in that load order. The next page starts after the last row's `feed_order`.
+ * from that number downward. The next page starts at one less than the last
+ * row's `view_order`.
  *
  * A fresh page with `not_enough_spotlights` asks MusicKit for recommendations
  * and posts up to five. A short page waits out that refill before the caught-up
@@ -273,6 +278,7 @@ export function useFeed() {
                         pageIndex === 0
                             ? "history"
                             : (previousPage?.spotlight_chance ?? 0),
+                    ...(pageIndex === 0 ? { first_page: true } : {}),
                 },
                 accountId: account.id,
                 pageIndex,
@@ -350,9 +356,11 @@ export function useFeed() {
             !refilledFeedPages.has(lastFresh));
     const freshExhausted = freshShort && !refillBlocksCaughtUp;
 
+    const historyStart = fresh.data?.[0]?.latest_view_order;
+
     const history = useSWRInfinite<HistoryResponse>(
         (pageIndex, previousPage) => {
-            if (!account || !freshExhausted) return null;
+            if (!account || !freshExhausted || !historyStart) return null;
             if (pageIndex > 0) {
                 const last = previousPage?.feed.at(-1);
                 if (!last || previousPage.feed.length < HISTORY_PAGE_SIZE) {
@@ -362,7 +370,7 @@ export function useFeed() {
                     keyType: "api-data",
                     path: "/social/feed/history",
                     params: {
-                        after_feed_order: last.feed_order,
+                        before_view_order: last.view_order - 1,
                         limit: HISTORY_PAGE_SIZE,
                     },
                     accountId: account.id,
@@ -373,6 +381,7 @@ export function useFeed() {
                 keyType: "api-data",
                 path: "/social/feed/history",
                 params: {
+                    before_view_order: historyStart,
                     limit: HISTORY_PAGE_SIZE,
                 },
                 accountId: account.id,
@@ -474,6 +483,7 @@ type NewPostPayload = {
 type NewPostResponse = {
     post_id: number;
     tags: SocialPostTag[];
+    view_order: number;
 };
 
 /**
@@ -494,7 +504,11 @@ export function useCreatePost() {
         createPost: async (body: NewPostPayload) => {
             const created = await x.trigger(body);
             if (created?.post_id == null) return undefined;
-            return { post_id: created.post_id, tags: created.tags ?? [] };
+            return {
+                post_id: created.post_id,
+                tags: created.tags ?? [],
+                view_order: created.view_order,
+            };
         },
     };
 }
@@ -651,9 +665,12 @@ type MarkPostsViewedPayload = {
 };
 
 /**
- * Marks posts as `viewed` in `post_view_status` (upgrades `loaded`). Does not
- * refresh the feed cache: a mid-scroll refresh would yank rows out from under
- * the user. `/feed` itself writes `loaded` when it returns posts.
+ * Marks posts as `viewed` in `post_view_status` (upgrades `loaded`). `post_ids`
+ * stays in the order given. The server gives each the next `view_order` in
+ * that order, replacing a number that was already there. Only the For You and
+ * Friends lists call this. Discuss, a profile, and a topic page do not.
+ * Does not refresh the feed cache: a mid-scroll refresh would yank rows out
+ * from under the user. `/feed` itself writes `loaded` when it returns posts.
  */
 export function useMarkPostsViewed() {
     const x = useAPIMutation<MarkPostsViewedPayload, void>(

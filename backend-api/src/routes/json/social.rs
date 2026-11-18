@@ -44,6 +44,9 @@ pub struct SocialPost {
     pub comment_count: i64,
     /// Decorative labels on this post, sorted by `tag_id`. Not song tags.
     pub tags: Vec<SocialPostTag>,
+    /// Temporary debug. This viewer's view order, once the post is viewed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view_order: Option<i32>,
 }
 
 /// One decorative label on a post.
@@ -137,6 +140,7 @@ impl From<PostRow> for SocialPost {
             shared_playlist: post.shared_playlist.map(Into::into),
             comment_count: post.comment_count,
             tags: post.tags.into_iter().map(Into::into).collect(),
+            view_order: post.view_order,
         }
     }
 }
@@ -232,19 +236,23 @@ pub struct FeedResponse {
     /// `initial_spotlight_chance`. Omitted on the friends feed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spotlight_chance: Option<f64>,
+    /// Highest `view_order` when `first_page=true`. Previously viewed starts
+    /// here and goes down. Omitted on later pages and on the friends feed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_view_order: Option<i32>,
 }
 
 /// One previously viewed post from `GET /social/feed/history`.
-/// `feed_order` is the order it was loaded. `viewed_at` is when this user viewed it.
+/// `view_order` is the order it was viewed. `viewed_at` is when this user viewed it.
 #[derive(Serialize)]
 pub struct FeedHistoryItem {
     #[serde(flatten)]
     pub post: SocialPost,
-    pub feed_order: i32,
+    pub view_order: i32,
     pub viewed_at: DateTime<Utc>,
 }
 
-/// `{feed}` from `GET /social/feed/history`, in load order.
+/// `{feed}` from `GET /social/feed/history`, from `before_view_order` downward.
 #[derive(Serialize)]
 pub struct FeedHistoryResponse {
     pub feed: Vec<FeedHistoryItem>,
@@ -266,6 +274,8 @@ pub struct AddSpotlightsResponse {
 pub struct CreatePostResponse {
     pub post_id: i64,
     pub tags: Vec<SocialPostTag>,
+    /// Temporary debug. The author's view order for the new post.
+    pub view_order: i32,
 }
 
 /// `{tags}` from `PATCH /social/posts/:id`. The post's tags after the edit,

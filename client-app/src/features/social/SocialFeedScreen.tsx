@@ -62,9 +62,11 @@ const MARK_VIEWED_FLUSH_MS = 3000;
 
 /**
  * The Social tab. Loads the ranked feed with full post payloads.
- * A post you just wrote stays at the top until the feed includes it.
+ * A post you just wrote stays at the top until a reload clears it.
  * Posts at least half on screen are queued only while this tab is focused
- * and the app is in the foreground, then marked viewed in batches.
+ * and the app is in the foreground, then marked viewed in batches. Posts
+ * under Previously viewed are left alone. Discuss, a profile, and a topic
+ * page leave view status alone too.
  */
 export function SocialFeedScreen() {
     const { listBottomInset } = useScreenOverlayInsets();
@@ -93,8 +95,9 @@ export function SocialFeedScreen() {
     const { profile } = useProfile();
     const router = useRouter();
     const markedViewedIds = useRef(new Set<number>());
-    const pendingViewedIds = useRef(new Set<number>());
+    const pendingViewedIds = useRef<number[]>([]);
     const viewablePostIds = useRef(new Set<number>());
+    const feedPostIdsRef = useRef<number[]>([]);
     const screenVisibleRef = useRef(false);
     const markPostsViewedRef = useRef(markPostsViewed);
     markPostsViewedRef.current = markPostsViewed;
@@ -104,7 +107,7 @@ export function SocialFeedScreen() {
         for (const id of viewablePostIds.current) {
             if (markedViewedIds.current.has(id)) continue;
             markedViewedIds.current.add(id);
-            pendingViewedIds.current.add(id);
+            pendingViewedIds.current.push(id);
         }
     }, []);
     const queueViewablePostsRef = useRef(queueViewablePosts);
@@ -122,9 +125,15 @@ export function SocialFeedScreen() {
     }, [isFocused, queueViewablePosts]);
 
     const flushPendingViewed = useCallback(() => {
-        if (pendingViewedIds.current.size === 0) return;
-        const ids = [...pendingViewedIds.current];
-        pendingViewedIds.current.clear();
+        if (pendingViewedIds.current.length === 0) return;
+        const pending = pendingViewedIds.current;
+        pendingViewedIds.current = [];
+        const order = feedPostIdsRef.current;
+        const ids = [...pending].sort((a, b) => {
+            const ai = order.indexOf(a);
+            const bi = order.indexOf(b);
+            return (ai === -1 ? order.length : ai) - (bi === -1 ? order.length : bi);
+        });
         void markPostsViewedRef.current(ids).catch(() => {
             for (const id of ids) markedViewedIds.current.delete(id);
         });
@@ -193,7 +202,7 @@ export function SocialFeedScreen() {
         }
         for (const post of seenPosts) {
             if (hiddenIds.has(post.post_id)) continue;
-            rows.push({ kind: "post", post });
+            rows.push({ kind: "post", post, history: true });
         }
         return rows;
     }, [created, hiddenIds, posts, showingSeen, unseenCount]);
@@ -233,7 +242,11 @@ export function SocialFeedScreen() {
             tags?: { text: string; color: string }[],
         ) => {
             let created:
-                | { post_id: number; tags: SocialPost["tags"] }
+                | {
+                      post_id: number;
+                      tags: SocialPost["tags"];
+                      view_order?: number;
+                  }
                 | undefined;
             try {
                 created = await createPost({
@@ -278,6 +291,7 @@ export function SocialFeedScreen() {
                     : null,
                 comment_count: 0,
                 tags: created.tags ?? [],
+                view_order: created.view_order,
             };
             setCreated((current) => [post, ...current]);
             if (topic && !playlist) {
@@ -316,6 +330,7 @@ export function SocialFeedScreen() {
 
     const reload = useCallback(async () => {
         setRefreshing(true);
+        setCreated([]);
         try {
             // the cards and the listening row above the posts refresh with them
             await Promise.all([
@@ -338,7 +353,8 @@ export function SocialFeedScreen() {
             const next = new Set<number>();
             for (const token of viewableItems) {
                 const row = token.item as FeedRow | undefined;
-                if (!token.isViewable || row?.kind !== "post") continue;
+                if (!token.isViewable || row?.kind !== "post" || row.history)
+                    continue;
                 next.add(row.post.post_id);
             }
             viewablePostIds.current = next;
@@ -438,6 +454,9 @@ export function SocialFeedScreen() {
                       .map((post) => ({ kind: "post", post }))
                 : feed,
         [feed, friendsFeed.friendsPosts, hiddenIds, showingFriends],
+    );
+    feedPostIdsRef.current = rows.flatMap((row) =>
+        row.kind === "post" && !row.history ? [row.post.post_id] : [],
     );
     const pagingNext = showingFriends
         ? friendsFeed.isLoadingNextFriendsPage
@@ -554,7 +573,7 @@ export function SocialFeedScreen() {
 }
 
 type FeedRow =
-    | { kind: "post"; post: SocialPost }
+    | { kind: "post"; post: SocialPost; history?: boolean }
     | { kind: "caught-up" }
     | { kind: "history-heading" };
 
