@@ -87,6 +87,8 @@ export type PostTopic =
           catalogId?: string;
           /** Apple's short note, when the catalog has one. */
           editorialNote?: string;
+          /** Biography from the artist's Apple Music page, when it has one. */
+          bio?: string;
       };
 
 /**

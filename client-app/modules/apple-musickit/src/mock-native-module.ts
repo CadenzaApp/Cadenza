@@ -1126,12 +1126,14 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             const albumIds = new Set(
                 songs.map((song) => song.albumID).filter(Boolean),
             );
+            const name = songs[0]?.artistName ?? "Unknown Artist";
             const artist: ArtistDetail = {
                 id: artistId,
-                name: songs[0]?.artistName ?? "Unknown Artist",
+                name,
                 artworkUrl: songs[0]?.artworkUrlLarge ?? songs[0]?.artworkUrl,
                 artworkUrlSmall: songs[0]?.artworkUrl,
                 artworkColor: songs[0]?.artworkColor,
+                bio: `${name} is one of the artists in this library.`,
                 topSongs: songs.slice(0, 10),
                 albums: MOCK_ALBUMS.filter((album) => albumIds.has(album.id)),
             };
