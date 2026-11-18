@@ -352,7 +352,7 @@ impl LoopState {
     fn reply(self, text: String) -> AssistantResponse {
         // the card already shows its songs; a reply that lists them again only repeats it
         let text = if self.songs.is_some() {
-            strip_card_listing(&text, &songs_named_in(&self.items))
+            strip_card_pointers(&strip_card_listing(&text, &songs_named_in(&self.items)))
         } else {
             text
         };
@@ -374,7 +374,7 @@ fn card_note(count: usize) -> String {
         format!("{count} songs")
     };
     format!(
-        "The card under your answer holds exactly {songs}, with titles, artists, and artwork. When you say how many you found, say {count}; if the user asked for more, say both numbers. Do not list the songs in your reply; say in one sentence what the card holds."
+        "The user already sees these {songs} under your answer. When you say how many you found, say {count}; if the user asked for more, say both numbers. Do not list the songs, and do not mention the card or tell the user to look at it. Just say in one sentence what the songs are, like \"Here are 10 iconic Mario songs.\""
     )
 }
 
@@ -487,6 +487,62 @@ fn strip_card_listing(text: &str, songs: &[(String, Option<String>)]) -> String 
     } else {
         out
     }
+}
+
+/// `text` without sentences that only point the user at the card, like "Check out the card
+/// for the titles and artists." The user already sees it. A reply that would be left
+/// empty is kept as it was.
+fn strip_card_pointers(text: &str) -> String {
+    let points_at_card = |sentence: &str| {
+        let lowered = sentence.to_lowercase();
+        lowered.contains("card")
+            && [
+                "check",
+                "see",
+                "look",
+                "below",
+                "above",
+                "view",
+                "details",
+                "find them",
+            ]
+            .iter()
+            .any(|word| lowered.contains(word))
+    };
+    let lines: Vec<String> = text
+        .lines()
+        .map(|line| {
+            sentences(line)
+                .into_iter()
+                .filter(|sentence| !points_at_card(sentence))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    let out = lines.join("\n").trim().to_owned();
+    if out.is_empty() { text.to_owned() } else { out }
+}
+
+/// `line` split after each `.`, `!`, or `?` that ends a sentence, each piece trimmed.
+fn sentences(line: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let chars: Vec<(usize, char)> = line.char_indices().collect();
+    for (i, &(at, c)) in chars.iter().enumerate() {
+        let ends =
+            matches!(c, '.' | '!' | '?') && chars.get(i + 1).is_none_or(|&(_, next)| next == ' ');
+        if ends {
+            let end = at + c.len_utf8();
+            out.push(line[start..end].trim());
+            start = end;
+        }
+    }
+    if start < line.len() {
+        out.push(line[start..].trim());
+    }
+    out.into_iter()
+        .filter(|sentence| !sentence.is_empty())
+        .collect()
 }
 
 /// `haystack` with the words of `needle` taken out where they appear in a run, or None
@@ -901,6 +957,23 @@ mod tests {
     }
 
     #[test]
+    fn sentences_pointing_at_the_card_are_dropped() {
+        assert_eq!(
+            strip_card_pointers(
+                "Here are 10 iconic Mario songs. Check out the card for the titles, artists, and more!"
+            ),
+            "Here are 10 iconic Mario songs."
+        );
+        // a sentence about something else that says card stays
+        assert_eq!(
+            strip_card_pointers("I added them to your playlist."),
+            "I added them to your playlist."
+        );
+        // never left empty
+        assert_eq!(strip_card_pointers("See the card."), "See the card.");
+    }
+
+    #[test]
     fn one_song_named_in_a_sentence_stays() {
         let reply = "Megalovania by Toby Fox is the most played of these.";
         assert_eq!(strip_card_listing(reply, &named()), reply);
@@ -930,7 +1003,8 @@ mod tests {
         let output = inputs[1][2]["output"].as_str().unwrap();
         assert!(output.contains("shown_as_card"));
         // FakeTools' run_query card holds 2
-        assert!(output.contains("exactly 2 songs"));
+        assert!(output.contains("these 2 songs"));
+        assert!(output.contains("say 2"));
     }
 
     #[test]

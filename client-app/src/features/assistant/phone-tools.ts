@@ -47,6 +47,35 @@ const CONFIRMED_TOOLS = new Set([
     "add_to_apple_music_playlist",
 ]);
 
+/** Screens on a tab's own stack `open_screen` can open, by the name the model uses. */
+const TAB_SCREENS: Record<string, Href> = {
+    friends: "/social/friends",
+    notifications: "/social/notifications",
+    friends_listening: "/social/listening",
+};
+
+/** The Analytics rankings `open_screen` can open, by kind. */
+const RANKING_KINDS = new Set([
+    "song",
+    "artist",
+    "album",
+    "playlist",
+    "query",
+    "shared_playlist",
+    "live_session",
+    "tag",
+]);
+
+/** The Library sections `open_screen` can open, by kind. */
+const LIBRARY_KINDS = new Set([
+    "playlist",
+    "artist",
+    "album",
+    "song",
+    "query",
+    "tag",
+]);
+
 /** The settings sheets `open_screen` can open, by the name the model uses. */
 const SHEETS: Record<string, Href> = {
     account: "/account",
@@ -121,6 +150,15 @@ export function usePhoneTools() {
         async (args: ToolArgs) => {
             const playlistId = stringOf(args.apple_music_playlist_id);
             if (playlistId) return playlistTracks(playlistId);
+            const albumId = stringOf(args.album_id);
+            if (albumId) return albumTracks(albumId);
+            const artistId = stringOf(args.artist_id);
+            if (artistId) {
+                const artist = await readAppleMusic(() =>
+                    MusicKit.getArtist(artistId),
+                );
+                return artist.topSongs;
+            }
             return tracksFor(songIdsOf(args));
         },
         [tracksFor],
@@ -216,6 +254,24 @@ export function usePhoneTools() {
                             case "restart":
                                 await commands.seekTo(0);
                                 return { restarted: track.title };
+                            case "clear_queue": {
+                                // a queue of just this song, back at the same spot
+                                const at = playback.progress;
+                                const wasPlaying = playback.isPlaying;
+                                const dropped = playback.upcoming.length;
+                                await commands.playQueue({
+                                    tracks: [track],
+                                    startIndex: 0,
+                                    chosenStart: true,
+                                });
+                                if (at > 1) await commands.seekTo(at);
+                                if (!wasPlaying)
+                                    await commands.togglePlayback(track);
+                                return {
+                                    cleared: dropped,
+                                    still_playing: track.title,
+                                };
+                            }
                             default:
                                 return {
                                     error: "action must be pause, resume, next, previous, or restart.",
@@ -312,6 +368,87 @@ export function usePhoneTools() {
                             total: tracks.length,
                             songs: tracks.slice(0, MAX_DESCRIBED).map(describe),
                             card: cardOf(tracks, playlistNames.get(id)),
+                        };
+                    }
+                    case "apple_music_library": {
+                        if (args.view === "search") {
+                            const term = stringOf(args.term);
+                            if (!term)
+                                return {
+                                    error: "term is required for search.",
+                                };
+                            const result = await readAppleMusic(() =>
+                                MusicKit.searchLibrarySongs(term, {
+                                    limit: 25,
+                                }),
+                            );
+                            const songs = result.items;
+                            return {
+                                in_library: songs.length,
+                                songs: songs.map(describe),
+                                card: cardOf(
+                                    songs,
+                                    stringOf(args.title) ?? term,
+                                ),
+                            };
+                        }
+                        const result = await readAppleMusic(() =>
+                            MusicKit.getRecentlyAdded({ limit: 25 }),
+                        );
+                        const songs = result.items.filter(
+                            (item) => item.resourceKind === "song",
+                        );
+                        return {
+                            // newest first, as Apple groups them
+                            recently_added: result.items.map((item) =>
+                                item.resourceKind === "song"
+                                    ? { kind: "song", ...describe(item) }
+                                    : item.resourceKind === "album"
+                                      ? {
+                                            kind: "album",
+                                            album_id: item.catalogId ?? item.id,
+                                            name: item.title,
+                                            artist: item.artistName ?? null,
+                                        }
+                                      : {
+                                            kind: "apple_music_playlist",
+                                            playlist_id: item.id,
+                                            name: item.title,
+                                        },
+                            ),
+                            card: cardOf(
+                                songs,
+                                stringOf(args.title) ?? "Recently Added",
+                            ),
+                        };
+                    }
+                    case "favorite_collection": {
+                        const id = stringOf(args.id);
+                        if (!id) return { error: "id is required." };
+                        const apiKind =
+                            args.kind === "album" ? "albums" : "playlists";
+                        const favorite = args.favorite !== false;
+                        const status =
+                            await MusicKit.setCollectionFavoriteStatus(
+                                apiKind,
+                                id,
+                                favorite,
+                            );
+                        // the heart on the album or playlist page reads this cache
+                        void mutate(
+                            (key) =>
+                                Array.isArray(key) &&
+                                key[0] ===
+                                    "MusicKit.getCollectionFavoriteStatus" &&
+                                key[2] === apiKind &&
+                                key[3] === id,
+                            status,
+                            { revalidate: false },
+                        );
+                        return {
+                            kind: args.kind,
+                            id,
+                            favorite: status.isFavorite,
                         };
                     }
                     case "favorite_song": {
@@ -432,6 +569,28 @@ async function openScreenFor(
         router.replace(sheet);
         return { opened: screen };
     }
+    const tabScreen =
+        TAB_SCREENS[screen] ??
+        rankingHref(screen, stringOf(args.kind)) ??
+        libraryHref(screen, stringOf(args.kind));
+    if (tabScreen) {
+        // close the assistant sheet, then open it in its own tab
+        if (router.canDismiss()) router.dismiss();
+        router.navigate(tabScreen);
+        return { opened: screen, kind: stringOf(args.kind) };
+    }
+    if (screen === "analytics_ranking" || screen === "library_category") {
+        return { error: `${screen} needs a kind from its list.` };
+    }
+    if (screen === "song_tags") {
+        if (!currentPlayback()?.activeTrack) {
+            return {
+                error: "Nothing is playing, so there is no song to show tags for.",
+            };
+        }
+        router.replace("/player/tags");
+        return { opened: screen };
+    }
     if (screen === "now_playing") {
         if (!currentPlayback()?.activeTrack) {
             return {
@@ -494,6 +653,28 @@ async function openScreenFor(
     return { opened: screen, id };
 }
 
+/** A full Analytics ranking, for `analytics_ranking`, or null for another screen. */
+function rankingHref(screen: string, kind?: string): Href | null {
+    if (screen !== "analytics_ranking" || !kind || !RANKING_KINDS.has(kind)) {
+        return null;
+    }
+    // songs and tags have screens of their own, every other kind shares one
+    if (kind === "song") return "/analytics/songs";
+    if (kind === "tag") return "/analytics/tags";
+    return {
+        pathname: "/analytics/[dimension]",
+        params: { dimension: kind },
+    } as Href;
+}
+
+/** A Library section, for `library_category`, or null for another screen. */
+function libraryHref(screen: string, kind?: string): Href | null {
+    if (screen !== "library_category" || !kind || !LIBRARY_KINDS.has(kind)) {
+        return null;
+    }
+    return { pathname: "/library/category/[kind]", params: { kind } } as Href;
+}
+
 /** A song as the model sees it. */
 function describe(track: MusicItem) {
     return {
@@ -538,6 +719,19 @@ async function userPlaylists(): Promise<MusicItem[]> {
     for (const playlist of playlists)
         playlistNames.set(playlist.id, playlist.title);
     return playlists.slice(0, MAX_PLAYLISTS);
+}
+
+/** An album's tracks, in order, up to `MAX_SONGS`. A catalog or a library album id. */
+async function albumTracks(albumId: string): Promise<MusicItem[]> {
+    const tracks: MusicItem[] = [];
+    for (let offset = 0; tracks.length < MAX_SONGS; offset += PAGE_SIZE) {
+        const page = await readAppleMusic(() =>
+            MusicKit.getAlbumSongs(albumId, { limit: PAGE_SIZE, offset }),
+        );
+        tracks.push(...page.items);
+        if (!page.hasNextPage || page.items.length === 0) break;
+    }
+    return tracks.slice(0, MAX_SONGS);
 }
 
 /** The songs of an Apple Music library playlist, in order, up to `MAX_SONGS`. */

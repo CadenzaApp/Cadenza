@@ -24,7 +24,9 @@ const PHONE_TOOLS: &[&str] = &[
     "search_apple_music",
     "apple_music_playlists",
     "apple_music_playlist_songs",
+    "apple_music_library",
     "favorite_song",
+    "favorite_collection",
     "create_apple_music_playlist",
     "add_to_apple_music_playlist",
     "open_screen",
@@ -54,7 +56,9 @@ pub fn label_for(name: &str) -> &'static str {
         "search_apple_music" => "Searched Apple Music",
         "apple_music_playlists" => "Looked up your Apple Music playlists",
         "apple_music_playlist_songs" => "Opened an Apple Music playlist",
+        "apple_music_library" => "Looked in your Apple Music library",
         "favorite_song" => "Updated a favorite",
+        "favorite_collection" => "Updated a favorite",
         "create_apple_music_playlist" => "Made an Apple Music playlist",
         "add_to_apple_music_playlist" => "Added to an Apple Music playlist",
         "open_screen" => "Opened a screen",
@@ -98,8 +102,13 @@ pub fn prepare_arguments(
             .iter()
             .filter_map(|id| id.as_str().map(str::to_owned))
             .collect(),
-        // playing an Apple Music playlist by id needs no songs
-        Value::Null if name == "play" && args["apple_music_playlist_id"].is_string() => {
+        // a playlist, an album, or an artist by id needs no songs
+        Value::Null
+            if ["apple_music_playlist_id", "album_id", "artist_id"]
+                .iter()
+                .any(|key| args[*key].is_string())
+                && matches!(name, "play" | "queue_songs") =>
+        {
             return Ok(args);
         }
         _ => return Err("songs must be \"card\" or a list of song ids".to_owned()),
@@ -149,12 +158,14 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "play",
-            "description": "Plays songs now, replacing the queue: the songs on the card, a list of song ids, or one of the user's Apple Music playlists. To play a saved query or a shared playlist, get its songs as a card first. Shuffle shuffles the list itself.",
+            "description": "Plays songs now, replacing the queue: the songs on the card, a list of song ids, one of the user's Apple Music playlists, an album (all its tracks), or an artist (their top songs). Pass exactly one of songs, apple_music_playlist_id, album_id, or artist_id. To play a saved query or a shared playlist, get its songs as a card first. Shuffle shuffles the list itself.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "songs": songs.clone(),
                     "apple_music_playlist_id": { "type": "string", "description": "Instead of songs: an id from apple_music_playlists." },
+                    "album_id": { "type": "string", "description": "Instead of songs: an album_id from find_album, now_playing, or find_songs." },
+                    "artist_id": { "type": "string", "description": "Instead of songs: an artist_id from find_artist or now_playing; plays their top songs." },
                     "shuffle": { "type": "boolean", "description": "Play in a random order. Defaults to false." }
                 }
             }
@@ -162,11 +173,11 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "playback",
-            "description": "Pause, resume, skip to the next or previous song, or restart the current one.",
+            "description": "Pause, resume, skip to the next or previous song, restart the current one, or clear the queue (clear_queue: keeps only the song playing now, at the same spot, and drops everything after it).",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["pause", "resume", "next", "previous", "restart"] }
+                    "action": { "type": "string", "enum": ["pause", "resume", "next", "previous", "restart", "clear_queue"] }
                 },
                 "required": ["action"]
             }
@@ -174,14 +185,16 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "queue_songs",
-            "description": "Adds songs to the queue without stopping what is playing: next (right after the current song) or at the end.",
+            "description": "Adds songs to the queue without stopping what is playing: next (right after the current song) or at the end. Pass exactly one of songs, album_id (all its tracks), or artist_id (their top songs).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "songs": songs.clone(),
+                    "album_id": { "type": "string" },
+                    "artist_id": { "type": "string" },
                     "position": { "type": "string", "enum": ["next", "end"] }
                 },
-                "required": ["songs", "position"]
+                "required": ["position"]
             }
         }),
         json!({
@@ -241,6 +254,20 @@ pub fn definitions() -> Vec<Value> {
         }),
         json!({
             "type": "function",
+            "name": "apple_music_library",
+            "description": "Reads the user's own Apple Music library on the phone, including songs Cadenza has not seen yet. recently_added: what they added lately, albums, playlists, and songs, newest first. search: songs in their library matching a term, to answer \"do I have X\". Songs show as a card.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "view": { "type": "string", "enum": ["recently_added", "search"] },
+                    "term": { "type": "string", "description": "For search: a song title, artist, or album." },
+                    "title": { "type": "string", "description": "The card's title, Title Case, 2 to 4 words, no period." }
+                },
+                "required": ["view"]
+            }
+        }),
+        json!({
+            "type": "function",
             "name": "favorite_song",
             "description": "Favorites or unfavorites a song in Apple Music, which also sets Cadenza's Favorited activity tag.",
             "parameters": {
@@ -250,6 +277,20 @@ pub fn definitions() -> Vec<Value> {
                     "favorite": { "type": "boolean", "description": "true to favorite, false to unfavorite." }
                 },
                 "required": ["song_id", "favorite"]
+            }
+        }),
+        json!({
+            "type": "function",
+            "name": "favorite_collection",
+            "description": "Favorites or unfavorites an album or an Apple Music playlist in Apple Music.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "kind": { "type": "string", "enum": ["album", "apple_music_playlist"] },
+                    "id": { "type": "string", "description": "An album_id (find_album, now_playing) or an Apple Music playlist id (apple_music_playlists)." },
+                    "favorite": { "type": "boolean" }
+                },
+                "required": ["kind", "id", "favorite"]
             }
         }),
         json!({
@@ -282,15 +323,19 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "open_screen",
-            "description": "Opens a screen in the app, closing the chat. The tabs (social, analytics, cadenza, library, search), the settings sheets, and now_playing (the player) need no id. Every other screen needs an id from a tool result in this conversation, never one you remember or guess: tag a tag id, saved_query an id from list_saved_queries, shared_playlist an id from list_playlists, apple_music_playlist an id from apple_music_playlists, artist an artist_id from find_artist or now_playing, album an album_id from find_album, now_playing, or find_songs, song_discussion (the posts about one song) a song_id from any tool.",
+            "description": "Opens a screen in the app, closing the chat. The tabs (social, analytics, cadenza, library, search), the settings sheets, now_playing (the player), song_tags (the player's Tags page for the song playing, where the user tags it), friends (friend requests and friends), notifications, and friends_listening (every friend listening now) need no id. analytics_ranking (a full Most Played list) and library_category (a Library section) take kind instead. Every other screen needs an id from a tool result in this conversation, never one you remember or guess: tag a tag id, saved_query an id from list_saved_queries, shared_playlist an id from list_playlists, apple_music_playlist an id from apple_music_playlists, artist an artist_id from find_artist or now_playing, album an album_id from find_album, now_playing, or find_songs, song_discussion (the posts about one song) a song_id from any tool.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "screen": {
                         "type": "string",
-                        "enum": ["social", "analytics", "cadenza", "library", "search", "account", "appearance", "apple_music", "listening_preferences", "privacy", "your_data", "now_playing", "tag", "saved_query", "shared_playlist", "apple_music_playlist", "artist", "album", "song_discussion"]
+                        "enum": ["social", "analytics", "cadenza", "library", "search", "account", "appearance", "apple_music", "listening_preferences", "privacy", "your_data", "now_playing", "song_tags", "friends", "notifications", "friends_listening", "analytics_ranking", "library_category", "tag", "saved_query", "shared_playlist", "apple_music_playlist", "artist", "album", "song_discussion"]
                     },
-                    "id": { "type": "string" }
+                    "id": { "type": "string" },
+                    "kind": {
+                        "type": "string",
+                        "description": "For analytics_ranking: song, artist, album, playlist, query, shared_playlist, live_session, or tag. For library_category: playlist, artist, album, song, query, or tag."
+                    }
                 },
                 "required": ["screen"]
             }
@@ -343,9 +388,15 @@ mod tests {
     }
 
     #[test]
-    fn a_playlist_plays_without_songs() {
+    fn a_playlist_album_or_artist_plays_without_songs() {
         let args = prepare_arguments("play", r#"{"apple_music_playlist_id":"p.1"}"#, None).unwrap();
         assert_eq!(args["apple_music_playlist_id"], "p.1");
+        assert!(prepare_arguments("play", r#"{"album_id":"1440"}"#, None).is_ok());
+        assert!(
+            prepare_arguments("queue_songs", r#"{"artist_id":"9","position":"end"}"#, None).is_ok()
+        );
+        // one of them is still needed
+        assert!(prepare_arguments("queue_songs", r#"{"position":"end"}"#, None).is_err());
     }
 
     #[test]

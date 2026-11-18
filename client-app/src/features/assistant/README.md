@@ -68,12 +68,19 @@ Assistant section of [backend-api/src/services/README.md](../../../../backend-ap
   it yet. Markdown support is a planned story.
 - `/assistant` is in `SHEET_SEGMENTS` in `lib/screen-overlay.ts`, like the other sheets, so the
   bars stay mounted under it.
+- `play` and `queue_songs` take songs, or an Apple Music playlist, an album (its tracks, via
+  `getAlbumSongs`), or an artist (their top songs, via `getArtist`) by id.
+  `playback` `clear_queue` replaces the queue with only the song playing and seeks back to
+  where it was, since MusicKit has no way to drop the rest in place.
 - `play` shuffles the list itself, with Apple's shuffle off, like the card's Shuffle.
   `set_shuffle` turns Apple's shuffle on, the same as the queue's toggle.
 - Playback tools refuse while `controlsLocked` (a live session the user cannot control), and
   go through the same commands as a tap otherwise, so a live session's rules apply.
-- `open_screen` closes the assistant: a settings sheet or the player replaces it, a detail screen
-  (tag, saved query, shared playlist, Apple Music playlist, artist, album, a song's posts) opens
-  in the tab underneath (`useOpenScreen` with `closing: "assistant"`). The reply still lands in
-  the store. An artist or album id is checked with Apple first, so a wrong id is an error the
-  model can fix rather than a page that cannot load.
+- `open_screen` closes the assistant. A settings sheet, the player, or the player's Tags page
+  for the song playing (`/player/tags`) replaces it. A detail screen (tag, saved query, shared
+  playlist, Apple Music playlist, artist, album, a song's posts) opens in the tab underneath
+  (`useOpenScreen` with `closing: "assistant"`). A tab, or a tab's own screen (friends,
+  notifications, friends listening, an Analytics ranking, a Library section), dismisses the
+  sheet and navigates there. The reply still lands in the store. An artist or album id is
+  checked with Apple first, so a wrong id is an error the model can fix rather than a page that
+  cannot load.
