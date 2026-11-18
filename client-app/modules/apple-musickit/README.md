@@ -293,13 +293,13 @@ album/playlist equivalent needed elsewhere in this module.
 
 ## Artists
 
-| call                                        | returns                                                      |
-| ------------------------------------------- | ------------------------------------------------------------ |
-| `getSongArtists(songId)`                    | Catalog artist ids credited on a song, most prominent first. |
-| `getArtist(artistId)`                       | An `ArtistDetail`: name, artwork, genres, top songs, albums. |
-| `getLibraryArtists(options)`                | A page of `ArtistItem`s from the user's library.             |
-| `searchLibraryArtists(term, options)`       | Library artists matching a term.                             |
-| `catalogSearch(term, ["artists"], options)` | Catalog artists, on `SearchResult.artists`.                  |
+| call                                        | returns                                                                                                 |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `getSongArtists(songId)`                    | Catalog artist ids credited on a song, most prominent first.                                            |
+| `getArtist(artistId)`                       | An `ArtistDetail`: name, artwork, genres, a short editorial note when Apple has one, top songs, albums. |
+| `getLibraryArtists(options)`                | A page of `ArtistItem`s from the user's library.                                                        |
+| `searchLibraryArtists(term, options)`       | Library artists matching a term.                                                                        |
+| `catalogSearch(term, ["artists"], options)` | Catalog artists, on `SearchResult.artists`.                                                             |
 
 An artist in a list is an `ArtistItem`, not a `MusicItem`. `MusicResourceKind`
 still has no `"artist"` and `PlaybackQueueType` still has no artist case,

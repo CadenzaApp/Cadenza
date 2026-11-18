@@ -43,7 +43,8 @@ import { EditContentDialog } from "./EditContentDialog";
 import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostTagRow } from "./PostTags";
 import { PostTopicCard } from "./PostTopicCard";
-import { spotlightSubtitle, useResolvedTopic } from "./topic";
+import { SpotlightPost } from "./SpotlightPost";
+import { useResolvedTopic } from "./topic";
 import type { PostTopic, SocialComment, SocialPost } from "./types";
 
 const MAX_DIALOG_WIDTH = 420;
@@ -59,6 +60,8 @@ type Props = {
     showTopic?: boolean;
     onLikedChange?: (postId: number, liked: boolean) => void;
     onAuthorPress?: (userId: string) => void;
+    /** The card's count, including comments posted before the cache catches up. */
+    commentCount?: number;
     /** A comment was stored. The card bumps its own count from this. */
     onCommentCreated?: () => void;
     /** A comment was deleted. The card drops its own count from this. */
@@ -74,6 +77,7 @@ export function PostCommentsDialog({
     showTopic = true,
     onLikedChange,
     onAuthorPress,
+    commentCount,
     onCommentCreated,
     onCommentDeleted,
 }: Props) {
@@ -207,6 +211,7 @@ export function PostCommentsDialog({
                         post={post}
                         topicHint={topicHint}
                         showTopic={showTopic}
+                        commentCount={commentCount}
                         onLikedChange={onLikedChange}
                         onAuthorPress={openAuthor}
                     />
@@ -316,12 +321,14 @@ function PostSummary({
     post,
     topicHint,
     showTopic,
+    commentCount,
     onLikedChange,
     onAuthorPress,
 }: {
     post: SocialPost;
     topicHint?: PostTopic | null;
     showTopic: boolean;
+    commentCount?: number;
     onLikedChange?: (postId: number, liked: boolean) => void;
     onAuthorPress?: (userId: string) => void;
 }) {
@@ -329,9 +336,10 @@ function PostSummary({
     const { likePost } = useLikePost();
     const { unlikePost } = useUnlikePost();
     const updateCachedPostLike = useUpdateCachedPostLike();
+    const spotlight = post.author == null;
     const topic = useResolvedTopic(
-        showTopic ? post.topic_mk_id : null,
-        showTopic ? topicHint : null,
+        showTopic || spotlight ? post.topic_mk_id : null,
+        showTopic || spotlight ? topicHint : null,
     );
     const [liked, setLiked] = useState(post.liked);
     const likedRef = useRef(liked);
@@ -367,55 +375,47 @@ function PostSummary({
     }
 
     const author = post.author;
+    if (!author) {
+        return (
+            <View className="mt-8">
+                <SpotlightPost
+                    topic={topic}
+                    cardId={String(post.post_id)}
+                    liked={liked}
+                    likes={likes}
+                    commentCount={commentCount ?? post.comment_count ?? 0}
+                    onToggleLike={toggleLike}
+                />
+            </View>
+        );
+    }
+
     return (
         <View className="mt-8 gap-3 overflow-hidden rounded-3xl border border-border p-4">
-            {author == null ? (
-                <View className="flex-row items-center gap-3">
-                    <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
-                        <Text className="text-sm font-semibold text-foreground">
-                            {initialsFromUsername("For you")}
-                        </Text>
-                    </View>
-                    <View className="min-w-0 flex-1">
-                        <Text
-                            className="font-semibold text-foreground"
-                            numberOfLines={1}
-                        >
-                            For you
-                        </Text>
-                        {spotlightSubtitle(topic) ? (
-                            <Text className="text-xs text-muted-foreground">
-                                {spotlightSubtitle(topic)}
-                            </Text>
-                        ) : null}
-                    </View>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`View ${author.username}'s profile`}
+                onPress={() => onAuthorPress?.(author.user_id)}
+                disabled={!author.user_id}
+                className="flex-row items-center gap-3 active:opacity-60"
+            >
+                <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
+                    <Text className="text-sm font-semibold text-foreground">
+                        {initialsFromUsername(author.username)}
+                    </Text>
                 </View>
-            ) : (
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`View ${author.username}'s profile`}
-                    onPress={() => onAuthorPress?.(author.user_id)}
-                    disabled={!author.user_id}
-                    className="flex-row items-center gap-3 active:opacity-60"
-                >
-                    <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
-                        <Text className="text-sm font-semibold text-foreground">
-                            {initialsFromUsername(author.username)}
-                        </Text>
-                    </View>
-                    <View className="min-w-0 flex-1">
-                        <Text
-                            className="font-semibold text-foreground"
-                            numberOfLines={1}
-                        >
-                            {author.username}
-                        </Text>
-                        <Text className="text-xs text-muted-foreground">
-                            {formatRelativeTime(post.created_at)}
-                        </Text>
-                    </View>
-                </Pressable>
-            )}
+                <View className="min-w-0 flex-1">
+                    <Text
+                        className="font-semibold text-foreground"
+                        numberOfLines={1}
+                    >
+                        {author.username}
+                    </Text>
+                    <Text className="text-xs text-muted-foreground">
+                        {formatRelativeTime(post.created_at)}
+                    </Text>
+                </View>
+            </Pressable>
 
             {topic ? (
                 <PostTopicCard
@@ -424,11 +424,9 @@ function PostSummary({
                 />
             ) : null}
 
-            {post.author == null && post.content.trim().length === 0 ? null : (
-                <Text className="text-base leading-6 text-foreground">
-                    {post.content}
-                </Text>
-            )}
+            <Text className="text-base leading-6 text-foreground">
+                {post.content}
+            </Text>
             <PostTagRow tags={post.tags} />
 
             <View className="flex-row items-center gap-4 self-start">

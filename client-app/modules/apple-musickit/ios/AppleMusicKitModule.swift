@@ -458,6 +458,31 @@ public class AppleMusicKitModule: Module {
         return result
     }
 
+    /// Apple's short blurb, tags stripped. `short` when present, otherwise `standard`.
+    private func editorialNote(_ attributes: [String: Any]) -> String? {
+        guard let notes = attributes["editorialNotes"] as? [String: Any] else { return nil }
+        let raw = (notes["short"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (notes["standard"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        guard let raw else { return nil }
+        let stripped = raw.replacingOccurrences(
+            of: "<[^>]+>",
+            with: " ",
+            options: .regularExpression
+        )
+        let decoded = stripped
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&apos;", with: "'")
+        let text = decoded.replacingOccurrences(
+            of: "\\s+",
+            with: " ",
+            options: .regularExpression
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
     private func artworkURL(_ template: String, width: Int, height: Int) -> String {
         template
             .replacingOccurrences(of: "{w}", with: String(width))
@@ -1683,6 +1708,9 @@ public class AppleMusicKitModule: Module {
             ]
             if let genres = attributes["genreNames"] as? [String] {
                 result["genres"] = genres
+            }
+            if let note = self.editorialNote(attributes) {
+                result["editorialNote"] = note
             }
             if let shareURL = attributes["url"] as? String, !shareURL.isEmpty {
                 result["shareUrl"] = shareURL

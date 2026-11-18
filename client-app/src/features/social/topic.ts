@@ -48,6 +48,7 @@ export function topicFromSong(song: MusicItem): PostTopic {
         title: song.title,
         artistName: song.artistName,
         artworkUrl: song.artworkUrl,
+        artworkUrlLarge: song.artworkUrlLarge,
         artworkColor: song.artworkColor,
         catalogId: song.catalogId,
         playbackId: song.playbackId,
@@ -62,6 +63,7 @@ export function topicFromArtist(artist: {
     artworkUrl?: string;
     artworkColor?: string;
     catalogId?: string;
+    editorialNote?: string;
 }): PostTopic {
     return {
         kind: "artist",
@@ -70,6 +72,7 @@ export function topicFromArtist(artist: {
         artworkUrl: artist.artworkUrl,
         artworkColor: artist.artworkColor,
         catalogId: artist.catalogId ?? artist.id,
+        editorialNote: artist.editorialNote,
     };
 }
 
@@ -129,11 +132,4 @@ export function useResolvedTopic(
 export function activityLabel(topic: PostTopic | null | undefined): string {
     if (!topic) return "";
     return topic.kind === "song" ? "Shared a song" : "Shared an artist";
-}
-
-/** The line under a spotlight card's "For you" title. */
-export function spotlightSubtitle(topic: PostTopic | null | undefined): string {
-    if (topic?.kind === "song") return "Suggested song";
-    if (topic?.kind === "artist") return "Suggested artist";
-    return "";
 }

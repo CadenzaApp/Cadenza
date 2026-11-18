@@ -70,6 +70,8 @@ export type PostTopic =
           title: string;
           artistName?: string;
           artworkUrl?: string;
+          /** Cover at hero size. The small card uses `artworkUrl`. */
+          artworkUrlLarge?: string;
           artworkColor?: string;
           catalogId?: string;
           playbackId?: string;
@@ -83,6 +85,8 @@ export type PostTopic =
           artworkUrl?: string;
           artworkColor?: string;
           catalogId?: string;
+          /** Apple's short note, when the catalog has one. */
+          editorialNote?: string;
       };
 
 /**

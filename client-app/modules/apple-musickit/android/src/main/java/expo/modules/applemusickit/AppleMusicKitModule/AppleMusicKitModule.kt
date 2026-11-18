@@ -880,6 +880,7 @@ class AppleMusicKitModule : Module() {
                 "albums" to viewResources(views?.get("full-albums"))
             )
             attributes?.get("genreNames")?.let { result["genres"] = it }
+            editorialNote(attributes)?.let { result["editorialNote"] = it }
             attributes?.get("url")?.toString()?.takeIf { it.isNotBlank() }?.let {
                 result["shareUrl"] = it
             }
@@ -923,6 +924,24 @@ class AppleMusicKitModule : Module() {
         ids.map { id ->
             JSONObject(mapOf("id" to resolveCatalogSongId(id), "type" to "songs"))
         }
+
+    /** Apple's short blurb, tags stripped. `short` when present, otherwise `standard`. */
+    private fun editorialNote(attributes: Map<*, *>?): String? {
+        val notes = attributes?.get("editorialNotes") as? Map<*, *> ?: return null
+        val raw = notes["short"]?.toString()?.takeIf { it.isNotBlank() }
+            ?: notes["standard"]?.toString()?.takeIf { it.isNotBlank() }
+            ?: return null
+        val text = raw
+            .replace(Regex("<[^>]+>"), " ")
+            .replace("&amp;", "&")
+            .replace("&nbsp;", " ")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return text.takeIf { it.isNotEmpty() }
+    }
 
     private fun viewResources(view: Any?): List<Map<String, Any>> {
         val data = (view as? Map<*, *>)?.get("data")
