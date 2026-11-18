@@ -11,7 +11,6 @@ import {
 } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
-import { CadenzaLogo } from "@/components/custom/cadenza-logo";
 import { MarqueeText } from "@/components/custom/marquee-text";
 import { PeekCarousel } from "@/components/custom/peek-carousel";
 import { GlassPanel } from "@/components/ui/glass-panel";
@@ -123,9 +122,6 @@ const PLACEHOLDER_STORIES = [
  * joined without a code; the neutral rim marks ordinary listening.
  */
 export function ListeningNowStrip() {
-    const router = useRouter();
-    const { mutedForeground } = useAppTheme().colors;
-    const joinRing = neutralRing(mutedForeground);
     const { width: screenWidth } = useWindowDimensions();
     const [viewportWidth, setViewportWidth] = useState(0);
     const usableWidth = Math.max(
@@ -184,30 +180,6 @@ export function ListeningNowStrip() {
                         size={storySize}
                     />
                 ))}
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Join listening session"
-                    onPress={() => router.push("/join")}
-                    className="items-center gap-1.5 active:opacity-60"
-                    style={{ width: storySize }}
-                >
-                    <View
-                        className="items-center justify-center rounded-full border-2"
-                        style={{
-                            width: storySize,
-                            height: storySize,
-                            borderColor: joinRing,
-                        }}
-                    >
-                        <CadenzaLogo size={storySize * 0.42} color={joinRing} />
-                    </View>
-                    <Text
-                        className="w-full text-center text-xs text-foreground"
-                        numberOfLines={1}
-                    >
-                        Join session
-                    </Text>
-                </Pressable>
             </ScrollView>
         </View>
     );
