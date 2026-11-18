@@ -19,6 +19,7 @@ pub use super::live_session_queue::Entity as LiveSessionQueue;
 pub use super::live_sessions::Entity as LiveSessions;
 pub use super::metadata_albums::Entity as MetadataAlbums;
 pub use super::metadata_song_tags_applied::Entity as MetadataSongTagsApplied;
+pub use super::notifications::Entity as Notifications;
 pub use super::now_playing::Entity as NowPlaying;
 pub use super::post_likes::Entity as PostLikes;
 pub use super::post_tags_applied::Entity as PostTagsApplied;

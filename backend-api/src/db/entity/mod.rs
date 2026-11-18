@@ -21,6 +21,7 @@ pub mod live_session_queue;
 pub mod live_sessions;
 pub mod metadata_albums;
 pub mod metadata_song_tags_applied;
+pub mod notifications;
 pub mod now_playing;
 pub mod post_likes;
 pub mod post_tags_applied;
