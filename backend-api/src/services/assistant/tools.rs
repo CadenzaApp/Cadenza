@@ -32,8 +32,10 @@ pub const MAX_SONGS_TO_MODEL: usize = 25;
 pub const MAX_CARD_SONGS: usize = 100;
 /// The most of a tool call's arguments and output written to the server log.
 const MAX_LOGGED_CHARS: usize = 300;
-/// The most songs `get_song_metadata` looks up in one call.
+/// The most songs `get_song_metadata` and `get_song_tags` look up in one call.
 const MAX_METADATA_SONGS: usize = 25;
+/// The most saved queries or playlists one list hands the model.
+const MAX_LISTED: usize = 50;
 const DEFAULT_TOP_LIMIT: u64 = 10;
 const MAX_TOP_LIMIT: u64 = 25;
 
@@ -95,6 +97,10 @@ impl ToolRunner for DbTools<'_> {
             "get_song_metadata" => self.get_song_metadata(args).await,
             "top_items" => self.top_items(args).await,
             "listening_summary" => self.listening_summary(args).await,
+            "list_saved_queries" => self.list_saved_queries().await,
+            "get_song_tags" => self.get_song_tags(args).await,
+            "list_playlists" => self.list_playlists().await,
+            "get_playlist_songs" => self.get_playlist_songs(args).await,
             _ => return ToolOutcome::error(format!("there is no tool named {name}"), label),
         };
         let outcome = match result {
@@ -151,6 +157,10 @@ fn label_for(name: &str) -> &'static str {
         "get_song_metadata" => "Looked up song details",
         "top_items" => "Checked your top plays",
         "listening_summary" => "Checked your listening stats",
+        "list_saved_queries" => "Looked up your saved queries",
+        "get_song_tags" => "Looked up song tags",
+        "list_playlists" => "Looked up your playlists",
+        "get_playlist_songs" => "Looked up a playlist's songs",
         _ => "Tried a tool",
     }
 }
@@ -271,6 +281,35 @@ fn query_songs_for(scope: Option<&str>) -> Result<QuerySongs, ToolError> {
 fn count_yours(songs: &[QueryMatch]) -> (usize, usize) {
     let yours = songs.iter().filter(|song| song.certain).count();
     (yours, songs.len() - yours)
+}
+
+/// The `run_query` scope that matches a saved query's "library or tagged" option.
+fn scope_of_saved(library_or_tagged: bool) -> &'static str {
+    if library_or_tagged {
+        "mine"
+    } else {
+        "everything"
+    }
+}
+
+/// Tags on a song as the model sees them: name, type, and the value for an
+/// attribute or activity tag.
+fn describe_applied(tags: Vec<(tags::Model, Option<String>)>) -> Vec<Value> {
+    tags.into_iter()
+        .map(|(tag, value)| {
+            json!({
+                "id": tag.tag_id,
+                "name": tag.name,
+                "type": TagType::from(tag.r#type),
+                "value": value,
+            })
+        })
+        .collect()
+}
+
+#[derive(Deserialize)]
+struct PlaylistArgs {
+    playlist_id: i64,
 }
 
 #[derive(Deserialize)]
@@ -398,6 +437,147 @@ impl DbTools<'_> {
             })
             .collect();
         Ok(ToolOutcome::ok(json!({ "songs": songs }), ""))
+    }
+
+    async fn list_saved_queries(&self) -> Result<ToolOutcome, ToolError> {
+        let saved = db::saved_queries::list_saved_queries(self.db, self.user_id).await?;
+        let total = saved.len();
+        let saved = &saved[..total.min(MAX_LISTED)];
+        let ids: Vec<i64> = saved.iter().map(|query| query.saved_query_id).collect();
+        let counts = db::saved_queries::count_songs(self.db, &ids).await?;
+        let queries: Vec<Value> = saved
+            .iter()
+            .map(|query| {
+                json!({
+                    "id": query.saved_query_id,
+                    "name": query.name,
+                    "favorite": query.favorite,
+                    "query": query.query,
+                    "scope": scope_of_saved(query.library_or_tagged),
+                    "stored_songs": counts.get(&query.saved_query_id).copied().unwrap_or(0),
+                    "stored_at": query.songs_stored_at.map(|at| at.to_rfc3339()),
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok(
+            json!({ "total": total, "queries": queries }),
+            "",
+        ))
+    }
+
+    async fn get_song_tags(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: SongIdsArgs = parse_args(args)?;
+        if args.song_ids.len() > MAX_METADATA_SONGS {
+            return Err(ToolError::Arguments(format!(
+                "ask for at most {MAX_METADATA_SONGS} songs at a time"
+            )));
+        }
+        let mut own =
+            db::tags::get_user_tags_on_songs(self.db, self.user_id, &args.song_ids).await?;
+        let mut activity =
+            db::activity_tags::get_activity_tags_on_songs(self.db, self.user_id, &args.song_ids)
+                .await?;
+        let songs: Vec<Value> = args
+            .song_ids
+            .iter()
+            .map(|song_id| {
+                json!({
+                    "song_id": song_id,
+                    "tags": describe_applied(own.remove(song_id).unwrap_or_default()),
+                    "activity": describe_applied(activity.remove(song_id).unwrap_or_default()),
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok(json!({ "songs": songs }), ""))
+    }
+
+    async fn list_playlists(&self) -> Result<ToolOutcome, ToolError> {
+        let playlists = db::shared_playlists::list_my_playlists(self.db, self.user_id).await?;
+        let total = playlists.len();
+        let listed: Vec<Value> = playlists
+            .iter()
+            .take(MAX_LISTED)
+            .map(|playlist| {
+                json!({
+                    "id": playlist.playlist_id,
+                    "name": playlist.name,
+                    "description": playlist.description,
+                    "owner": playlist.owner_username,
+                    "your_role": playlist.role,
+                    "songs": playlist.song_count,
+                    "members": playlist.member_count,
+                    "updated_at": playlist.updated_at.to_rfc3339(),
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok(
+            json!({ "total": total, "playlists": listed }),
+            "",
+        ))
+    }
+
+    async fn get_playlist_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: PlaylistArgs = parse_args(args)?;
+        let detail = db::shared_playlists::get_playlist(self.db, self.user_id, args.playlist_id)
+            .await
+            .map_err(|err| match err {
+                // not a member reads the same as no such playlist, on purpose
+                CadenzaError::NotFound => ToolError::Arguments(format!(
+                    "the user is not in a shared playlist with id {}; call list_playlists for their ids",
+                    args.playlist_id
+                )),
+                other => ToolError::Cadenza(other),
+            })?;
+        let names: HashMap<Uuid, &str> = detail
+            .members
+            .iter()
+            .map(|member| (member.user_id, member.username.as_str()))
+            .collect();
+        let shown = &detail.entries[..detail.entries.len().min(MAX_SONGS_TO_MODEL)];
+        let shown_ids: Vec<String> = shown.iter().map(|entry| entry.song_id.clone()).collect();
+        let rows = db::metadata_tags::get_song_rows(self.db, &shown_ids).await?;
+        let songs: Vec<Value> = shown
+            .iter()
+            .map(|entry| {
+                let mut described = describe_song(&entry.song_id, rows.get(&entry.song_id));
+                described["added_by"] =
+                    entry.added_by.and_then(|id| names.get(&id).copied()).into();
+                described
+            })
+            .collect();
+        let members: Vec<Value> = detail
+            .members
+            .iter()
+            .map(|member| json!({ "username": member.username, "role": member.role }))
+            .collect();
+        let total = detail.entries.len();
+        let song_ids: Vec<String> = detail
+            .entries
+            .iter()
+            .take(MAX_CARD_SONGS)
+            .map(|entry| entry.song_id.clone())
+            .collect();
+        let mut outcome = ToolOutcome::ok(
+            json!({
+                "name": detail.header.name,
+                "description": detail.header.description,
+                "your_role": detail.my_role,
+                "members": members,
+                "total": total,
+                "songs": songs,
+                "songs_shown": songs.len(),
+                "card_shows": song_ids.len(),
+            }),
+            "",
+        );
+        if !song_ids.is_empty() {
+            outcome.songs = Some(SongsCard {
+                total,
+                capped: false,
+                song_ids,
+            });
+        }
+        Ok(outcome)
     }
 
     async fn top_items(&self, args: Value) -> Result<ToolOutcome, ToolError> {
@@ -585,6 +765,42 @@ pub fn definitions() -> Vec<Value> {
             "description": "Totals for a window: plays, starts, completions, skips, early skips, unique songs, plays from queries, and listening time.",
             "parameters": { "type": "object", "properties": summary_properties }
         }),
+        json!({
+            "type": "function",
+            "name": "list_saved_queries",
+            "description": "The queries the user saved by name (under Queries in the Library tab), favorites first: id, name, the query JSON, its scope, and how many songs it stored when it was saved or last rerun. The stored songs are a snapshot, not a live result. To find what a saved query matches now, pass its query and scope to run_query.",
+            "parameters": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "type": "function",
+            "name": "get_song_tags",
+            "description": "The user's own tags on up to 25 songs by id, with the value of each attribute tag, plus the activity tags (My Plays, First Played, Last Played, In My Library, Favorited, Tagged) and their values. For Apple's song facts (title, artist, genre) use get_song_metadata instead.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "song_ids": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["song_ids"]
+            }
+        }),
+        json!({
+            "type": "function",
+            "name": "list_playlists",
+            "description": "The Cadenza shared playlists the user is a member of, most recently changed first: id, name, description, owner, the user's role (owner, editor, viewer), song and member counts. These are not the user's Apple Music playlists; Cadenza's server cannot see those. For a playlist's songs, call get_playlist_songs.",
+            "parameters": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "type": "function",
+            "name": "get_playlist_songs",
+            "description": "The songs in one Cadenza shared playlist the user is a member of, in playlist order, with who added each, plus the playlist's members. Returns the first 25 with title and artist; the user sees them as a card under your answer, so do not list more than a few. Get the id from list_playlists.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "playlist_id": { "type": "integer" }
+                },
+                "required": ["playlist_id"]
+            }
+        }),
     ]
 }
 
@@ -656,6 +872,33 @@ mod tests {
             (2, 1)
         );
         assert_eq!(count_yours(&[]), (0, 0));
+    }
+
+    #[test]
+    fn a_saved_querys_scope_matches_run_query() {
+        assert_eq!(
+            query_songs_for(Some(scope_of_saved(true))).ok(),
+            Some(QuerySongs::LibraryOrTagged)
+        );
+        assert_eq!(
+            query_songs_for(Some(scope_of_saved(false))).ok(),
+            Some(QuerySongs::Everything)
+        );
+    }
+
+    #[test]
+    fn applied_tags_keep_their_values() {
+        let tag = tags::Model {
+            tag_id: 7,
+            user_id: None,
+            name: "rating".into(),
+            color: "#808080".into(),
+            r#type: crate::db::entity::sea_orm_active_enums::TagType::Number,
+            is_activity: false,
+        };
+        let described = describe_applied(vec![(tag, Some("4".into()))]);
+        assert_eq!(described[0]["name"], "rating");
+        assert_eq!(described[0]["value"], "4");
     }
 
     #[test]
