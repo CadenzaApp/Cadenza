@@ -33,7 +33,7 @@ export function CommentOptionsMenu({
 
     const editAction: MusicListAction<SocialComment> = {
         id: "edit-comment",
-        label: "Edit Comment",
+        label: "Edit comment",
         icon: "pencil-outline",
         onPress: () => {
             onEdit?.();
@@ -43,7 +43,7 @@ export function CommentOptionsMenu({
 
     const deleteAction: MusicListAction<SocialComment> = {
         id: "delete-comment",
-        label: "Delete Comment",
+        label: "Delete comment",
         icon: "trash-outline",
         labelColor: "destructive",
         iconColor: "destructive",

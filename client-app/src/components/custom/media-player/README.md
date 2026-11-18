@@ -38,6 +38,8 @@ a post-release spring landing also captures. A free tap first returns vertically
 pauses 80ms, then expands. The native accessory is inserted only after expansion completes. Floating glass is hidden
 in that same React commit, before native layout reports, to avoid stacked-material flashes.
 Track and queue changes preserve the current collapsed or expanded state.
+The floating artwork resizes every frame of a collapse, so its `RemoteArtwork` sets
+`animatesSize`: expo-image then skips the per-size reload that blinks it on Android.
 
 On a committed native collapse, the floating renderer owns the width and artwork animation. The screens patch
 removes insertion/removal fades. Movement below the threshold leaves native glass untouched. Run `npx pod-install` and rebuild iOS after changing

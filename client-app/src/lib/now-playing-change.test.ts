@@ -65,7 +65,11 @@ test("nothing shareable clears once", () => {
     const nothing = { ...sent, songId: null };
     assert.equal(nowPlayingAction(sent, nothing), "clear");
     assert.equal(nowPlayingAction(nothing, nothing), null);
-    assert.equal(nowPlayingAction(null, nothing), null);
+});
+
+test("a launch with nothing playing clears what the last one left", () => {
+    const nothing = { ...sent, songId: null };
+    assert.equal(nowPlayingAction(null, nothing), "clear");
 });
 
 test("only catalog ids are shareable", () => {

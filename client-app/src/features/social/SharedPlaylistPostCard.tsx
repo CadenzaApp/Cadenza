@@ -1,9 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { Href } from "expo-router";
 import { useMemo } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 
 import { ArtworkMosaic } from "@/components/custom/artwork-mosaic";
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useSongInfo } from "@/lib/musickit-hooks";
 import { useOpenScreen } from "@/lib/open-screen";
@@ -76,14 +77,21 @@ export function SharedPlaylistPostCard({
                 event.stopPropagation();
                 openScreen(`/shared-playlist/${playlist.playlist_id}` as Href);
             }}
-            className="flex-row items-center overflow-hidden rounded-lg bg-muted active:opacity-80"
+            className="relative flex-row items-center overflow-hidden rounded-2xl p-2 active:opacity-80"
         >
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                <GlassSurface
+                    variant="regular"
+                    style={StyleSheet.absoluteFill}
+                />
+            </View>
             <ArtworkMosaic
                 artworkUrls={artworkUrls}
                 size={ARTWORK_SIZE}
                 placeholderColor={colors.muted}
+                className="rounded-lg"
             />
-            <View className="min-w-0 flex-1 justify-center px-3">
+            <View className="min-w-0 flex-1 justify-center px-4">
                 <Text
                     className="text-base font-semibold text-foreground"
                     numberOfLines={1}

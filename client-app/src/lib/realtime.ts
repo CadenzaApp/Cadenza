@@ -29,7 +29,8 @@ const PING_INTERVAL_MS = 25_000;
  *
  * It opens while anything is subscribed and the app is in the foreground,
  * closes in the background unless something holds it open there (a live
- * session playing on this phone, which iOS keeps running for its audio), and
+ * session or a shared song playing on this phone, which iOS keeps running for
+ * its audio), and
  * reconnects with backoff. After any reconnect
  * every subscriber gets a `resync` event, since changes made while it was
  * down were never pushed.

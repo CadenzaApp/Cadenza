@@ -258,6 +258,8 @@ export function MediaPlayer({
                             >
                                 <RemoteArtwork
                                     url={activeTrack.artworkUrl}
+                                    // it grows and shrinks with the collapse
+                                    animatesSize
                                     className="h-full w-full bg-transparent"
                                     fallback={
                                         <Ionicons

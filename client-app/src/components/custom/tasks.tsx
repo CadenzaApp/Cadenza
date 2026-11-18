@@ -5,7 +5,10 @@ import { Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FullWindowOverlay } from "react-native-screens";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 import { TOP_RAIL_HEIGHT } from "@/lib/top-rail-geometry";
@@ -169,6 +172,7 @@ export function TasksHost() {
 function TaskRow({ task }: { task: Task }) {
     const { colors } = useAppTheme();
     const { status } = task;
+    const outlined = shouldShowGlassOutline();
 
     return (
         <View
@@ -178,7 +182,10 @@ function TaskRow({ task }: { task: Task }) {
                     ? task.label
                     : `${task.label}, ${status === "success" ? "done" : "failed"}`
             }
-            className="max-w-[240px] flex-row items-center gap-2 rounded-full border border-border px-3 py-1.5 shadow-sm"
+            className={cn(
+                "max-w-[240px] flex-row items-center gap-2 rounded-full px-3 py-1.5 shadow-sm",
+                outlined && "border border-border",
+            )}
         >
             {/* A background layer rather than a background color, so the row
                 is translucent. It clips itself, which is why it cannot be the

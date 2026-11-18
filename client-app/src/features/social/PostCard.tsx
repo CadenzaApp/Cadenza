@@ -1,10 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, View } from "react-native";
 
 import { Button } from "@/components/ui/button";
-import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import {
@@ -15,10 +14,14 @@ import {
     useUpdatePost,
 } from "@/lib/routes/social";
 import { useAppTheme } from "@/lib/theme";
+import { withAlpha } from "@/lib/artwork-color";
 import { cn } from "@/lib/utils";
+import type { FriendListening } from "@/lib/routes/listening";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 
 import { EditContentDialog } from "./EditContentDialog";
 import { formatRelativeTime, initialsFromUsername } from "./format";
+import { ListeningStoryDialog } from "./ListeningNow";
 import { PostCommentsDialog } from "./PostCommentsDialog";
 import { PostOptionsMenu } from "./PostOptionsMenu";
 import { PostTopicCard } from "./PostTopicCard";
@@ -56,6 +59,10 @@ type Props = {
         content: string,
         editedAt: string | null,
     ) => void;
+    /** The author's visible now-playing state, for the story-style avatar. */
+    authorListening?: FriendListening;
+    /** Shows a small unread indicator on feed items the caller has not seen. */
+    unseen?: boolean;
 };
 
 const MAX_POST_LENGTH = 500;
@@ -70,6 +77,8 @@ export function PostCard({
     onDeleted,
     onDeleteFailed,
     onEdited,
+    authorListening,
+    unseen = false,
 }: Props) {
     const { foreground, like, mutedForeground } = useAppTheme().colors;
     const { account } = useAccount();
@@ -235,13 +244,22 @@ export function PostCard({
     }
 
     const authorRow = (
-        <>
-            <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
-                <Text className="text-sm font-semibold text-foreground">
-                    {initialsFromUsername(post.author.username)}
-                </Text>
-            </View>
-            <View className="min-w-0 flex-1">
+        <View className="min-w-0 flex-1 flex-row items-center gap-3">
+            <PostAuthorAvatar
+                username={post.author.username}
+                listening={authorListening}
+                unseen={unseen}
+                onProfilePress={() => openAuthor()}
+            />
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`View ${post.author.username}'s profile`}
+                onPress={(event) => {
+                    event.stopPropagation();
+                    openAuthor();
+                }}
+                className="min-w-0 flex-1 active:opacity-60"
+            >
                 <Text
                     className="font-semibold text-foreground"
                     numberOfLines={1}
@@ -256,8 +274,8 @@ export function PostCard({
                           ? " · Shared a playlist"
                           : ""}
                 </Text>
-            </View>
-        </>
+            </Pressable>
+        </View>
     );
 
     return (
@@ -266,27 +284,11 @@ export function PostCard({
                 accessibilityRole="button"
                 accessibilityLabel="View post comments"
                 onPress={openComments}
-                className="gap-3 overflow-hidden rounded-3xl border border-border p-4"
+                className="gap-3 border-b px-1 py-5"
+                style={{ borderBottomColor: withAlpha(mutedForeground, 0.55) }}
             >
-                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                    <GlassSurface
-                        variant="regular"
-                        style={StyleSheet.absoluteFill}
-                    />
-                </View>
-
                 <View className="flex-row items-center">
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`View ${post.author.username}'s profile`}
-                        onPress={(event) => {
-                            event.stopPropagation();
-                            openAuthor();
-                        }}
-                        className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-60"
-                    >
-                        {authorRow}
-                    </Pressable>
+                    {authorRow}
                     {isOwnPost ? (
                         <Button
                             size="icon"
@@ -406,6 +408,81 @@ export function PostCard({
                 onCommentCreated={noteCommentCreated}
                 onCommentDeleted={noteCommentDeleted}
             />
+        </>
+    );
+}
+
+function PostAuthorAvatar({
+    username,
+    listening,
+    unseen,
+    onProfilePress,
+}: {
+    username: string;
+    listening?: FriendListening;
+    unseen: boolean;
+    onProfilePress: () => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const { brand, mutedForeground } = useAppTheme().colors;
+    const live = Boolean(
+        listening?.can_join && listening.now_playing.live_session_id,
+    );
+    const ring = live ? brand : withAlpha(mutedForeground, 0.55);
+    return (
+        <>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                    listening
+                        ? `${username} is listening to ${listening.now_playing.title}`
+                        : `View ${username}'s profile`
+                }
+                onPress={(event) => {
+                    event.stopPropagation();
+                    if (listening) setOpen(true);
+                    else onProfilePress();
+                }}
+                className="h-10 w-10 overflow-visible rounded-full"
+                style={{
+                    shadowColor: "#000",
+                    shadowOpacity: 0.22,
+                    shadowRadius: 4,
+                    shadowOffset: { width: 0, height: 2 },
+                    elevation: 3,
+                }}
+            >
+                <View
+                    className="h-10 w-10 items-center justify-center overflow-hidden rounded-full border-2 bg-muted p-0.5"
+                    style={{ borderColor: listening ? ring : "transparent" }}
+                >
+                    {listening ? (
+                        <RemoteArtwork
+                            url={listening.now_playing.artwork_url}
+                            className="h-full w-full rounded-full"
+                            fallback={
+                                <Text className="text-sm font-semibold text-foreground">
+                                    {initialsFromUsername(username)}
+                                </Text>
+                            }
+                        />
+                    ) : (
+                        <Text className="text-sm font-semibold text-foreground">
+                            {initialsFromUsername(username)}
+                        </Text>
+                    )}
+                </View>
+                {unseen ? (
+                    <View className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-background bg-destructive" />
+                ) : null}
+            </Pressable>
+            {listening ? (
+                <ListeningStoryDialog
+                    friend={listening}
+                    open={open}
+                    onClose={() => setOpen(false)}
+                />
+            ) : null}
         </>
     );
 }

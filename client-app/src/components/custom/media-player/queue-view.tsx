@@ -9,7 +9,10 @@ import { Pressable, StyleSheet, View, type ColorValue } from "react-native";
 import type { ReactNode } from "react";
 
 import { ReorderableList } from "@/components/custom/reorderable-list";
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 
@@ -192,6 +195,7 @@ function ModePill({
     onPress: () => void;
 }) {
     const foreground = active ? MODE_PILL_ACTIVE_FG : textColor;
+    const outlined = shouldShowGlassOutline();
 
     // The width lives on a wrapper: a nativewind class and a `style` function
     // on the same pressable fight, and putting the `flex: 1` inside the
@@ -207,7 +211,11 @@ function ModePill({
                 style={({ pressed }) => (pressed ? styles.pressed : null)}
             >
                 <View
-                    className="flex-row items-center justify-center gap-1 border border-border"
+                    className={
+                        outlined
+                            ? "flex-row items-center justify-center gap-1 border border-border"
+                            : "flex-row items-center justify-center gap-1"
+                    }
                     style={{
                         height: MODE_PILL_HEIGHT,
                         borderRadius: MODE_PILL_HEIGHT / 2,
@@ -229,7 +237,9 @@ function ModePill({
                                 style={[
                                     StyleSheet.absoluteFill,
                                     {
-                                        borderRadius: MODE_PILL_HEIGHT / 2 - 1,
+                                        borderRadius:
+                                            MODE_PILL_HEIGHT / 2 -
+                                            (outlined ? 1 : 0),
                                         overflow: "hidden",
                                     },
                                 ]}

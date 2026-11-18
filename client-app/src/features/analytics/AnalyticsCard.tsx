@@ -1,6 +1,10 @@
 import { StyleSheet, View, type ViewProps } from "react-native";
 
-import { GlassLayer, GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassLayer,
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { TextClassContext } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
@@ -14,11 +18,13 @@ import { cn } from "@/lib/utils";
  * glass controls inside the card paint a flat fill instead of stacking.
  */
 export function AnalyticsCard({ className, children, ...rest }: ViewProps) {
+    const outlined = shouldShowGlassOutline();
     return (
         <TextClassContext.Provider value="text-card-foreground">
             <View
                 className={cn(
-                    "gap-4 overflow-hidden rounded-3xl border border-border p-5",
+                    "gap-4 overflow-hidden rounded-3xl p-5",
+                    outlined && "border border-border",
                     className,
                 )}
                 {...rest}

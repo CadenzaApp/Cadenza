@@ -132,19 +132,19 @@ export default function TagDetailScreen() {
         return [
             {
                 id: "rename-tag",
-                label: "Rename Tag",
+                label: "Rename tag",
                 icon: "pencil-outline",
                 onPress: () => setEditMode("name"),
             },
             {
                 id: "change-tag-color",
-                label: "Change Color",
+                label: "Change color",
                 icon: "color-palette-outline",
                 onPress: () => setEditMode("color"),
             },
             {
                 id: "delete-tag",
-                label: "Delete Tag",
+                label: "Delete tag",
                 icon: "trash-outline",
                 destructive: true,
                 onPress: () => setDeleteOpen(true),

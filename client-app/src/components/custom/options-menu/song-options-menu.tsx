@@ -136,19 +136,19 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
     const rowActions: MusicListAction<MusicItem>[] = [
         {
             id: "modify-tags",
-            label: "Modify Tags",
+            label: "Modify tags",
             icon: "pricetags",
             onPress: () => setEditingTags(true),
         },
         {
             id: "add-to-playlist",
-            label: "Add to Playlist",
+            label: "Add to playlist",
             icon: "add-circle-outline",
             onPress: openAddToPlaylist,
         },
         {
             id: "play-next",
-            label: "Play Next",
+            label: "Play next",
             icon: "play-skip-forward-outline",
             onPress: () => {
                 onClose();
@@ -157,7 +157,7 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
         },
         {
             id: "add-to-queue",
-            label: "Add to Queue",
+            label: "Add to queue",
             icon: "list-outline",
             onPress: () => {
                 onClose();
@@ -166,13 +166,13 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
         },
         {
             id: "go-to-album",
-            label: "Go to Album",
+            label: "Go to album",
             icon: "disc-outline",
             onPress: openAlbum,
         },
         {
             id: "go-to-artist",
-            label: "Go to Artist",
+            label: "Go to artist",
             icon: "mic-outline",
             onPress: openArtist,
         },
