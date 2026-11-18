@@ -87,10 +87,7 @@ export function CadenzaScreen() {
     } = workspace;
     const { activePendingTag, setPendingTag, placementTouches } =
         useTagPlacement(mode, conditions);
-    const { settings, setSetting } = useQuerySettings(
-        includeSuggested,
-        dispatch,
-    );
+    const { settings, setSetting } = useQuerySettings(includeSuggested);
     const {
         libraryOrTagged,
         showVennDiagrams,

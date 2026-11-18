@@ -7,16 +7,20 @@ navigation. Tags are managed in Library. Queries run over the last synced music 
 
 - `CadenzaScreen.tsx`: tag reads, stable tag-colored nebula with the Cadenza note blurred over it, wrapping query heading, header
   controls, result count, and results navigation.
-- `query-workspace.ts`: pure draft transitions and bounded history; `use-query-workspace.ts`
-  binds them to React. `use-tag-placement.ts` owns pending placement and cancellation.
-- `query-settings.ts`: device-local preference persistence and lifecycle.
+- `query-workspace.ts`: pure draft transitions and bounded history. `query-workspace-store.ts`
+  holds them for the signed-in account outside the screen, and `use-query-workspace.ts` binds the
+  store to the screen. `use-tag-placement.ts` owns pending placement and cancellation.
+- `query-settings.ts`: device-local preferences, held in memory outside the screen and saved to
+  the device. `readQuerySettings()` reads them from anywhere, loading the saved ones first.
 - `query-controls.tsx`: settings dialog/tooltips and history buttons.
 - [../query-builder/README.md](../query-builder/README.md): Simple gestures and wire semantics.
   Advanced's tree and validation live in `../advanced-query-builder`.
 
 ## Drafts and history
 
-Drafts last for the mounted tab's lifetime. The first switch to Advanced seeds it from Simple
+Drafts live in `query-workspace-store.ts` for the app run, outside the screen, so something other
+than the tab (the assistant) can load a query into them. They belong to one account: another
+signed-in account starts with empty drafts. The first switch to Advanced seeds it from Simple
 only if Advanced has no existing state. Later switches preserve both drafts, including an
 intentionally emptied Advanced draft. Switching back never converts Advanced into Simple.
 Switching is silent navigation and creates no undo step.
@@ -24,6 +28,14 @@ Switching is silent navigation and creates no undo step.
 Each editor has its own 20-edit history. Consecutive value typing coalesces within 1500ms.
 Snapshots retain only the active draft; unchanged edits preserve references instead of serializing
 both trees. Undoing in one editor cannot replace the other's draft.
+
+`load` replaces the whole query from outside, maybe in the other editor, as one undo step that
+holds both drafts and the editor that was open. Undoing it brings all three back and switches
+editors if the load did; redo puts the loaded query back.
+
+Settings are not part of history. Changing one is never an undo step, and undo and redo leave
+them as they are, except that a restored draft holding a suggested tag turns Include suggested
+tags on, since the tag only matches with it.
 
 ## Preferences and results
 
