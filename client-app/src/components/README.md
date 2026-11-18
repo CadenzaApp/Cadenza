@@ -317,10 +317,13 @@ stable. Artist uses its custom hero and albums
 rail through the header/footer inputs, while album and playlist details use the standard layout
 and open `CollectionOptionsMenu` from a supplied option.
 
-On a pushed screen `TrackCollectionView` holds its rows back until the open transition ends
-(`useOpenTransitionSettled`), showing the header and placeholder rows meanwhile. Rows built during
-the push run on the main thread the animation needs, and with a prefetched first page they used to
-arrive mid-animation and stutter it.
+On a pushed screen `TrackCollectionView` waits for the open transition
+(`useOpenTransitionSettled`) before drawing its rows. On Android the fade cannot start until the
+new screen's first frame is laid out, so that frame is the tint, a plain cover, and the title. The
+list, the blurred cover, and the nebula mount when the fade ends. iOS still shows the header and
+placeholder rows during the open, because the zoom transition needs the cover as its target. Rows
+built during the push run on the main thread the animation needs, and with a prefetched first page
+they used to arrive mid-animation and stutter it.
 
 `MusicList` takes a `header` for exactly that case, and a `footer` for the other end. It also
 reports its content size through `onContentSizeChange`, which is how the artist screen sizes a
