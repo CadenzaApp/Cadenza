@@ -354,24 +354,83 @@ struct TopItemsArgs {
     title: Option<String>,
 }
 
-/// The most characters a card title keeps.
-const MAX_TITLE_CHARS: usize = 60;
+/// The most characters a card title keeps. Longer ones are cut at a word.
+const MAX_TITLE_CHARS: usize = 32;
 
-/// A card title from the model, trimmed and cut short. None when blank.
-fn card_title(title: Option<String>) -> Option<String> {
+/// Small words a title leaves lowercase unless they come first.
+const TITLE_SMALL_WORDS: &[&str] = &[
+    "a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "nor", "of", "on", "or", "the",
+    "to", "vs", "with",
+];
+
+/// A card title from the model, made to read like a title: trimmed, no quotes
+/// around it or punctuation at its end, every all-lowercase word capitalized
+/// (small words too when first), and cut at a word past
+/// [`MAX_TITLE_CHARS`]. A word with a capital already ("iPhone", "R&B",
+/// "AC/DC") is left as written. None when nothing is left.
+pub(super) fn card_title(title: Option<String>) -> Option<String> {
     let title = title?;
-    let title = title.trim();
-    if title.is_empty() {
-        return None;
+    let mut title = title
+        .trim()
+        .trim_matches(|c: char| matches!(c, '"' | '\u{201c}' | '\u{201d}'))
+        .trim();
+    // single quotes only when they wrap the whole title, so "'90s" keeps its own
+    if title.len() > 1 && title.starts_with('\'') && title.ends_with('\'') {
+        title = title[1..title.len() - 1].trim();
     }
-    Some(
-        title
-            .chars()
-            .take(MAX_TITLE_CHARS)
-            .collect::<String>()
-            .trim_end()
-            .to_owned(),
-    )
+    let title = title
+        .trim_end_matches(['.', '!', '?', ',', ';', ':'])
+        .trim();
+
+    let mut words: Vec<String> = Vec::new();
+    let mut length = 0;
+    for (index, word) in title.split_whitespace().enumerate() {
+        let added = if index == 0 {
+            word.chars().count()
+        } else {
+            word.chars().count() + 1
+        };
+        if index > 0 && length + added > MAX_TITLE_CHARS {
+            break;
+        }
+        length += added;
+        words.push(title_case_word(word, index == 0));
+    }
+    let mut title = words.join(" ");
+    if title.chars().count() > MAX_TITLE_CHARS {
+        // one word longer than the cap
+        title = title.chars().take(MAX_TITLE_CHARS).collect();
+    }
+    let title = title
+        .trim_end_matches(['.', '!', '?', ',', ';', ':', '-'])
+        .trim_end()
+        .to_owned();
+    (!title.is_empty()).then_some(title)
+}
+
+/// `word` with its first letter capitalized when it is all lowercase and not a
+/// small word in the middle of the title.
+fn title_case_word(word: &str, first: bool) -> String {
+    let all_lowercase = word.chars().all(|c| !c.is_uppercase());
+    let bare = word
+        .trim_matches(|c: char| !c.is_alphanumeric())
+        .to_lowercase();
+    if !all_lowercase || (!first && TITLE_SMALL_WORDS.contains(&bare.as_str())) {
+        return word.to_owned();
+    }
+    let mut chars = word.chars();
+    let mut out = String::with_capacity(word.len());
+    // past any leading punctuation, like the quote in "'90s"; a word that
+    // starts with a digit ("90s", "2010s") is left alone
+    for c in chars.by_ref() {
+        if c.is_alphanumeric() {
+            out.extend(c.to_uppercase());
+            break;
+        }
+        out.push(c);
+    }
+    out.extend(chars);
+    out
 }
 
 impl DbTools<'_> {
@@ -720,7 +779,7 @@ impl DbTools<'_> {
                     total: song_ids.len(),
                     song_ids,
                     capped: false,
-                    title: card_title(args.title).or_else(|| Some("Your top songs".to_owned())),
+                    title: card_title(args.title).or_else(|| Some("Your Top Songs".to_owned())),
                 });
             }
             return Ok(outcome);
@@ -789,7 +848,7 @@ pub fn definitions() -> Vec<Value> {
         "limit": { "type": "integer", "description": "How many, 1 to 25. Defaults to 10." },
         "title": {
             "type": "string",
-            "description": "For kind song: a short name for the list, like \"Your top songs this month\". The user sees it as the list's title when they open it."
+            "description": "For kind song: the list's title, shown when the user opens it. Title Case, 2 to 4 words, no period, like \"Top Songs This Month\"."
         }
     });
     let mut summary_properties = json!({});
@@ -826,7 +885,7 @@ pub fn definitions() -> Vec<Value> {
                     },
                     "title": {
                         "type": "string",
-                        "description": "A short name for this list of songs, 2 to 6 words, like \"Chill songs, newest first\" or \"Frank Ocean before 2015\". The user sees it as the list's title when they open it. Always pass one."
+                        "description": "The list's title, shown when the user opens it. Always pass one. Title Case, 2 to 4 words, no period. Name what the songs are, never their order or grouping (the user can re-sort the list), so \"Chill Songs\", not \"Chill Songs, Newest First\". Like \"Chill Songs\", \"Frank Ocean Before 2015\", or \"Never Played\"."
                     },
                     "scope": {
                         "type": "string",
@@ -898,7 +957,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "list_playlists",
-            "description": "The Cadenza shared playlists the user is a member of, most recently changed first: id, name, description, owner, the user's role (owner, editor, viewer), song and member counts. These are not the user's Apple Music playlists; Cadenza's server cannot see those. For a playlist's songs, call get_playlist_songs.",
+            "description": "The Cadenza shared playlists the user is a member of, most recently changed first: id, name, description, owner, the user's role (owner, editor, viewer), song and member counts. These are not the user's Apple Music playlists; for those, use apple_music_playlists. For a playlist's songs, call get_playlist_songs.",
             "parameters": { "type": "object", "properties": {} }
         }),
         json!({
@@ -1014,15 +1073,38 @@ mod tests {
     }
 
     #[test]
-    fn card_titles_are_trimmed_and_kept_short() {
+    fn card_titles_read_like_titles() {
+        let title = |text: &str| card_title(Some(text.into()));
+        assert_eq!(title("   "), None);
+        assert_eq!(title("."), None);
         assert_eq!(card_title(None), None);
-        assert_eq!(card_title(Some("   ".into())), None);
+        assert_eq!(title("chill songs."), Some("Chill Songs".into()));
         assert_eq!(
-            card_title(Some("  Chill songs ".into())).as_deref(),
-            Some("Chill songs")
+            title("\"songs for the road\""),
+            Some("Songs for the Road".into())
         );
-        let long = card_title(Some("a".repeat(MAX_TITLE_CHARS + 20))).unwrap();
-        assert_eq!(long.chars().count(), MAX_TITLE_CHARS);
+        assert_eq!(
+            title("the best of frank ocean"),
+            Some("The Best of Frank Ocean".into())
+        );
+        // a word already written with capitals stays as written
+        assert_eq!(
+            title("late night R&B on iPhone"),
+            Some("Late Night R&B on iPhone".into())
+        );
+        assert_eq!(title("'90s hip hop"), Some("'90s Hip Hop".into()));
+    }
+
+    #[test]
+    fn card_titles_are_cut_at_a_word() {
+        let cut = card_title(Some(
+            "songs I have played the most since the summer began last year".into(),
+        ))
+        .unwrap();
+        assert!(cut.chars().count() <= MAX_TITLE_CHARS, "{cut}");
+        assert_eq!(cut, "Songs I Have Played the Most");
+        let one_long_word = card_title(Some("a".repeat(MAX_TITLE_CHARS + 10))).unwrap();
+        assert_eq!(one_long_word.chars().count(), MAX_TITLE_CHARS);
     }
 
     #[test]

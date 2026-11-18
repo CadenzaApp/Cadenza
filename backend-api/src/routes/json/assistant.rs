@@ -17,6 +17,39 @@ pub struct AssistantRequest {
     /// `2026-11-11T17:53:00-07:00`. Defaults to the server's clock in UTC.
     #[serde(default)]
     pub now: Option<String>,
+    /// Set when this request carries the result of a phone tool: the
+    /// `continuation` the last `client_tool_call` returned, as it came, and
+    /// what the tool did. `messages` is the same conversation as before.
+    #[serde(default)]
+    pub resume: Option<Resume>,
+}
+
+/// A phone tool's result, sent back to carry on the answer it was part of.
+#[derive(Deserialize, Debug, Clone)]
+pub struct Resume {
+    pub continuation: Continuation,
+    /// What the tool returned, as JSON, for the model to read. A song list
+    /// can come as `card: {song_ids, total, title?}`, which becomes the card
+    /// under the answer instead of going to the model.
+    pub output: Value,
+}
+
+/// Where an answer stopped to wait for a phone tool. The phone sends it back
+/// unchanged with the tool's output, so the server keeps nothing in between.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Continuation {
+    /// This answer's tool calls and their outputs so far, as Responses API
+    /// input items, ending with the phone tool's call.
+    pub items: Vec<Value>,
+    /// The status rows so far.
+    pub steps: Vec<AssistantStep>,
+    /// The card so far.
+    #[serde(default)]
+    pub songs: Option<SongsCard>,
+    /// Model calls this answer has used, out of `MAX_STEPS`.
+    pub steps_used: usize,
+    /// The phone tool's call, which the output answers.
+    pub call_id: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -50,17 +83,17 @@ pub enum AssistantResponse {
         songs: Option<SongsCard>,
     },
     /// A tool only the phone can run, like playback. The phone runs it and
-    /// sends the conversation back with the result. Not produced until the
-    /// phone-side tools exist.
-    #[allow(dead_code)]
+    /// sends the same conversation back with `resume`: this `continuation`
+    /// and the tool's output.
     ClientToolCall {
         call_id: String,
         name: String,
         arguments: Value,
+        continuation: Continuation,
     },
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct AssistantStep {
     /// The tool's name, like `run_query`.
     pub tool: String,
@@ -69,17 +102,18 @@ pub struct AssistantStep {
 }
 
 /// Songs a tool found, for the song card under an answer.
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SongsCard {
     /// In the order the tool returned them. At most `MAX_CARD_SONGS`.
     pub song_ids: Vec<String>,
     /// How many songs matched in all, which can be more than `song_ids`.
     pub total: usize,
     /// True when the match itself was cut off, so `total` is a lower bound.
+    #[serde(default)]
     pub capped: bool,
     /// A short name for the list, shown as its title when the user opens it:
     /// the model's for a search or top songs, the real name for a saved query
     /// or playlist. Absent when there is none.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 }

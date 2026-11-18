@@ -14,7 +14,7 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 
 import { SongResultsCard } from "./song-results-card";
-import type { AssistantStep, ChatEntry } from "./types";
+import type { AssistantStep, ChatEntry, PendingConfirmation } from "./types";
 
 /** One message: the user's in a bubble on the right, the assistant's as plain text. */
 export function MessageRow({ entry }: { entry: ChatEntry }) {
@@ -60,6 +60,51 @@ function StepRows({ steps }: { steps: AssistantStep[] }) {
                     </Text>
                 </View>
             ))}
+        </View>
+    );
+}
+
+/**
+ * A phone tool that changes the user's Apple Music library, waiting for their
+ * yes: what it will do, Cancel, and the action itself.
+ */
+export function ConfirmCard({
+    confirmation,
+    onAnswer,
+}: {
+    confirmation: PendingConfirmation;
+    onAnswer: (confirmed: boolean) => void;
+}) {
+    return (
+        <View className="gap-3 self-stretch rounded-2xl border border-border bg-card p-4">
+            <View className="gap-1">
+                <Text className="text-[16px] font-semibold">
+                    {confirmation.title}
+                </Text>
+                <Text className="text-[14px] text-muted-foreground">
+                    {confirmation.detail}
+                </Text>
+            </View>
+            <View className="flex-row justify-end gap-2">
+                <Pressable
+                    onPress={() => onAnswer(false)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel"
+                    className="rounded-full bg-muted px-4 py-2 active:opacity-60"
+                >
+                    <Text className="text-[14px] font-medium">Cancel</Text>
+                </Pressable>
+                <Pressable
+                    onPress={() => onAnswer(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel={confirmation.confirmLabel}
+                    className="rounded-full bg-brand px-4 py-2 active:opacity-70"
+                >
+                    <Text className="text-[14px] font-medium text-brand-foreground">
+                        {confirmation.confirmLabel}
+                    </Text>
+                </Pressable>
+            </View>
         </View>
     );
 }

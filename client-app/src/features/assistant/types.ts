@@ -7,7 +7,12 @@ export type AssistantRequest = {
     messages: { role: ChatRole; content: string; song_ids?: string[] }[];
     time_zone?: string;
     now?: string;
+    /** A phone tool's result: the last `client_tool_call`'s continuation, as it came, and the output. */
+    resume?: { continuation: AssistantContinuation; output: unknown };
 };
+
+/** Where an answer stopped for a phone tool. Opaque here: sent back as it came. */
+export type AssistantContinuation = Record<string, unknown>;
 
 /** One status row: what the assistant did on the way to its answer. */
 export type AssistantStep = {
@@ -34,12 +39,20 @@ export type AssistantResponse =
           songs?: AssistantSongs;
       }
     | {
-          /** A tool only the phone can run. Not sent by the backend yet. */
+          /** A tool only the phone can run. See `phone-tools.ts`. */
           type: "client_tool_call";
           call_id: string;
           name: string;
-          arguments: unknown;
+          arguments: Record<string, unknown>;
+          continuation: AssistantContinuation;
       };
+
+/** A phone tool waiting for the user's yes, shown as a card in the chat. */
+export type PendingConfirmation = {
+    title: string;
+    detail: string;
+    confirmLabel: string;
+};
 
 /** One message in the chat as the screen shows it. */
 export type ChatEntry =

@@ -9,9 +9,11 @@ import { Text } from "@/components/ui/text";
 import { logHandledError } from "@/lib/log";
 import { useOpenScreen } from "@/lib/open-screen";
 import { usePagedTracksForSongIds } from "@/lib/musickit-hooks";
-import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
+import { usePlaybackCommands } from "@/lib/playback";
 import { useAppTheme } from "@/lib/theme";
 
+import { currentPlayback } from "./playback-snapshot";
+import { shuffledCopy } from "./phone-tools";
 import type { AssistantSongs } from "./types";
 
 /** How many songs the card lists. Play still queues every one. */
@@ -40,9 +42,7 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     } = usePagedTracksForSongIds(songs.song_ids);
     const router = useRouter();
     const openScreen = useOpenScreen();
-    const { playQueue, playNext, skipToNext, setShuffleMode } =
-        usePlaybackCommands();
-    const { activeTrack } = usePlaybackTrackState();
+    const { playQueue, setShuffleMode } = usePlaybackCommands();
     // a ref as well as state, so two taps in one frame cannot both start
     const running = useRef(false);
     const [pending, setPending] = useState(false);
@@ -119,19 +119,27 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     const available = songs.total - skipped;
 
     /**
-     * Plays just the tapped song, queueing none of the card's others. With
-     * something already playing it goes in next and is skipped to, so whatever
-     * was queued after the old song is still there after this one. With
-     * nothing playing it starts a queue of one.
+     * Plays the tapped song now, queueing none of the card's others. The song
+     * that was playing goes to the top of Up Next, ahead of whatever was
+     * queued after it, so it comes back once this one ends. Tapping the song
+     * already playing just opens the player.
      */
     const playOne = useCallback(
         async (track: MusicItem) => {
+            const playback = currentPlayback();
+            const current = playback?.activeTrack ?? null;
             try {
-                if (activeTrack) {
-                    await playNext([track]);
-                    await skipToNext();
-                } else {
-                    await playQueue({ tracks: [track], chosenStart: true });
+                if (current?.id !== track.id) {
+                    // one new queue, so the tapped song is what plays when the
+                    // player opens: it, then the song that was playing, then
+                    // everything that was queued after that
+                    await playQueue({
+                        tracks: current
+                            ? [track, current, ...(playback?.upcoming ?? [])]
+                            : [track],
+                        startIndex: 0,
+                        chosenStart: true,
+                    });
                 }
             } catch (error) {
                 logHandledError("Assistant could not play the song", error);
@@ -139,7 +147,7 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
             }
             openNowPlaying();
         },
-        [activeTrack, openNowPlaying, playNext, playQueue, skipToNext],
+        [openNowPlaying, playQueue],
     );
 
     if (!stillLoading && shown.length === 0) return null;
@@ -291,14 +299,4 @@ function SongRowSkeleton({ divided }: { divided: boolean }) {
             </View>
         </View>
     );
-}
-
-/** A shuffled copy of `items` (Fisher-Yates). */
-function shuffledCopy<T>(items: readonly T[]): T[] {
-    const copy = [...items];
-    for (let i = copy.length - 1; i > 0; i -= 1) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-    return copy;
 }

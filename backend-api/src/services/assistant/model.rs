@@ -90,6 +90,9 @@ impl AssistantModel for OpenAiAssistantModel {
             "instructions": instructions,
             "input": input,
             "tools": tools,
+            // one call per turn: a phone tool stops the loop, and a second
+            // call in the same turn would have to wait for another request
+            "parallel_tool_calls": false,
             // the phone keeps the conversation, so openai does not need to
             "store": false,
         });

@@ -22,7 +22,8 @@ in-app notification for a user, and the definitions the listening analytics are 
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation of `TagGenerator`. Unit tested, plus ignored integration tests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `openai.rs` | The Responses API url and timeout, and `rate_limit_wait`, which reads a 429's headers for the wait. Shared by tag generation and the assistant. Unit tested. |
 | `rate_limit.rs` | `RateLimiter`, an in-memory sliding window limiter per key. The assistant uses it per user. Unit tested. |
-| `assistant/mod.rs`                       | `AssistantService` (the model plus the per-user message limit), `answer`, and `run_loop`: the in-app assistant's tool loop. Unit tested with a scripted model. |
+| `assistant/mod.rs`                       | `AssistantService` (the model plus the per-user request limit), `answer`, and `run_loop` with its `LoopState`: the in-app assistant's tool loop, which stops at a phone tool and picks up again from a `resume`. Unit tested with a scripted model. |
+| `assistant/phone_tools.rs`               | The tools only the phone runs (`now_playing`, `play`, `playback`, `queue_songs`, `set_shuffle`, `set_repeat`, `search_apple_music`, `apple_music_playlists`, `apple_music_playlist_songs`, `favorite_song`, `create_apple_music_playlist`, `add_to_apple_music_playlist`, `open_screen`): their schemas and labels, `songs: "card"` swapped for the card's ids, and a `card` in the phone's output taken out for the answer. The phone side is `client-app/src/features/assistant/phone-tools.ts`. Unit tested. |
 | `assistant/model.rs`                     | The `AssistantModel` trait and `OpenAiAssistantModel` on the Responses API with function calling. Unit tested. |
 | `assistant/tools.rs`                     | The read-only tools (`list_tags`, `run_query`, `get_song_metadata`, `top_items`, `listening_summary`, `list_saved_queries`, `get_saved_query_songs`, `get_song_tags`, `list_playlists`, `get_playlist_songs`), their JSON schemas, and the `ToolRunner` trait. Unit tested. |
 | `assistant/prompt.rs`                    | Builds the system prompt: fills `prompt.txt`'s `{{name}}` markers with the user's time, their tags, and the activity tag examples. Unit tested. |
@@ -373,7 +374,24 @@ are delayed, so a slow pass is followed by a full day of quiet.
 append each call and its output, and repeat until the model answers with text. It stops after
 `MAX_STEPS` (8) model calls with a short apology.
 
-- Every tool only reads and runs as the JWT's user. The model never supplies a user id.
+- Every server tool only reads and runs as the JWT's user. The model never supplies a user id.
+- A phone tool (`phone_tools.rs`) stops the loop. The response is a `client_tool_call` with a
+  `Continuation`: this answer's calls and outputs so far, its steps and card, and how many model
+  calls it has used. The phone runs the tool and posts the same conversation with
+  `resume: {continuation, output}`, and `run_loop` carries on from there, so the server still
+  keeps nothing between requests. `validate_resume` refuses a continuation that is not the
+  server's shape (only tool calls and outputs, ending with the call it answers, within the step
+  budget), so the phone cannot slip a message with another role in. The request is
+  `parallel_tool_calls: false`; a second call in the same turn as a phone tool is answered with
+  an error so the model asks again.
+- `songs: "card"` on `play`, `queue_songs`, and the Apple Music playlist tools becomes the ids on
+  this answer's card, or else the last card shown, since the model only sees the first 25. A
+  `card` in a phone tool's output (search, an Apple Music playlist) becomes the answer's card
+  and is taken out of what the model reads.
+- The two Apple Music library writes are confirmed by the user on the phone, which Cadenza
+  cannot undo; the backend does not know the difference. The prompt lists what the assistant
+  cannot do (tags, account, settings, social, live sessions, single queue edits) and has it say
+  so plainly.
 - A tool never fails the request. Bad JSON, a query the compiler rejects, or a failed read comes
   back to the model as `{"error": ...}` so it can fix the call.
 - `run_query` searches every song Cadenza knows (`QuerySongs::Everything`), the user's own first,
