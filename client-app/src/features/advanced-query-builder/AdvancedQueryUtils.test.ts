@@ -449,3 +449,21 @@ test("unchanged leaf updates preserve the root and its other branches", () => {
     assert.equal(setConjunction(root, root.id, root.conjunction), root);
     assert.equal(removeNode(root, "missing"), root);
 });
+
+test("duration inputs compile milliseconds and reject invalid durations", () => {
+    assert.equal(valueKindFor("metadata_duration", "lt"), "duration");
+    assert.equal(valueKindFor("duration", "is_empty"), "none");
+    for (const value of ["-1", "1.5", "NaN"]) {
+        const result = buildAdvancedQuery(
+            group("and", [
+                filter({
+                    field: { kind: "metadata", key: "duration" },
+                    op: "lt",
+                    value,
+                }),
+            ]),
+            tagTypes,
+        );
+        assert.equal(result.ok, false);
+    }
+});

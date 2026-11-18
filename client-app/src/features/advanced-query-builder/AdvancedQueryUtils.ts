@@ -68,7 +68,7 @@ export const METADATA_FIELD_KINDS: Record<MetadataKey, MetadataFieldKind> = {
     album: "metadata_text",
     genre: "metadata_text",
     release_date: "metadata_date",
-    duration: "metadata_number",
+    duration: "metadata_duration",
     explicit: "metadata_explicit",
     total_plays: "metadata_count",
 };
@@ -80,12 +80,14 @@ export const OPERATORS_BY_FIELD: Record<FieldKind, FilterOp[]> = {
     tag_value: TEXT_OPS,
     datetime: [...MOMENT_OPS, ...APPLIED_OPS],
     date: [...MOMENT_OPS, ...APPLIED_OPS],
+    duration: [...NUMBER_OPS, ...APPLIED_OPS],
     number: [...NUMBER_OPS, ...APPLIED_OPS],
     checkbox: ["is_true", "is_false", "is_null", ...APPLIED_OPS],
     basic: APPLIED_OPS,
     tag_type: ["is", "is_not"],
     metadata_text: TEXT_OPS,
     metadata_date: MOMENT_OPS,
+    metadata_duration: NUMBER_OPS,
     metadata_number: NUMBER_OPS,
     // a count is never empty, so it has no is empty / is not empty
     metadata_count: NUMBER_OPS.filter(
@@ -135,6 +137,9 @@ const VALUELESS_OPS = new Set<FilterOp>([
 export function valueKindFor(fieldKind: FieldKind, op: FilterOp): ValueKind {
     if (VALUELESS_OPS.has(op)) return "none";
     switch (fieldKind) {
+        case "duration":
+        case "metadata_duration":
+            return "duration";
         case "number":
         case "metadata_number":
         case "metadata_count":
@@ -495,6 +500,14 @@ export function filterValue(
             if (!value)
                 throw new BuildError("Fill in a value for every filter.");
             return value;
+        case "duration":
+            if (
+                !value ||
+                !Number.isSafeInteger(Number(value)) ||
+                Number(value) < 0
+            )
+                throw new BuildError("Pick a valid duration.");
+            return String(Number(value));
         case "number":
             if (!value || !Number.isFinite(Number(value))) {
                 throw new BuildError(

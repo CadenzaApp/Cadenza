@@ -119,3 +119,7 @@ Header settings apply to both editors and cannot disable suggestions while eithe
 
 Touching files in this directory? Update this README in the same change.
 See [../../../../AGENT_GUIDE.md](../../../../AGENT_GUIDE.md).
+
+Duration fields use numeric operators and the shared hours/minutes/seconds wheel. Values compile to integer millisecond strings.
+
+Compact duration value inputs shorten and mute their placeholder to fit the constraint popup.

@@ -410,3 +410,9 @@ Creating or adopting an attribute tag in a song editor asks for a value before a
 Bulk tagging also prompts before selecting an attribute tag, then applies that value to each selected song on confirmation.
 
 Holding an owned selector tag gives a medium haptic and opens a narrower menu with rename, color, and red delete actions, the library tag menu icons, and a centered tag pill. Selector outlines are 1.5 points. Suggested tags keep their existing behavior.
+
+`duration-input.tsx` provides the shared hours/minutes/seconds wheel using react-native-timer-picker on iOS and Android. Tag value dialogs and both query builders use it; the API receives milliseconds. Holding a song starts a drag selection. Each drag previews a span from its starting song; reversing shrinks that span while retaining selections from earlier gestures. Dragging and holding near the viewport edges scrolls the list. A list-level detector survives row recycling; measured layouts include group headers.
+
+The duration wheel uses a transparent masked fade, centered in a compact glass popup.
+
+Compact duration inputs use a short muted placeholder that fits beside query operators.

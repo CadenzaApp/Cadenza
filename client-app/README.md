@@ -138,3 +138,5 @@ swift scripts/render-svg-png.swift assets/images/cadenza-logo-outline.svg assets
 
 Touching files in this directory? Update this README in the same change.
 See [../AGENT_GUIDE.md](../AGENT_GUIDE.md).
+
+Duration selection uses `react-native-timer-picker`, a JavaScript wheel component for iOS and Android, with the existing Expo linear gradient. No native picker module is added.

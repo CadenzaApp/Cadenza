@@ -28,7 +28,7 @@ connectors; seeding Advanced expresses those explicitly as nested groups.
 A condition is a single tag, optionally negated, or a flat group. ALL means AND, ANY means OR,
 and NONE means NOT OR. A positive single promoted to a group starts at ALL; a negative single
 starts at NONE. Removing a group's penultimate tag collapses it to a single, negated for NONE.
-A stable layout identity survives promotion and collapse. Groups reject duplicate tag IDs.
+A stable layout identity survives promotion and collapse. Groups reject repeated basic tag IDs. Advanced tags may repeat with distinct constraints, such as a numeric range.
 Value tags share Advanced's operators, typed inputs, and validation. Metadata pills use negative
 IDs only for presentation and compile to metadata fields rather than stored tag IDs.
 
@@ -40,7 +40,7 @@ Tap elsewhere to cancel. Tap a basic query tag to remove it; value tags open an 
 New value tags enter the query only after Apply. Text predicates render quoted values.
 The keyboard-aware glass popup keeps value operators beside the input and valueless operators below.
 
-The palette has one outlined search field and basic, suggested, advanced, and metadata sections.
+The palette has one outlined search field that fills the heading row to the side padding, and basic, suggested, advanced, and metadata sections.
 Optional sections have compact headings and rules. Owned tags show applied-song counts;
 query pills omit counts. Your tags and Search scroll with the tags; the resize handle stays fixed.
 Memoized sections/cells and symmetric padded pill touch areas keep interaction costs bounded.
@@ -114,3 +114,7 @@ covers clipping, fast/stale drops, measurement failure, and targeted hover notif
 edge scrolling, and release rollback. `scripts/palette-worklets.test.cjs` executes the transformed
 palette helpers in an isolated runtime. History/draft tests live in Cadenza.
 Native gesture smoothness and glass rendering require real-device verification.
+
+Constraint popup controls use translucent gray fills and contrasting borders in both themes.
+
+The shared query selector uses the solid neutral gray for its track and AND/OR connectors and lines with bright foreground labels in dark mode; its sliding indicator keeps the original color. The connector pill has no outline. Light mode retains its original selector background.

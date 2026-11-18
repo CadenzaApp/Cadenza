@@ -746,3 +746,7 @@ Player hosts use the root stack during dismissal, including the frame before foc
 Sheet base routes come from the current root stack, even while route segments lag during a swipe dismissal.
 
 The floating expanded player defaults to the same 52-point height as its row bubbles.
+
+The duration tag type carries integer milliseconds, displayed as hours, minutes, and seconds by tag-values. Metadata duration uses this same type.
+
+Metadata duration pills normalize older number-typed API responses to duration display. Tag creation orders types as Basic, Number, Date, Duration, Date & time, Checkbox, Text.

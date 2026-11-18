@@ -1,16 +1,17 @@
 import type { ComponentProps } from "react";
 import type Ionicons from "@expo/vector-icons/Ionicons";
 
-import { Tag, TagType } from "@/lib/types";
+import type { Tag, TagType } from "@/lib/types";
 
 /** Every tag type, in the order they are offered when creating a tag. */
 export const TAG_TYPES: TagType[] = [
     "basic",
-    "text",
-    "datetime",
-    "date",
     "number",
+    "date",
+    "duration",
+    "datetime",
     "checkbox",
+    "text",
 ];
 
 export const TAG_TYPE_LABELS: Record<TagType, string> = {
@@ -19,6 +20,7 @@ export const TAG_TYPE_LABELS: Record<TagType, string> = {
     datetime: "Date & time",
     date: "Date",
     number: "Number",
+    duration: "Duration",
     checkbox: "Checkbox",
 };
 
@@ -28,6 +30,7 @@ export const TAG_TYPE_DESCRIPTIONS: Record<TagType, string> = {
     datetime: "A date and time",
     date: "A calendar date, no time",
     number: "A whole number or decimal",
+    duration: "Elapsed time in hours, minutes, and seconds",
     checkbox: "True or false",
 };
 
@@ -44,6 +47,7 @@ export const TAG_TYPE_ICONS: Record<
     datetime: "time-outline",
     date: "calendar-outline",
     number: "keypad-outline",
+    duration: "timer-outline",
     checkbox: "checkbox-outline",
 };
 
@@ -121,6 +125,10 @@ export function validateTagValue(type: TagType, raw: string): string | null {
             return "Basic tags cannot hold a value.";
         case "text":
             return null;
+        case "duration":
+            return Number.isSafeInteger(Number(value)) && Number(value) >= 0
+                ? null
+                : "Enter a nonnegative duration.";
         case "number":
             return Number.isFinite(Number(value))
                 ? null
@@ -149,6 +157,7 @@ export function toCanonicalTagValue(type: TagType, raw: string): string | null {
     switch (type) {
         case "text":
             return value;
+        case "duration":
         case "number":
             return String(Number(value));
         case "datetime":
@@ -172,6 +181,20 @@ export function formatTagValue(
             return "";
         case "text":
             return value;
+        case "duration": {
+            const millis = Number(value);
+            if (!Number.isFinite(millis) || millis < 0) return value;
+            const seconds = Math.floor(millis / 1000);
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor(seconds / 60) % 60;
+            return [
+                hours ? `${hours}h` : "",
+                minutes ? `${minutes}m` : "",
+                seconds % 60 || (!hours && !minutes) ? `${seconds % 60}s` : "",
+            ]
+                .filter(Boolean)
+                .join(" ");
+        }
         case "number":
             return value;
         case "checkbox":
