@@ -141,20 +141,6 @@ export function QueryBuilder({
                 payload.tag.type !== "basic" &&
                 target.kind !== "delete"
             ) {
-                if (target.kind === "condition") {
-                    const destination = conditions.find(
-                        (item) => item.id === target.conditionId,
-                    );
-                    if (
-                        destination &&
-                        (destination.kind === "tag"
-                            ? destination.tag.id === payload.tag.id
-                            : destination.members.some(
-                                  (member) => member.tag.id === payload.tag.id,
-                              ))
-                    )
-                        return;
-                }
                 setPendingTag(null);
                 setConstraintDraft({
                     kind: "add",
@@ -236,7 +222,7 @@ export function QueryBuilder({
                 );
             });
         },
-        [conditions, setConditions, setPendingTag],
+        [setConditions, setPendingTag],
     );
     const toggleNegation = useCallback(
         (id: string) =>

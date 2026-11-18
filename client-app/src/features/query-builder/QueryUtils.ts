@@ -227,7 +227,12 @@ export function moveQueryTagToCondition(
             ? origin
             : origin.members.find((member) => member.id === queryTagId);
     const target = conditions.find((condition) => condition.id === conditionId);
-    if (movingTag && target && conditionContainsTag(target, movingTag.tag.id)) {
+    if (
+        movingTag &&
+        movingTag.tag.type === "basic" &&
+        target &&
+        conditionContainsTag(target, movingTag.tag.id)
+    ) {
         return [...conditions];
     }
 
@@ -313,7 +318,11 @@ function addQueryTagToCondition(
 ): QueryCondition[] {
     return conditions.map((condition) => {
         if (condition.id !== conditionId) return condition;
-        if (conditionContainsTag(condition, queryTag.tag.id)) return condition;
+        if (
+            queryTag.tag.type === "basic" &&
+            conditionContainsTag(condition, queryTag.tag.id)
+        )
+            return condition;
         if (condition.kind === "group") {
             return {
                 ...condition,

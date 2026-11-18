@@ -1,10 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import {
-    RepeatMode,
-    ShuffleMode,
-    type MusicItem,
-    type SongFavoriteStatus,
-} from "@apple-musickit";
+import { RepeatMode, ShuffleMode, type MusicItem } from "@apple-musickit";
 import { Pressable, StyleSheet, View, type ColorValue } from "react-native";
 import type { ReactNode } from "react";
 
@@ -32,11 +27,9 @@ type MediaPlayerQueueProps = {
     upcoming: MusicItem[];
     shuffleMode: ShuffleMode;
     repeatMode: RepeatMode;
-    favoriteStatus: SongFavoriteStatus | null | undefined;
-    isFavoriteStatusLoading: boolean;
-    isUpdatingFavorite: boolean;
+
     textColor: ColorValue;
-    onFavoriteToggle: () => void;
+    onOpenTags: () => void;
     onOpenMenu: () => void;
     onOpenArtist?: () => void;
     onToggleShuffle: () => void;
@@ -73,11 +66,9 @@ export function MediaPlayerQueue({
     upcoming,
     shuffleMode,
     repeatMode,
-    favoriteStatus,
-    isFavoriteStatusLoading,
-    isUpdatingFavorite,
+
     textColor,
-    onFavoriteToggle,
+    onOpenTags,
     onOpenMenu,
     onOpenArtist,
     onToggleShuffle,
@@ -96,12 +87,9 @@ export function MediaPlayerQueue({
         <View className="flex-1">
             <MediaPlayerTrackHeading
                 track={track}
-                favoriteStatus={favoriteStatus}
-                isFavoriteStatusLoading={isFavoriteStatusLoading}
-                isUpdatingFavorite={isUpdatingFavorite}
                 textColor={textColor}
                 compact
-                onFavoriteToggle={onFavoriteToggle}
+                onOpenTags={onOpenTags}
                 onOpenMenu={onOpenMenu}
                 onOpenArtist={onOpenArtist}
             />

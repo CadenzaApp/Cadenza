@@ -87,7 +87,7 @@ export const METADATA_KEY_LABELS: Record<MetadataKey, string> = {
     album: "Album",
     genre: "Genre",
     release_date: "Release date",
-    duration: "Duration (ms)",
+    duration: "Duration",
     explicit: "Explicit",
     total_plays: "Total Plays",
 };

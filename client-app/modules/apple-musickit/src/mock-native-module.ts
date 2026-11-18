@@ -382,11 +382,12 @@ export const MOCK_LIBRARY_SONGS = normalizeMockItems(
     libraryAddedDate: Date.UTC(2024, 0, index + 1),
 }));
 
-/** catalogSearch only fills id/title/artistName/artworkUrl for albums. */
+/** Album fixtures also supply release dates for artist pages. */
 const RAW_MOCK_ALBUMS: MockItemInput[] = [
     {
         id: "1499378108",
         title: "After Hours",
+        releaseDate: Date.UTC(2020, 2, 20),
         isExplicit: true,
         artistName: "The Weeknd",
         artworkUrl: mockArtworkUrl("after-hours"),
@@ -394,18 +395,21 @@ const RAW_MOCK_ALBUMS: MockItemInput[] = [
     {
         id: "1615584999",
         title: "Harry's House",
+        releaseDate: Date.UTC(2022, 4, 20),
         artistName: "Harry Styles",
         artworkUrl: mockArtworkUrl("harrys-house"),
     },
     {
         id: "1497787091",
         title: "Future Nostalgia",
+        releaseDate: Date.UTC(2020, 2, 27),
         artistName: "Dua Lipa",
         artworkUrl: mockArtworkUrl("future-nostalgia"),
     },
     {
         id: "1440833080",
         title: "Rumours",
+        releaseDate: Date.UTC(1977, 1, 4),
         artistName: "Fleetwood Mac",
         artworkUrl: mockArtworkUrl("rumours"),
     },

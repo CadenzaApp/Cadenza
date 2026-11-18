@@ -576,7 +576,7 @@ async fn get_queryable_tags(
 fn missing_default(activity: ActivityTag, tag_type: &TagType) -> Option<MissingDefault> {
     let default = activity.default_value();
     match tag_type {
-        TagType::Number => default
+        TagType::Number | TagType::Duration => default
             .and_then(|value| value.parse::<f64>().ok())
             .map(MissingDefault::Number),
         TagType::Checkbox if default == Some("false") => Some(MissingDefault::False),
@@ -1089,7 +1089,9 @@ fn typed_value(tag_type: &TagType, raw: &str) -> (String, ValueOrder) {
     match tag_type {
         TagType::Basic => ("NULL".to_string(), ValueOrder::Nothing),
         TagType::Text => (raw.to_string(), ValueOrder::Text),
-        TagType::Number => (format!("({raw})::double precision"), ValueOrder::Plain),
+        TagType::Number | TagType::Duration => {
+            (format!("({raw})::double precision"), ValueOrder::Plain)
+        }
         TagType::Date => (format!("({raw})::date"), ValueOrder::Plain),
         TagType::Datetime => (format!("({raw})::timestamptz"), ValueOrder::Plain),
         TagType::Checkbox => (format!("(({raw}) = 'true')"), ValueOrder::TrueFirst),
@@ -1124,7 +1126,7 @@ fn field_sql(
                     ("query_songs.release_date".to_string(), ValueOrder::Plain, TagType::Date)
                 }
                 MetadataKey::Duration => {
-                    ("query_songs.duration".to_string(), ValueOrder::Plain, TagType::Number)
+                    ("query_songs.duration".to_string(), ValueOrder::Plain, TagType::Duration)
                 }
                 MetadataKey::Explicit => (
                     "(CASE query_songs.content_rating WHEN 'explicit' THEN TRUE WHEN 'clean' THEN FALSE END)"
@@ -1789,7 +1791,7 @@ impl Compiler<'_> {
                 "filter_check.value IS NOT NULL",
             )?,
 
-            TagType::Number => match op {
+            TagType::Number | TagType::Duration => match op {
                 FilterOp::IsEmpty => {
                     no_value(op, value)?;
                     Match::None("TRUE".to_string())
@@ -2068,6 +2070,16 @@ mod tests {
         serde_json::from_str(json).unwrap()
     }
 
+    #[test]
+    fn duration_tag_uses_numeric_millisecond_comparison() {
+        let (sql, values) = compile(
+            r#"{"where":{"filter":{"field":"tag","tag_id":7,"op":"lt","value":"182000"}}}"#,
+        )
+        .unwrap();
+        assert!(sql.contains("double precision"));
+        assert!(values.contains(&182000_f64.into()));
+    }
+
     fn tag_types() -> HashMap<i64, TagType> {
         HashMap::from([
             (1, TagType::Basic),
@@ -2076,6 +2088,7 @@ mod tests {
             (4, TagType::Number),
             (5, TagType::Checkbox),
             (6, TagType::Date),
+            (7, TagType::Duration),
         ])
     }
 

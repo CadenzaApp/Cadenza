@@ -1,3 +1,4 @@
+import { DurationInput } from "./duration-input";
 import { useState } from "react";
 import { Modal, Platform, Pressable, StyleSheet, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -189,6 +190,12 @@ function TagValueDialogContent({
                             />
                         )}
 
+                        {tag.type === "duration" ? (
+                            <DurationInput
+                                value={rawValue}
+                                onChange={setRawValue}
+                            />
+                        ) : null}
                         {tag.type === "number" && (
                             <View className="flex-row items-center gap-2">
                                 <Button

@@ -547,3 +547,5 @@ so the audience checks stay in the HTTP reads, and access is checked once per su
 
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
+
+Duration tag values are validated as nonnegative integer milliseconds, at most JavaScript's safe integer limit, and canonicalized as decimal strings.

@@ -29,15 +29,8 @@ import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useOpenScreen } from "@/lib/open-screen";
 import { useDefaultTags } from "@/lib/routes/tags";
-import {
-    BOTTOM_ACTION_RIGHT_OFFSET,
-    useScreenOverlayInsets,
-} from "@/lib/screen-overlay";
-import {
-    OVERLAY_GAP,
-    PLAYER_CONTROL_SIZE,
-    PLAYER_ROW_GAP,
-} from "@/lib/screen-overlay-geometry";
+import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+
 import { useAppTheme } from "@/lib/theme";
 import type { Tag, TagMetadata } from "@/lib/types";
 import { useDrag, useDropHover } from "./DragContext";
@@ -51,24 +44,13 @@ import { DropViewport } from "./DropViewport";
 import {
     clampPaletteHeight,
     paletteTranslation,
+    paletteBottomSpacer,
     TAG_PALETTE_MIN_HEIGHT,
     TAG_PALETTE_MAX_HEIGHT,
 } from "./palette-geometry";
 
 /** How long the palette takes to settle on a new height it did not drag to. */
 const HEIGHT_ANIMATION_MS = 250;
-
-/** The palette's own side padding, `px-5`. */
-const PALETTE_SIDE_PADDING = 20;
-/**
- * Right padding that keeps the heading row clear of the assistant button,
- * which floats `BOTTOM_ACTION_RIGHT_OFFSET` in from the screen's right edge.
- */
-const ASSISTANT_CLEARANCE =
-    BOTTOM_ACTION_RIGHT_OFFSET +
-    PLAYER_CONTROL_SIZE +
-    PLAYER_ROW_GAP -
-    PALETTE_SIDE_PADDING;
 
 export function TagPalette({
     tags,
@@ -104,8 +86,7 @@ export function TagPalette({
     });
     const { dragState } = useDrag();
     const deleteHovered = useDropHover("delete");
-    const { playerBottomInset, bottomControlRowVisible } =
-        useScreenOverlayInsets();
+    const { playerBottomInset } = useScreenOverlayInsets();
     // The native tab bar floats over this screen on both platforms. Its
     // platform-specific inset (and the player, when present) sets the floor;
     // the remaining 64 points hold the handle and heading with a small gap.
@@ -120,11 +101,6 @@ export function TagPalette({
     const resizeStartY = useSharedValue(0);
     const resizeStartHeight = useSharedValue(height);
     const collapsed = height <= minimumHeight;
-    // Low enough that the heading row is level with the bottom row's controls,
-    // so the search field stops short of the assistant button.
-    const clearAssistant =
-        bottomControlRowVisible &&
-        height <= minimumHeight + PLAYER_CONTROL_SIZE + OVERLAY_GAP;
     const deletingGroup = dragState?.payload.source === "condition";
     const filtered = useMemo(() => {
         const needle = search.trim().toLocaleLowerCase();
@@ -228,6 +204,9 @@ export function TagPalette({
     }));
 
     const { colors: theme } = useAppTheme();
+    const bottomSpacerStyle = useAnimatedStyle(() => ({
+        height: paletteBottomSpacer(visibleHeight.get(), playerBottomInset),
+    }));
     const deletePromptStyle = useAnimatedStyle(() => ({
         height: Math.max(0, visibleHeight.get() - playerBottomInset),
     }));
@@ -293,14 +272,7 @@ export function TagPalette({
                         showsVerticalScrollIndicator
                     >
                         <>
-                            <View
-                                className="mb-3 flex-row items-center gap-3"
-                                style={
-                                    clearAssistant
-                                        ? { paddingRight: ASSISTANT_CLEARANCE }
-                                        : undefined
-                                }
-                            >
+                            <View className="mb-3 flex-row items-center gap-3">
                                 <View className="h-10 justify-center">
                                     <Pressable
                                         disabled={!!pendingTag}
@@ -381,11 +353,9 @@ export function TagPalette({
                                 {!pendingTag ? (
                                     // Keep scroll runway separate from the intrinsic
                                     // section heights, including in a collapsed viewport.
-                                    <View
+                                    <Animated.View
                                         className="shrink-0"
-                                        style={{
-                                            height: TAG_PALETTE_MAX_HEIGHT,
-                                        }}
+                                        style={bottomSpacerStyle}
                                         pointerEvents="none"
                                         accessible={false}
                                     />
@@ -567,7 +537,7 @@ const PaletteSections = memo(function PaletteSections({
                                       ? "Advanced Tags"
                                       : "Metadata Tags"}
                             </Text>
-                            <View className="h-px flex-1 bg-border" />
+                            <View className="h-px flex-1 bg-muted-foreground opacity-50" />
                         </View>
                     ) : null}
                     <View className="shrink-0 flex-row flex-wrap content-start items-start gap-0.5">

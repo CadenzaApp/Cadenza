@@ -4,6 +4,7 @@ import test from "node:test";
 import {
     calculateScreenOverlayInsets,
     playerHostIsActive,
+    baseRouteUnderSheets,
     bottomActionPlacement,
     nativePlayerAccessoryEnabled,
     selectionOverlayOffsets,
@@ -289,8 +290,22 @@ test("player host remains mounted beneath a sheet and leaves when a detail cover
     );
     assert.equal(playerHostIsActive(false, "tabs", routes.slice(0, 2)), false);
     assert.equal(playerHostIsActive(true, "tag", routes.slice(0, 2)), true);
+    // The pop updates root state before the underlying focus event arrives.
+    assert.equal(playerHostIsActive(false, "tag", routes.slice(0, 2)), true);
     assert.equal(
         playerHostIsActive(false, "tabs", [routes[0], routes[2]]),
         true,
+    );
+});
+
+test("sheet dismissal resolves the base after the sheet route has already left", () => {
+    const sheets = new Set(["player", "appearance"]);
+    const tabs = { name: "(tabs)" };
+    const player = { name: "player" };
+    assert.equal(baseRouteUnderSheets([tabs, player], 1, sheets), "(tabs)");
+    assert.equal(baseRouteUnderSheets([tabs], 0, sheets), "(tabs)");
+    assert.equal(
+        baseRouteUnderSheets([tabs, player, { name: "appearance" }], 2, sheets),
+        "(tabs)",
     );
 });

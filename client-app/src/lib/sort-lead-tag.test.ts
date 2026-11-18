@@ -36,10 +36,10 @@ test("a metadata sort leads with its Metadata Tags pill and stored value", () =>
     if (lead?.kind !== "value") return;
     assert.deepEqual(
         lead.tag,
-        metadataTagPills([{ key: "duration", type: "number", value: "" }])[0]
+        metadataTagPills([{ key: "duration", type: "duration", value: "" }])[0]
             .tag,
     );
-    assert.equal(lead.tag.name, "Duration (ms)");
+    assert.equal(lead.tag.name, "Duration");
     assert.equal(lead.values.get("a"), "521000");
 
     const explicit = sortLeadTag(

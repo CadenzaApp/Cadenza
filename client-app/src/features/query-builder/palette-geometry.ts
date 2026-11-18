@@ -22,3 +22,12 @@ export function clampPaletteHeight(
     const limit = maximum ?? TAG_PALETTE_MAX_HEIGHT;
     return Math.min(limit, Math.max(Math.min(minimum, limit), height));
 }
+
+/** Scroll space needed for the portion of the fixed sheet that is obscured. */
+export function paletteBottomSpacer(
+    visibleHeight: number,
+    bottomInset: number,
+) {
+    "worklet";
+    return Math.max(0, TAG_PALETTE_MAX_HEIGHT - visibleHeight + bottomInset);
+}

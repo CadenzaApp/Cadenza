@@ -19,6 +19,8 @@ import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 import type { QueryGroupMode } from "./types";
 
+export const QUERY_CONTROL_DARK_BACKGROUND = "#525252";
+
 const MODES = ["all", "any", "none"] as const;
 
 /** One compact visual language for outer logic, group logic, and exclusion. */
@@ -42,7 +44,7 @@ export function QuerySegmentedControl<T extends string>({
     const { fontScale } = useWindowDimensions();
     const [width, setWidth] = useState(1);
     const [preview, setPreview] = useState<T | null>(null);
-    const { colors: theme } = useAppTheme();
+    const { colors: theme, scheme } = useAppTheme();
     const shown = preview ?? value;
     const reducedMotion = useReducedMotion();
     const position = useSharedValue(
@@ -119,6 +121,10 @@ export function QuerySegmentedControl<T extends string>({
                 className="self-start flex-row rounded-full bg-secondary p-0.5"
                 style={{
                     width: naturalTotal + 4,
+                    backgroundColor:
+                        scheme === "dark"
+                            ? QUERY_CONTROL_DARK_BACKGROUND
+                            : theme.secondary,
                 }}
             >
                 <Animated.View
@@ -146,9 +152,12 @@ export function QuerySegmentedControl<T extends string>({
                             numberOfLines={1}
                             className={optionTextClassName}
                             style={{
-                                opacity: shown === option.value ? 1 : 0.72,
+                                opacity:
+                                    scheme === "dark" || shown === option.value
+                                        ? 1
+                                        : 0.72,
                                 color:
-                                    shown === option.value
+                                    scheme === "dark" || shown === option.value
                                         ? theme.foreground
                                         : theme.mutedForeground,
                             }}

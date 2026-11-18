@@ -20,6 +20,7 @@ import Svg, { Path } from "react-native-svg";
 import {
     GroupModeControl,
     QuerySegmentedControl,
+    QUERY_CONTROL_DARK_BACKGROUND,
     VennDiagram,
 } from "./GroupModeControl";
 import { MeasuredReorderList, useReorderHandle } from "./MeasuredReorderList";
@@ -367,9 +368,11 @@ function ConditionCard({
                     ))}
                     {editor.pendingTag &&
                     !dragState &&
-                    !members.some(
-                        (member) => member.tag.id === editor.pendingTag?.tag.id,
-                    ) ? (
+                    (editor.pendingTag.tag.type !== "basic" ||
+                        !members.some(
+                            (member) =>
+                                member.tag.id === editor.pendingTag?.tag.id,
+                        )) ? (
                         <TagPlacementOutline
                             tag={editor.pendingTag.tag}
                             onPress={() =>
@@ -469,6 +472,9 @@ function InsertionSlot({
     visible?: boolean;
 }) {
     const { toggleOuterConnector, pendingTag } = useEditorActions();
+    const { scheme, colors } = useAppTheme();
+    const connectorColor =
+        scheme === "dark" ? QUERY_CONTROL_DARK_BACKGROUND : colors.secondary;
     const { dragState } = useDrag();
     const hovered = useDropHover(`insert-${index}`);
     const conditionDrag =
@@ -526,15 +532,31 @@ function InsertionSlot({
                             className="w-full flex-row items-center"
                             style={connectorStyle}
                         >
-                            <View className="h-px flex-1 bg-border" />
-                            <View className="mx-2 rounded-full border border-border bg-secondary px-3 py-0.5">
+                            <View
+                                className="h-px flex-1"
+                                style={{ backgroundColor: connectorColor }}
+                            />
+                            <View
+                                className="mx-2 rounded-full bg-secondary px-3 py-0.5"
+                                style={
+                                    scheme === "dark"
+                                        ? {
+                                              backgroundColor:
+                                                  QUERY_CONTROL_DARK_BACKGROUND,
+                                          }
+                                        : undefined
+                                }
+                            >
                                 <Text className="text-[10px] font-bold text-secondary-foreground">
                                     {condition.connector === "and"
                                         ? "AND"
                                         : "OR"}
                                 </Text>
                             </View>
-                            <View className="h-px flex-1 bg-border" />
+                            <View
+                                className="h-px flex-1"
+                                style={{ backgroundColor: connectorColor }}
+                            />
                         </Animated.View>
                     </Pressable>
                 )}

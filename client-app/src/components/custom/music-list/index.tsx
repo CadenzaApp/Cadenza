@@ -18,7 +18,11 @@ import {
     type ScrollViewProps,
     type ViewToken,
 } from "react-native";
-import { usePinchGesture, GestureDetector } from "react-native-gesture-handler";
+import {
+    usePinchGesture,
+    useSimultaneousGestures,
+    GestureDetector,
+} from "react-native-gesture-handler";
 import Animated, {
     Easing,
     FadeIn,
@@ -62,6 +66,7 @@ import {
 } from "./list-windows";
 import { MusicListSectionHeader } from "./music-list-section-header";
 import type { RailLead } from "./sort-tags";
+import { useDragSelection } from "./use-drag-selection";
 import { useMusicListSelection } from "./use-music-list-selection";
 import type { MusicListProps, MusicListTrackAction } from "./types";
 
@@ -582,6 +587,17 @@ export function MusicList({
         },
     });
 
+    const dragSelection = useDragSelection({
+        rows,
+        listRef: scroll.ref,
+        enabled: selection.enabled && !densityTransitioning,
+        onSelect: selection.addSpan,
+    });
+    const listGesture = useSimultaneousGestures(
+        pinchGesture,
+        dragSelection.gesture,
+    );
+
     useEffect(() => {
         if (densityTransitionRevision === 0) return;
         scroll.ref.current?.scrollToOffset({ offset: 0, animated: false });
@@ -649,8 +665,12 @@ export function MusicList({
 
     return (
         <View style={{ flex: 1, position: "relative" }}>
-            <GestureDetector gesture={pinchGesture}>
-                <Animated.View className="flex-1" style={listTransitionStyle}>
+            <GestureDetector gesture={listGesture}>
+                <Animated.View
+                    className="flex-1"
+                    style={listTransitionStyle}
+                    onLayout={dragSelection.onLayout}
+                >
                     {/* always the list, loading included, so its background
                         and header are there from the first frame and the
                         header is never rebuilt when the rows land */}
@@ -751,9 +771,6 @@ export function MusicList({
                                             }
                                             accessory={renderAccessory?.(item)}
                                             onPress={handleTrackPress}
-                                            onLongPress={
-                                                selection.beginSelection
-                                            }
                                             onOpenMenu={setMenuTrack}
                                         />
                                         {highlightPhase === "playing" &&

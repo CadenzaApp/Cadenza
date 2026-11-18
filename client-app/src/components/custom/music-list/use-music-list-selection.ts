@@ -3,7 +3,10 @@ import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { MusicListMultiSelectConfig } from "./types";
-import { reduceMusicListSelection } from "./selection-utils";
+import {
+    previewDragSelection,
+    reduceMusicListSelection,
+} from "./selection-utils";
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set();
 const NO_TRACKS: MusicItem[] = [];
@@ -17,6 +20,7 @@ export function useMusicListSelection(
     const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
         () => new Set(),
     );
+    const spanBase = useRef<ReadonlySet<string>>(new Set());
     const clearHapticRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEffect(
         () => () => {
@@ -112,6 +116,21 @@ export function useMusicListSelection(
         );
     }, []);
 
+    const addSpan = useCallback(
+        (tracks: readonly MusicItem[], first: boolean) => {
+            if (!enabled || tracks.length === 0) return;
+            triggerSelectionHaptic();
+            setSelectedIds((current) => {
+                if (first) spanBase.current = new Set(current);
+                return previewDragSelection(
+                    spanBase.current,
+                    tracks.map((track) => track.id),
+                );
+            });
+        },
+        [enabled],
+    );
+
     return {
         enabled,
         isSelecting,
@@ -120,6 +139,7 @@ export function useMusicListSelection(
         beginSelection,
         toggleSelection,
         clearSelection,
+        addSpan,
     };
 }
 

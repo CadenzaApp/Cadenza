@@ -6,7 +6,6 @@ import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
     Platform,
-    Alert,
     Pressable,
     StyleSheet,
     useWindowDimensions,
@@ -39,14 +38,10 @@ import { useShownLiveSession } from "@/features/live-session/use-current-session
 import { LiveChip } from "@/features/social/LiveChip";
 import { usePlayback } from "@/lib/playback";
 import { MAX_SESSION_QUEUE } from "@/lib/routes/live-sessions";
-import {
-    useArtistPreview,
-    useSongArtists,
-    useSongFavoriteStatus,
-} from "@/lib/musickit-hooks";
+import { useArtistPreview, useSongArtists } from "@/lib/musickit-hooks";
 import { useOpenScreen } from "@/lib/open-screen";
 import { SHEET_DETENT, useAppTheme } from "@/lib/theme";
-import { logHandledError } from "@/lib/log";
+import { usePlayerTabs } from "./player-tabs";
 import { isUsableArtworkUrl } from "@/lib/utils";
 
 import {
@@ -142,17 +137,10 @@ export function PlayerPage() {
     const [bodyHeight, setBodyHeight] = useState(0);
     const [progressBarWidth, setProgressBarWidth] = useState(0);
     const [scrubPosition, setScrubPosition] = useState<number | null>(null);
-    const [favoriteUpdateSongId, setFavoriteUpdateSongId] = useState<
-        string | null
-    >(null);
     const scrubPositionRef = useRef<number | null>(null);
     const animatedPlaybackProgress = useSharedValue(progress);
     const favoriteSongId = activeTrack?.catalogId ?? activeTrack?.id;
-    const {
-        favoriteStatus,
-        favoriteStatusLoading: isFavoriteStatusLoading,
-        setSongFavoriteStatus,
-    } = useSongFavoriteStatus(favoriteSongId);
+    const { selectTab } = usePlayerTabs();
 
     const { artistIds } = useSongArtists(focused ? favoriteSongId : undefined);
     const artistId = artistIds?.[0] ?? activeTrack?.artistId;
@@ -160,7 +148,6 @@ export function PlayerPage() {
 
     const artworkUrl = activeTrack?.artworkUrl?.trim();
     const fullArtworkUrl = activeTrack?.artworkUrlLarge?.trim() || artworkUrl;
-    const isUpdatingFavorite = favoriteUpdateSongId === favoriteSongId;
     const displayedProgress = scrubPosition ?? progress;
     // The sheet is shorter than the window, so size against the measured body.
     // Until that lands, estimate it so the artwork does not resize on the
@@ -325,28 +312,6 @@ export function PlayerPage() {
     }
     const track = activeTrack;
 
-    async function handleFavoriteToggle() {
-        const songId = favoriteSongId;
-        if (!songId || !favoriteStatus || isUpdatingFavorite) return;
-
-        const isFavorite = favoriteStatus.isFavorite;
-
-        setFavoriteUpdateSongId(songId);
-        try {
-            await setSongFavoriteStatus(!isFavorite);
-        } catch (error) {
-            logHandledError("Unable to update Apple Music favorite", error);
-            Alert.alert(
-                "Couldn't Update Favorite",
-                "Please check your Apple Music connection and try again.",
-            );
-        } finally {
-            setFavoriteUpdateSongId((pendingSongId) =>
-                pendingSongId === songId ? null : pendingSongId,
-            );
-        }
-    }
-
     /** Closes this sheet and opens `href` in the tab underneath. */
     function leaveFor(href: Href) {
         openScreen(href, { closing: "player" });
@@ -407,11 +372,8 @@ export function PlayerPage() {
                     upcoming={upcoming}
                     shuffleMode={shownShuffle}
                     repeatMode={shownRepeat}
-                    favoriteStatus={favoriteStatus}
-                    isFavoriteStatusLoading={isFavoriteStatusLoading}
-                    isUpdatingFavorite={isUpdatingFavorite}
                     textColor={colors.text}
-                    onFavoriteToggle={() => void handleFavoriteToggle()}
+                    onOpenTags={() => selectTab("tags")}
                     onOpenArtist={artistId ? openArtist : undefined}
                     onOpenMenu={() => setMenuOpen(true)}
                     onToggleShuffle={toggleShuffle}
@@ -466,11 +428,8 @@ export function PlayerPage() {
 
                     <MediaPlayerTrackHeading
                         track={track}
-                        favoriteStatus={favoriteStatus}
-                        isFavoriteStatusLoading={isFavoriteStatusLoading}
-                        isUpdatingFavorite={isUpdatingFavorite}
                         textColor={colors.text}
-                        onFavoriteToggle={() => void handleFavoriteToggle()}
+                        onOpenTags={() => selectTab("tags")}
                         onOpenArtist={artistId ? openArtist : undefined}
                         onOpenMenu={() => setMenuOpen(true)}
                     />

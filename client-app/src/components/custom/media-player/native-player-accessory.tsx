@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { NativeTabs } from "expo-router/native-tabs";
 import { useTheme } from "expo-router/react-navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View, useWindowDimensions } from "react-native";
 import { runOnUI } from "react-native-reanimated";
 
@@ -10,10 +10,12 @@ import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { useLiveSessionBadge } from "@/features/live-session/use-live-badge";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { usePlayerPresentation } from "@/lib/player-presentation";
+import { COMPACT_PLAYER_HEIGHT } from "@/lib/screen-overlay-geometry";
 import { MediaPlayerCompact } from "./compact";
 
 /** UIKit supplies the glass, sizing, and transition between regular and inline. */
 export function NativePlayerAccessory() {
+    const [contentHeight, setContentHeight] = useState(COMPACT_PLAYER_HEIGHT);
     const inline = NativeTabs.BottomAccessory.usePlacement() === "inline";
     const { activeTrack, isPlaying, isLoading, canSkipToNext, controlsLocked } =
         usePlaybackTrackState();
@@ -39,12 +41,15 @@ export function NativePlayerAccessory() {
     const { canPress } = motion;
     if (!activeTrack) return null;
 
-    const artworkSize = inline ? 28 : 32;
+    const artworkSize = inline ? 31 : 35;
     const artwork = (
         <RemoteArtwork
             url={activeTrack.artworkUrl}
-            className="rounded-md"
-            style={{ width: artworkSize, height: artworkSize }}
+            style={{
+                width: artworkSize,
+                height: artworkSize,
+                borderRadius: artworkSize / 2,
+            }}
             fallback={
                 <Ionicons name="musical-notes" size={18} color={colors.text} />
             }
@@ -59,6 +64,7 @@ export function NativePlayerAccessory() {
                 // Both placements inherit UIKit's active wrapper frame. Read
                 // window coordinates after layout, never poll detached trees.
                 const { width, height } = event.nativeEvent.layout;
+                if (height > 0) setContentHeight(height);
                 if (!inline && width >= windowWidth * 0.75)
                     reportRegularHeight(height);
                 const version = ++measurementVersion.current;
@@ -79,6 +85,7 @@ export function NativePlayerAccessory() {
                     track={activeTrack}
                     artwork={artwork}
                     nativeAccessory
+                    height={contentHeight}
                     inline={inline}
                     isPlaying={isPlaying}
                     isLoading={isLoading}

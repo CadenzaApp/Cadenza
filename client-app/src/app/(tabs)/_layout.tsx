@@ -142,11 +142,7 @@ export default function TabLayout() {
                     <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
 
-                <NativeTabs.Trigger
-                    name="(search)"
-                    role="search"
-                    {...TRIGGER_PROPS}
-                >
+                <NativeTabs.Trigger name="(search)" {...TRIGGER_PROPS}>
                     <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />
                     <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
