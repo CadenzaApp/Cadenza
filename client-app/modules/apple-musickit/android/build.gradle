@@ -19,4 +19,7 @@ android {
 
 dependencies {
   implementation fileTree(dir: 'libs', include: ['*.aar'])
+  // Same OkHttp React Native ships, so the app does not carry two copies.
+  // The client is shared across Apple Music reads; see AppleMusicKitModule.
+  implementation "com.squareup.okhttp3:okhttp:4.9.2"
 }

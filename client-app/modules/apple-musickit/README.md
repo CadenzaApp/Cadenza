@@ -127,6 +127,11 @@ code and Apple's response body dropped. Android throws its own `MusicKitExceptio
 a `CodedException`, with the same `ERR_` names as iOS. Android `authorize` resolves `failed` with
 a reason (for example, no Apple Music app installed) instead of rejecting.
 
+Android catalog and library reads share one OkHttp client and run on their own
+IO pool. Expo's default async queue is a single thread, and closing the
+connection after every call forced a new handshake, so one Apple Music read
+used to hold up the next. Playback commands are unchanged.
+
 ## Validation
 
 From `client-app`:
