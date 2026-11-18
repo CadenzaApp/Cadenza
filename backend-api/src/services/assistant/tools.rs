@@ -123,6 +123,7 @@ impl ToolRunner for DbTools<'_> {
             "find_songs" => self.find_songs(args).await,
             "find_artist" => self.find_artist(args).await,
             "find_album" => self.find_album(args).await,
+            "get_album_songs" => self.get_album_songs(args).await,
             _ => return ToolOutcome::error(format!("there is no tool named {name}"), label),
         };
         let outcome = match result {
@@ -187,6 +188,7 @@ fn label_for(name: &str) -> &'static str {
         "find_songs" => "Looking for songs on Apple Music",
         "find_artist" => "Looked up an artist on Apple Music",
         "find_album" => "Looked up an album on Apple Music",
+        "get_album_songs" => "Looked up an album's songs",
         _ => "Tried a tool",
     }
 }
@@ -344,6 +346,13 @@ struct SavedQueryArgs {
 #[derive(Deserialize)]
 struct FindArtistArgs {
     name: String,
+}
+
+#[derive(Deserialize)]
+struct AlbumSongsArgs {
+    album_id: String,
+    #[serde(default)]
+    title: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1177,6 +1186,66 @@ impl DbTools<'_> {
         Ok(ToolOutcome::ok(json!({ "albums": albums }), ""))
     }
 
+    /// The songs on one Apple Music catalog album, in track order, as a card.
+    async fn get_album_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: AlbumSongsArgs = parse_args(args)?;
+        let album_id = args.album_id.trim().to_owned();
+        if album_id.is_empty() {
+            return Err(ToolError::Arguments("album_id is required".to_owned()));
+        }
+        let mut albums = self
+            .song_meta
+            .get_albums_tracks(std::slice::from_ref(&album_id))
+            .await
+            .map_err(|err| {
+                println!("[assistant] get_album_songs {album_id} failed: {err}");
+                ToolError::Arguments(
+                    apple_music_down_message(&err.to_string())
+                        .replace("find_songs", "get_album_songs"),
+                )
+            })?;
+        let Some(mut tracks) = albums.remove(&album_id) else {
+            return Err(ToolError::Arguments(format!(
+                "Apple Music has no album with id {album_id}. Get the id from find_album."
+            )));
+        };
+        if self.hide_explicit {
+            tracks.retain(|song| song.content_rating.as_deref() != Some("explicit"));
+        }
+        tracks.truncate(MAX_CARD_SONGS);
+        let song_ids: Vec<String> = tracks.iter().map(|song| song.id.clone()).collect();
+        spawn_store_song_metadata(self.db.clone(), self.song_meta.clone(), song_ids.clone());
+        let described: Vec<Value> = tracks
+            .iter()
+            .take(MAX_SONGS_TO_MODEL)
+            .map(|song| {
+                json!({
+                    "song_id": song.id,
+                    "title": song.title,
+                    "artist": song.artist_name,
+                })
+            })
+            .collect();
+        let album_name = tracks.first().and_then(|song| song.album_name.clone());
+        let mut outcome = ToolOutcome::ok(
+            json!({
+                "album": album_name,
+                "total": song_ids.len(),
+                "songs": described,
+            }),
+            "",
+        );
+        if !song_ids.is_empty() {
+            outcome.songs = Some(SongsCard {
+                total: song_ids.len(),
+                capped: false,
+                song_ids,
+                title: card_title(args.title).or(album_name),
+            });
+        }
+        Ok(outcome)
+    }
+
     async fn get_playlist_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
         let args: PlaylistArgs = parse_args(args)?;
         let detail = db::shared_playlists::get_playlist(self.db, self.user_id, args.playlist_id)
@@ -1495,6 +1564,19 @@ pub fn definitions() -> Vec<Value> {
                     "artist": { "type": "string", "description": "Its artist, when known." }
                 },
                 "required": ["name"]
+            }
+        }),
+        json!({
+            "type": "function",
+            "name": "get_album_songs",
+            "description": "The songs on one Apple Music album, in track order, as a card. For showing, playing, or asking about an album's songs; to take the user to the album's page, use open_screen with screen album instead. Get album_id from find_album or now_playing. Not for playlists.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "album_id": { "type": "string" },
+                    "title": { "type": "string", "description": "The card's title, usually the album's name." }
+                },
+                "required": ["album_id"]
             }
         }),
         json!({

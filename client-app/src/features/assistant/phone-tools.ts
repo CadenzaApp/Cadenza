@@ -362,6 +362,12 @@ export function usePhoneTools() {
                     case "apple_music_playlist_songs": {
                         const id = stringOf(args.playlist_id);
                         if (!id) return { error: "playlist_id is required." };
+                        // an album id here comes back empty, which reads as an empty playlist
+                        if (!(await isUserPlaylist(id))) {
+                            return {
+                                error: "That id is not one of the user's Apple Music playlists. For an album, use get_album_songs, or open_screen with screen album to take them to it.",
+                            };
+                        }
                         const tracks = await playlistTracks(id);
                         return {
                             name: playlistNames.get(id),
@@ -659,12 +665,7 @@ async function openScreenFor(
                       : null;
     if (!href) return { error: `There is no screen called ${screen}.` };
     if (screen === "apple_music_playlist") {
-        const exists =
-            playlistNames.has(id) ||
-            (await userPlaylists().catch(() => [])).some(
-                (playlist) => playlist.id === id,
-            );
-        if (!exists) {
+        if (!(await isUserPlaylist(id))) {
             return {
                 error: "None of the user's Apple Music playlists has that id. Look it up with apple_music_playlists.",
             };
@@ -753,6 +754,13 @@ async function albumTracks(albumId: string): Promise<MusicItem[]> {
         if (!page.hasNextPage || page.items.length === 0) break;
     }
     return tracks.slice(0, MAX_SONGS);
+}
+
+/** Whether `id` is one of the user's Apple Music library playlists. */
+async function isUserPlaylist(id: string): Promise<boolean> {
+    if (playlistNames.has(id)) return true;
+    const playlists = await userPlaylists().catch(() => []);
+    return playlists.some((playlist) => playlist.id === id);
 }
 
 /** The songs of an Apple Music library playlist, in order, up to `MAX_SONGS`. */

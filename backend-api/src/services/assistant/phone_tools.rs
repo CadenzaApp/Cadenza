@@ -294,7 +294,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "apple_music_playlist_songs",
-            "description": "The songs in one of the user's Apple Music playlists, in order, as a card. Get the id from apple_music_playlists.",
+            "description": "The songs in one of the user's own Apple Music playlists, in order, as a card. Only for an id from apple_music_playlists; never an album id (use get_album_songs for an album).",
             "parameters": {
                 "type": "object",
                 "properties": { "playlist_id": { "type": "string" } },
