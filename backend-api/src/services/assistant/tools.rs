@@ -74,7 +74,10 @@ pub trait ToolRunner: Send + Sync {
 }
 
 /// The most songs `find_songs` looks up in one call.
-const MAX_FOUND_SONGS: usize = 25;
+const MAX_FOUND_SONGS: usize = 40;
+/// The most songs `find_songs` hands back: the card's share of a request, after extras
+/// named to make up for misses are trimmed off.
+const MAX_FIND_COUNT: usize = 25;
 /// How many catalog results `find_songs` weighs for each song it looks up.
 const FIND_CANDIDATES: usize = 8;
 /// How many `find_songs` catalog searches run at once. All at once can trip Apple's rate
@@ -359,6 +362,11 @@ const MAX_ARTISTS: usize = 5;
 #[derive(Deserialize)]
 struct FindSongsArgs {
     songs: Vec<WantedSong>,
+    /// How many songs the user asked for. The model names more than this, best first, so
+    /// misses can be made up; the search stops once it has this many and keeps the first
+    /// this many. Left out, every song found is kept.
+    #[serde(default)]
+    count: Option<usize>,
     #[serde(default)]
     title: Option<String>,
 }
@@ -450,7 +458,8 @@ fn close_matches(wanted: &WantedSong, candidates: &[SongMetadata]) -> Vec<Value>
 
 /// One `find_songs` lookup: the match, or what Apple returned instead.
 enum Lookup {
-    Found(Box<SongMetadata>),
+    /// The song, and whether Apple credits it to someone other than the artist named.
+    Found(Box<SongMetadata>, bool),
     /// Apple answered, but nothing matched.
     Missing(Vec<Value>),
     /// The search itself failed, with why.
@@ -473,43 +482,125 @@ fn apple_music_down_message(why: &str) -> String {
 /// Searches the catalog for one song the model named, retrying once on a rate limit.
 /// Every outcome is logged, so a song that did not land can be checked against Apple.
 async fn look_up(service: &SongMetadataService, song: &WantedSong) -> Lookup {
-    let term = match song.artist.as_deref() {
-        Some(artist) if !artist.trim().is_empty() => format!("{} {}", song.title, artist),
-        _ => song.title.clone(),
+    let artist = song
+        .artist
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty());
+    let term = match artist {
+        Some(artist) => format!("{} {}", song.title, artist),
+        None => song.title.clone(),
     };
-    let mut result = service.search_songs(&term, FIND_CANDIDATES).await;
-    if matches!(result, Err(CadenzaError::SongMetadataRateLimited)) {
-        tokio::time::sleep(FIND_RETRY_WAIT).await;
-        result = service.search_songs(&term, FIND_CANDIDATES).await;
-    }
-    let candidates = match result {
+    let candidates = match search_with_retry(service, &term).await {
         Ok(candidates) => candidates,
         Err(err) => {
             println!("[assistant] find_songs \"{term}\" failed: {err}");
             return Lookup::Failed(err.to_string());
         }
     };
-    match pick_match(song, &candidates) {
-        Some(found) => {
-            println!(
-                "[assistant] find_songs \"{term}\" -> {} / {}",
-                found.title, found.artist_name
-            );
-            Lookup::Found(Box::new(found))
-        }
-        None => {
-            let returned: Vec<String> = candidates
-                .iter()
-                .take(MAX_CLOSE_MATCHES)
-                .map(|song| format!("{} / {}", song.title, song.artist_name))
-                .collect();
-            println!(
-                "[assistant] find_songs \"{term}\" no match among {} results: {returned:?}",
-                candidates.len()
-            );
-            Lookup::Missing(close_matches(song, &candidates))
+    if let Some(found) = pick_match(song, &candidates) {
+        println!(
+            "[assistant] find_songs \"{term}\" -> {} / {}",
+            found.title, found.artist_name
+        );
+        return Lookup::Found(Box::new(found), false);
+    }
+
+    // Apple has the song under another artist (a soundtrack whose composer Apple does not
+    // credit, or only another performer's version, like Nintendo's music), so search the
+    // title alone. On the server, this costs no model call.
+    let mut seen = candidates;
+    if artist.is_some() {
+        match search_with_retry(service, &song.title).await {
+            Ok(by_title) => {
+                if let Some(found) = pick_match(song, &by_title) {
+                    println!(
+                        "[assistant] find_songs \"{}\" (title) -> {} / {}",
+                        song.title, found.title, found.artist_name
+                    );
+                    return Lookup::Found(Box::new(found), false);
+                }
+                seen.extend(by_title);
+            }
+            Err(err) => println!(
+                "[assistant] find_songs \"{}\" (title) failed: {err}",
+                song.title
+            ),
         }
     }
+    if let Some(found) = pick_same_title(song, &seen) {
+        println!(
+            "[assistant] find_songs \"{term}\" -> {} / {} (credited differently)",
+            found.title, found.artist_name
+        );
+        return Lookup::Found(Box::new(found), artist.is_some());
+    }
+
+    let returned: Vec<String> = seen
+        .iter()
+        .take(MAX_CLOSE_MATCHES)
+        .map(|song| format!("{} / {}", song.title, song.artist_name))
+        .collect();
+    println!(
+        "[assistant] find_songs \"{term}\" no match among {} results: {returned:?}",
+        seen.len()
+    );
+    Lookup::Missing(close_matches(song, &seen))
+}
+
+/// One catalog search, retried once after a rate limit.
+async fn search_with_retry(
+    service: &SongMetadataService,
+    term: &str,
+) -> Result<Vec<SongMetadata>, CadenzaError> {
+    let result = service.search_songs(term, FIND_CANDIDATES).await;
+    if matches!(result, Err(CadenzaError::SongMetadataRateLimited)) {
+        tokio::time::sleep(FIND_RETRY_WAIT).await;
+        return service.search_songs(term, FIND_CANDIDATES).await;
+    }
+    result
+}
+
+/// The shortest title that still counts as distinctive enough to match on its own, with
+/// no artist to confirm it. "Gusty Garden Galaxy" is; "Intro" or "Theme" is not.
+const MIN_TITLE_ONLY_CHARS: usize = 8;
+
+/// A result with exactly the title the model named, whoever Apple credits, for a song
+/// whose named artist Apple does not have. Only for a title long enough to be distinctive,
+/// and never a result that says it is a remix, karaoke, or a piano or lofi version, which
+/// a title search turns up for any famous tune.
+fn pick_same_title(wanted: &WantedSong, candidates: &[SongMetadata]) -> Option<SongMetadata> {
+    let title = match_key(&wanted.title);
+    if title.chars().count() < MIN_TITLE_ONLY_CHARS {
+        return None;
+    }
+    candidates
+        .iter()
+        .find(|song| match_key(&song.title) == title && !is_novelty_version(&song.title))
+        .cloned()
+}
+
+/// Whether a title says it is a novelty version rather than the tune itself.
+fn is_novelty_version(title: &str) -> bool {
+    let lowered = title.to_lowercase();
+    [
+        "remix",
+        "karaoke",
+        "lofi",
+        "lo-fi",
+        "piano",
+        "8-bit",
+        "8 bit",
+        "acoustic",
+        "cover",
+        "instrumental version",
+        "tribute",
+        "metal",
+        "orchestral version",
+        "music box",
+    ]
+    .iter()
+    .any(|word| lowered.contains(word))
 }
 
 #[derive(Deserialize)]
@@ -877,6 +968,7 @@ impl DbTools<'_> {
                 "songs needs at least one {title, artist}".to_owned(),
             ));
         }
+        let count = args.count.map(|count| count.clamp(1, MAX_FIND_COUNT));
 
         // a few at a time, in order
         let mut lookups: Vec<Lookup> = Vec::with_capacity(wanted.len());
@@ -903,6 +995,10 @@ impl DbTools<'_> {
             {
                 break;
             }
+            // enough for the count asked: the extras were only there to make up for misses
+            if count.is_some_and(|count| self.usable_found(&lookups) >= count) {
+                break;
+            }
         }
         if let Some(Lookup::Failed(why)) = lookups.first()
             && lookups
@@ -916,13 +1012,20 @@ impl DbTools<'_> {
         let mut found = Vec::new();
         let mut missing = Vec::new();
         let mut failed = Vec::new();
+        // song id -> the artist the model named, for songs Apple credits to someone else
+        let mut other_credits: HashMap<String, Option<String>> = HashMap::new();
         for (song, lookup) in wanted.iter().zip(lookups) {
             match lookup {
-                Lookup::Found(metadata) if seen.insert(metadata.id.clone()) => {
+                Lookup::Found(metadata, credited_differently)
+                    if seen.insert(metadata.id.clone()) =>
+                {
+                    if credited_differently {
+                        other_credits.insert(metadata.id.clone(), song.artist.clone());
+                    }
                     found.push(*metadata)
                 }
                 // the same song named twice
-                Lookup::Found(_) => {}
+                Lookup::Found(..) => {}
                 Lookup::Missing(close) => missing.push(json!({
                     "title": song.title,
                     "artist": song.artist,
@@ -936,6 +1039,11 @@ impl DbTools<'_> {
         if self.hide_explicit {
             found.retain(|song| song.content_rating.as_deref() != Some("explicit"));
         }
+        if let Some(count) = count {
+            found.truncate(count);
+        }
+        other_credits.retain(|id, _| found.iter().any(|song| &song.id == id));
+        let short_by = count.map_or(0, |count| count.saturating_sub(found.len()));
 
         let song_ids: Vec<String> = found.iter().map(|song| song.id.clone()).collect();
         // stored for queries and follow-up questions, off the answer's path
@@ -943,19 +1051,30 @@ impl DbTools<'_> {
         let described: Vec<Value> = found
             .iter()
             .map(|song| {
-                json!({
+                let mut described = json!({
                     "song_id": song.id,
                     "title": song.title,
                     "artist": song.artist_name,
                     "album": song.album_name,
                     "album_id": song.album_id,
                     "release_date": song.release_date,
-                })
+                });
+                if let Some(named) = other_credits.get(&song.id) {
+                    // the tune you named, but Apple credits this version to someone else
+                    described["you_named_artist"] = named.clone().into();
+                }
+                described
             })
             .collect();
         let mut outcome = ToolOutcome::ok(
             json!({
                 "found": described.len(),
+                "asked_for": count,
+                // asked for more than Apple Music had: say so, with both numbers
+                "short_by": short_by,
+                // found by title, but Apple credits these to another artist: often the only
+                // version Apple Music has, like covers of music its owner keeps off it
+                "credited_to_another_artist": other_credits.len(),
                 "songs": described,
                 // no match: Apple's closest results, which may be the right song under
                 // another credit, or only covers
@@ -974,6 +1093,20 @@ impl DbTools<'_> {
             });
         }
         Ok(outcome)
+    }
+
+    /// How many different songs `lookups` found that would stay on the card, past the Hide
+    /// explicit setting, for stopping the search once a count is met.
+    fn usable_found(&self, lookups: &[Lookup]) -> usize {
+        let mut ids = std::collections::HashSet::new();
+        for lookup in lookups {
+            if let Lookup::Found(song, _) = lookup
+                && !(self.hide_explicit && song.content_rating.as_deref() == Some("explicit"))
+            {
+                ids.insert(song.id.as_str());
+            }
+        }
+        ids.len()
     }
 
     /// Apple Music artists matching a name, with their catalog ids, for opening an artist's
@@ -1371,9 +1504,13 @@ pub fn definitions() -> Vec<Value> {
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "count": {
+                        "type": "integer",
+                        "description": "How many songs the user asked for, 1 to 25. Leave out when they gave no number."
+                    },
                     "songs": {
                         "type": "array",
-                        "description": "Up to 25, in the order to show them.",
+                        "description": "Best first, in the order to show them, up to 40. When count is set, name about half again as many (15 for 10, 8 for 5, at least 3 extra), so misses are made up: the search stops once it has count songs and keeps the first count.",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -1623,6 +1760,37 @@ mod tests {
         assert!(message.contains("credentials"));
         assert!(message.contains("Do not call find_songs again"));
         assert!(apple_music_down_message("timed out").contains("did not answer"));
+    }
+
+    #[test]
+    fn a_distinctive_title_matches_whoever_apple_credits() {
+        let wanted = wanted("Gusty Garden Galaxy", Some("Koji Kondo"));
+        let results = vec![
+            song("Gusty Garden Galaxy (Piano Version)", "Piano Person"),
+            song("Gusty Garden Galaxy", "Arcade Player"),
+        ];
+        // not by Koji Kondo, so no full match
+        assert_eq!(pick_match(&wanted, &results), None);
+        // but the same title, past the piano version, is the tune
+        assert_eq!(
+            pick_same_title(&wanted, &results).unwrap().artist_name,
+            "Arcade Player"
+        );
+    }
+
+    #[test]
+    fn a_short_or_novelty_title_never_matches_on_title_alone() {
+        assert_eq!(
+            pick_same_title(&wanted("Theme", Some("X")), &[song("Theme", "Y")]),
+            None
+        );
+        assert_eq!(
+            pick_same_title(
+                &wanted("Gusty Garden Galaxy", Some("X")),
+                &[song("Gusty Garden Galaxy - Lofi Remix", "Y")]
+            ),
+            None
+        );
     }
 
     #[test]

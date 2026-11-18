@@ -394,7 +394,15 @@ append each call and its output, and repeat until the model answers with text. I
   (brackets and " - Remastered" suffixes aside, or a whole-word prefix) and artist both match,
   so a song Apple lacks comes back in `not_found` rather than as a lookalike, with
   `apple_music_has` (Apple's results under that title) so the model can correct an artist
-  credit and retry once. A failed search is `lookup_failed`, not `not_found`. Every lookup is
+  credit and retry once. With no title and artist match, it also searches the title alone,
+  and takes a result with exactly that title (at least 8 characters, and not a remix, piano,
+  lofi, or other novelty version) whoever Apple credits, flagged `you_named_artist`: often the
+  only version Apple has, as with Nintendo's music. These extra searches are Apple calls on the
+  developer token, not model calls. A failed search is `lookup_failed`, not `not_found`. With
+  `count` (how many the user asked for) the model names about half again as many, best first;
+  the search stops once it has `count` usable songs and keeps the first `count`, and
+  `short_by` says how many it could not find. The card note states exactly how many songs the
+  card holds, so the reply's count matches it. Every lookup is
   logged as `[assistant] find_songs "<term>"` with what it matched or what Apple returned. The found songs' metadata is stored in the background
   (`spawn_store_song_metadata`) so follow-up questions and queries know them.
 - The card shows its songs, so a reply should not list them again. A tool output that makes a

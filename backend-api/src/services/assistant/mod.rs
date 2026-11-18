@@ -311,8 +311,8 @@ impl LoopState {
             last_card,
         };
         if let Some(card) = phone_tools::take_card(&mut output) {
+            output = with_card_note(output, card.total);
             state.songs = Some(card);
-            output = with_card_note(output);
         }
         state.items.push(json!({
             "type": "function_call_output",
@@ -365,13 +365,23 @@ impl LoopState {
 }
 
 /// What a tool output that makes a card tells the model, next to the songs, where it
-/// weighs more than a rule in the instructions.
-const CARD_NOTE: &str = "These songs are shown to the user as a card under your answer, with titles, artists, and artwork. Do not list them in your reply; say in one sentence what the card holds.";
+/// weighs more than a rule in the instructions: that the card shows them, and exactly how
+/// many it holds, so the reply never claims a number the card does not show.
+fn card_note(count: usize) -> String {
+    let songs = if count == 1 {
+        "1 song".to_owned()
+    } else {
+        format!("{count} songs")
+    };
+    format!(
+        "The card under your answer holds exactly {songs}, with titles, artists, and artwork. When you say how many you found, say {count}; if the user asked for more, say both numbers. Do not list the songs in your reply; say in one sentence what the card holds."
+    )
+}
 
-/// `output` with [`CARD_NOTE`] added, when it is an object.
-fn with_card_note(mut output: Value) -> Value {
+/// `output` with [`card_note`] added, when it is an object.
+fn with_card_note(mut output: Value, count: usize) -> Value {
     if let Some(object) = output.as_object_mut() {
-        object.insert("shown_as_card".to_owned(), Value::from(CARD_NOTE));
+        object.insert("shown_as_card".to_owned(), Value::from(card_note(count)));
     }
     output
 }
@@ -518,8 +528,8 @@ pub async fn run_loop(
 
             if !phone_tools::is_phone_tool(&call.name) {
                 let outcome = runner.run(&call.name, &call.arguments).await;
-                let output = if outcome.songs.is_some() {
-                    with_card_note(outcome.output.clone())
+                let output = if let Some(card) = &outcome.songs {
+                    with_card_note(outcome.output.clone(), card.total)
                 } else {
                     outcome.output.clone()
                 };
@@ -917,12 +927,10 @@ mod tests {
         let model = ScriptedModel::new(vec![call("run_query", "{}"), text("Done.")]);
         run(&model).await;
         let inputs = model.inputs.lock().unwrap();
-        assert!(
-            inputs[1][2]["output"]
-                .as_str()
-                .unwrap()
-                .contains("shown_as_card")
-        );
+        let output = inputs[1][2]["output"].as_str().unwrap();
+        assert!(output.contains("shown_as_card"));
+        // FakeTools' run_query card holds 2
+        assert!(output.contains("exactly 2 songs"));
     }
 
     #[test]
