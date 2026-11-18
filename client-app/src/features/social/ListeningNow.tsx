@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter, type Href } from "expo-router";
+import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
     ActivityIndicator,
@@ -39,15 +39,17 @@ import {
     markAskedToJoin,
     useHasAskedToJoin,
 } from "../live-session/asked-to-join";
-import { useCurrentLiveSession } from "../live-session/use-current-session";
+import {
+    useCurrentLiveSession,
+    useShownLiveSession,
+} from "../live-session/use-current-session";
 import { formatRelativeTime } from "./format";
 import { formatTrackTime, livePositionMs } from "./listening-progress";
 import { LiveChip } from "./LiveChip";
 import { Initials } from "./MemberRow";
+import { SessionActionsMenu } from "./SessionActionsMenu";
 import { ShelfHeader } from "./ShelfHeader";
 import { ModalPopup } from "@/components/custom/modal-popup";
-import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
-import type { MusicListAction } from "@/components/custom/music-list/types";
 
 /** Recent plays a profile shows, and how many to a swipeable column. */
 const PROFILE_RECENT_PLAYS = 16;
@@ -60,6 +62,11 @@ const TILE_BLEND = 6;
 
 /** The shade under the title and artist on the art, clear at its top. */
 const TITLE_SHADE = ["rgba(0,0,0,0)", "rgba(0,0,0,0.45)"] as const;
+
+/** The gray ring on a bubble that is not live. */
+function neutralRing(mutedForeground: string) {
+    return withAlpha(mutedForeground, 0.55);
+}
 
 const STORY_GUTTER = 20;
 const STORY_GAP = 16;
@@ -118,7 +125,7 @@ const PLACEHOLDER_STORIES = [
 export function ListeningNowStrip() {
     const router = useRouter();
     const { mutedForeground } = useAppTheme().colors;
-    const neutralRing = withAlpha(mutedForeground, 0.55);
+    const joinRing = neutralRing(mutedForeground);
     const { width: screenWidth } = useWindowDimensions();
     const [viewportWidth, setViewportWidth] = useState(0);
     const usableWidth = Math.max(
@@ -138,7 +145,7 @@ export function ListeningNowStrip() {
     const { friendsListening } = useFriendsListening();
     const { profile } = useProfile();
     const { account } = useAccount();
-    const { userListening } = useUserListening(account?.id ?? null);
+    const myStory = useMyStory(account?.id ?? null);
     const stories = [...PLACEHOLDER_STORIES, ...(friendsListening ?? [])];
 
     return (
@@ -166,8 +173,8 @@ export function ListeningNowStrip() {
                         account?.email?.split("@")[0] ??
                         "You"
                     }
-                    userId={account?.id}
-                    artworkUrl={userListening?.now_playing?.artwork_url}
+                    artworkUrl={myStory.artworkUrl}
+                    live={myStory.live}
                     size={storySize}
                 />
                 {stories.map((friend) => (
@@ -189,13 +196,10 @@ export function ListeningNowStrip() {
                         style={{
                             width: storySize,
                             height: storySize,
-                            borderColor: neutralRing,
+                            borderColor: joinRing,
                         }}
                     >
-                        <CadenzaLogo
-                            size={storySize * 0.42}
-                            color={neutralRing}
-                        />
+                        <CadenzaLogo size={storySize * 0.42} color={joinRing} />
                     </View>
                     <Text
                         className="w-full text-center text-xs text-foreground"
@@ -207,6 +211,28 @@ export function ListeningNowStrip() {
             </ScrollView>
         </View>
     );
+}
+
+/**
+ * What the caller's own bubble shows. Live (hosting, or playing along synced,
+ * in a session that shows as live, the same rule friends see) it is the
+ * session's song, paused or not, or nothing with no song queued. Otherwise it
+ * is what they play now, which drops off when they stop.
+ */
+function useMyStory(userId: string | null) {
+    const { userListening } = useUserListening(userId);
+    const session = useShownLiveSession();
+    const live =
+        session !== null &&
+        (session.my_role === "host" || session.my_listen_mode === "synced");
+    if (live) {
+        const song = session.current ?? session.up_next[0] ?? null;
+        return { live, artworkUrl: song?.artwork_url ?? null };
+    }
+    return {
+        live,
+        artworkUrl: userListening?.now_playing?.artwork_url ?? null,
+    };
 }
 
 /**
@@ -234,86 +260,87 @@ export function AllListening() {
 }
 
 /**
- * Two buttons side by side: Start a session, or with one open, Open live
- * session; and Join with code. In a session, joining with a code asks first,
- * since a code for another session takes the caller out of this one.
+ * The caller's own bubble, labeled Your listening. Tapping it opens their live
+ * session when they are in one, else the session menu. The + on its corner
+ * always opens the session menu.
  */
 function YourListeningStory({
     username,
-    userId,
     artworkUrl,
+    live,
     size,
 }: {
     username: string;
-    userId?: string;
     artworkUrl?: string | null;
+    live: boolean;
     size: number;
 }) {
     const router = useRouter();
-    const [open, setOpen] = useState(false);
-    const actions: MusicListAction<null>[] = [
-        {
-            id: "my-social-profile",
-            label: "See social profile",
-            icon: "person-outline",
-            onPress: () => {
-                setOpen(false);
-                if (userId) router.push(`/social/user/${userId}`);
-            },
-        },
-        {
-            id: "start-listening-session",
-            label: "Start listening session",
-            icon: "radio-outline",
-            onPress: () => {
-                setOpen(false);
-                router.push("/live-session/new?openPlayer=1" as Href);
-            },
-        },
-    ];
+    const session = useCurrentLiveSession();
+    const { brand, mutedForeground } = useAppTheme().colors;
+    const [menuOpen, setMenuOpen] = useState(false);
+    const badgeSize = Math.round(size * 0.4);
     return (
         <>
             <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Your listening options"
-                onPress={() => setOpen(true)}
+                accessibilityLabel={
+                    session ? "Open your live session" : "Your listening"
+                }
+                onPress={() =>
+                    session ? router.push("/player") : setMenuOpen(true)
+                }
                 className="items-center gap-1.5 active:opacity-60"
                 style={{ width: size }}
             >
-                <View
-                    className="items-center justify-center overflow-hidden rounded-full border-2 border-border bg-muted"
-                    style={{ width: size, height: size }}
-                >
-                    <RemoteArtwork
-                        url={artworkUrl}
-                        className="h-full w-full rounded-full"
-                        fallback={
+                <View>
+                    {artworkUrl ? (
+                        <StoryRing
+                            artworkUrl={artworkUrl}
+                            live={live}
+                            size={size}
+                        />
+                    ) : (
+                        <View
+                            className="items-center justify-center rounded-full border-2 border-border bg-muted"
+                            style={{ width: size, height: size }}
+                        >
                             <Text className="text-lg font-semibold text-foreground">
                                 {username.slice(0, 1).toUpperCase()}
                             </Text>
-                        }
-                    />
+                        </View>
+                    )}
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Start or join a live session"
+                        hitSlop={6}
+                        onPress={() => setMenuOpen(true)}
+                        className="absolute bottom-0 right-0 items-center justify-center rounded-full border-2 active:opacity-60"
+                        style={{
+                            width: badgeSize,
+                            height: badgeSize,
+                            backgroundColor: brand,
+                            borderColor: neutralRing(mutedForeground),
+                        }}
+                    >
+                        <Ionicons
+                            name="add"
+                            size={badgeSize * 0.8}
+                            color="white"
+                        />
+                    </Pressable>
                 </View>
                 <Text
                     className="w-full text-center text-xs text-foreground"
                     numberOfLines={1}
                 >
-                    {username}
+                    Your listening
                 </Text>
             </Pressable>
-            <ModalPopup
-                visible={open}
-                onClose={() => setOpen(false)}
-                title="Your listening"
-            >
-                {actions.map((action) => (
-                    <MusicListActionButton
-                        key={action.id}
-                        action={action}
-                        target={null}
-                    />
-                ))}
-            </ModalPopup>
+            <SessionActionsMenu
+                open={menuOpen}
+                onClose={() => setMenuOpen(false)}
+            />
         </>
     );
 }
@@ -326,7 +353,6 @@ function ListeningStory({
     size: number;
 }) {
     const [open, setOpen] = useState(false);
-    const { brand, mutedForeground } = useAppTheme().colors;
     const live = Boolean(friend.now_playing.live_session_id && friend.can_join);
     return (
         <>
@@ -337,28 +363,11 @@ function ListeningStory({
                 className="items-center gap-1.5 active:opacity-60"
                 style={{ width: size }}
             >
-                <View
-                    style={{
-                        width: size,
-                        height: size,
-                        borderColor: live
-                            ? brand
-                            : withAlpha(mutedForeground, 0.55),
-                    }}
-                    className="items-center justify-center rounded-full border-2 p-1"
-                >
-                    <RemoteArtwork
-                        url={friend.now_playing.artwork_url}
-                        className="h-full w-full rounded-full"
-                        fallback={
-                            <Ionicons
-                                name="musical-note"
-                                size={22}
-                                color={brand}
-                            />
-                        }
-                    />
-                </View>
+                <StoryRing
+                    artworkUrl={friend.now_playing.artwork_url}
+                    live={live}
+                    size={size}
+                />
                 <Text
                     className="w-full text-center text-xs text-foreground"
                     numberOfLines={1}
@@ -372,6 +381,40 @@ function ListeningStory({
                 onClose={() => setOpen(false)}
             />
         </>
+    );
+}
+
+/**
+ * A listening bubble: the song's art inset in a ring, the accent color when
+ * live, a neutral gray otherwise.
+ */
+function StoryRing({
+    artworkUrl,
+    live,
+    size,
+}: {
+    artworkUrl: string | null;
+    live: boolean;
+    size: number;
+}) {
+    const { brand, mutedForeground } = useAppTheme().colors;
+    return (
+        <View
+            style={{
+                width: size,
+                height: size,
+                borderColor: live ? brand : neutralRing(mutedForeground),
+            }}
+            className="items-center justify-center rounded-full border-2 p-1"
+        >
+            <RemoteArtwork
+                url={artworkUrl}
+                className="h-full w-full rounded-full"
+                fallback={
+                    <Ionicons name="musical-note" size={22} color={brand} />
+                }
+            />
+        </View>
     );
 }
 
