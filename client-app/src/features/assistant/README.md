@@ -73,6 +73,9 @@ Assistant section of [backend-api/src/services/README.md](../../../../backend-ap
   `playback` `clear_queue` replaces the queue with only the song playing and seeks back to
   where it was, since MusicKit has no way to drop the rest in place.
 - `play` shuffles the list itself, with Apple's shuffle off, like the card's Shuffle.
+- Anything that starts playback (`play`, or `queue_songs` with nothing playing) opens the now
+  playing sheet: it replaces the assistant sheet when that is on top, and is pushed otherwise,
+  in case the chat was closed while the answer ran. The reply still lands in the chat.
   `set_shuffle` turns Apple's shuffle on, the same as the queue's toggle.
 - Playback tools refuse while `controlsLocked` (a live session the user cannot control), and
   go through the same commands as a tap otherwise, so a live session's rules apply.

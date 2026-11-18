@@ -4,7 +4,7 @@ import {
     ShuffleMode,
     type MusicItem,
 } from "@apple-musickit";
-import { useRouter, type Href } from "expo-router";
+import { useNavigationContainerRef, useRouter, type Href } from "expo-router";
 import { useCallback } from "react";
 import { useSWRConfig } from "swr";
 
@@ -129,6 +129,7 @@ export function usePhoneTools() {
     const lookupTracks = useTrackLookup();
     const openScreen = useOpenScreen();
     const router = useRouter();
+    const navigation = useNavigationContainerRef();
     const { recordEvent } = useListeningEvents();
     const { createPlaylist, addSongsToPlaylist } = usePlaylistMutations();
     const { mutate } = useSWRConfig();
@@ -211,10 +212,12 @@ export function usePhoneTools() {
                             tracks: shuffled ? shuffledCopy(tracks) : tracks,
                             startIndex: 0,
                         });
+                        openPlayer(router, navigation);
                         return {
                             playing: tracks.length,
                             shuffled,
                             first: shuffled ? undefined : tracks[0].title,
+                            opened_player: true,
                         };
                     }
                     case "playback": {
@@ -293,9 +296,11 @@ export function usePhoneTools() {
                         if (!playback?.activeTrack) {
                             // nothing to queue after, so they play
                             await commands.playQueue({ tracks, startIndex: 0 });
+                            openPlayer(router, navigation);
                             return {
                                 playing: tracks.length,
                                 note: "Nothing was playing, so these started playing.",
+                                opened_player: true,
                             };
                         }
                         if (args.position === "next") {
@@ -542,12 +547,48 @@ export function usePhoneTools() {
             commands,
             createPlaylist,
             mutate,
+            navigation,
             openScreen,
             recordEvent,
             router,
             songsOf,
         ],
     );
+}
+
+/** The deepest focused route's name in a navigation state, like "assistant". */
+function focusedRouteName(state: unknown): string | undefined {
+    let current = state as
+        | { index?: number; routes?: { name: string; state?: unknown }[] }
+        | undefined;
+    let name: string | undefined;
+    while (current?.routes?.length) {
+        const route =
+            current.routes[current.index ?? current.routes.length - 1];
+        name = route?.name;
+        current = route?.state as typeof current;
+    }
+    return name;
+}
+
+/**
+ * Replaces the assistant sheet with the now playing sheet, the way playing from a
+ * song card does, so the user lands on what just started. The reply still lands in
+ * the chat.
+ */
+function openPlayer(
+    router: ReturnType<typeof useRouter>,
+    navigation: ReturnType<typeof useNavigationContainerRef>,
+) {
+    // the chat may have been closed while the answer ran; then nothing is replaced
+    const onTop = navigation.isReady()
+        ? focusedRouteName(navigation.getRootState())
+        : undefined;
+    if (onTop === "assistant") {
+        router.replace("/player");
+    } else {
+        router.push("/player");
+    }
 }
 
 /**
