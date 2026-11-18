@@ -165,8 +165,9 @@ and older iOS get a plain push.
 Every tab is a group with a native `Stack` from `TabStack`. `TopRail` is that stack's
 header. The page title sits on the left, the account
 initials button sits on the right, and the button opens `/account`. The Social tab adds
-a notifications bell and an overflow menu. The menu opens the caller's profile, friends,
-or the listening session flows; the bell opens `/social/notifications`. New posts are written
+a notifications bell and an overflow menu. The menu opens the caller's profile or friends.
+Starting or joining a live session is on the + of Your listening, the first bubble in
+Listening now, and the Join session bubble ends that row; the bell opens `/social/notifications`. New posts are written
 in a composer at the top of the feed that opens in place.
 
 The rail floats over the page; it is not part of it. The screen's scroller pads its content's top

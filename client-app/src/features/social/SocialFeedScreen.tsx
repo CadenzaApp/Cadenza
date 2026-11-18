@@ -558,10 +558,6 @@ export function SocialFeedScreen() {
             <SocialOverflowMenu
                 open={socialMenuOpen}
                 onClose={() => setSocialMenuOpen(false)}
-                onStartSession={() =>
-                    router.push("/live-session/new?openPlayer=1")
-                }
-                onJoinSession={() => router.push("/join")}
             />
             <Toast toast={toast} />
         </View>
