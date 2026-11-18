@@ -769,8 +769,9 @@ type TopicPageKey = {
 
 /**
  * Posts whose topic is this Apple Music catalog id, 10 at a time. Most liked
- * first, then newest, then post id. Pass no id, or `enabled: false`, to leave
- * it unread. The next page sends the previous response's `next` cursor.
+ * first, then newest, then post id. A post with no author is left out. Pass
+ * no id, or `enabled: false`, to leave it unread. The next page sends the
+ * previous response's `next` cursor.
  *
  * ```ts
  * const { posts, hasNextPage, loadNextPage } = useTopicPosts(songId, enabled);

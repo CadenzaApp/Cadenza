@@ -1553,9 +1553,10 @@ pub struct TopicPostPage {
 
 /// Posts whose topic is this Apple Music catalog id, at most [`TOPIC_POST_LIMIT`].
 ///
-/// Order is `likes` desc, `created_at` desc, `post_id` desc. `created_at` is
-/// not unique, so `post_id` finishes the order and the cursor. `cursor` is
-/// `None` for the first page. Later pages pass the previous `next`.
+/// A post with no author is left out. Order is `likes` desc, `created_at`
+/// desc, `post_id` desc. `created_at` is not unique, so `post_id` finishes the
+/// order and the cursor. `cursor` is `None` for the first page. Later pages
+/// pass the previous `next`.
 pub async fn get_topic_posts(
     db: &DatabaseConnection,
     viewer_id: Uuid,
@@ -1611,6 +1612,7 @@ fn topic_posts_statement(
             format!(
                 "{TOPIC_POSTS_SELECT}
                  WHERE p.topic_mk_id = $2
+                   AND p.user_id IS NOT NULL
                    AND {NOT_BLOCKED_AUTHOR}
                  ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
                  LIMIT $3"
@@ -1626,6 +1628,7 @@ fn topic_posts_statement(
             format!(
                 "{TOPIC_POSTS_SELECT}
                  WHERE p.topic_mk_id = $2
+                   AND p.user_id IS NOT NULL
                    AND {NOT_BLOCKED_AUTHOR}
                    AND (p.likes, p.created_at, p.post_id) < ($3, $4, $5)
                  ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
@@ -3181,6 +3184,7 @@ mod tests {
             "{}",
             first.sql
         );
+        assert!(first.sql.contains("p.user_id IS NOT NULL"), "{}", first.sql);
         assert!(
             first
                 .sql
@@ -3209,6 +3213,7 @@ mod tests {
             "{}",
             next.sql
         );
+        assert!(next.sql.contains("p.user_id IS NOT NULL"), "{}", next.sql);
         assert!(next.sql.contains("LIMIT $6"), "{}", next.sql);
         let values = &next.values.as_ref().unwrap().0;
         assert_eq!(values[2], Value::from(4_i64));

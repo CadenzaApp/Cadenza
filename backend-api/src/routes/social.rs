@@ -631,7 +631,7 @@ impl TopicPostsQuery {
 }
 
 /// Posts whose topic is this Apple Music catalog id, at most 10. Most liked
-/// first, then newest, then post id.
+/// first, then newest, then post id. A post with no author is left out.
 ///
 /// Omit `likes`, `created_at`, and `post_id` for the first page. Pass `next`
 /// from the previous response as those three fields for the following page.

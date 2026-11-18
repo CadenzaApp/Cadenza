@@ -496,7 +496,7 @@ impl SocialFeedService {
     }
 
     /// One page of posts whose topic is `topic_mk_id`, most liked first.
-    /// `cursor` is `None` for the first page.
+    /// A post with no author is left out. `cursor` is `None` for the first page.
     pub async fn topic_posts(
         &self,
         db: &DatabaseConnection,
