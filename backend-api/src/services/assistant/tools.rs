@@ -376,6 +376,11 @@ struct FindSongsArgs {
     /// this many. Left out, every song found is kept.
     #[serde(default)]
     count: Option<usize>,
+    /// The game, film, show, or artist the songs come from, when they all do, like
+    /// "Sonic the Hedgehog". A song matched by title alone must name it in its album or
+    /// artist, so an unrelated song with the same title does not slip in.
+    #[serde(default)]
+    from: Option<String>,
     #[serde(default)]
     title: Option<String>,
 }
@@ -490,7 +495,7 @@ fn apple_music_down_message(why: &str) -> String {
 
 /// Searches the catalog for one song the model named, retrying once on a rate limit.
 /// Every outcome is logged, so a song that did not land can be checked against Apple.
-async fn look_up(service: &SongMetadataService, song: &WantedSong) -> Lookup {
+async fn look_up(service: &SongMetadataService, song: &WantedSong, from: Option<&str>) -> Lookup {
     let artist = song
         .artist
         .as_deref()
@@ -537,7 +542,7 @@ async fn look_up(service: &SongMetadataService, song: &WantedSong) -> Lookup {
             ),
         }
     }
-    if let Some(found) = pick_same_title(song, &seen) {
+    if let Some(found) = pick_same_title(song, &seen, from) {
         println!(
             "[assistant] find_songs \"{term}\" -> {} / {} (credited differently)",
             found.title, found.artist_name
@@ -578,15 +583,68 @@ const MIN_TITLE_ONLY_CHARS: usize = 8;
 /// whose named artist Apple does not have. Only for a title long enough to be distinctive,
 /// and never a result that says it is a remix, karaoke, or a piano or lofi version, which
 /// a title search turns up for any famous tune.
-fn pick_same_title(wanted: &WantedSong, candidates: &[SongMetadata]) -> Option<SongMetadata> {
+fn pick_same_title(
+    wanted: &WantedSong,
+    candidates: &[SongMetadata],
+    from: Option<&str>,
+) -> Option<SongMetadata> {
     let title = match_key(&wanted.title);
     if title.chars().count() < MIN_TITLE_ONLY_CHARS {
         return None;
     }
+    let context = from.map(context_words).unwrap_or_default();
     candidates
         .iter()
-        .find(|song| match_key(&song.title) == title && !is_novelty_version(&song.title))
+        .find(|song| {
+            match_key(&song.title) == title
+                && !is_novelty_version(&song.title)
+                && (context.is_empty() || mentions_any(song, &context))
+        })
         .cloned()
+}
+
+/// Words that do not tell one source from another, left out of `from`.
+const CONTEXT_STOP_WORDS: &[&str] = &[
+    "the",
+    "and",
+    "from",
+    "game",
+    "games",
+    "video",
+    "music",
+    "song",
+    "songs",
+    "soundtrack",
+    "theme",
+    "themes",
+    "series",
+    "original",
+    "movie",
+    "film",
+    "show",
+    "with",
+];
+
+/// The words of `from` worth matching: four letters or more and not a stop word, so
+/// "Sonic the Hedgehog" is ["sonic", "hedgehog"].
+fn context_words(from: &str) -> Vec<String> {
+    match_key(from)
+        .split_whitespace()
+        .filter(|word| word.chars().count() >= 4 && !CONTEXT_STOP_WORDS.contains(word))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Whether a song's album or artist names any of `words`.
+fn mentions_any(song: &SongMetadata, words: &[String]) -> bool {
+    let haystack = match_key(&format!(
+        "{} {}",
+        song.album_name.as_deref().unwrap_or(""),
+        song.artist_name
+    ));
+    words
+        .iter()
+        .any(|word| haystack.split_whitespace().any(|part| part == word))
 }
 
 /// Whether a title says it is a novelty version rather than the tune itself.
@@ -985,7 +1043,9 @@ impl DbTools<'_> {
             let mut searches = tokio::task::JoinSet::new();
             for (index, song) in batch.iter().cloned().enumerate() {
                 let service = self.song_meta.clone();
-                searches.spawn(async move { (index, look_up(&service, &song).await) });
+                let from = args.from.clone();
+                searches
+                    .spawn(async move { (index, look_up(&service, &song, from.as_deref()).await) });
             }
             let mut results: Vec<Option<Lookup>> = (0..batch.len()).map(|_| None).collect();
             while let Some(joined) = searches.join_next().await {
@@ -1586,6 +1646,10 @@ pub fn definitions() -> Vec<Value> {
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "from": {
+                        "type": "string",
+                        "description": "When every song comes from one game, film, show, or artist, its name, like \"Sonic the Hedgehog\". Keeps unrelated songs that share a title off the card."
+                    },
                     "count": {
                         "type": "integer",
                         "description": "How many songs the user asked for, 1 to 25. Leave out when they gave no number."
@@ -1855,21 +1919,42 @@ mod tests {
         assert_eq!(pick_match(&wanted, &results), None);
         // but the same title, past the piano version, is the tune
         assert_eq!(
-            pick_same_title(&wanted, &results).unwrap().artist_name,
+            pick_same_title(&wanted, &results, None)
+                .unwrap()
+                .artist_name,
             "Arcade Player"
         );
     }
 
     #[test]
+    fn a_title_match_must_name_the_source_when_given() {
+        let wanted = wanted("City Escape", Some("Junsuke Yoshikawa"));
+        let mut from_the_game = song("City Escape", "Crush 40");
+        from_the_game.album_name = Some("Sonic Adventure 2 Original Soundtrack".into());
+        let unrelated = song("City Escape", "The Dear Hunter");
+        let from = Some("Sonic the Hedgehog");
+        // the unrelated song comes first in Apple's results, and is still passed over
+        assert_eq!(
+            pick_same_title(&wanted, &[unrelated.clone(), from_the_game], from)
+                .unwrap()
+                .artist_name,
+            "Crush 40"
+        );
+        assert_eq!(pick_same_title(&wanted, &[unrelated], from), None);
+        assert_eq!(context_words("Sonic the Hedgehog"), ["sonic", "hedgehog"]);
+    }
+
+    #[test]
     fn a_short_or_novelty_title_never_matches_on_title_alone() {
         assert_eq!(
-            pick_same_title(&wanted("Theme", Some("X")), &[song("Theme", "Y")]),
+            pick_same_title(&wanted("Theme", Some("X")), &[song("Theme", "Y")], None),
             None
         );
         assert_eq!(
             pick_same_title(
                 &wanted("Gusty Garden Galaxy", Some("X")),
-                &[song("Gusty Garden Galaxy - Lofi Remix", "Y")]
+                &[song("Gusty Garden Galaxy - Lofi Remix", "Y")],
+                None
             ),
             None
         );

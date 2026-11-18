@@ -316,6 +316,39 @@ impl LoopState {
         self
     }
 
+    /// Every value this answer's tool outputs gave under a field named `field`, like every
+    /// `album_id`, for checking that an id is the kind it is used as.
+    fn ids_in_field(&self, field: &str) -> HashSet<String> {
+        fn walk(value: &Value, field: &str, found: &mut HashSet<String>) {
+            match value {
+                Value::Object(object) => {
+                    for (key, value) in object {
+                        if key == field
+                            && let Some(id) = phone_tools::id_value(value)
+                        {
+                            found.insert(id);
+                        }
+                        walk(value, field, found);
+                    }
+                }
+                Value::Array(values) => values.iter().for_each(|value| walk(value, field, found)),
+                _ => {}
+            }
+        }
+        let mut found = HashSet::new();
+        for item in &self.items {
+            if item["type"] != "function_call_output" {
+                continue;
+            }
+            if let Some(output) = item["output"].as_str()
+                && let Ok(value) = serde_json::from_str::<Value>(output)
+            {
+                walk(&value, field, &mut found);
+            }
+        }
+        found
+    }
+
     /// Every id the model could have read in this answer: anything a tool returned, the
     /// cards, and the known ids. Strings and numbers both, as strings. Wider than ids
     /// alone (titles land here too), which is fine: it only has to hold every real one.
@@ -474,6 +507,9 @@ fn songs_named_in(items: &[Value]) -> Vec<(String, Option<String>)> {
     found
 }
 
+/// How many of the card's songs one sentence has to name to count as listing them.
+const MIN_INLINE_LISTED: usize = 3;
+
 /// The most words a line may keep, once a song's title, its artist, and list marks are
 /// taken out, and still count as only naming the song.
 const MAX_LISTING_EXTRA_WORDS: usize = 3;
@@ -509,13 +545,40 @@ fn strip_card_listing(text: &str, songs: &[(String, Option<String>)]) -> String 
         })
     };
 
+    // a sentence that strings three or more of the songs together is the card again too
+    let named_in = |sentence: &str| {
+        let key = format!(" {} ", match_key(sentence));
+        songs
+            .iter()
+            .filter(|(title, _)| key.contains(&format!(" {title} ")))
+            .count()
+    };
+    let text: String = text
+        .lines()
+        .map(|line| {
+            let kept: Vec<&str> = sentences(line)
+                .into_iter()
+                .filter(|sentence| named_in(sentence) < MIN_INLINE_LISTED)
+                .collect();
+            if kept.is_empty() && !line.trim().is_empty() && named_in(line) >= MIN_INLINE_LISTED {
+                String::new()
+            } else if kept.len() == sentences(line).len() {
+                line.to_owned()
+            } else {
+                kept.join(" ")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let text = text.as_str();
+
     let lines: Vec<&str> = text.lines().collect();
     let listing: Vec<bool> = lines
         .iter()
         .map(|line| !line.trim().is_empty() && names_only(line))
         .collect();
     if listing.iter().filter(|&&is| is).count() < 2 {
-        return text.to_owned();
+        return text.trim().to_owned();
     }
     let kept: Vec<&str> = lines
         .iter()
@@ -577,19 +640,30 @@ fn strip_card_pointers(text: &str) -> String {
     if out.is_empty() { text.to_owned() } else { out }
 }
 
-/// `line` split after each `.`, `!`, or `?` that ends a sentence, each piece trimmed.
+/// `line` split after each `.`, `!`, or `?` that ends a sentence (with any closing quote or
+/// bracket right after it, like `."`), each piece trimmed.
 fn sentences(line: &str) -> Vec<&str> {
+    let closers = ['"', '\'', '\u{201d}', '\u{2019}', ')', ']'];
+    let chars: Vec<(usize, char)> = line.char_indices().collect();
     let mut out = Vec::new();
     let mut start = 0;
-    let chars: Vec<(usize, char)> = line.char_indices().collect();
-    for (i, &(at, c)) in chars.iter().enumerate() {
-        let ends =
-            matches!(c, '.' | '!' | '?') && chars.get(i + 1).is_none_or(|&(_, next)| next == ' ');
-        if ends {
-            let end = at + c.len_utf8();
-            out.push(line[start..end].trim());
-            start = end;
+    let mut i = 0;
+    while i < chars.len() {
+        let (_, c) = chars[i];
+        if matches!(c, '.' | '!' | '?') {
+            let mut j = i + 1;
+            while j < chars.len() && closers.contains(&chars[j].1) {
+                j += 1;
+            }
+            if j == chars.len() || chars[j].1 == ' ' {
+                let end = chars.get(j).map_or(line.len(), |&(at, _)| at);
+                out.push(line[start..end].trim());
+                start = end;
+                i = j;
+                continue;
+            }
         }
+        i += 1;
     }
     if start < line.len() {
         out.push(line[start..].trim());
@@ -669,6 +743,15 @@ pub async fn run_loop(
                 .into_iter()
                 .filter(|id| !sourced.contains(id))
                 .collect();
+            // an album or artist id has to have come as one, not as some other id
+            let mistyped: Vec<String> = phone_tools::typed_ids_named(&call.name, &arguments)
+                .into_iter()
+                .filter(|(field, id)| {
+                    !unsourced.contains(id) && !state.ids_in_field(field).contains(id)
+                })
+                .map(|(field, id)| format!("{id} (not an {field} from any tool)"))
+                .collect();
+            let unsourced: Vec<String> = unsourced.into_iter().chain(mistyped).collect();
             if !unsourced.is_empty() {
                 println!(
                     "[assistant] {} refused, ids from no tool: {unsourced:?}",
@@ -999,6 +1082,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_song_id_used_as_an_album_is_refused() {
+        // FakeTools' run_query card holds songs "1" and "2"
+        let model = ScriptedModel::new(vec![
+            call("run_query", "{}"),
+            call("play", r#"{"album_id":"1"}"#),
+            text("That was not an album."),
+        ]);
+        let AssistantResponse::Reply { text, .. } = run(&model).await else {
+            panic!("expected a reply, not a phone call");
+        };
+        assert_eq!(text, "That was not an album.");
+    }
+
+    #[tokio::test]
     async fn a_tag_id_from_the_prompt_is_known() {
         let model = ScriptedModel::new(vec![call("open_screen", r#"{"screen":"tag","id":12}"#)]);
         let state = LoopState::new(vec![]).with_known_ids(["12".to_owned()]);
@@ -1083,6 +1180,15 @@ mod tests {
         assert_eq!(
             strip_card_listing(reply, &named()),
             "Here are 3 iconic video game songs."
+        );
+    }
+
+    #[test]
+    fn a_sentence_listing_the_card_is_taken_out() {
+        let reply = "I found 3 songs. Here are the songs you can enjoy: \"Megalovania,\" \"Baba Yetu,\" and \"Still Alive.\" Want me to play them?";
+        assert_eq!(
+            strip_card_listing(reply, &named()),
+            "I found 3 songs. Want me to play them?"
         );
     }
 

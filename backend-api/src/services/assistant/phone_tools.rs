@@ -84,6 +84,9 @@ pub fn prepare_arguments(
     if !args.is_object() {
         return Err("arguments must be a JSON object".to_owned());
     }
+    if matches!(name, "play" | "queue_songs") {
+        keep_one_source(&mut args);
+    }
     if !TAKES_SONGS.contains(&name) {
         return Ok(args);
     }
@@ -122,6 +125,73 @@ pub fn prepare_arguments(
         .map(Value::from)
         .collect();
     Ok(args)
+}
+
+/// The ways `play` and `queue_songs` can name what to play, besides `songs`.
+const OTHER_SOURCES: [&str; 3] = ["apple_music_playlist_id", "album_id", "artist_id"];
+
+/// Leaves `play` or `queue_songs` one thing to play. The model sometimes fills every
+/// optional field, with empty strings or with an id from somewhere else, and the phone would
+/// take the first it finds. Empty ones go, and `songs`, when given, wins over the rest.
+fn keep_one_source(args: &mut Value) {
+    let Some(object) = args.as_object_mut() else {
+        return;
+    };
+    for key in OTHER_SOURCES {
+        let empty = match object.get(key) {
+            Some(Value::String(id)) => id.trim().is_empty(),
+            Some(Value::Null) => true,
+            _ => false,
+        };
+        if empty {
+            object.remove(key);
+        }
+    }
+    let has_songs = match object.get("songs") {
+        Some(Value::Array(ids)) => !ids.is_empty(),
+        Some(Value::String(_)) => true,
+        _ => false,
+    };
+    if has_songs {
+        for key in OTHER_SOURCES {
+            object.remove(key);
+        }
+    } else {
+        object.remove("songs");
+    }
+}
+
+/// Ids that must have come from a tool field of the same kind, as (field, id): an album
+/// id from an `album_id`, an artist id from an `artist_id`. A song id passed as an album id
+/// came from a tool too, so the plain check alone would let it through.
+pub fn typed_ids_named(name: &str, args: &Value) -> Vec<(&'static str, String)> {
+    let mut ids = Vec::new();
+    match name {
+        "play" | "queue_songs" => {
+            for (key, field) in [("album_id", "album_id"), ("artist_id", "artist_id")] {
+                if let Some(id) = id_value(&args[key]) {
+                    ids.push((field, id));
+                }
+            }
+        }
+        "open_screen" => {
+            let field = match args["screen"].as_str() {
+                Some("album") => Some("album_id"),
+                Some("artist") => Some("artist_id"),
+                _ => None,
+            };
+            if let (Some(field), Some(id)) = (field, id_value(&args["id"])) {
+                ids.push((field, id));
+            }
+        }
+        "favorite_collection" if args["kind"] == "album" => {
+            if let Some(id) = id_value(&args["id"]) {
+                ids.push(("album_id", id));
+            }
+        }
+        _ => {}
+    }
+    ids
 }
 
 /// The ids a phone tool call names, in its prepared arguments: every one must have come
@@ -460,6 +530,39 @@ mod tests {
         );
         assert!(prepare_arguments("now_playing", "[1]", None).is_err());
         assert!(prepare_arguments("now_playing", "{", None).is_err());
+    }
+
+    #[test]
+    fn play_keeps_one_source() {
+        // the model filled every field: the songs win, empty ids go
+        let args = prepare_arguments(
+            "play",
+            r#"{"songs":["1","2"],"album_id":"1","apple_music_playlist_id":"","artist_id":"","shuffle":false}"#,
+            None,
+        )
+        .unwrap();
+        assert_eq!(args, json!({ "songs": ["1", "2"], "shuffle": false }));
+        // no songs: the one real id stays
+        let args = prepare_arguments(
+            "play",
+            r#"{"songs":[],"album_id":"9","artist_id":""}"#,
+            None,
+        )
+        .unwrap();
+        assert_eq!(args, json!({ "album_id": "9" }));
+    }
+
+    #[test]
+    fn album_and_artist_ids_are_typed() {
+        assert_eq!(
+            typed_ids_named("open_screen", &json!({ "screen": "album", "id": "5" })),
+            [("album_id", "5".to_owned())]
+        );
+        assert_eq!(
+            typed_ids_named("play", &json!({ "artist_id": "7" })),
+            [("artist_id", "7".to_owned())]
+        );
+        assert!(typed_ids_named("open_screen", &json!({ "screen": "tag", "id": "5" })).is_empty());
     }
 
     #[test]

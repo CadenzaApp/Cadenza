@@ -387,7 +387,10 @@ append each call and its output, and repeat until the model answers with text. I
 - No id from memory reaches the phone. Before a phone tool runs, every id it names
   (`phone_tools::ids_named`: a screen's id, an album, artist, or playlist id, song ids) must be
   one this answer's tool outputs returned, a card's, or one of the user's tag ids from the
-  prompt (`LoopState::sourced_ids`). Any other id is answered with an error that sends the
+  prompt (`LoopState::sourced_ids`). An album or artist id must also have come under an
+  `album_id` / `artist_id` field (`phone_tools::typed_ids_named`), so a song id passed as an
+  album is caught. `play` and `queue_songs` keep one thing to play (`keep_one_source`): empty
+  ids are dropped and `songs` wins over the rest. Any other id is answered with an error that sends the
   model to look it up (`find_album`, `find_artist`, `apple_music_playlists`, ...), so a page
   is never opened on a remembered or made-up id. The phone checks too: an artist, an album
   (and that it has songs), and an Apple Music playlist are confirmed with Apple before
@@ -406,7 +409,10 @@ append each call and its output, and repeat until the model answers with text. I
   and takes a result with exactly that title (at least 8 characters, and not a remix, piano,
   lofi, or other novelty version) whoever Apple credits, flagged `you_named_artist`: often the
   only version Apple has, as with Nintendo's music. These extra searches are Apple calls on the
-  developer token, not model calls. A failed search is `lookup_failed`, not `not_found`. With
+  developer token, not model calls. With `from` (the game, film, show, or artist every song
+  comes from), a title-only match must name it in its album or artist, so an unrelated song
+  that shares a title stays off the card. A failed search is `lookup_failed`, not
+  `not_found`. With
   `count` (how many the user asked for) the model names about half again as many, best first;
   the search stops once it has `count` usable songs and keeps the first `count`, and
   `short_by` says how many it could not find. The card note states exactly how many songs the
@@ -415,8 +421,8 @@ append each call and its output, and repeat until the model answers with text. I
   (`spawn_store_song_metadata`) so follow-up questions and queries know them.
 - The card shows its songs, so a reply should not list them again. A tool output that makes a
   card carries `shown_as_card`, a note saying so next to the songs. As a backstop,
-  `strip_card_listing` takes out of the reply any lines (two or more) that only name songs this
-  answer's tools returned, like `1. "Megalovania" by Toby Fox`; a line that says more about a song
+  `strip_card_listing` takes out of the reply any sentence naming three or more of them, and
+  any lines (two or more) that only name songs this answer's tools returned, like `1. "Megalovania" by Toby Fox`; a line that says more about a song
   stays, and a lead-in left ending in a colon gets a period.
 - The two Apple Music library writes are confirmed by the user on the phone, which Cadenza
   cannot undo; the backend does not know the difference. The prompt lists what the assistant
