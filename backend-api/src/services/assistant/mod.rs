@@ -30,6 +30,7 @@ use crate::routes::json::assistant::{
 };
 use crate::services::analytics::sanitize_timezone;
 use crate::services::rate_limit::{Limit, RateLimiter};
+use crate::services::song_metadata::SongMetadataService;
 
 use model::AssistantModel;
 use tools::{
@@ -86,19 +87,21 @@ impl AssistantService {
     pub async fn answer(
         &self,
         db: &DatabaseConnection,
+        song_meta: &SongMetadataService,
         user_id: Uuid,
         request: AssistantRequest,
     ) -> Result<AssistantResponse, CadenzaError> {
         self.limiter
             .check(&user_id)
             .map_err(|retry_after| CadenzaError::UserRateLimited { retry_after })?;
-        answer(db, self.model.as_ref(), user_id, request).await
+        answer(db, song_meta, self.model.as_ref(), user_id, request).await
     }
 }
 
 /// Answers the last user message in `request` as `user_id`.
 async fn answer(
     db: &DatabaseConnection,
+    song_meta: &SongMetadataService,
     model: &dyn AssistantModel,
     user_id: Uuid,
     request: AssistantRequest,
@@ -135,6 +138,7 @@ async fn answer(
 
     let runner = DbTools {
         db,
+        song_meta,
         user_id,
         hide_explicit,
     };

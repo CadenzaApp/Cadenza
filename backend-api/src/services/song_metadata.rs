@@ -97,6 +97,18 @@ struct CatalogResourceRef {
     id: String,
 }
 
+// models for the Apple Music catalog search response, songs only
+// https://developer.apple.com/documentation/applemusicapi/search-for-catalog-resources
+#[derive(Deserialize)]
+struct CatalogSearchResponse {
+    #[serde(default)]
+    results: CatalogSearchResults,
+}
+#[derive(Deserialize, Default)]
+struct CatalogSearchResults {
+    songs: Option<CatalogSongsResponse>,
+}
+
 // models for the Apple Music catalog albums response
 // https://developer.apple.com/documentation/applemusicapi/get-multiple-catalog-albums
 #[derive(Deserialize)]
@@ -329,6 +341,34 @@ impl SongMetadataService {
         }
 
         Ok(res)
+    }
+
+    /// Searches the catalog for songs matching `term`, best match first, at most `limit`
+    /// (Apple allows 1 to 25). An empty or blank term makes no request.
+    pub async fn search_songs(
+        &self,
+        term: &str,
+        limit: usize,
+    ) -> Result<Vec<SongMetadata>, CadenzaError> {
+        let term = term.trim();
+        if term.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut url = self.catalog_url("search")?;
+        url.query_pairs_mut()
+            .append_pair("term", term)
+            .append_pair("types", "songs")
+            .append_pair("limit", &limit.clamp(1, 25).to_string());
+
+        let resp_body: CatalogSearchResponse = self.get_json(url).await?;
+        Ok(resp_body
+            .results
+            .songs
+            .map(|songs| songs.data)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(to_song_metadata)
+            .collect())
     }
 
     /// `https://api.music.apple.com/v1/catalog/<storefront>/<resource>`.

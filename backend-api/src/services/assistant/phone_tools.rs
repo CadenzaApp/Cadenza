@@ -207,7 +207,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "search_apple_music",
-            "description": "Searches the whole Apple Music catalog for songs, including ones Cadenza has never seen, which run_query cannot find. Use it when the user names a specific song or artist to play or look up, or when run_query found nothing. Returns songs with ids, title, artist, and album; they show as a card.",
+            "description": "A free-text search of the whole Apple Music catalog, run on the phone, for when the user asks to search for something. Returns songs with ids, title, artist, and album; they show as a card. For specific songs you can name yourself, use find_songs instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
