@@ -77,4 +77,9 @@ pub struct SongsCard {
     pub total: usize,
     /// True when the match itself was cut off, so `total` is a lower bound.
     pub capped: bool,
+    /// A short name for the list, shown as its title when the user opens it:
+    /// the model's for a search or top songs, the real name for a saved query
+    /// or playlist. Absent when there is none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }

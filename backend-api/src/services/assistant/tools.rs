@@ -244,6 +244,9 @@ struct RunQueryArgs {
     /// [`MAX_CARD_SONGS`]).
     #[serde(default)]
     limit: Option<u64>,
+    /// The model's short name for the list, for the card's title.
+    #[serde(default)]
+    title: Option<String>,
 }
 
 /// The `limit` the model asked for, kept to 1 through [`MAX_CARD_SONGS`].
@@ -346,6 +349,29 @@ struct TopItemsArgs {
     window: WindowArgs,
     #[serde(default)]
     limit: Option<u64>,
+    /// The model's short name for a song ranking, for the card's title.
+    #[serde(default)]
+    title: Option<String>,
+}
+
+/// The most characters a card title keeps.
+const MAX_TITLE_CHARS: usize = 60;
+
+/// A card title from the model, trimmed and cut short. None when blank.
+fn card_title(title: Option<String>) -> Option<String> {
+    let title = title?;
+    let title = title.trim();
+    if title.is_empty() {
+        return None;
+    }
+    Some(
+        title
+            .chars()
+            .take(MAX_TITLE_CHARS)
+            .collect::<String>()
+            .trim_end()
+            .to_owned(),
+    )
 }
 
 impl DbTools<'_> {
@@ -413,6 +439,7 @@ impl DbTools<'_> {
                 total: if limit.is_some() { picked.len() } else { total },
                 capped: limit.is_none() && matches.capped,
                 song_ids,
+                title: card_title(args.title),
             });
         }
         Ok(outcome)
@@ -476,19 +503,22 @@ impl DbTools<'_> {
     /// songs in stored order, not a fresh run of its query.
     async fn get_saved_query_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
         let args: SavedQueryArgs = parse_args(args)?;
-        let stored = crate::services::saved_queries::saved_songs(
-            self.db,
-            self.user_id,
-            args.saved_query_id,
-        )
-        .await
-        .map_err(|err| match err {
+        let not_found = |err: CadenzaError| match err {
             CadenzaError::NotFound => ToolError::Arguments(format!(
                 "the user has no saved query with id {}; call list_saved_queries for their ids",
                 args.saved_query_id
             )),
             other => ToolError::Cadenza(other),
-        })?;
+        };
+        // for its name, which titles the card
+        let saved =
+            db::saved_queries::get_viewable_saved_query(self.db, self.user_id, args.saved_query_id)
+                .await
+                .map_err(not_found)?;
+        let stored =
+            crate::services::saved_queries::saved_songs(self.db, self.user_id, args.saved_query_id)
+                .await
+                .map_err(not_found)?;
         let songs: Vec<QueryMatch> = stored
             .into_iter()
             .map(|song| QueryMatch {
@@ -519,6 +549,7 @@ impl DbTools<'_> {
                 total: songs.len(),
                 capped: false,
                 song_ids,
+                title: Some(saved.name),
             });
         }
         Ok(outcome)
@@ -634,6 +665,7 @@ impl DbTools<'_> {
                 total,
                 capped: false,
                 song_ids,
+                title: Some(detail.header.name.clone()),
             });
         }
         Ok(outcome)
@@ -688,6 +720,7 @@ impl DbTools<'_> {
                     total: song_ids.len(),
                     song_ids,
                     capped: false,
+                    title: card_title(args.title).or_else(|| Some("Your top songs".to_owned())),
                 });
             }
             return Ok(outcome);
@@ -753,7 +786,11 @@ pub fn definitions() -> Vec<Value> {
             "enum": ["song", "artist", "album", "playlist", "query", "tag"],
             "description": "What to rank."
         },
-        "limit": { "type": "integer", "description": "How many, 1 to 25. Defaults to 10." }
+        "limit": { "type": "integer", "description": "How many, 1 to 25. Defaults to 10." },
+        "title": {
+            "type": "string",
+            "description": "For kind song: a short name for the list, like \"Your top songs this month\". The user sees it as the list's title when they open it."
+        }
     });
     let mut summary_properties = json!({});
     for (key, value) in window.as_object().unwrap() {
@@ -786,6 +823,10 @@ pub fn definitions() -> Vec<Value> {
                     "limit": {
                         "type": "integer",
                         "description": "Optional. When the user asks for a number of songs (\"10 songs\", \"my top 5\", \"a few\"), how many to hand back, 1 to 250, taken in order after sort. The card and Play then hold exactly these. Leave out to return every match."
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "A short name for this list of songs, 2 to 6 words, like \"Chill songs, newest first\" or \"Frank Ocean before 2015\". The user sees it as the list's title when they open it. Always pass one."
                     },
                     "scope": {
                         "type": "string",
@@ -970,6 +1011,18 @@ mod tests {
         let described = describe_applied(vec![(tag, Some("4".into()))]);
         assert_eq!(described[0]["name"], "rating");
         assert_eq!(described[0]["value"], "4");
+    }
+
+    #[test]
+    fn card_titles_are_trimmed_and_kept_short() {
+        assert_eq!(card_title(None), None);
+        assert_eq!(card_title(Some("   ".into())), None);
+        assert_eq!(
+            card_title(Some("  Chill songs ".into())).as_deref(),
+            Some("Chill songs")
+        );
+        let long = card_title(Some("a".repeat(MAX_TITLE_CHARS + 20))).unwrap();
+        assert_eq!(long.chars().count(), MAX_TITLE_CHARS);
     }
 
     #[test]

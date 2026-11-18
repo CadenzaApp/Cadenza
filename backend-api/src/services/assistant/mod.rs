@@ -316,6 +316,7 @@ mod tests {
                     song_ids: vec!["1".into(), "2".into()],
                     total: 2,
                     capped: false,
+                    title: None,
                 }),
             }
         }
@@ -406,6 +407,7 @@ mod tests {
                     song_ids: vec!["1".into(), "2".into()],
                     total: 2,
                     capped: false,
+                    title: None,
                 }),
             }
         );

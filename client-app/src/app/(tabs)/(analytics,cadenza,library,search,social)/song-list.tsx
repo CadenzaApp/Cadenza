@@ -29,13 +29,17 @@ const HERO_BUTTON_SIZE = 52;
  *
  * Params: `ids`, the song ids joined by commas (at most the backend's
  * `MAX_CARD_SONGS`, 250); `total`, how many matched in all, which can be more;
- * `capped`, "1" when even that total is a lower bound.
+ * `capped`, "1" when even that total is a lower bound; `title`, the card's name
+ * for the list, which the assistant writes (or a saved query's or playlist's
+ * name).
  */
 export default function SongListScreen() {
     const params = useLocalSearchParams<{
         ids?: string;
         total?: string;
         capped?: string;
+        /** The card's name for the list. */
+        title?: string;
     }>();
     const songIds = useMemo(() => parseIds(params.ids), [params.ids]);
     const total = Math.max(Number(params.total) || 0, songIds.length);
@@ -85,7 +89,7 @@ export default function SongListScreen() {
 
     return (
         <TrackCollectionView
-            title="AI Assistant"
+            title={params.title?.trim() || "AI Assistant"}
             tracks={tracks}
             isLoading={loading}
             error={arranged ? list.error : pages.tracksErr}

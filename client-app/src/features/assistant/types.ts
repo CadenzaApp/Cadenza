@@ -22,6 +22,8 @@ export type AssistantSongs = {
     total: number;
     /** The match itself was cut off, so `total` is a lower bound. */
     capped: boolean;
+    /** A short name for the list, the title of the screen Open list shows. */
+    title?: string;
 };
 
 export type AssistantResponse =

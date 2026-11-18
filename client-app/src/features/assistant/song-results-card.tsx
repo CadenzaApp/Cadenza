@@ -18,10 +18,11 @@ import type { AssistantSongs } from "./types";
 const SHOWN_SONGS = 5;
 
 /**
- * The songs a tool found, under the answer: the first few rows, the total,
- * Open list, and Play / Shuffle for all of them. Tapping a row plays just that
- * song. Open list closes the assistant and shows every song the card holds on
- * the song list screen, where they can be sorted, selected and tagged.
+ * The songs a tool found, under the answer: the first few rows, a button with
+ * the total, and Play / Shuffle for all of them. Tapping a row plays just that
+ * song. The total button closes the assistant and shows every song the card
+ * holds on the song list screen, titled with the card's name, where they can
+ * be sorted, selected and tagged.
  *
  * Once anything starts playing, the assistant sheet gives way to the now
  * playing sheet, showing the song that started. `replace` rather than `push`,
@@ -58,6 +59,7 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
                     ids: songs.song_ids.join(","),
                     total: String(songs.total),
                     capped: songs.capped ? "1" : "0",
+                    ...(songs.title ? { title: songs.title } : {}),
                 },
             } as Href,
             { closing: "assistant" },
@@ -192,27 +194,11 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
             ))}
 
             <View className="flex-row items-center gap-2 border-t border-border px-3 py-2">
-                <Pressable
+                <SongsButton
+                    label={`${available.toLocaleString()}${songs.capped ? "+" : ""} ${available === 1 && !songs.capped ? "song" : "songs"}`}
                     onPress={openList}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open list of ${available.toLocaleString()} songs`}
-                    className="flex-1 flex-row items-center gap-1 active:opacity-60"
-                >
-                    <Text
-                        className="shrink text-[13px] text-muted-foreground"
-                        numberOfLines={1}
-                    >
-                        {`${available.toLocaleString()}${songs.capped ? "+" : ""} ${available === 1 && !songs.capped ? "song" : "songs"} · `}
-                        <Text className="text-[13px] font-medium">
-                            Open list
-                        </Text>
-                    </Text>
-                    <Ionicons
-                        name="chevron-forward"
-                        size={13}
-                        color={colors.mutedForeground}
-                    />
-                </Pressable>
+                />
+                <View className="flex-1" />
                 {pending ? (
                     <ActivityIndicator
                         size="small"
@@ -231,6 +217,38 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
                 />
             </View>
         </View>
+    );
+}
+
+/**
+ * The total, as a button that opens the full list. Outlined in the accent
+ * color, with a chevron, so it reads as a way in rather than another playback
+ * control like Play and Shuffle beside it.
+ */
+function SongsButton({
+    label,
+    onPress,
+}: {
+    label: string;
+    onPress: () => void;
+}) {
+    const { colors } = useAppTheme();
+    return (
+        <Pressable
+            onPress={onPress}
+            accessibilityRole="button"
+            accessibilityLabel={`Open the list of ${label}`}
+            className="flex-row items-center gap-1 rounded-full border border-primary px-3 py-1.5 active:opacity-60"
+        >
+            <Ionicons name="list" size={14} color={colors.primary} />
+            <Text
+                className="text-[13px] font-medium text-primary"
+                numberOfLines={1}
+            >
+                {label}
+            </Text>
+            <Ionicons name="chevron-forward" size={13} color={colors.primary} />
+        </Pressable>
     );
 }
 
