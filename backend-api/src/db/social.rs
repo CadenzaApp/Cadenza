@@ -1919,19 +1919,28 @@ const SPOTLIGHT_TAG_TEXT_MAX: usize = 24;
 const CATCH_ALL_GENRE: &str = "Music";
 
 /// One catalog id to queue for this user.
+#[derive(Clone, Debug)]
 pub struct SpotlightInput {
     pub spotlight_type: String,
     pub musickit_id: String,
 }
 
+/// What [`add_spotlights`] did. `untagged` is one item per shared post that
+/// still has no tags, for [`tag_spotlight_posts`] to fill later.
+pub struct AddedSpotlights {
+    pub added: i64,
+    pub untagged: Vec<SpotlightInput>,
+}
+
 /// Inserts a shared spotlight post per catalog id, then queues it for `user_id`.
 /// `added` is how many queue rows were new. An id that already has a spotlight
-/// post reuses it. A queue row that already exists is left alone.
-///
-/// When the shared post has no tags, a song gets up to five of its default
-/// tags and an artist gets up to five of its entry in `artist_genres`, keyed
-/// by artist id. A post that already has tags is left alone. A repeated
+/// post reuses it. A queue row that already exists is left alone. A repeated
 /// catalog id uses its first item.
+///
+/// Makes no outside calls. A song post with no tags gets up to five of the
+/// default tags already stored for it. Every post still without tags, which
+/// is every new artist post and any song with no stored default tags yet, is
+/// returned in `untagged`.
 ///
 /// A fixed number of statements, whatever the number of items: posts, tags,
 /// and queue rows are each read or written for every item at once.
@@ -1939,20 +1948,22 @@ pub async fn add_spotlights(
     db: &DatabaseConnection,
     user_id: Uuid,
     items: &[SpotlightInput],
-    artist_genres: &HashMap<String, Vec<String>>,
-) -> Result<i64, CadenzaError> {
+) -> Result<AddedSpotlights, CadenzaError> {
     let mut seen = HashSet::new();
     let items: Vec<&SpotlightInput> = items
         .iter()
         .filter(|item| seen.insert((item.spotlight_type.as_str(), item.musickit_id.as_str())))
         .collect();
     if items.is_empty() {
-        return Ok(0);
+        return Ok(AddedSpotlights {
+            added: 0,
+            untagged: Vec::new(),
+        });
     }
     let musickit_ids: Vec<String> = items.iter().map(|item| item.musickit_id.clone()).collect();
     let txn = db.begin().await?;
     let post_ids = ensure_spotlight_posts(&txn, &musickit_ids).await?;
-    fill_spotlight_tags(&txn, &items, &post_ids, artist_genres).await?;
+    let untagged = fill_spotlight_tags(&txn, &items, &post_ids, &HashMap::new()).await?;
     let rows = items.iter().map(|item| user_spotlights::ActiveModel {
         user_id: Set(user_id),
         spotlight_type: Set(item.spotlight_type.clone()),
@@ -1972,42 +1983,35 @@ pub async fn add_spotlights(
         .exec_without_returning(&txn)
         .await?;
     txn.commit().await?;
-    Ok(added as i64)
+    Ok(AddedSpotlights {
+        added: added as i64,
+        untagged,
+    })
 }
 
-/// Of `musickit_ids`, the ones whose shared spotlight post is missing or has
-/// no tags yet, in the order given.
-pub async fn spotlight_ids_without_tags(
-    db: &impl ConnectionTrait,
-    musickit_ids: &[String],
-) -> Result<Vec<String>, CadenzaError> {
-    if musickit_ids.is_empty() {
-        return Ok(Vec::new());
+/// Tags the shared posts of `items` that still have none, in one short
+/// transaction. A song gets up to five of its stored default tags and an
+/// artist up to five of its entry in `artist_genres`, keyed by artist id. A
+/// post that already has tags is left alone.
+pub async fn tag_spotlight_posts(
+    db: &DatabaseConnection,
+    items: &[SpotlightInput],
+    artist_genres: &HashMap<String, Vec<String>>,
+) -> Result<(), CadenzaError> {
+    if items.is_empty() {
+        return Ok(());
     }
-    let posts: Vec<(i64, Option<String>)> = posts::Entity::find()
-        .select_only()
-        .column(posts::Column::PostId)
-        .column(posts::Column::TopicMkId)
-        .filter(posts::Column::UserId.is_null())
-        .filter(posts::Column::TopicMkId.is_in(musickit_ids.iter().cloned()))
-        .into_tuple()
-        .all(db)
-        .await?;
-    let post_ids: Vec<i64> = posts.iter().map(|(post_id, _)| *post_id).collect();
-    let tagged = tags_for_posts(db, &post_ids).await?;
-    let tagged: HashSet<String> = posts
-        .into_iter()
-        .filter(|(post_id, _)| tagged.contains_key(post_id))
-        .filter_map(|(_, topic_mk_id)| topic_mk_id)
-        .collect();
-    Ok(musickit_ids
-        .iter()
-        .filter(|id| !tagged.contains(*id))
-        .cloned()
-        .collect())
+    let items: Vec<&SpotlightInput> = items.iter().collect();
+    let musickit_ids: Vec<String> = items.iter().map(|item| item.musickit_id.clone()).collect();
+    let txn = db.begin().await?;
+    let post_ids = ensure_spotlight_posts(&txn, &musickit_ids).await?;
+    fill_spotlight_tags(&txn, &items, &post_ids, artist_genres).await?;
+    txn.commit().await?;
+    Ok(())
 }
 
-/// Tags every spotlight post in `post_ids` that has none yet.
+/// Tags every spotlight post in `post_ids` that has none yet, and returns the
+/// first item of each post it found nothing to tag with.
 ///
 /// Only empty posts are locked, so the usual case, a post that already has
 /// tags, takes no lock. They are locked in one statement in `post_id` order,
@@ -2019,7 +2023,7 @@ async fn fill_spotlight_tags(
     items: &[&SpotlightInput],
     post_ids: &HashMap<String, i64>,
     artist_genres: &HashMap<String, Vec<String>>,
-) -> Result<(), CadenzaError> {
+) -> Result<Vec<SpotlightInput>, CadenzaError> {
     let all: Vec<i64> = post_ids.values().copied().collect();
     let tagged = tags_for_posts(db, &all).await?;
     let mut empty: Vec<i64> = all
@@ -2027,7 +2031,7 @@ async fn fill_spotlight_tags(
         .filter(|post_id| !tagged.contains_key(post_id))
         .collect();
     if empty.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     empty.sort_unstable();
     posts::Entity::find()
@@ -2046,7 +2050,7 @@ async fn fill_spotlight_tags(
         .filter(|post_id| !filled.contains_key(post_id))
         .collect();
     if empty.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let mut claimed = HashSet::new();
@@ -2062,33 +2066,35 @@ async fn fill_spotlight_tags(
         .collect();
     let labels = shared_default_tag_labels(db, &song_ids).await?;
 
-    let rows: Vec<post_tags_applied::ActiveModel> = todo
-        .iter()
-        .flat_map(|(post_id, item)| {
-            let tags = if item.spotlight_type == "song" {
-                spotlight_song_tags(labels.get(&item.musickit_id).map_or(&[], Vec::as_slice))
-            } else {
-                spotlight_genre_tags(
-                    artist_genres
-                        .get(&item.musickit_id)
-                        .map_or(&[], Vec::as_slice),
-                )
-            };
-            tags.into_iter().map(|tag| post_tags_applied::ActiveModel {
-                tag_id: NotSet,
-                post_id: Set(*post_id),
-                text: Set(tag.text),
-                color: Set(tag.color),
-            })
-        })
-        .collect();
+    let mut untagged = Vec::new();
+    let mut rows: Vec<post_tags_applied::ActiveModel> = Vec::new();
+    for (post_id, item) in todo {
+        let tags = if item.spotlight_type == "song" {
+            spotlight_song_tags(labels.get(&item.musickit_id).map_or(&[], Vec::as_slice))
+        } else {
+            spotlight_genre_tags(
+                artist_genres
+                    .get(&item.musickit_id)
+                    .map_or(&[], Vec::as_slice),
+            )
+        };
+        if tags.is_empty() {
+            untagged.push(item.clone());
+        }
+        rows.extend(tags.into_iter().map(|tag| post_tags_applied::ActiveModel {
+            tag_id: NotSet,
+            post_id: Set(post_id),
+            text: Set(tag.text),
+            color: Set(tag.color),
+        }));
+    }
     // a word the lowercase check above let through but postgres `lower()`
     // still counts as a repeat is dropped rather than failing every spotlight
     post_tags_applied::Entity::insert_many(rows)
         .on_conflict(OnConflict::new().do_nothing().to_owned())
         .exec_without_returning(db)
         .await?;
-    Ok(())
+    Ok(untagged)
 }
 
 /// Up to five default-tag labels that fit on a post. A name longer than 24

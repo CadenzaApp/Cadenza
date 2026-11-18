@@ -1,27 +1,49 @@
-//! Getting tags ready for spotlight posts before `db::social::add_spotlights`
-//! queues them.
+//! Tagging spotlight posts that `db::social::add_spotlights` queued without
+//! tags, after the request has answered.
 
 use std::collections::HashMap;
 
 use sea_orm::DatabaseConnection;
 
-use crate::db::social::{SpotlightInput, spotlight_ids_without_tags};
+use crate::db::social::{SpotlightInput, tag_spotlight_posts};
 use crate::err::CadenzaError;
 use crate::services::default_tags::ensure_default_tags_generated;
 use crate::services::song_metadata::SongMetadataService;
 use crate::services::tag_generation::TagGenerationService;
 
-/// Generates default tags for the songs in `items` that have never had them,
-/// and returns Apple's genres for the artists, keyed by artist id.
+/// Tags the posts of `untagged` on a task of its own, so the request does not
+/// wait on the tag generator or Apple, and a client that hangs up does not
+/// cancel it. Does nothing for an empty list.
 ///
-/// The two run at the same time. Genres are read in one Apple request, and
-/// only for artists whose shared post is missing or has no tags. Either
-/// failure is logged rather than returned, so the spotlights are still queued.
-/// A post left without tags is filled the next time its id is queued.
+/// Song default tag generation and the artist genre read run at the same time,
+/// then one short transaction tags every post that is still empty. A failure
+/// is logged. A post left without tags is tried again the next time anyone
+/// queues its catalog id.
 ///
-/// `items` must hold at most 25 artists, the cap
+/// `untagged` must hold at most 25 artists, the cap
 /// `SongMetadataService::get_artists_genres` panics past. The route allows 5.
-pub async fn prepare_spotlight_tags(
+pub fn spawn_spotlight_tagging(
+    db: DatabaseConnection,
+    song_meta_service: SongMetadataService,
+    tag_gen_service: TagGenerationService,
+    untagged: Vec<SpotlightInput>,
+) {
+    if untagged.is_empty() {
+        return;
+    }
+    tokio::spawn(async move {
+        let artist_genres =
+            prepare_spotlight_tags(&db, &song_meta_service, &tag_gen_service, &untagged).await;
+        if let Err(err) = tag_spotlight_posts(&db, &untagged, &artist_genres).await {
+            eprintln!("[spotlights] tagging spotlight posts failed: {err}");
+        }
+    });
+}
+
+/// Generates default tags for the songs in `items` that have never had them,
+/// and returns Apple's genres for the artists, keyed by artist id. The two run
+/// at the same time, and each failure is logged rather than returned.
+async fn prepare_spotlight_tags(
     db: &DatabaseConnection,
     song_meta_service: &SongMetadataService,
     tag_gen_service: &TagGenerationService,
@@ -40,32 +62,18 @@ pub async fn prepare_spotlight_tags(
         }
     };
     let artists = async {
-        match untagged_artist_genres(db, song_meta_service, &artist_ids).await {
-            Ok(genres) => genres,
-            Err(err) => {
-                eprintln!("[spotlights] reading artist genres failed: {err}");
-                HashMap::new()
-            }
-        }
+        let genres: Result<_, CadenzaError> =
+            song_meta_service.get_artists_genres(&artist_ids).await;
+        genres.unwrap_or_else(|err| {
+            eprintln!("[spotlights] reading artist genres failed: {err}");
+            HashMap::new()
+        })
     };
     let ((), genres) = tokio::join!(songs, artists);
     genres
 }
 
-/// Genres for each of `artist_ids` whose spotlight post still needs tags.
-async fn untagged_artist_genres(
-    db: &DatabaseConnection,
-    song_meta_service: &SongMetadataService,
-    artist_ids: &[String],
-) -> Result<HashMap<String, Vec<String>>, CadenzaError> {
-    if artist_ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-    let untagged = spotlight_ids_without_tags(db, artist_ids).await?;
-    song_meta_service.get_artists_genres(&untagged).await
-}
-
-/// The distinct catalog ids of one spotlight type, in request order.
+/// The distinct catalog ids of one spotlight type, in order.
 fn ids_of_type(items: &[SpotlightInput], spotlight_type: &str) -> Vec<String> {
     let mut ids: Vec<String> = Vec::new();
     for item in items {

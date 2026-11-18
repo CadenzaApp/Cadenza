@@ -39,7 +39,7 @@ use crate::{
         realtime::SharedPresence,
         social_feed::{InitialSpotlightChance, NewPostTopic, SocialFeedService},
         song_metadata::SongMetadataService,
-        spotlights::prepare_spotlight_tags,
+        spotlights::spawn_spotlight_tagging,
         tag_generation::TagGenerationService,
     },
 };
@@ -171,8 +171,10 @@ struct SpotlightItem {
 /// `type` is `artist` or `song`. `id` is a non-empty catalog id, at most 128
 /// characters. A catalog id shares one null-author post. When that post has
 /// no tags, a song gets up to five of its default tags and an artist gets up
-/// to five of its Apple Music genres, read here rather than taken from the
-/// body. `added` is how many queue rows were new.
+/// to five of its Apple Music genres, read by the backend rather than taken
+/// from the body. Tags already stored are applied before this answers. The
+/// rest are generated or read after it, so a new song or artist post has no
+/// tags for those few seconds. `added` is how many queue rows were new.
 ///
 /// ```json
 /// { "added": 2 }
@@ -207,10 +209,11 @@ async fn add_spotlights(
             musickit_id: id.to_owned(),
         });
     }
-    let artist_genres =
-        prepare_spotlight_tags(&db, &song_meta_service, &tag_gen_service, &items).await;
-    let added = social::add_spotlights(&db, claims.user_id, &items, &artist_genres).await?;
-    Ok(Json(AddSpotlightsResponse { added }))
+    let queued = social::add_spotlights(&db, claims.user_id, &items).await?;
+    spawn_spotlight_tagging(db, song_meta_service, tag_gen_service, queued.untagged);
+    Ok(Json(AddSpotlightsResponse {
+        added: queued.added,
+    }))
 }
 
 /// Posts by completed friends and the caller, newest first, 20 a page.
