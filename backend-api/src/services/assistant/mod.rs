@@ -11,6 +11,7 @@
 //! next request brings the continuation back with the tool's output and picks
 //! the loop up where it stopped.
 
+pub mod builder;
 pub mod model;
 pub mod phone_tools;
 pub mod prompt;
