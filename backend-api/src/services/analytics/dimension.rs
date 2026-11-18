@@ -26,7 +26,8 @@ pub struct Dimension {
     /// What to display. Null for songs, which the client resolves from Apple
     /// Music by id.
     pub label_expr: &'static str,
-    /// A second line under the label, or null when there is nothing to say.
+    /// A second line under the label, or null when there is nothing to say:
+    /// an album's artist, or a shared playlist's owner.
     pub sub_label_expr: &'static str,
     /// The id needed to open the thing, when the play recorded one.
     pub entity_id_expr: &'static str,
@@ -102,20 +103,33 @@ impl Dimension {
             key_expr: "case when payload->>'source_kind' = 'shared_playlist' \
                        then nullif(btrim(payload->>'source_id'), '') end",
             label_expr: "payload->>'source_name'",
-            sub_label_expr: "null::text",
+            // the owner's username, null once the playlist is deleted
+            sub_label_expr: "(select p.username from shared_playlists sp \
+                             join profile p on p.uid = sp.owner_id \
+                             where sp.playlist_id::text = payload->>'source_id')",
             entity_id_expr: "case when payload->>'source_kind' = 'shared_playlist' \
                              then nullif(btrim(payload->>'source_id'), '') end",
             description: "Most played shared playlists",
         },
         Dimension {
             name: "live_session",
+            // one row per host, not per session: every session someone
+            // hosted bins together. Sessions are kept once ended, so the
+            // host is always there to read
             key_expr: "case when payload->>'source_kind' = 'live_session' \
-                       then nullif(btrim(payload->>'source_id'), '') end",
-            label_expr: "payload->>'source_name'",
+                       then (select ls.host_id::text from live_sessions ls \
+                             where ls.session_id::text = payload->>'source_id') end",
+            // the host's current username, since a session's own name goes
+            // stale. The client words it as their session
+            label_expr: "(select p.username from live_sessions ls \
+                         join profile p on p.uid = ls.host_id \
+                         where ls.session_id::text = payload->>'source_id')",
             sub_label_expr: "null::text",
+            // the host, whose profile the row opens
             entity_id_expr: "case when payload->>'source_kind' = 'live_session' \
-                             then nullif(btrim(payload->>'source_id'), '') end",
-            description: "Most played live sessions",
+                             then (select ls.host_id::text from live_sessions ls \
+                                   where ls.session_id::text = payload->>'source_id') end",
+            description: "Most played live session hosts",
         },
     ];
 
