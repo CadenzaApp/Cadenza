@@ -44,6 +44,7 @@ import { DropViewport } from "./DropViewport";
 import {
     clampPaletteHeight,
     paletteTranslation,
+    paletteBottomSpacer,
     TAG_PALETTE_MIN_HEIGHT,
     TAG_PALETTE_MAX_HEIGHT,
 } from "./palette-geometry";
@@ -203,6 +204,9 @@ export function TagPalette({
     }));
 
     const { colors: theme } = useAppTheme();
+    const bottomSpacerStyle = useAnimatedStyle(() => ({
+        height: paletteBottomSpacer(visibleHeight.get(), playerBottomInset),
+    }));
     const deletePromptStyle = useAnimatedStyle(() => ({
         height: Math.max(0, visibleHeight.get() - playerBottomInset),
     }));
@@ -349,11 +353,9 @@ export function TagPalette({
                                 {!pendingTag ? (
                                     // Keep scroll runway separate from the intrinsic
                                     // section heights, including in a collapsed viewport.
-                                    <View
+                                    <Animated.View
                                         className="shrink-0"
-                                        style={{
-                                            height: TAG_PALETTE_MAX_HEIGHT,
-                                        }}
+                                        style={bottomSpacerStyle}
                                         pointerEvents="none"
                                         accessible={false}
                                     />
@@ -535,7 +537,7 @@ const PaletteSections = memo(function PaletteSections({
                                       ? "Advanced Tags"
                                       : "Metadata Tags"}
                             </Text>
-                            <View className="h-px flex-1 bg-muted-foreground" />
+                            <View className="h-px flex-1 bg-muted-foreground opacity-50" />
                         </View>
                     ) : null}
                     <View className="shrink-0 flex-row flex-wrap content-start items-start gap-0.5">

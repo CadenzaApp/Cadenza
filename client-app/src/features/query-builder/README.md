@@ -48,7 +48,7 @@ Memoized sections/cells and symmetric padded pill touch areas keep interaction c
 The sheet stays 450 points tall and moves with a UI-thread translation. Its initial visible height
 is 268 points plus any compatibility-player inset. The minimum includes the platform tab/player
 inset and 64 points for the handle/heading. Floating actions follow its top edge; query scroll
-clearance updates on release. A fixed bottom spacer lets the final tag row reach the top.
+clearance updates on release. A bottom spacer tracks the obscured portion of the palette so the final tag row can clear the bottom controls without allowing the whole list to scroll away.
 Palette scrolling stays enabled at every height, including the minimum. Palette tag pickup
 requires a 155ms hold, so ordinary vertical swipes scroll rather than start a tag drag.
 Query tags also activate after a 155ms hold, with a pickup haptic before movement. Short taps
