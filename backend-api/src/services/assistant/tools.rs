@@ -29,7 +29,7 @@ use crate::services::analytics::{Dimension, TimeWindow};
 /// The most songs a tool describes to the model. The rest are only counted.
 pub const MAX_SONGS_TO_MODEL: usize = 25;
 /// The most song ids the song card under an answer gets.
-pub const MAX_CARD_SONGS: usize = 100;
+pub const MAX_CARD_SONGS: usize = 250;
 /// The most of a tool call's arguments and output written to the server log.
 const MAX_LOGGED_CHARS: usize = 300;
 /// The most songs `get_song_metadata` and `get_song_tags` look up in one call.
@@ -771,7 +771,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "run_query",
-            "description": "Finds songs matching a Cadenza query among every song Cadenza knows, the user's own first. Returns how many matched, how many of those are the user's own (in their library or tagged) and how many come from elsewhere, and the first 25 with title, artist, and a yours flag. The user sees the songs as a card under your answer, so do not list more than a few.",
+            "description": "Finds songs matching a Cadenza query among every song Cadenza knows, the user's own first. Returns how many matched, how many of those are the user's own (in their library or tagged) and how many come from elsewhere, and the first 25 with title, artist, and a yours flag. The user sees the songs as a card under your answer, so do not list them in your text.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -785,7 +785,7 @@ pub fn definitions() -> Vec<Value> {
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Optional. When the user asks for a number of songs (\"10 songs\", \"my top 5\", \"a few\"), how many to hand back, 1 to 100, taken in order after sort. The card and Play then hold exactly these. Leave out to return every match."
+                        "description": "Optional. When the user asks for a number of songs (\"10 songs\", \"my top 5\", \"a few\"), how many to hand back, 1 to 250, taken in order after sort. The card and Play then hold exactly these. Leave out to return every match."
                     },
                     "scope": {
                         "type": "string",
@@ -833,7 +833,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "get_saved_query_songs",
-            "description": "The songs one saved query holds, in order, exactly as its screen in the app lists them. Returns how many, how many are the user's own, and the first 25 with title and artist; the user sees them as a card under your answer, so do not list more than a few. Get the id from list_saved_queries.",
+            "description": "The songs one saved query holds, in order, exactly as its screen in the app lists them. Returns how many, how many are the user's own, and the first 25 with title and artist; the user sees them as a card under your answer, so do not list them in your text. Get the id from list_saved_queries.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -863,7 +863,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "get_playlist_songs",
-            "description": "The songs in one Cadenza shared playlist the user is a member of, in playlist order, with who added each, plus the playlist's members. Returns the first 25 with title and artist; the user sees them as a card under your answer, so do not list more than a few. Get the id from list_playlists.",
+            "description": "The songs in one Cadenza shared playlist the user is a member of, in playlist order, with who added each, plus the playlist's members. Returns the first 25 with title and artist; the user sees them as a card under your answer, so do not list them in your text. Get the id from list_playlists.",
             "parameters": {
                 "type": "object",
                 "properties": {

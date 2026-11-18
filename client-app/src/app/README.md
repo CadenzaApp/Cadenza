@@ -40,6 +40,7 @@ logic out.
 | `(tabs)/(analytics,cadenza,library,search,social)/shared-playlist/[id]/reorder.tsx` | `/shared-playlist/:id/reorder` | Drag songs into a new order.                                                                                                              |
 | `(tabs)/(analytics,cadenza,library,search,social)/discuss/[songId].tsx`             | `/discuss/:songId`             | Posts about one song, outside the now playing sheet.                                                                                      |
 | `(tabs)/(analytics,cadenza,library,search,social)/query-results.tsx`                | `/query-results`               | Query matches.                                                                                                                            |
+| `(tabs)/(analytics,cadenza,library,search,social)/song-list.tsx`                    | `/song-list`                   | Songs by id from the AI Assistant's card (Open list), up to 250, sortable. Plays are not credited to a query.                             |
 | `account.tsx`                                                                       | `/account`                     | Account sheet. Wires `AccountSettingsScreen`.                                                                                             |
 | `assistant.tsx`                                                                     | `/assistant`                   | The assistant chat sheet. Wires `AssistantChat`. Opened from the button at the right end of the bottom row, on every screen in the tabs.  |
 | `appearance.tsx`                                                                    | `/appearance`                  | Appearance sheet: mode, accent, glass. Wires `AppearanceSettingsScreen`.                                                                  |
@@ -238,7 +239,7 @@ The player sheet paints one tint in `DetailScreen`, behind its header and the tr
 All three pages stay mounted side by side, so a swipe reveals live adjacent content continuously
 instead of navigating after a threshold. The custom glass selector follows the same scroll offset.
 
-`/artist/:id`, `/collection/:kind/:id`, `/tag/:tagId`, and `/query-results` use the
+`/artist/:id`, `/collection/:kind/:id`, `/tag/:tagId`, `/query-results`, and `/song-list` use the
 shared `TrackCollectionView` instead of a `DetailScreen` header, and float a
 `FloatingBackButton` in the top left. The artist supplies a `BlendedCover` of its portrait and an
 albums rail as custom header and footer content. The collection uses the standard single-cover

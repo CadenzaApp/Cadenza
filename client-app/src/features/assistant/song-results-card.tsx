@@ -1,12 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ShuffleMode, type MusicItem } from "@apple-musickit";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
 import { logHandledError } from "@/lib/log";
+import { useOpenScreen } from "@/lib/open-screen";
 import { usePagedTracksForSongIds } from "@/lib/musickit-hooks";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { useAppTheme } from "@/lib/theme";
@@ -17,8 +18,10 @@ import type { AssistantSongs } from "./types";
 const SHOWN_SONGS = 5;
 
 /**
- * The songs a tool found, under the answer: the first few rows, how many more,
- * and Play / Shuffle for all of them. Tapping a row plays just that song.
+ * The songs a tool found, under the answer: the first few rows, the total,
+ * Open list, and Play / Shuffle for all of them. Tapping a row plays just that
+ * song. Open list closes the assistant and shows every song the card holds on
+ * the song list screen, where they can be sorted, selected and tagged.
  *
  * Once anything starts playing, the assistant sheet gives way to the now
  * playing sheet, showing the song that started. `replace` rather than `push`,
@@ -35,6 +38,7 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
         resolveTracks,
     } = usePagedTracksForSongIds(songs.song_ids);
     const router = useRouter();
+    const openScreen = useOpenScreen();
     const { playQueue, playNext, skipToNext, setShuffleMode } =
         usePlaybackCommands();
     const { activeTrack } = usePlaybackTrackState();
@@ -45,6 +49,20 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     const openNowPlaying = useCallback(() => {
         router.replace("/player");
     }, [router]);
+
+    const openList = useCallback(() => {
+        openScreen(
+            {
+                pathname: "/song-list",
+                params: {
+                    ids: songs.song_ids.join(","),
+                    total: String(songs.total),
+                    capped: songs.capped ? "1" : "0",
+                },
+            } as Href,
+            { closing: "assistant" },
+        );
+    }, [openScreen, songs]);
 
     /**
      * Plays every song on the card, in order or shuffled, then opens the now
@@ -97,7 +115,6 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     // ids Apple could not turn into a track are dropped, not counted as more
     const skipped = loadedCount - tracks.length;
     const available = songs.total - skipped;
-    const more = available - (stillLoading ? expectedRows : shown.length);
 
     /**
      * Plays just the tapped song, queueing none of the card's others. With
@@ -175,11 +192,27 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
             ))}
 
             <View className="flex-row items-center gap-2 border-t border-border px-3 py-2">
-                <Text className="flex-1 text-[13px] text-muted-foreground">
-                    {more > 0
-                        ? `${more.toLocaleString()}${songs.capped ? "+" : ""} more`
-                        : `${available.toLocaleString()} ${available === 1 ? "song" : "songs"}`}
-                </Text>
+                <Pressable
+                    onPress={openList}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open list of ${available.toLocaleString()} songs`}
+                    className="flex-1 flex-row items-center gap-1 active:opacity-60"
+                >
+                    <Text
+                        className="shrink text-[13px] text-muted-foreground"
+                        numberOfLines={1}
+                    >
+                        {`${available.toLocaleString()}${songs.capped ? "+" : ""} ${available === 1 && !songs.capped ? "song" : "songs"} · `}
+                        <Text className="text-[13px] font-medium">
+                            Open list
+                        </Text>
+                    </Text>
+                    <Ionicons
+                        name="chevron-forward"
+                        size={13}
+                        color={colors.mutedForeground}
+                    />
+                </Pressable>
                 {pending ? (
                     <ActivityIndicator
                         size="small"
