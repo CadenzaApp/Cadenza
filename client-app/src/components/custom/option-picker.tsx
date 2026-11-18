@@ -25,7 +25,7 @@ import {
     GlassSurface,
     shouldShowGlassOutline,
 } from "@/components/ui/glass-surface";
-import { Input } from "@/components/ui/input";
+import { SearchField } from "@/components/custom/search-field";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -68,7 +68,6 @@ const MAX_WIDTH = 520;
 const MAX_HEIGHT_RATIO = 0.8;
 const ROW_MIN_HEIGHT = 56;
 const ROW_ICON_SIZE = 24;
-const SEARCH_ICON_SIZE = 18;
 /** Space between the top edge of the popup and its title row. */
 const HEADER_TOP_SPACE = 8;
 /**
@@ -99,7 +98,6 @@ export function OptionPicker({
     onClose,
 }: Props) {
     const { colors } = useTheme();
-    const { colors: palette } = useAppTheme();
     const outlined = shouldShowGlassOutline();
     const window = useWindowDimensions();
     const [search, setSearch] = useState("");
@@ -265,26 +263,12 @@ export function OptionPicker({
                         </View>
 
                         {searchable && (
-                            <View className="relative justify-center">
-                                <Input
-                                    value={search}
-                                    onChangeText={changeSearch}
-                                    placeholder="Search"
-                                    autoCorrect={false}
-                                    autoCapitalize="none"
-                                    className="h-12 pl-10 text-sm"
-                                />
-                                <View
-                                    pointerEvents="none"
-                                    className="absolute left-3"
-                                >
-                                    <Ionicons
-                                        name="search"
-                                        size={SEARCH_ICON_SIZE}
-                                        color={palette.mutedForeground}
-                                    />
-                                </View>
-                            </View>
+                            <SearchField
+                                value={search}
+                                onChangeText={changeSearch}
+                                placeholder="Search"
+                                surface="outline"
+                            />
                         )}
 
                         <Animated.ScrollView

@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { Button } from "@/components/ui/button";
@@ -67,8 +67,13 @@ type Props = {
 
 const MAX_POST_LENGTH = 500;
 
-/** One feed row: author, attached topic, body, likes, and comments. */
-export function PostCard({
+/**
+ * One feed row: author, attached topic, body, likes, and comments. Memoized,
+ * so a feed re-render only redraws the posts whose props changed.
+ */
+export const PostCard = memo(PostCardBase);
+
+function PostCardBase({
     post,
     topicHint,
     showTopic = true,

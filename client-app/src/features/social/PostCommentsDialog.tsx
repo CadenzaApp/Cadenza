@@ -84,7 +84,17 @@ export function PostCommentsDialog({
     const insets = useSafeAreaInsets();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
     const [keyboardHeight, setKeyboardHeight] = useState(0);
+    // every post card keeps one of these mounted, so it only follows the
+    // keyboard while open. otherwise any keyboard, like the feed composer's,
+    // re-renders the dialog on every card at once. opening picks up a
+    // keyboard that is already up
+    const [wasOpen, setWasOpen] = useState(open);
+    if (open !== wasOpen) {
+        setWasOpen(open);
+        if (open) setKeyboardHeight(Keyboard.metrics()?.height ?? 0);
+    }
     useEffect(() => {
+        if (!open) return;
         const show = Keyboard.addListener(
             Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
             (event) => setKeyboardHeight(event.endCoordinates.height),
@@ -97,7 +107,7 @@ export function PostCommentsDialog({
             show.remove();
             hide.remove();
         };
-    }, []);
+    }, [open]);
     const dialogWidth = Math.min(
         screenWidth - SCREEN_MARGIN * 2,
         MAX_DIALOG_WIDTH,

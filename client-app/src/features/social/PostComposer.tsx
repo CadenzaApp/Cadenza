@@ -12,6 +12,7 @@ import {
 import { ActivityIndicator, Pressable, TextInput, View } from "react-native";
 
 import { ArtworkMosaic } from "@/components/custom/artwork-mosaic";
+import { SearchField } from "@/components/custom/search-field";
 import { Button } from "@/components/ui/button";
 import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
@@ -353,47 +354,15 @@ export function PostComposerFields({
                         onRemove={posting ? undefined : composer.removePlaylist}
                     />
                 ) : (
-                    <View
-                        className="overflow-hidden rounded-2xl border"
-                        style={{ borderColor: detailColor }}
-                    >
-                        <View className="flex-row items-center gap-2 px-3">
-                            <Ionicons
-                                name="search"
-                                size={16}
-                                color={detailColor}
-                            />
-                            <TextInput
-                                value={topicQuery}
-                                onChangeText={setTopicQuery}
-                                placeholder="Search songs, artists, etc.."
-                                placeholderTextColor={detailColor}
-                                returnKeyType="search"
-                                autoCorrect={false}
-                                autoCapitalize="none"
-                                editable={!posting}
-                                // a font size alone, no line height, and no
-                                // vertical padding, so iOS centers the text
-                                className="h-11 flex-1 text-foreground"
-                                style={{ fontSize: 16, paddingVertical: 0 }}
-                            />
-                            {topicQuery.length > 0 ? (
-                                <Pressable
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Clear topic search"
-                                    onPress={clearSearch}
-                                    hitSlop={8}
-                                    className="active:opacity-60"
-                                >
-                                    <Ionicons
-                                        name="close-circle"
-                                        size={16}
-                                        color={detailColor}
-                                    />
-                                </Pressable>
-                            ) : null}
-                        </View>
-                    </View>
+                    <SearchField
+                        value={topicQuery}
+                        onChangeText={setTopicQuery}
+                        placeholder="Search songs, artists, etc."
+                        onClear={clearSearch}
+                        surface="outline"
+                        editable={!posting}
+                        accessibilityLabel="Search for a topic"
+                    />
                 )}
             </View>
 

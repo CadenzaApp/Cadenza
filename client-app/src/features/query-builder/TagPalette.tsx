@@ -5,7 +5,6 @@ import {
     Platform,
     Pressable,
     StyleSheet,
-    TextInput,
     View,
 } from "react-native";
 import { usePanGesture, GestureDetector } from "react-native-gesture-handler";
@@ -25,6 +24,7 @@ import Animated, {
     type SharedValue,
 } from "react-native-reanimated";
 
+import { SearchField } from "@/components/custom/search-field";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useOpenScreen } from "@/lib/open-screen";
@@ -294,11 +294,15 @@ export function TagPalette({
                                     </Pressable>
                                 </View>
                                 {!pendingTag ? (
-                                    <PaletteSearchField
+                                    <SearchField
                                         value={search}
                                         onChangeText={setSearch}
                                         onFocus={raiseForSearch}
+                                        placeholder="Search"
                                         accessibilityLabel="Search tags"
+                                        size="sm"
+                                        surface="outline"
+                                        className="flex-1"
                                     />
                                 ) : null}
                             </View>
@@ -426,59 +430,6 @@ function useRaiseWhileKeyboardUp(
         restoreHeight.current = latestHeight.current;
         onHeightChange(TAG_PALETTE_MAX_HEIGHT);
     }, [onHeightChange]);
-}
-
-/** An outlined search field above the palette's glass surface. */
-function PaletteSearchField({
-    value,
-    onChangeText,
-    onFocus,
-    accessibilityLabel,
-}: {
-    value: string;
-    onChangeText: (value: string) => void;
-    onFocus: () => void;
-    accessibilityLabel: string;
-}) {
-    const { colors, scheme } = useAppTheme();
-    return (
-        <View className="relative h-9 flex-1 justify-center overflow-hidden rounded-full">
-            <TextInput
-                value={value}
-                onChangeText={onChangeText}
-                onFocus={onFocus}
-                placeholder="Search"
-                placeholderTextColor={colors.mutedForeground}
-                accessibilityLabel={accessibilityLabel}
-                className="h-9 w-full rounded-full border bg-transparent pl-9 pr-3 text-sm font-semibold text-foreground"
-                style={{
-                    // Use native font metrics instead of Input's fixed line height.
-                    // A small bottom inset optically centers the iOS glyphs.
-                    paddingTop: 0,
-                    paddingBottom: Platform.OS === "ios" ? 4 : 0,
-                    includeFontPadding: false,
-                    textAlignVertical: "center",
-                    backgroundColor:
-                        scheme === "dark"
-                            ? "rgba(255,255,255,0.08)"
-                            : "rgba(0,0,0,0.05)",
-                    borderColor:
-                        scheme === "dark"
-                            ? "rgba(255,255,255,0.28)"
-                            : "rgba(0,0,0,0.24)",
-                }}
-                autoCapitalize="none"
-                autoCorrect={false}
-            />
-            <View pointerEvents="none" className="absolute left-3">
-                <Ionicons
-                    name="search"
-                    size={16}
-                    color={colors.mutedForeground}
-                />
-            </View>
-        </View>
-    );
 }
 
 const DraggablePaletteTag = memo(function DraggablePaletteTag({
