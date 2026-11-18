@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 
+import { readQuerySettings } from "@/features/cadenza/query-settings";
 import { useAccount } from "@/lib/account";
 import { useAPIMutation } from "@/lib/api-actions";
 import { getErrorDetails } from "@/lib/error-utils";
@@ -68,6 +69,7 @@ export function useAssistantChat() {
                     })),
                     time_zone: deviceTimeZone(),
                     now: localNow(),
+                    query_settings: await builderSettings(),
                 };
                 let response = await trigger(request);
                 for (
@@ -192,4 +194,19 @@ function localNow() {
     );
     const minutes = String(Math.abs(offsetMinutes) % 60).padStart(2, "0");
     return `${local}${sign}${hours}:${minutes}`;
+}
+
+/**
+ * The query builder's settings that decide which songs a query matches, as
+ * they are now, so a card's songs match what the builder would show. A card
+ * from before the user changed them can be out of date; that is fine.
+ */
+async function builderSettings(): Promise<
+    NonNullable<AssistantRequest["query_settings"]>
+> {
+    const settings = await readQuerySettings();
+    return {
+        library_or_tagged: settings.libraryOrTagged,
+        include_suggested: settings.includeSuggested,
+    };
 }

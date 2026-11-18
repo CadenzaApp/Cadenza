@@ -14,6 +14,7 @@ import { useAppTheme } from "@/lib/theme";
 
 import { currentPlayback } from "./playback-snapshot";
 import { shuffledCopy } from "./phone-tools";
+import { useQueryHandoff } from "./use-query-handoff";
 import type { AssistantSongs } from "./types";
 
 /** How many songs the card lists. Play still queues every one. */
@@ -22,9 +23,11 @@ const SHOWN_SONGS = 5;
 /**
  * The songs a tool found, under the answer: the first few rows, a button with
  * the total, and Play / Shuffle for all of them. Tapping a row plays just that
- * song. The total button closes the assistant and shows every song the card
- * holds on the song list screen, titled with the card's name, where they can
- * be sorted, selected and tagged.
+ * song. The total button closes the assistant. A card from `run_query` loads
+ * its query into the Cadenza builder and opens its results there (see
+ * `useQueryHandoff`); any other card shows every song it holds on the song
+ * list screen, titled with the card's name. Either way they can be sorted,
+ * selected and tagged.
  *
  * Once anything starts playing, the assistant sheet gives way to the now
  * playing sheet, showing the song that started. `replace` rather than `push`,
@@ -51,7 +54,19 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
         router.replace("/player");
     }, [router]);
 
-    const openList = useCallback(() => {
+    const handOff = useQueryHandoff();
+
+    const openList = useCallback(async () => {
+        if (songs.query) {
+            try {
+                if (await handOff(songs.query)) return;
+            } catch (error) {
+                logHandledError(
+                    "Assistant could not open the query in the builder",
+                    error,
+                );
+            }
+        }
         openScreen(
             {
                 pathname: "/song-list",
@@ -64,7 +79,7 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
             } as Href,
             { closing: "assistant" },
         );
-    }, [openScreen, songs]);
+    }, [handOff, openScreen, songs]);
 
     /**
      * Plays every song on the card, in order or shuffled, then opens the now

@@ -1,5 +1,7 @@
 /** Shapes for `POST /assistant/messages`. See backend-api/src/routes/README.md. */
 
+import type { ArrangeFieldJSON } from "../../lib/song-arrangement.ts";
+
 export type ChatRole = "user" | "assistant";
 
 export type AssistantRequest = {
@@ -9,6 +11,8 @@ export type AssistantRequest = {
     now?: string;
     /** A phone tool's result: the last `client_tool_call`'s continuation, as it came, and the output. */
     resume?: { continuation: AssistantContinuation; output: unknown };
+    /** The query builder's settings now, so a query the assistant runs matches the builder. */
+    query_settings?: { library_or_tagged: boolean; include_suggested: boolean };
 };
 
 /** Where an answer stopped for a phone tool. Opaque here: sent back as it came. */
@@ -29,6 +33,23 @@ export type AssistantSongs = {
     capped: boolean;
     /** A short name for the list, the title of the screen Open list shows. */
     title?: string;
+    /** For a `run_query` card: the query, so opening the card loads it into the builder. */
+    query?: AssistantCardQuery;
+};
+
+/**
+ * A `run_query` card's query and everything that decided its songs, as the
+ * backend's `CardQuery` sends it.
+ */
+export type AssistantCardQuery = {
+    /** The query in the wire format, as the model wrote it. Checked before use. */
+    query: unknown;
+    builder: "simple" | "advanced";
+    library_or_tagged: boolean;
+    include_suggested: boolean;
+    sort?: ArrangeFieldJSON;
+    group?: ArrangeFieldJSON;
+    limit?: number;
 };
 
 export type AssistantResponse =

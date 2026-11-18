@@ -5,12 +5,14 @@ import {
     arrangeFieldJSON,
     defaultDirection,
     directionLabels,
+    encodeArrangementParam,
     formatDuration,
     groupLabel,
     hasDirection,
     isArranged,
     MAX_SONG_LIMIT,
     NO_ARRANGEMENT,
+    parseArrangementParam,
     parseSongLimit,
     releaseDay,
     sameField,
@@ -162,4 +164,42 @@ test("durations read as minutes and seconds", () => {
 test("release dates go over as days", () => {
     assert.equal(releaseDay(Date.UTC(1984, 5, 25)), "1984-06-25");
     assert.equal(releaseDay(undefined), undefined);
+});
+
+test("an arrangement survives a route param", () => {
+    const arrangement = {
+        sort: {
+            field: tag("My Plays", "number", "activity"),
+            direction: "descending" as const,
+        },
+        group: { field: artist, direction: "ascending" as const },
+        limit: 20,
+    };
+    assert.deepEqual(
+        parseArrangementParam(encodeArrangementParam(arrangement)),
+        arrangement,
+    );
+    assert.deepEqual(
+        parseArrangementParam(encodeArrangementParam(NO_ARRANGEMENT)),
+        NO_ARRANGEMENT,
+    );
+});
+
+test("a malformed arrangement param reads as nothing, part by part", () => {
+    assert.equal(parseArrangementParam(undefined), null);
+    assert.equal(parseArrangementParam("not json"), null);
+    assert.equal(parseArrangementParam("7"), null);
+    assert.deepEqual(
+        parseArrangementParam(
+            JSON.stringify({
+                sort: {
+                    field: { kind: "metadata", key: "mood" },
+                    direction: "ascending",
+                },
+                group: { field: artist, direction: "sideways" },
+                limit: 0,
+            }),
+        ),
+        NO_ARRANGEMENT,
+    );
 });

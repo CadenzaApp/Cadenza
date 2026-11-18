@@ -175,6 +175,85 @@ export function arrangeFieldJSON(choice: SongSort): ArrangeFieldJSON {
           };
 }
 
+/** An arrangement as a route param, for a screen that opens already arranged. */
+export function encodeArrangementParam(arrangement: SongArrangement): string {
+    return JSON.stringify(arrangement);
+}
+
+const DIRECTIONS: readonly string[] = ["ascending", "descending"];
+const METADATA_KEYS: readonly string[] = Object.keys(METADATA_TAG_TYPES);
+const TAG_SOURCES: readonly string[] = ["own", "activity", "suggested"];
+
+function parseField(value: unknown): ArrangeField | null {
+    if (!value || typeof value !== "object") return null;
+    const field = value as Record<string, unknown>;
+    if (field.kind === "metadata") {
+        return typeof field.key === "string" &&
+            METADATA_KEYS.includes(field.key)
+            ? { kind: "metadata", key: field.key as MetadataKey }
+            : null;
+    }
+    if (
+        field.kind === "tag" &&
+        typeof field.tagId === "number" &&
+        typeof field.name === "string" &&
+        typeof field.color === "string" &&
+        typeof field.type === "string" &&
+        typeof field.source === "string" &&
+        TAG_SOURCES.includes(field.source)
+    ) {
+        return {
+            kind: "tag",
+            tagId: field.tagId,
+            name: field.name,
+            color: field.color,
+            type: field.type as TagType,
+            source: field.source as ArrangeTagSource,
+        };
+    }
+    return null;
+}
+
+function parseChoice(value: unknown): SongSort | null {
+    if (!value || typeof value !== "object") return null;
+    const choice = value as Record<string, unknown>;
+    const field = parseField(choice.field);
+    return field &&
+        typeof choice.direction === "string" &&
+        DIRECTIONS.includes(choice.direction)
+        ? { field, direction: choice.direction as ArrangeDirection }
+        : null;
+}
+
+/**
+ * An arrangement back from `encodeArrangementParam`, or null for a missing
+ * or malformed one. A part that does not read is left out.
+ */
+export function parseArrangementParam(
+    raw: string | undefined,
+): SongArrangement | null {
+    if (!raw) return null;
+    let value: unknown;
+    try {
+        value = JSON.parse(raw);
+    } catch {
+        return null;
+    }
+    if (!value || typeof value !== "object") return null;
+    const arrangement = value as Record<string, unknown>;
+    const limit =
+        typeof arrangement.limit === "number" &&
+        Number.isSafeInteger(arrangement.limit) &&
+        arrangement.limit > 0
+            ? Math.min(arrangement.limit, MAX_SONG_LIMIT)
+            : null;
+    return {
+        sort: parseChoice(arrangement.sort),
+        group: parseChoice(arrangement.group),
+        limit,
+    };
+}
+
 /** What a group holds, as the backend says. */
 export type ArrangedGroupState = "value" | "no_value" | "not_applied";
 
