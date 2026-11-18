@@ -15,7 +15,6 @@ import {
     useUpdatePost,
 } from "@/lib/routes/social";
 import { useAppTheme } from "@/lib/theme";
-import { cn } from "@/lib/utils";
 
 import { EditContentDialog } from "./EditContentDialog";
 import { formatRelativeTime, initialsFromUsername } from "./format";
@@ -384,12 +383,10 @@ export function PostCard({
                             color={like}
                         />
                         <Text
-                            className={cn(
-                                "text-sm",
-                                liked
-                                    ? "text-rose-600"
-                                    : "text-muted-foreground",
-                            )}
+                            className="text-sm"
+                            style={{
+                                color: liked ? like : mutedForeground,
+                            }}
                         >
                             {likes}
                         </Text>

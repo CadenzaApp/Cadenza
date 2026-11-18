@@ -325,7 +325,7 @@ function PostSummary({
     onLikedChange?: (postId: number, liked: boolean) => void;
     onAuthorPress?: (userId: string) => void;
 }) {
-    const { like } = useAppTheme().colors;
+    const { like, mutedForeground } = useAppTheme().colors;
     const { likePost } = useLikePost();
     const { unlikePost } = useUnlikePost();
     const updateCachedPostLike = useUpdateCachedPostLike();
@@ -420,10 +420,8 @@ function PostSummary({
                         color={like}
                     />
                     <Text
-                        className={cn(
-                            "text-sm",
-                            liked ? "text-rose-600" : "text-muted-foreground",
-                        )}
+                        className="text-sm"
+                        style={{ color: liked ? like : mutedForeground }}
                     >
                         {likes}
                     </Text>
@@ -450,7 +448,7 @@ function CommentRow({
     onEdited?: (content: string, editedAt: string) => void;
 }) {
     const { account } = useAccount();
-    const { foreground, like } = useAppTheme().colors;
+    const { foreground, like, mutedForeground } = useAppTheme().colors;
     const isOwnComment = account?.id === comment.author.user_id;
     const [menuOpen, setMenuOpen] = useState(false);
     const [editing, setEditing] = useState(false);
@@ -580,10 +578,8 @@ function CommentRow({
                         color={like}
                     />
                     <Text
-                        className={cn(
-                            "text-sm",
-                            liked ? "text-rose-600" : "text-muted-foreground",
-                        )}
+                        className="text-sm"
+                        style={{ color: liked ? like : mutedForeground }}
                     >
                         {likes}
                     </Text>
