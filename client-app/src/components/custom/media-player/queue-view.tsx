@@ -1,9 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import {
-    RepeatMode,
-    ShuffleMode,
-    type MusicItem,
-} from "@apple-musickit";
+import { RepeatMode, ShuffleMode, type MusicItem } from "@apple-musickit";
 import { Pressable, StyleSheet, View, type ColorValue } from "react-native";
 import type { ReactNode } from "react";
 
