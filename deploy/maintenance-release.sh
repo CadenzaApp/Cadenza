@@ -14,6 +14,12 @@ systemd-run --quiet --unit="$unit" --on-active=12min --timer-property=AccuracySe
     --property=Restart=on-failure --property=RestartSec=15s \
     "$aws_bin" autoscaling update-auto-scaling-group --region "$region" \
     --auto-scaling-group-name "$group" --health-check-type ELB
+# Replace stale deadlines only after our own deadline is armed, under the lock.
+while read -r previous _; do
+    if [ -n "$previous" ] && [ "$previous" != "$unit.timer" ]; then
+        systemctl stop "$previous" "${previous%.timer}.service"
+    fi
+done < <(systemctl list-units --all --type=timer --no-legend --plain 'cadenza-health-restore-*.timer')
 restore() {
     status=$?
     trap - EXIT
@@ -29,8 +35,16 @@ restore() {
 trap restore EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
-"$aws_bin" autoscaling update-auto-scaling-group --region "$region" \
-    --auto-scaling-group-name "$group" --health-check-type EC2
+admitted=false
+for attempt in $(seq 1 12); do
+    if "$aws_bin" autoscaling update-auto-scaling-group --region "$region" \
+        --auto-scaling-group-name "$group" --health-check-type EC2; then
+        admitted=true
+        break
+    fi
+    sleep 5
+done
+[ "$admitted" = true ]
 bash activate-release.sh "$candidate"
 # Give ALB two 5-second health probes before native replacement resumes.
 sleep 15

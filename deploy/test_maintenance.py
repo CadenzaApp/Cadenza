@@ -18,7 +18,7 @@ class MaintenanceTests(unittest.TestCase):
             stubs = {
                 'aws': 'echo "$*" >> events',
                 'systemd-run': 'echo armed >> events',
-                'systemctl': 'echo disarmed >> events',
+                'systemctl': 'if [ "$1" != list-units ]; then echo disarmed >> events; fi',
                 'flock': 'exit 0', 'sleep': 'exit 0',
             }
             for name, code in stubs.items():
