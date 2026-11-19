@@ -17,7 +17,11 @@ systemd-run --quiet --unit="$unit" --on-active=12min --timer-property=AccuracySe
 # Replace stale deadlines only after our own deadline is armed, under the lock.
 while read -r previous _; do
     if [ -n "$previous" ] && [ "$previous" != "$unit.timer" ]; then
-        systemctl stop "$previous" "${previous%.timer}.service"
+        systemctl stop "$previous"
+        service="${previous%.timer}.service"
+        if [ "$(systemctl show --property=LoadState --value "$service")" != not-found ]; then
+            systemctl stop "$service"
+        fi
     fi
 done < <(systemctl list-units --all --type=timer --no-legend --plain 'cadenza-health-restore-*.timer')
 restore() {
