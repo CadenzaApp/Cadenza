@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import MaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
     ActivityIndicator,
     Pressable,
@@ -40,7 +41,12 @@ const ART_ARTIST = 260;
 const VIZ_HEIGHT = 90;
 /** Gap between the visualizer and whatever it sits on. */
 const VIZ_GAP = 6;
-const IDLE = "#a1a1a1";
+/** Like and comment counts, read against the shade over the artwork. */
+const IDLE = "rgba(255,255,255,0.85)";
+/** How far in from each edge the artwork fades to transparent. */
+const EDGE_BLUR = 15;
+/** The card's corner radius, `rounded-3xl`. The edge fade follows it. */
+const CARD_RADIUS = 24;
 
 /** Bar heights from the spotlight design, quiet on the left. */
 const BARS = [
@@ -75,9 +81,11 @@ type Props = {
  * on the bar underneath. The cover keeps that height while its image loads.
  * While a preview plays, the cover shows pause, a
  * progress bar, and a visualizer. An artist has Apple's short note when the
- * catalog has one. The post's tags sit along the bottom of the cover, under
- * the name, in a row that scrolls sideways. Tapping a tag does nothing. The
- * visualizer sits above them.
+ * catalog has one. The artwork fills the whole card, like bar included, under
+ * a shade that darkens toward the bottom, and fades out at the border.
+ * The post's tags sit along the bottom of the cover, under the name, in a row
+ * that scrolls sideways and fades out at both ends. Tapping a tag does
+ * nothing. The visualizer sits above them.
  */
 export function SpotlightPost({
     topic,
@@ -152,11 +160,8 @@ export function SpotlightPost({
           : "SPOTLIGHT";
 
     return (
-        <View className="overflow-hidden rounded-3xl bg-[#111111]">
-            <View
-                className="relative overflow-hidden"
-                style={{ height: isArtist ? ART_ARTIST : ART_SONG }}
-            >
+        <View className="overflow-hidden rounded-3xl">
+            <SoftEdges>
                 <RemoteArtwork
                     url={artworkUrl}
                     className="absolute inset-0 h-full w-full"
@@ -180,6 +185,12 @@ export function SpotlightPost({
                         ) : null
                     }
                 />
+                <HeroShade artist={isArtist} />
+            </SoftEdges>
+            <View
+                className="relative"
+                style={{ height: isArtist ? ART_ARTIST : ART_SONG }}
+            >
                 {artworkLoading ? (
                     <View
                         pointerEvents="none"
@@ -188,7 +199,6 @@ export function SpotlightPost({
                         <ActivityIndicator color="#ffffff" />
                     </View>
                 ) : null}
-                <HeroShade artist={isArtist} />
                 {topic ? (
                     <Pressable
                         accessibilityRole="button"
@@ -273,18 +283,29 @@ export function SpotlightPost({
                 {hasTags ? (
                     // a sibling over the cover, not inside its Pressable, so a
                     // tap on a tag does not play the song or open the artist
-                    <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={{ paddingHorizontal: 16 }}
-                        className="absolute left-0 right-0 z-20"
-                        style={{ bottom: heroPaddingBottom, flexGrow: 0 }}
+                    // style, not className: NativeWind does not reach MaskedView
+                    <MaskedView
+                        style={{
+                            position: "absolute",
+                            left: 0,
+                            right: 0,
+                            bottom: heroPaddingBottom,
+                            zIndex: 20,
+                        }}
                         onLayout={(event) =>
                             setTagsHeight(event.nativeEvent.layout.height)
                         }
+                        maskElement={<SideFadeMask />}
                     >
-                        <PostTagRow tags={tags} compact />
-                    </ScrollView>
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={{ paddingHorizontal: 16 }}
+                            style={{ flexGrow: 0 }}
+                        >
+                            <PostTagRow tags={tags} compact />
+                        </ScrollView>
+                    </MaskedView>
                 ) : null}
                 <Text
                     pointerEvents="none"
@@ -360,32 +381,94 @@ export function SpotlightPost({
     );
 }
 
+/**
+ * The shade over the whole card: dark at the top for the label, and darker
+ * toward the bottom so the name, tags, and like and comment counts stay
+ * readable on the artwork.
+ */
 function HeroShade({ artist }: { artist: boolean }) {
     return (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
             <LinearGradient
                 colors={["rgba(0,0,0,0.72)", "rgba(0,0,0,0)"]}
-                locations={[0, artist ? 0.36 : 0.42]}
+                locations={[0, artist ? 0.3 : 0.34]}
                 style={StyleSheet.absoluteFill}
             />
-            {artist ? (
-                <LinearGradient
-                    colors={[
-                        "rgba(0,0,0,0)",
-                        "rgba(0,0,0,0.28)",
-                        "rgba(0,0,0,0.62)",
-                    ]}
-                    locations={[0.48, 0.78, 1]}
-                    style={StyleSheet.absoluteFill}
-                />
-            ) : (
-                <LinearGradient
-                    colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.78)"]}
-                    locations={[0.45, 1]}
-                    style={StyleSheet.absoluteFill}
-                />
-            )}
+            <LinearGradient
+                colors={[
+                    "rgba(0,0,0,0)",
+                    "rgba(0,0,0,0.45)",
+                    "rgba(0,0,0,0.86)",
+                ]}
+                locations={artist ? [0.4, 0.68, 1] : [0.34, 0.62, 1]}
+                style={StyleSheet.absoluteFill}
+            />
         </View>
+    );
+}
+
+/**
+ * A rounded rect that goes from clear at the card's border to opaque
+ * `EDGE_BLUR` in, following the corners. Built from one-pixel steps, each a
+ * rounded rect one pixel further in, whose opacities stack to a straight ramp.
+ */
+function RoundedFadeMask() {
+    return (
+        <View style={StyleSheet.absoluteFill}>
+            {Array.from({ length: EDGE_BLUR }, (_, step) => (
+                <View
+                    key={step}
+                    style={{
+                        position: "absolute",
+                        top: step,
+                        bottom: step,
+                        left: step,
+                        right: step,
+                        borderRadius: Math.max(CARD_RADIUS - step, 0),
+                        backgroundColor: "black",
+                        // step k of n stacks to (k + 1) / n
+                        opacity: 1 / (EDGE_BLUR - step),
+                    }}
+                />
+            ))}
+        </View>
+    );
+}
+
+/** Clear at the left and right ends, so scrolled tags fade out at the edges. */
+function SideFadeMask() {
+    return (
+        <View style={[StyleSheet.absoluteFill, { flexDirection: "row" }]}>
+            <LinearGradient
+                colors={["transparent", "black"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={{ width: EDGE_BLUR }}
+            />
+            <View style={{ flex: 1, backgroundColor: "black" }} />
+            <LinearGradient
+                colors={["black", "transparent"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={{ width: EDGE_BLUR }}
+            />
+        </View>
+    );
+}
+
+/**
+ * The artwork layer, faded to transparent along the card's border so the
+ * card's edge is soft over whatever is behind it.
+ */
+function SoftEdges({ children }: { children: ReactNode }) {
+    return (
+        <MaskedView
+            pointerEvents="none"
+            style={StyleSheet.absoluteFill}
+            maskElement={<RoundedFadeMask />}
+        >
+            {children}
+        </MaskedView>
     );
 }
 

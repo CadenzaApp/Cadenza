@@ -71,6 +71,8 @@ type Props = {
     authorListening?: FriendListening;
     /** Shows a small unread indicator on feed items the caller has not seen. */
     unseen?: boolean;
+    /** Draws the line under the post. Off above a spotlight, which has none. */
+    divider?: boolean;
 };
 
 const MAX_POST_LENGTH = 500;
@@ -93,6 +95,7 @@ function PostCardBase({
     onEdited,
     authorListening,
     unseen = false,
+    divider = true,
 }: Props) {
     const { foreground, like, mutedForeground } = useAppTheme().colors;
     const { account } = useAccount();
@@ -354,10 +357,19 @@ function PostCardBase({
                     accessibilityRole="button"
                     accessibilityLabel="View post comments"
                     onPress={openComments}
-                    className="gap-3 border-b px-1 py-5"
-                    style={{
-                        borderBottomColor: withAlpha(mutedForeground, 0.55),
-                    }}
+                    className={
+                        divider ? "gap-3 border-b px-1 py-5" : "gap-3 px-1 py-5"
+                    }
+                    style={
+                        divider
+                            ? {
+                                  borderBottomColor: withAlpha(
+                                      mutedForeground,
+                                      0.55,
+                                  ),
+                              }
+                            : undefined
+                    }
                 >
                     <View className="flex-row items-center">
                         {authorRow}

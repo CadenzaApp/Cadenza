@@ -27,7 +27,6 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { Toast, useToast } from "@/components/custom/toast";
-import { ListDivider } from "@/components/custom/list-divider";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import { Text } from "@/components/ui/text";
@@ -220,16 +219,15 @@ export function SocialFeedScreen() {
             if (hiddenIds.has(post.post_id)) continue;
             rows.push({ kind: "post", post, unseen: true });
         }
-        // Fresh pages ran dry: separator, then previously viewed posts.
+        // Fresh pages ran dry: a heading, then previously viewed posts.
         if (showingSeen && seenPosts.length > 0) {
-            rows.push({ kind: "caught-up" });
             rows.push({ kind: "history-heading" });
         }
         for (const post of seenPosts) {
             if (hiddenIds.has(post.post_id)) continue;
             rows.push({ kind: "post", post, history: true });
         }
-        return rows;
+        return withoutLinesAroundSpotlights(rows);
     }, [created, hiddenIds, posts, showingSeen, unseenCount]);
 
     useLayoutEffect(() => {
@@ -394,7 +392,6 @@ export function SocialFeedScreen() {
     ).current;
 
     const keyExtractor = useCallback((item: FeedRow, index: number) => {
-        if (item.kind === "caught-up") return "caught-up";
         if (item.kind === "history-heading") return "history-heading";
         return `${item.post.post_id}-${index}`;
     }, []);
@@ -468,9 +465,6 @@ export function SocialFeedScreen() {
 
     const renderItem = useCallback<ListRenderItem<FeedRow>>(
         ({ item }) => {
-            if (item.kind === "caught-up") {
-                return <ListDivider label="You're all caught up" />;
-            }
             if (item.kind === "history-heading") {
                 return <PreviouslyViewedHeading />;
             }
@@ -483,6 +477,7 @@ export function SocialFeedScreen() {
                             : undefined
                     }
                     unseen={item.unseen}
+                    divider={item.divider}
                     topicHint={localTopics[item.post.post_id]}
                     onDeleted={handleDeleted}
                     onDeleteFailed={handleDeleteFailed}
@@ -642,9 +637,27 @@ export function SocialFeedScreen() {
 }
 
 type FeedRow =
-    | { kind: "post"; post: SocialPost; history?: boolean; unseen?: boolean }
-    | { kind: "caught-up" }
+    | {
+          kind: "post";
+          post: SocialPost;
+          history?: boolean;
+          unseen?: boolean;
+          /** False for the post just above a spotlight. */
+          divider?: boolean;
+      }
     | { kind: "history-heading" };
+
+/**
+ * Turns off the line under a post that sits just above a spotlight, so no
+ * divider touches a spotlight on either side. A spotlight draws none of its own.
+ */
+function withoutLinesAroundSpotlights(rows: FeedRow[]): FeedRow[] {
+    return rows.map((row, index) => {
+        const next = rows[index + 1];
+        if (row.kind !== "post" || next?.kind !== "post") return row;
+        return next.post.author == null ? { ...row, divider: false } : row;
+    });
+}
 
 function PreviouslyViewedHeading() {
     return (
