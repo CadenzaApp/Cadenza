@@ -17,6 +17,7 @@ pub mod model;
 pub mod phone_tools;
 pub mod prompt;
 pub mod tools;
+pub mod writes;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -31,11 +32,12 @@ use serde_json::{Value, json};
 use crate::db::{self, metadata_tags::SongRow};
 use crate::err::CadenzaError;
 use crate::routes::json::assistant::{
-    AssistantRequest, AssistantResponse, AssistantStep, ChatMessage, ChatRole, Continuation,
-    Resume, SongsCard,
+    ActionSummary, AssistantRequest, AssistantResponse, AssistantStep, CardQuery, ChatMessage,
+    ChatRole, Continuation, Resume, SongsCard,
 };
 use crate::services::analytics::sanitize_timezone;
 use crate::services::rate_limit::{Limit, RateLimiter};
+use crate::services::realtime::SharedEventBus;
 use crate::services::song_metadata::SongMetadataService;
 
 use model::AssistantModel;
@@ -43,6 +45,7 @@ use tools::{
     DbTools, MAX_SONGS_TO_MODEL, ToolRunner, definitions, describe_activity_tags, describe_song,
     describe_tags,
 };
+use writes::CardRef;
 
 /// The most model calls one message may take. Each tool round is one.
 pub const MAX_STEPS: usize = 8;
@@ -94,13 +97,14 @@ impl AssistantService {
         &self,
         db: &DatabaseConnection,
         song_meta: &SongMetadataService,
+        bus: &SharedEventBus,
         user_id: Uuid,
         request: AssistantRequest,
     ) -> Result<AssistantResponse, CadenzaError> {
         self.limiter
             .check(&user_id)
             .map_err(|retry_after| CadenzaError::UserRateLimited { retry_after })?;
-        answer(db, song_meta, self.model.as_ref(), user_id, request).await
+        answer(db, song_meta, bus, self.model.as_ref(), user_id, request).await
     }
 }
 
@@ -108,6 +112,7 @@ impl AssistantService {
 async fn answer(
     db: &DatabaseConnection,
     song_meta: &SongMetadataService,
+    bus: &SharedEventBus,
     model: &dyn AssistantModel,
     user_id: Uuid,
     request: AssistantRequest,
@@ -115,13 +120,17 @@ async fn answer(
     validate(&request)?;
     let resume = request.resume.clone().map(validate_resume).transpose()?;
     let kept = kept_messages(&request);
-    // the last card shown, all of it, for a phone tool's songs: "card"
-    let last_card: Vec<String> = kept
+    // the last card shown, all of it, for a phone tool's songs: "card", and its query when
+    // it came from run_query, for save_query
+    let last_shown = kept
         .iter()
         .rev()
-        .find(|message| message.role == ChatRole::Assistant && !message.song_ids.is_empty())
+        .find(|message| message.role == ChatRole::Assistant && !message.song_ids.is_empty());
+    let last_card: Vec<String> = last_shown
         .map(|message| message.song_ids.clone())
         .unwrap_or_default();
+    let last_card_query: Option<CardQuery> =
+        last_shown.and_then(|message| message.card_query.clone());
     let latest_card = latest_card_index(kept);
     let card_ids: Vec<String> = kept
         .iter()
@@ -151,18 +160,24 @@ async fn answer(
         hide_explicit,
         builder_settings: request.query_settings,
         time_zone: time_zone.to_owned(),
+        bus: Some(bus),
     };
     let mut tool_definitions = definitions();
     tool_definitions.extend(phone_tools::definitions());
     tool_definitions.push(card_edit::definition());
+    tool_definitions.extend(writes::definitions());
     // the tag ids the prompt lists are the model's to use without a lookup
     let tag_ids = tags
         .iter()
         .map(|tag| tag.tag_id.to_string())
         .chain(activity_tags.iter().map(|(_, tag)| tag.tag_id.to_string()));
     let state = match resume {
-        Some(resume) => LoopState::resumed(resume, last_card),
-        None => LoopState::new(last_card),
+        Some(resume) => {
+            let resume =
+                run_confirmed_change(&runner, resume, &last_card, last_card_query.as_ref()).await;
+            LoopState::resumed(resume, last_card, last_card_query)
+        }
+        None => LoopState::new(last_card).with_card_query(last_card_query),
     }
     .with_known_ids(tag_ids);
     run_loop(
@@ -174,6 +189,53 @@ async fn answer(
         state,
     )
     .await
+}
+
+/// A resume that answers a write tool's confirm card: the change runs now, on the user's
+/// yes, and its result replaces the phone's `{confirmed}` as the call's output, so the
+/// model reads what happened. A no tells the model the user declined. Any other resume
+/// passes through.
+async fn run_confirmed_change(
+    runner: &dyn ToolRunner,
+    mut resume: Resume,
+    last_card: &[String],
+    last_card_query: Option<&CardQuery>,
+) -> Resume {
+    let Some(call) = resume.continuation.items.last() else {
+        return resume;
+    };
+    let name = call["name"].as_str().unwrap_or_default().to_owned();
+    if !writes::is_write_tool(&name) {
+        return resume;
+    }
+    let arguments = call["arguments"].as_str().unwrap_or_default().to_owned();
+    if resume.output["confirmed"].as_bool() != Some(true) {
+        resume.output = json!({
+            "cancelled": true,
+            "note": "The user said no on the confirm card, so nothing changed. Do not try again unless they ask.",
+        });
+        return resume;
+    }
+    let card = match &resume.continuation.songs {
+        Some(card) => CardRef {
+            song_ids: &card.song_ids,
+            query: card.query.as_ref(),
+        },
+        None => CardRef {
+            song_ids: last_card,
+            query: last_card_query,
+        },
+    };
+    resume.output = match runner.execute_write(&name, &arguments, card).await {
+        Ok((output, action)) => {
+            if let Some(action) = action {
+                resume.continuation.actions.push(action);
+            }
+            output
+        }
+        Err(message) => json!({ "error": message }),
+    };
+    resume
 }
 
 /// A resume whose continuation is the server's own shape: only tool calls and
@@ -326,6 +388,10 @@ pub struct LoopState {
     /// The last card shown before this answer, for `songs: "card"` until this
     /// answer has a card of its own.
     last_card: Vec<String>,
+    /// That card's query, when it came from `run_query`, for `save_query`.
+    last_card_query: Option<CardQuery>,
+    /// The changes this answer made, for the done cards.
+    actions: Vec<ActionSummary>,
     /// Ids the model may use without a tool having returned them in this answer: the
     /// user's tags, which the prompt lists.
     known_ids: HashSet<String>,
@@ -339,7 +405,30 @@ impl LoopState {
             songs: None,
             steps_used: 0,
             last_card,
+            last_card_query: None,
+            actions: Vec::new(),
             known_ids: HashSet::new(),
+        }
+    }
+
+    /// The query behind the last card shown, when it came from `run_query`.
+    pub fn with_card_query(mut self, query: Option<CardQuery>) -> Self {
+        self.last_card_query = query;
+        self
+    }
+
+    /// The card a write tool's `songs: "card"` and `save_query` mean: this answer's, or
+    /// else the last one shown.
+    fn card_ref(&self) -> CardRef<'_> {
+        match &self.songs {
+            Some(card) => CardRef {
+                song_ids: &card.song_ids,
+                query: card.query.as_ref(),
+            },
+            None => CardRef {
+                song_ids: &self.last_card,
+                query: self.last_card_query.as_ref(),
+            },
         }
     }
 
@@ -417,19 +506,34 @@ impl LoopState {
 
     /// Picks up a continuation, with the phone's output answering its call.
     /// A card in the output becomes this answer's card.
-    fn resumed(resume: Resume, last_card: Vec<String>) -> Self {
+    fn resumed(resume: Resume, last_card: Vec<String>, last_card_query: Option<CardQuery>) -> Self {
         let Resume {
             continuation,
             mut output,
         } = resume;
+        let write = continuation
+            .items
+            .last()
+            .and_then(|call| call["name"].as_str())
+            .filter(|name| writes::is_write_tool(name))
+            .map(str::to_owned);
         let mut state = Self {
             items: continuation.items,
             steps: continuation.steps,
             songs: continuation.songs,
             steps_used: continuation.steps_used,
             last_card,
+            last_card_query,
+            actions: continuation.actions,
             known_ids: HashSet::new(),
         };
+        // a change shows its row once it has run, not while it waited
+        if let Some(name) = write
+            && output.get("error").is_none()
+            && output.get("cancelled").is_none()
+        {
+            state.add_step(&name, writes::label_for(&name));
+        }
         if let Some(card) = phone_tools::take_card(&mut output) {
             output = with_card_note(output, card.total);
             state.songs = Some(card);
@@ -480,6 +584,7 @@ impl LoopState {
             text,
             steps: self.steps,
             songs: self.songs,
+            actions: self.actions,
         }
     }
 }
@@ -743,6 +848,55 @@ pub async fn run_loop(
         while let Some(call) = calls.next() {
             state.items.push(call.to_input_item());
 
+            if writes::is_write_tool(&call.name) {
+                // an id no tool gave it would change the wrong thing
+                let sourced = state.sourced_ids();
+                let unsourced: Vec<String> = writes::ids_named(&call.name, &call.arguments)
+                    .into_iter()
+                    .filter(|id| !sourced.contains(id))
+                    .collect();
+                let preview = if unsourced.is_empty() {
+                    runner
+                        .preview_write(&call.name, &call.arguments, state.card_ref())
+                        .await
+                } else {
+                    Err(phone_tools::unsourced_message(&unsourced))
+                };
+                let preview = match preview {
+                    Ok(preview) => preview,
+                    Err(message) => {
+                        // the model's to fix, or to tell the user about
+                        state.push_output(&call.call_id, &json!({ "error": message }));
+                        continue;
+                    }
+                };
+                // the user answers one card at a time; calls after it in the same turn are
+                // answered so the model can ask again
+                let deferred: Vec<_> = calls.collect();
+                let write_call_item = state.items.pop().expect("the call was just pushed");
+                for later in deferred {
+                    state.items.push(later.to_input_item());
+                    state.push_output(
+                        &later.call_id,
+                        &json!({ "error": "not run: the user confirms one change at a time; call it again" }),
+                    );
+                }
+                state.items.push(write_call_item);
+                return Ok(AssistantResponse::PendingAction {
+                    call_id: call.call_id.clone(),
+                    name: call.name,
+                    preview,
+                    continuation: Continuation {
+                        items: state.items,
+                        steps: state.steps,
+                        songs: state.songs,
+                        actions: state.actions,
+                        steps_used: state.steps_used,
+                        call_id: call.call_id,
+                    },
+                });
+            }
+
             if call.name == card_edit::NAME {
                 let edited = card_edit::edit(
                     &call.arguments,
@@ -845,6 +999,7 @@ pub async fn run_loop(
                     items: state.items,
                     steps: state.steps,
                     songs: state.songs,
+                    actions: state.actions,
                     steps_used: state.steps_used,
                     call_id: call.call_id,
                 },
@@ -946,6 +1101,7 @@ mod tests {
             role: ChatRole::User,
             content: content.into(),
             song_ids: vec![],
+            card_query: None,
         }
     }
 
@@ -954,6 +1110,7 @@ mod tests {
             role: ChatRole::Assistant,
             content: content.into(),
             song_ids: vec![],
+            card_query: None,
         }
     }
 
@@ -1106,6 +1263,7 @@ mod tests {
                 output: json!({ "playing": 1 }),
             },
             vec![],
+            None,
         );
         let AssistantResponse::Reply { text, steps, .. } = run_with(&second, state).await else {
             panic!("expected a reply");
@@ -1134,6 +1292,7 @@ mod tests {
                 output: json!({ "songs": [], "card": { "song_ids": ["7"], "total": 1 } }),
             },
             vec![],
+            None,
         );
         let second = ScriptedModel::new(vec![text("Found it.")]);
         let AssistantResponse::Reply { songs, .. } = run_with(&second, state).await else {
@@ -1277,6 +1436,7 @@ mod tests {
                 songs: None,
                 steps_used: 1,
                 call_id: call_id.into(),
+                actions: vec![],
             },
             output: json!({}),
         }
@@ -1389,6 +1549,7 @@ mod tests {
                 text: "Hello.".into(),
                 steps: vec![],
                 songs: None,
+                actions: vec![],
             }
         );
         assert_eq!(model.calls_made(), 1);
@@ -1414,6 +1575,7 @@ mod tests {
                     title: None,
                     query: None,
                 }),
+                actions: vec![],
             }
         );
 

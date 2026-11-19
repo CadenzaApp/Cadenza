@@ -21,9 +21,19 @@ Assistant section of [backend-api/src/services/README.md](../../../../backend-ap
 | `playback-snapshot.ts`                     | `PlaybackSnapshotBridge` and `currentPlayback()`: the queue and now playing, read at the moment a tap or a tool runs, without re-rendering on every progress tick.                                                                                                                                                                                                                                           |
 | `assistant-store.ts`                       | The conversation in memory, outside the sheet, so closing and reopening keeps it, and the confirmation waiting for an answer. Per account, gone on restart.                                                                                                                                                                                                                                                  |
 | `query-handoff.ts`, `use-query-handoff.ts` | A `run_query` card opened: `prepareHandoff` (pure, tested) turns its query into a builder `load` and its sort, group and limit into the results' arrangement; the hook loads it into the Cadenza drafts as one undo step, leaves the results with `requestQueryResults`, closes the sheet, and switches to the Cadenza tab, which opens the results itself, so Back shows the builder.                       |
+| `action-card.tsx`                          | `ActionCard`, the done card under an answer for each change it made, with Undo while it can still be undone, and `useUndoAndRecord`, which undoes through `POST /assistant/actions/{id}/undo` and updates the card in the chat.                                                                                                                                                                              |
+| `activity-log.tsx`                         | `AssistantActivityLog`, the activity log sheet (`app/assistant-activity.tsx`, opened from the clock in the chat's header): every confirmed change for 30 days, newest first, from `GET /assistant/actions`, with Undo. It lives on the backend, so it outlives the chat.                                                                                                                                     |
 | `types.ts`                                 | The request and response shapes, and `ChatEntry`.                                                                                                                                                                                                                                                                                                                                                            |
 
 ## How it works
+
+- Changes (tagging, saved queries, playlists) never run when the model asks. The backend answers
+  `pending_action` with a preview, the chat shows it as the same `ConfirmCard` the Apple Music
+  tools use, and the answer goes back as `resume: {continuation, output: {confirmed}}`. Only a
+  yes makes the backend change anything. The reply's `actions` become `ActionCard`s, and
+  `refreshAfterAssistantChanges` (`@/lib/routes/assistant-actions`) refreshes the reads they can
+  move. The chat is in memory, but the activity log is not: after a sign out the Undo is still
+  in the log.
 
 - Stateless backend: every send posts the whole conversation, plus the phone's time zone and
   local time so "last week" means the right dates, and the query builder's library or tagged

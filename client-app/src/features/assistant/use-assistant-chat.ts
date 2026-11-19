@@ -5,6 +5,7 @@ import { useAccount } from "@/lib/account";
 import { useAPIMutation } from "@/lib/api-actions";
 import { getErrorDetails } from "@/lib/error-utils";
 import { logHandledError } from "@/lib/log";
+import { refreshAfterAssistantChanges } from "@/lib/routes/assistant-actions";
 
 import {
     askConfirmation,
@@ -37,6 +38,12 @@ const UNFINISHED_REPLY =
  * like playback. It runs here (after the user confirms, for the ones that
  * change their Apple Music library), and its output goes back with the same
  * conversation and the call's `continuation`, until the backend answers.
+ *
+ * A `pending_action` is a change the assistant wants to make (tagging, saved
+ * queries, playlists). It shows as the same confirm card, and the answer goes
+ * back as `{confirmed}`; only a yes makes the backend change anything. A
+ * reply's `actions` are the changes made, each a done card with Undo, and the
+ * reads they can move are refreshed.
  */
 export function useAssistantChat() {
     const { account } = useAccount();
@@ -66,6 +73,10 @@ export function useAssistantChat() {
                             entry.role === "assistant"
                                 ? entry.songs?.song_ids
                                 : undefined,
+                        card_query:
+                            entry.role === "assistant"
+                                ? entry.songs?.query
+                                : undefined,
                     })),
                     time_zone: deviceTimeZone(),
                     now: localNow(),
@@ -74,10 +85,24 @@ export function useAssistantChat() {
                 let response = await trigger(request);
                 for (
                     let ran = 0;
-                    response.type === "client_tool_call" &&
-                    ran < MAX_PHONE_TOOLS;
+                    response.type !== "reply" && ran < MAX_PHONE_TOOLS;
                     ran += 1
                 ) {
+                    if (response.type === "pending_action") {
+                        // a change waits for the user's yes; the backend
+                        // makes it only when this comes back confirmed
+                        const { preview, continuation } = response;
+                        const confirmed = await askConfirmation(accountId, {
+                            title: preview.title,
+                            detail: preview.detail,
+                            confirmLabel: preview.confirm_label,
+                        });
+                        response = await trigger({
+                            ...request,
+                            resume: { continuation, output: { confirmed } },
+                        });
+                        continue;
+                    }
                     const { name, arguments: args, continuation } = response;
                     const asked = confirmationFor(name, args);
                     const confirmed = asked
@@ -91,6 +116,9 @@ export function useAssistantChat() {
                         resume: { continuation, output },
                     });
                 }
+                if (response.type === "reply") {
+                    refreshAfterAssistantChanges(response.actions ?? []);
+                }
                 const reply: ChatEntry =
                     response.type === "reply"
                         ? {
@@ -99,6 +127,7 @@ export function useAssistantChat() {
                               text: response.text,
                               steps: response.steps,
                               songs: response.songs,
+                              actions: response.actions,
                           }
                         : {
                               id: newEntryId(),

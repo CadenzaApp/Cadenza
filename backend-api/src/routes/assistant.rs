@@ -1,13 +1,24 @@
-use axum::{Json, Router, extract::State, routing::post};
+use axum::{
+    Json, Router,
+    extract::{Path, State},
+    routing::{get, post},
+};
 use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
 
 use crate::{
     AppState,
     auth::SupabaseClaims,
+    db::assistant_actions,
     err::CadenzaError,
-    routes::json::assistant::{AssistantRequest, AssistantResponse},
-    services::{assistant::AssistantService, song_metadata::SongMetadataService},
+    routes::json::assistant::{
+        ActionList, ActionSummary, AssistantRequest, AssistantResponse, UndoResult,
+    },
+    services::{
+        assistant::{AssistantService, writes},
+        realtime::SharedEventBus,
+        song_metadata::SongMetadataService,
+    },
 };
 
 /// Answers the last message in a conversation with the assistant.
@@ -54,15 +65,72 @@ async fn post_message_handler(
     State(db): State<DatabaseConnection>,
     State(assistant_service): State<AssistantService>,
     State(song_meta_service): State<SongMetadataService>,
+    State(bus): State<SharedEventBus>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(body): Json<AssistantRequest>,
 ) -> Result<Json<AssistantResponse>, CadenzaError> {
     let response = assistant_service
-        .answer(&db, &song_meta_service, claims.user_id, body)
+        .answer(&db, &song_meta_service, &bus, claims.user_id, body)
         .await?;
     Ok(Json(response))
 }
 
+/// The changes the user confirmed in the assistant over the last 30 days (at most 100),
+/// newest first: the activity log.
+///
+/// ```json
+/// {
+///   "actions": [
+///     {
+///       "id": 12,
+///       "kind": "apply_tag",
+///       "summary": "Applied pop to 1,156 songs",
+///       "undoable": true,
+///       "target": { "kind": "tag", "id": "4", "name": "pop" },
+///       "created_at": "2026-11-18T17:53:00-07:00",
+///       "undone": false
+///     }
+///   ]
+/// }
+/// ```
+async fn list_actions_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+) -> Result<Json<ActionList>, CadenzaError> {
+    let rows = assistant_actions::list(&db, claims.user_id).await?;
+    Ok(Json(ActionList {
+        actions: rows.iter().map(ActionSummary::from).collect(),
+    }))
+}
+
+/// Undoes one change from the activity log: reverses exactly what it did, leaving alone
+/// anything changed since, and marks it undone. The Undo button on a done card and on a
+/// log row. `CannotUndo` (409) for one already undone, one Cadenza cannot reverse (an
+/// Apple Music playlist add), or a made tag still on songs; `NotFound` for one that is
+/// not the caller's.
+///
+/// ```json
+/// {
+///   "action": { "id": 12, "kind": "apply_tag", "summary": "Applied pop to 1,156 songs", "undoable": true, "created_at": "...", "undone": true, "undo_result": "Took pop back off 1,154 songs. Left 2 songs you changed since" },
+///   "message": "Took pop back off 1,154 songs. Left 2 songs you changed since"
+/// }
+/// ```
+async fn undo_action_handler(
+    State(db): State<DatabaseConnection>,
+    State(bus): State<SharedEventBus>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(action_id): Path<i64>,
+) -> Result<Json<UndoResult>, CadenzaError> {
+    let (row, message) = writes::undo(&db, Some(&bus), claims.user_id, action_id).await?;
+    Ok(Json(UndoResult {
+        action: ActionSummary::from(&row),
+        message,
+    }))
+}
+
 pub fn get_assistant_router() -> Router<AppState> {
-    Router::new().route("/messages", post(post_message_handler))
+    Router::new()
+        .route("/messages", post(post_message_handler))
+        .route("/actions", get(list_actions_handler))
+        .route("/actions/{action_id}/undo", post(undo_action_handler))
 }

@@ -25,6 +25,7 @@ in-app notification for a user, and the definitions the listening analytics are 
 | `assistant/mod.rs`                       | `AssistantService` (the model plus the per-user request limit), `answer`, and `run_loop` with its `LoopState`: the in-app assistant's tool loop, which stops at a phone tool and picks up again from a `resume`. Unit tested with a scripted model. |
 | `assistant/builder.rs` | `fits_simple` and `builder_for`: which query builder on the phone can hold a query, the simple one when it can and the advanced one otherwise. Tested against `assistant/builder_fixtures.json`, which the phone's `QueryImport.test.ts` reads too, so both agree. |
 | `assistant/card_edit.rs` | `edit_card`: adds and removes songs on the latest card (or this answer's) instead of replacing it, from ids tools returned. Run by the loop. Unit tested. |
+| `assistant/writes.rs` | The write tools (`apply_tag`, `remove_tag`, `create_tag`, `update_tag`, `save_query`, `rename_saved_query`, `undo_action`): their schemas, `Writer::preview` (the confirm card) and `Writer::execute` (the change and its activity log row), both from one `plan`, and `undo`. Unit tested. |
 | `assistant/phone_tools.rs`               | The tools only the phone runs (`now_playing`, `play`, `playback`, `queue_songs`, `set_shuffle`, `set_repeat`, `search_apple_music`, `apple_music_playlists`, `apple_music_playlist_songs`, `apple_music_library`, `favorite_song`, `favorite_collection`, `create_apple_music_playlist`, `add_to_apple_music_playlist`, `open_screen`): their schemas and labels, `songs: "card"` swapped for the card's ids, and a `card` in the phone's output taken out for the answer. The phone side is `client-app/src/features/assistant/phone-tools.ts`. Unit tested. |
 | `assistant/model.rs`                     | The `AssistantModel` trait and `OpenAiAssistantModel` on the Responses API with function calling. Unit tested. |
 | `assistant/tools.rs`                     | The read-only tools (`list_tags`, `run_query`, `get_song_metadata`, `top_items`, `listening_summary`, `list_saved_queries`, `get_saved_query_songs`, `get_song_tags`, `list_playlists`, `get_playlist_songs`, `find_songs`, `find_artist`, `find_album`, `get_album_songs`), their JSON schemas, and the `ToolRunner` trait. `find_songs` looks up songs the model names itself in the Apple Music catalog, one search each, and keeps only a result whose title and artist match. `run_query` runs with the phone's query builder settings (`DbTools::builder_settings`) unless the model sets a scope, takes `sort`, `group` and `limit` as one `Arrangement`, and puts its query on the card (`CardQuery`) with the builder it fits, so tapping the card loads it into the query builder. Unit tested. |
@@ -376,6 +377,20 @@ are delayed, so a slow pass is followed by a full day of quiet.
 append each call and its output, and repeat until the model answers with text. It stops after
 `MAX_STEPS` (8) model calls with a short apology.
 
+- Writes wait for the user. A write tool's call stops the loop with a `pending_action` and its
+  preview (`ToolRunner::preview_write`). The confirmed resume runs it first
+  (`run_confirmed_change`, `ToolRunner::execute_write`) and hands the model the result in place
+  of the phone's `{confirmed}`; a no tells the model nothing changed. Both work the change out
+  again from the model's arguments with `Writer::plan`, so what runs is what the card said, and
+  ids in them (tags, songs, saved queries, actions) must be sourced like a phone tool's.
+- Every change writes one `assistant_actions` row (`db::assistant_actions`) with exactly what
+  it did: the songs that got a tag (not the ones that had it), the values it overwrote or
+  removed, old names. Tag writes and their row commit in one transaction. `undo` reverses only
+  that, row by row where the row still looks the way the change left it, and reports what it
+  skipped. A tag made by the change is deleted on undo only while no song has it.
+- Not offered, and the prompt says so when asked: deleting tags, saved queries, or playlists,
+  settings and privacy, the profile, social actions, members and invites, live sessions,
+  activity and suggested tags, rerunning a saved query.
 - Every server tool only reads and runs as the JWT's user. The model never supplies a user id.
 - A phone tool (`phone_tools.rs`) stops the loop. The response is a `client_tool_call` with a
   `Continuation`: this answer's calls and outputs so far, its steps and card, and how many model

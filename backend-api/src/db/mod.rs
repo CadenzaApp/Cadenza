@@ -1,5 +1,6 @@
 pub mod activity_tags;
 pub mod analytics;
+pub mod assistant_actions;
 pub mod audience;
 pub mod collab;
 pub mod entity;

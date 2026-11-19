@@ -5,8 +5,17 @@ import type { ArrangeFieldJSON } from "../../lib/song-arrangement.ts";
 export type ChatRole = "user" | "assistant";
 
 export type AssistantRequest = {
-    /** `song_ids` on an assistant message is its card, so a follow-up can mean "those songs". */
-    messages: { role: ChatRole; content: string; song_ids?: string[] }[];
+    /**
+     * `song_ids` on an assistant message is its card, so a follow-up can mean
+     * "those songs"; `card_query` is a `run_query` card's query, so "save that
+     * query" can save it.
+     */
+    messages: {
+        role: ChatRole;
+        content: string;
+        song_ids?: string[];
+        card_query?: AssistantCardQuery;
+    }[];
     time_zone?: string;
     now?: string;
     /** A phone tool's result: the last `client_tool_call`'s continuation, as it came, and the output. */
@@ -52,12 +61,51 @@ export type AssistantCardQuery = {
     limit?: number;
 };
 
+/** A change the assistant made, as a done card and an activity log row show it. */
+export type AssistantAction = {
+    id: number;
+    kind: string;
+    summary: string;
+    /** False for a change Cadenza cannot reverse, like an Apple Music playlist add. */
+    undoable: boolean;
+    target?: {
+        kind:
+            | "tag"
+            | "saved_query"
+            | "shared_playlist"
+            | "apple_music_playlist";
+        id: string;
+        name?: string;
+    };
+    created_at: string;
+    undone: boolean;
+    /** What Undo did, like "Left 2 songs you changed since". */
+    undo_result?: string;
+};
+
+/** What a confirm card says before the assistant changes something. */
+export type AssistantWritePreview = {
+    title: string;
+    detail: string;
+    confirm_label: string;
+};
+
 export type AssistantResponse =
     | {
           type: "reply";
           text: string;
           steps: AssistantStep[];
           songs?: AssistantSongs;
+          /** The changes the user confirmed in this answer. */
+          actions?: AssistantAction[];
+      }
+    | {
+          /** A change that waits for the user's yes on a confirm card. */
+          type: "pending_action";
+          call_id: string;
+          name: string;
+          preview: AssistantWritePreview;
+          continuation: AssistantContinuation;
       }
     | {
           /** A tool only the phone can run. See `phone-tools.ts`. */
@@ -84,4 +132,6 @@ export type ChatEntry =
           text: string;
           steps: AssistantStep[];
           songs?: AssistantSongs;
+          /** The changes made in this answer, each a done card with Undo. */
+          actions?: AssistantAction[];
       };

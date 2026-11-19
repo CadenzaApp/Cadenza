@@ -13,6 +13,7 @@ import Animated, {
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 
+import { ActionCard } from "./action-card";
 import { SongResultsCard } from "./song-results-card";
 import type { AssistantStep, ChatEntry, PendingConfirmation } from "./types";
 
@@ -35,6 +36,9 @@ export function MessageRow({ entry }: { entry: ChatEntry }) {
                 {entry.text}
             </Text>
             {entry.songs ? <SongResultsCard songs={entry.songs} /> : null}
+            {entry.actions?.map((action) => (
+                <ActionCard key={action.id} action={action} />
+            ))}
         </View>
     );
 }
@@ -65,8 +69,9 @@ function StepRows({ steps }: { steps: AssistantStep[] }) {
 }
 
 /**
- * A phone tool that changes the user's Apple Music library, waiting for their
- * yes: what it will do, Cancel, and the action itself.
+ * A change waiting for the user's yes: a phone tool that changes their Apple
+ * Music library, or a change the backend makes (tags, saved queries,
+ * playlists). What it will do, Cancel, and the action itself.
  */
 export function ConfirmCard({
     confirmation,

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::db::assistant_actions::ActionRow;
+
 /// The body of `POST /assistant/messages`.
 ///
 /// The phone keeps the conversation and sends all of it each time, so the
@@ -62,6 +64,9 @@ pub struct Continuation {
     /// The card so far.
     #[serde(default)]
     pub songs: Option<SongsCard>,
+    /// The changes this answer made so far, for the done cards.
+    #[serde(default)]
+    pub actions: Vec<ActionSummary>,
     /// Model calls this answer has used, out of `MAX_STEPS`.
     pub steps_used: usize,
     /// The phone tool's call, which the output answers.
@@ -76,6 +81,10 @@ pub struct ChatMessage {
     /// so a follow-up can mean "those songs". Ignored on a user's message.
     #[serde(default)]
     pub song_ids: Vec<String>,
+    /// For an assistant message whose card came from `run_query`, that card's query, so
+    /// "save that query" can save it.
+    #[serde(default)]
+    pub card_query: Option<CardQuery>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +106,19 @@ pub enum AssistantResponse {
         /// Songs to show under the answer, from the last tool that found some.
         #[serde(skip_serializing_if = "Option::is_none")]
         songs: Option<SongsCard>,
+        /// The changes the user confirmed in this answer, each a done card with Undo.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        actions: Vec<ActionSummary>,
+    },
+    /// A change the assistant wants to make, which waits for the user. The phone shows
+    /// `preview` as a confirm card and sends the same conversation back with `resume`:
+    /// this `continuation` and `{confirmed: true}` or `{confirmed: false}`. Only then
+    /// does the server make the change.
+    PendingAction {
+        call_id: String,
+        name: String,
+        preview: WritePreview,
+        continuation: Continuation,
     },
     /// A tool only the phone can run, like playback. The phone runs it and
     /// sends the same conversation back with `resume`: this `continuation`
@@ -170,4 +192,92 @@ pub struct CardQuery {
     /// How many songs it kept, when it kept only the first ones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+}
+
+/// What a confirm card says before a change.
+///
+/// ```json
+/// { "title": "Apply pop to 1,243 songs?", "detail": "Purple Rain, Redbone, and 1,241 more. 87 already have it.", "confirm_label": "Apply" }
+/// ```
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct WritePreview {
+    pub title: String,
+    pub detail: String,
+    pub confirm_label: String,
+}
+
+/// One change in the assistant's activity log, as a done card and a log row show it.
+///
+/// ```json
+/// {
+///   "id": 12,
+///   "kind": "apply_tag",
+///   "summary": "Applied pop to 1,156 songs",
+///   "undoable": true,
+///   "target": { "kind": "tag", "id": "4", "name": "pop" },
+///   "created_at": "2026-11-18T17:53:00-07:00",
+///   "undone": false
+/// }
+/// ```
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ActionSummary {
+    pub id: i64,
+    pub kind: String,
+    pub summary: String,
+    /// False for a change Cadenza cannot reverse, like an Apple Music playlist add.
+    pub undoable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<ActionTarget>,
+    pub created_at: String,
+    #[serde(default)]
+    pub undone: bool,
+    /// What Undo did, like "Left 2 songs you changed since".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub undo_result: Option<String>,
+}
+
+/// What a change was made to.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ActionTarget {
+    /// `tag`, `saved_query`, `shared_playlist`, or `apple_music_playlist`.
+    pub kind: String,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+impl From<&ActionRow> for ActionSummary {
+    fn from(row: &ActionRow) -> Self {
+        Self {
+            id: row.action_id,
+            kind: row.kind.clone(),
+            summary: row.summary.clone(),
+            undoable: row.undoable,
+            target: match (&row.target_kind, &row.target_id) {
+                (Some(kind), Some(id)) => Some(ActionTarget {
+                    kind: kind.clone(),
+                    id: id.clone(),
+                    name: row.target_name.clone(),
+                }),
+                _ => None,
+            },
+            created_at: row.created_at.to_rfc3339(),
+            undone: row.undone_at.is_some(),
+            undo_result: row.undo_result.clone(),
+        }
+    }
+}
+
+/// What `GET /assistant/actions` returns: the user's log, newest first.
+#[derive(Serialize, Debug)]
+pub struct ActionList {
+    pub actions: Vec<ActionSummary>,
+}
+
+/// What `POST /assistant/actions/{id}/undo` returns: the row, now undone, and what the
+/// undo did in words.
+#[derive(Serialize, Debug)]
+pub struct UndoResult {
+    pub action: ActionSummary,
+    pub message: String,
 }

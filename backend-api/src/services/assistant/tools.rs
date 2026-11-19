@@ -20,13 +20,15 @@ use crate::db::{
 };
 use crate::err::CadenzaError;
 use crate::routes::json::{
-    assistant::{BuilderSettings, CardQuery, SongsCard},
+    assistant::{ActionSummary, BuilderSettings, CardQuery, SongsCard, WritePreview},
     query::{Query, QueryGroup, QuerySort},
     tag::TagType,
 };
 use crate::services::analytics::{Dimension, TimeWindow};
 use crate::services::assistant::builder::{Builder, builder_for, simple_blocker};
+use crate::services::assistant::writes::{CardRef, Writer};
 use crate::services::metadata_tags::spawn_store_song_metadata;
+use crate::services::realtime::SharedEventBus;
 use crate::services::song_metadata::{SongMetadata, SongMetadataService};
 
 /// The most songs a tool describes to the model. The rest are only counted.
@@ -72,6 +74,27 @@ impl ToolOutcome {
 #[async_trait]
 pub trait ToolRunner: Send + Sync {
     async fn run(&self, name: &str, arguments: &str) -> ToolOutcome;
+
+    /// The confirm card for a write tool, or why the change cannot be made. See
+    /// [`super::writes`]. A runner that makes no changes refuses them.
+    async fn preview_write(
+        &self,
+        _name: &str,
+        _arguments: &str,
+        _card: CardRef<'_>,
+    ) -> Result<WritePreview, String> {
+        Err("changes are not available here".into())
+    }
+
+    /// Makes a change the user confirmed: what the model reads, and the done card.
+    async fn execute_write(
+        &self,
+        _name: &str,
+        _arguments: &str,
+        _card: CardRef<'_>,
+    ) -> Result<(Value, Option<ActionSummary>), String> {
+        Err("changes are not available here".into())
+    }
 }
 
 /// The most songs `find_songs` looks up in one call.
@@ -100,6 +123,20 @@ pub struct DbTools<'a> {
     pub builder_settings: BuilderSettings,
     /// The phone's IANA zone, which a datetime group counts its days in.
     pub time_zone: String,
+    /// For telling a shared playlist's other members about a change.
+    pub bus: Option<&'a SharedEventBus>,
+}
+
+impl DbTools<'_> {
+    fn writer(&self) -> Writer<'_> {
+        Writer {
+            db: self.db,
+            user_id: self.user_id,
+            hide_explicit: self.hide_explicit,
+            builder_settings: self.builder_settings,
+            bus: self.bus,
+        }
+    }
 }
 
 #[async_trait]
@@ -130,6 +167,7 @@ impl ToolRunner for DbTools<'_> {
             "find_artist" => self.find_artist(args).await,
             "find_album" => self.find_album(args).await,
             "get_album_songs" => self.get_album_songs(args).await,
+            "list_recent_actions" => self.list_recent_actions().await,
             _ => return ToolOutcome::error(format!("there is no tool named {name}"), label),
         };
         let outcome = match result {
@@ -147,6 +185,36 @@ impl ToolRunner for DbTools<'_> {
             clip(&outcome.output.to_string()),
         );
         outcome
+    }
+
+    async fn preview_write(
+        &self,
+        name: &str,
+        arguments: &str,
+        card: CardRef<'_>,
+    ) -> Result<WritePreview, String> {
+        let preview = self.writer().preview(name, arguments, card).await;
+        println!(
+            "[assistant] {name} {} -> preview {}",
+            clip(arguments),
+            clip(&format!("{preview:?}")),
+        );
+        preview
+    }
+
+    async fn execute_write(
+        &self,
+        name: &str,
+        arguments: &str,
+        card: CardRef<'_>,
+    ) -> Result<(Value, Option<ActionSummary>), String> {
+        let done = self.writer().execute(name, arguments, card).await;
+        println!(
+            "[assistant] {name} {} -> confirmed {}",
+            clip(arguments),
+            clip(&format!("{:?}", done.as_ref().map(|(output, _)| output))),
+        );
+        done.map(|(output, row)| (output, row.as_ref().map(ActionSummary::from)))
     }
 }
 
@@ -195,6 +263,7 @@ fn label_for(name: &str) -> &'static str {
         "find_artist" => "Looked up an artist on Apple Music",
         "find_album" => "Looked up an album on Apple Music",
         "get_album_songs" => "Looked up an album's songs",
+        "list_recent_actions" => "Read the activity log",
         _ => "Tried a tool",
     }
 }
@@ -1329,6 +1398,29 @@ impl DbTools<'_> {
     }
 
     /// The songs on one Apple Music catalog album, in track order, as a card.
+    /// The changes the assistant made lately, from the activity log, for "undo the tagging
+    /// from yesterday" or "what did you change".
+    async fn list_recent_actions(&self) -> Result<ToolOutcome, ToolError> {
+        let rows = db::assistant_actions::list(self.db, self.user_id).await?;
+        let listed: Vec<Value> = rows
+            .iter()
+            .take(MAX_LISTED)
+            .map(|row| {
+                json!({
+                    "action_id": row.action_id,
+                    "summary": row.summary,
+                    "when": row.created_at.to_rfc3339(),
+                    "undoable": row.undoable,
+                    "undone": row.undone_at.is_some(),
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok(
+            json!({ "actions": listed, "total": rows.len() }),
+            "",
+        ))
+    }
+
     async fn get_album_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
         let args: AlbumSongsArgs = parse_args(args)?;
         let album_id = args.album_id.trim().to_owned();
@@ -1719,6 +1811,12 @@ pub fn definitions() -> Vec<Value> {
                 },
                 "required": ["name"]
             }
+        }),
+        json!({
+            "type": "function",
+            "name": "list_recent_actions",
+            "description": "The changes the assistant made for the user lately (tagging, saved queries, playlists), newest first, from the activity log: each with an action_id, what it did, when, and whether it can still be undone. For \"undo the tagging from yesterday\" or \"what did you change\".",
+            "parameters": { "type": "object", "properties": {} }
         }),
         json!({
             "type": "function",

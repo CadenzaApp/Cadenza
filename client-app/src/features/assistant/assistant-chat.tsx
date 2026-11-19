@@ -11,6 +11,7 @@ import {
     View,
     type KeyboardEvent,
 } from "react-native";
+import { useRouter, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { DetailScreen } from "@/components/ui/detail-screen";
@@ -40,6 +41,7 @@ const COMPOSER_BOTTOM_GAP = 10;
  */
 export function AssistantChat() {
     const { colors } = useAppTheme();
+    const router = useRouter();
     const insets = useSafeAreaInsets();
     const { entries, sending, error, confirmation, send, retry, reset } =
         useAssistantChat();
@@ -71,19 +73,34 @@ export function AssistantChat() {
             title="AI Assistant"
             presentation="sheet"
             headerRight={
-                entries.length > 0 ? (
+                <View className="flex-row items-center gap-1">
                     <GlassIconButton
                         bordered={false}
-                        accessibilityLabel="Clear chat"
-                        onPress={reset}
+                        accessibilityLabel="Assistant activity"
+                        onPress={() =>
+                            router.push("/assistant-activity" as Href)
+                        }
                     >
                         <Ionicons
-                            name="trash-outline"
-                            size={21}
+                            name="time-outline"
+                            size={22}
                             color={colors.foreground}
                         />
                     </GlassIconButton>
-                ) : null
+                    {entries.length > 0 ? (
+                        <GlassIconButton
+                            bordered={false}
+                            accessibilityLabel="Clear chat"
+                            onPress={reset}
+                        >
+                            <Ionicons
+                                name="trash-outline"
+                                size={21}
+                                color={colors.foreground}
+                            />
+                        </GlassIconButton>
+                    ) : null}
+                </View>
             }
         >
             <PlaybackSnapshotBridge />
