@@ -11,6 +11,7 @@ import {
     useLocalPlaybackCommands,
     useLocalPlaybackState,
 } from "@/lib/playback";
+import { playerArtworkUrl } from "@/lib/artwork";
 import type { PlaySource } from "@/lib/play-source";
 import { serverNow } from "@/lib/realtime";
 import { isPendingEntry } from "@/lib/session-optimistic";
@@ -51,6 +52,7 @@ export function entryToTrack(entry: LiveSessionEntry): MusicItem {
         albumID: entry.album_id ?? undefined,
         artistId: entry.artist_id ?? undefined,
         artworkUrl: entry.artwork_url ?? undefined,
+        artworkUrlLarge: playerArtworkUrl(entry.artwork_url),
         songDuration: entry.duration_ms ? entry.duration_ms / 1000 : undefined,
     };
 }

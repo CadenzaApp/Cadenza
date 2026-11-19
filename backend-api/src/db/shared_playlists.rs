@@ -157,8 +157,12 @@ pub async fn member_role<C: ConnectionTrait>(
 ) -> Result<Option<PlaylistRole>, CadenzaError> {
     let row = db
         .query_one_raw(stmt(
-            "SELECT role::text AS role FROM shared_playlist_members
-             WHERE playlist_id = $1 AND user_id = $2",
+            "SELECT m.role::text AS role FROM shared_playlist_members m
+             JOIN shared_playlists p ON p.playlist_id = m.playlist_id
+             WHERE m.playlist_id = $1 AND m.user_id = $2
+               AND NOT EXISTS (SELECT 1 FROM user_blocks b
+                   WHERE (b.blocker_id = $2 AND b.blocked_id = p.owner_id)
+                      OR (b.blocker_id = p.owner_id AND b.blocked_id = $2))",
             vec![playlist_id.into(), user_id.into()],
         ))
         .await?;
@@ -267,6 +271,9 @@ pub async fn list_my_playlists(
          JOIN shared_playlists p ON p.playlist_id = m.playlist_id
          LEFT JOIN profile owner ON owner.uid = p.owner_id
          WHERE m.user_id = $1
+           AND NOT EXISTS (SELECT 1 FROM user_blocks b
+               WHERE (b.blocker_id = $1 AND b.blocked_id = p.owner_id)
+                  OR (b.blocker_id = p.owner_id AND b.blocked_id = $1))
          ORDER BY p.updated_at DESC",
         vec![user_id.into()],
     ))
@@ -664,12 +671,17 @@ pub async fn join_by_code(
         role => role,
     };
     let txn = db.begin().await?;
-    txn.query_one_raw(stmt(
-        "SELECT 1 FROM shared_playlists WHERE playlist_id = $1 FOR UPDATE",
-        vec![playlist_id.into()],
-    ))
-    .await?
-    .ok_or(CadenzaError::NotFound)?;
+    let playlist = txn
+        .query_one_raw(stmt(
+            "SELECT owner_id FROM shared_playlists WHERE playlist_id = $1 FOR UPDATE",
+            vec![playlist_id.into()],
+        ))
+        .await?
+        .ok_or(CadenzaError::NotFound)?;
+    let owner: Uuid = playlist.try_get("", "owner_id")?;
+    if crate::db::friend_relations::blocked_either_way(&txn, user_id, owner).await? {
+        return Err(CadenzaError::UserBlocked);
+    }
     let current = member_role(&txn, playlist_id, user_id).await?;
     let upgrade = current == Some(PlaylistRole::Viewer) && role == PlaylistRole::Editor;
     if current.is_none() || upgrade {

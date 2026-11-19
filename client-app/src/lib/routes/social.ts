@@ -3,6 +3,7 @@ import { useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
 
 import { useAccount } from "../account";
+import { feedCanAdvance } from "../feed-pagination";
 import { fetchAPIData, useAPIData, useAPIMutation } from "../api-actions";
 import { useRealtimeTopics } from "../realtime";
 import type { RealtimeTopic } from "../realtime-protocol";
@@ -238,10 +239,7 @@ export function useFeed() {
         feedSwrOptions,
     );
 
-    const freshExhausted =
-        fresh.data != null &&
-        (fresh.data.length === 0 ||
-            !feedPageIsFull(fresh.data[fresh.data.length - 1]));
+    const freshExhausted = fresh.data != null && !feedCanAdvance(fresh.data);
 
     const caughtUp = useSWRInfinite<FeedResponse>(
         (pageIndex, previousPage): FeedPageKey | null => {
@@ -283,23 +281,32 @@ export function useFeed() {
         caughtUp.isValidating,
     );
 
-    const hasNextPage = !freshExhausted
-        ? feedPageIsFull(fresh.data?.[fresh.data.length - 1])
-        : caughtUp.data == null
-          ? !caughtUp.error
-          : feedPageIsFull(caughtUp.data[caughtUp.data.length - 1]);
+    const hasNextPage =
+        !fresh.error &&
+        !caughtUp.error &&
+        (!freshExhausted
+            ? feedCanAdvance(fresh.data)
+            : caughtUp.data == null
+              ? true
+              : feedCanAdvance(caughtUp.data, freshPosts));
 
     const isLoadingNextPage = !freshExhausted
         ? freshLoadingNext
         : caughtUp.isLoading || caughtUpLoadingNext;
 
+    const loadingNext = useRef(false);
     const loadNextPage = useCallback(async () => {
-        if (!hasNextPage || isLoadingNextPage) return;
-        if (!freshExhausted) {
-            await fresh.setSize((size) => size + 1);
-            return;
+        if (!hasNextPage || isLoadingNextPage || loadingNext.current) return;
+        loadingNext.current = true;
+        try {
+            if (!freshExhausted) {
+                await fresh.setSize((size) => size + 1);
+            } else {
+                await caughtUp.setSize((size) => size + 1);
+            }
+        } finally {
+            loadingNext.current = false;
         }
-        await caughtUp.setSize((size) => size + 1);
     }, [
         caughtUp.setSize,
         fresh.setSize,

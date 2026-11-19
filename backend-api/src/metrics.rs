@@ -23,6 +23,7 @@ pub struct Metrics {
     in_flight: IntGauge,
     pub refusals: IntCounterVec,
     pub provider_calls: IntCounter,
+    pub realtime_connections: IntGauge,
     limits: IntGaugeVec,
     provider_used: IntGauge,
     provider_active: IntGauge,
@@ -61,12 +62,20 @@ impl Metrics {
             "http_capacity",
             "provider_concurrency",
             "provider_day_quota",
+            "realtime_capacity",
+            "realtime_user_capacity",
+            "realtime_message_quota",
         ] {
             refusals.with_label_values(&[scope]);
         }
         let provider_calls = IntCounter::new(
             "cadenza_provider_calls_total",
             "Admitted tag provider call attempts, including background work and failures.",
+        )
+        .unwrap();
+        let realtime_connections = IntGauge::new(
+            "cadenza_realtime_connections",
+            "Open sockets, including those awaiting authentication.",
         )
         .unwrap();
         let limits = IntGaugeVec::new(
@@ -98,6 +107,7 @@ impl Metrics {
             Box::new(in_flight.clone()),
             Box::new(refusals.clone()),
             Box::new(provider_calls.clone()),
+            Box::new(realtime_connections.clone()),
             Box::new(limits.clone()),
             Box::new(provider_used.clone()),
             Box::new(provider_active.clone()),
@@ -112,6 +122,7 @@ impl Metrics {
             in_flight,
             refusals,
             provider_calls,
+            realtime_connections,
             limits,
             provider_used,
             provider_active,

@@ -830,6 +830,7 @@ pub async fn get_posts(
          FROM posts p
          LEFT JOIN profile pr ON pr.uid = p.user_id
          WHERE p.post_id = ANY($2::bigint[])
+           AND p.user_id IS NOT NULL
            AND {NOT_BLOCKED_AUTHOR}"
         ),
         vec![viewer_id.into(), post_ids.to_vec().into()],
@@ -1887,6 +1888,12 @@ async fn candidate_posts(
     vector: Option<String>,
 ) -> Result<Vec<FeedCandidate>, CadenzaError> {
     let (where_sql, mut values) = exclude_clause(exclude, user_id);
+    // Historical rows can lack an author and cannot form a public post.
+    let where_sql = if where_sql.is_empty() {
+        "WHERE user_id IS NOT NULL".to_owned()
+    } else {
+        format!("{where_sql} AND user_id IS NOT NULL")
+    };
     let mut order_sql = order_sql.to_owned();
     if let Some(vector) = vector {
         let index = values.len() + 1;
@@ -1914,7 +1921,7 @@ async fn candidate_posts(
         .map(|row| {
             Ok(FeedCandidate {
                 post_id: row.post_id,
-                embedding: parse_vector(&row.embedding)?,
+                embedding: parse_vector(row.embedding.as_deref().unwrap_or("[]"))?,
                 likes: row.likes,
                 created_at: row.created_at.with_timezone(&Utc),
             })
@@ -2090,7 +2097,7 @@ struct InterestRow {
 #[derive(Debug, FromQueryResult)]
 struct CandidateRow {
     post_id: i64,
-    embedding: String,
+    embedding: Option<String>,
     likes: i64,
     created_at: DateTime<chrono::FixedOffset>,
 }
@@ -2323,5 +2330,39 @@ mod tests {
         assert_eq!(values[3], Value::from(created_at));
         assert_eq!(values[4], Value::from(12_i64));
         assert_eq!(values[5], Value::from(TOPIC_POST_LIMIT));
+    }
+}
+
+#[cfg(test)]
+mod feed_database_tests {
+    use super::*;
+    /// Read-only feed SQL smoke test. No model, HTTP server, or fixture writes.
+    #[tokio::test]
+    #[ignore]
+    async fn ranked_feed_queries_read_existing_data() {
+        dotenvy::dotenv().ok();
+        let url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+        let db = crate::db::pool::connect(&url, &crate::db::pool::PoolConfig::from_env())
+            .await
+            .expect("connect");
+        let row = db
+            .query_one_raw(crate::db::stmt(
+                "SELECT uid FROM profile ORDER BY uid LIMIT 1",
+                vec![],
+            ))
+            .await
+            .unwrap()
+            .expect("one profile");
+        let user: Uuid = row.try_get("", "uid").unwrap();
+        let vector = user_vector(&db, user).await.expect("feed user vector");
+        let hot = hot_posts(&db, user, FeedExclude::None)
+            .await
+            .expect("feed hot candidates");
+        similar_and_recent_posts(&db, user, FeedExclude::None, vector.as_deref())
+            .await
+            .expect("feed similar candidates");
+        let ids: Vec<i64> = hot.iter().map(|p| p.post_id).collect();
+        get_posts(&db, user, &ids).await.expect("feed post details");
+        db.close().await.unwrap();
     }
 }

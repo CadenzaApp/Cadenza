@@ -26,7 +26,7 @@ pub async fn log_request(request: Request, next: Next) -> Response {
     let method = request.method().clone();
     // the path only: query strings carry windows and ids, not why it failed,
     // and would push the status off the end of the line
-    let path = request.uri().path().to_owned();
+    let path = safe_path(request.uri().path()).to_owned();
     let started = Instant::now();
 
     let response = next.run(request).await;
@@ -61,4 +61,30 @@ pub async fn log_request(request: Request, next: Next) -> Response {
         println!("{line}");
     }
     response
+}
+
+fn safe_path(path: &str) -> &str {
+    // Invite codes grant access. Redact even malformed or unmatched invite paths.
+    if path.starts_with("/invites/") {
+        "/invites/[redacted]"
+    } else {
+        path
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invite_codes_never_enter_request_paths_in_logs() {
+        for path in [
+            "/invites/SECRET/redeem",
+            "/invites/SECRET",
+            "/invites/SECRET/wrong",
+        ] {
+            assert!(!safe_path(path).contains("SECRET"));
+        }
+        assert_eq!(safe_path("/tags/1"), "/tags/1");
+    }
 }

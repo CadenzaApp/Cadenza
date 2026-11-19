@@ -145,7 +145,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ends live sessions left paused, or whose host closed the app, and tells
     // their members
     let event_bus: services::realtime::SharedEventBus = std::sync::Arc::new(InMemoryBus::new());
-    services::session_sweep::spawn_session_sweep(db.clone(), event_bus.clone());
+    // Finish restart bookkeeping before a reconnect can mark a phone online.
+    db::live_sessions::mark_all_away(&db).await?;
+    services::session_sweep::spawn_session_sweep(
+        db.clone(),
+        event_bus.clone(),
+        background_tasks.clone(),
+    );
 
     let app_state = AppState {
         background_tasks: background_tasks.clone(),

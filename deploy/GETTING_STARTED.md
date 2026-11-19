@@ -88,3 +88,15 @@ secrets and recovery. Shell scripts under `deploy/` run on Linux EC2, not Window
 The macOS commands have been exercised against AWS. Windows launch/cleanup and
 large-request handling have unit coverage and a compatibility review; native
 Windows end-to-end deployment still needs confirmation on a Windows workstation.
+
+## Client and schema compatibility
+
+The shared-playlist/live-session release needs a fresh native mobile build, including
+MusicKit changes and the `cadenza://` invite-link scheme. Coordinate the client update
+with the backend release. There is no minimum-client-version enforcement in the API.
+Existing live-session timeouts apply during deployments and replacement outages.
+
+Schema changes are still applied separately in Supabase. The current collaboration,
+privacy and duration-tag schema is already applied. Do not replay the SQL folder as
+an automatic deployment step. Rolling back the image cannot undo schema changes;
+older backends may not understand duration tags created by this release.

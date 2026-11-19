@@ -28,7 +28,8 @@ nothing that comes back is persisted.
 ## Public-access limits
 
 `admission.rs` bounds API work to 64 active requests before JWT verification.
-Health probes bypass admission. Authenticated users get 600 requests per minute;
+WebSocket upgrades use separate bounded admission and first-message JWT authentication;
+see the Realtime section in the services README. Health probes bypass admission. Authenticated users get 600 requests per minute;
 tag suggestions and default-tag fetches also consume a paid-request allowance.
 Fixed windows start with the first request, not midnight. All counters reset on
 restart/replacement. The user map expires inactive IDs after 24 hours and caps
@@ -50,7 +51,7 @@ calls, including chunks, failed calls and background jobs. Calls have a 4096
 output-token cap. These controls are not a durable dollar budget. Cancellation
 can release local HTTP concurrency before a remote provider finishes processing.
 Admission failures return 429 (quota) or 503 (capacity). Client error bodies and
-request-log reasons omit raw database/upstream messages.
+request-log reasons omit raw database/upstream messages. Invite paths are redacted.
 
 Interest updates allow at most 100 entries with nonblank names up to 200
 characters and finite deltas. Deserialized query trees allow 256 nodes and 16

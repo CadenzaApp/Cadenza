@@ -595,6 +595,13 @@ grouped query's rows themselves, title, artist, album, length and artwork, are r
 `metadata_tags::get_song_rows`, one primary key lookup of the songs returned, so the phone can
 draw them without Apple.
 
+
+Blocking overrides every direct audience setting, even `everyone`, and invite-based joins.
+Playlist and session access is refused when the caller and owner/host block each other.
+Membership rows remain stored, so unblocking restores that access; a third party's group
+is unaffected. Invite redemption and joining share a transaction: a rejected join does
+not consume a limited-use code. These checks need no additional schema changes.
+
 ## Connects to
 
 - Called by `src/routes/tags.rs`, `src/routes/songs.rs`, `src/routes/queries.rs`,

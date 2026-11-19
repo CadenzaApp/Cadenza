@@ -96,3 +96,7 @@ reset on app restart. Python queue-depth metrics and OTel spans remain follow-up
 Deployed checks are recorded in `../recovery/verification.release.json`. This
 includes live histogram queries, anonymous admin denial, port isolation, secret
 file metadata and resource headroom. No secret values are recorded.
+
+The Social dashboard also covers listening, live sessions, shared playlists, invites
+and realtime handshakes. It shows open socket counts and realtime admission refusals.
+HTTP runtime histograms measure the WebSocket handshake, not message delivery latency.
