@@ -21,6 +21,7 @@ class ReleaseTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
         (root / "deploy/recovery").mkdir(parents=True)
+        live = "BACKEND_IMAGE=live-image\nMODEL_REVISION=model\n"
         original = "BACKEND_IMAGE=old-image\nMODEL_REVISION=model\n"
         env = root / "deploy/release.env.example"
         env.write_text(original)
@@ -78,7 +79,7 @@ class ReleaseTests(unittest.TestCase):
         response.__enter__ = Mock(return_value=response)
         response.__exit__ = Mock(return_value=False)
         response.status = 503 if fail == "viewer" else 200
-        with patch.object(release.urllib.request, "urlopen", return_value=response), patch.object(release, "ROOT", root), patch.object(release, "aws", side_effect=aws), patch.object(release, "run", side_effect=run), patch.object(release.os, "chdir"), patch.object(release.subprocess, "check_output", side_effect=check_output), patch.object(release.time, "sleep"), patch.object(release.sys, "argv", ["release.py"]), patch.dict(os.environ, {"CADENZA_DEPLOY_AWAKE": "1"}), contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(release, "live_release", return_value=live), patch.object(release, "remote_script", return_value=""), patch.object(release.urllib.request, "urlopen", return_value=response), patch.object(release, "ROOT", root), patch.object(release, "aws", side_effect=aws), patch.object(release, "run", side_effect=run), patch.object(release.os, "chdir"), patch.object(release.subprocess, "check_output", side_effect=check_output), patch.object(release.time, "sleep"), patch.object(release.sys, "argv", ["release.py"]), patch.dict(os.environ, {"CADENZA_DEPLOY_AWAKE": "1"}), contextlib.redirect_stdout(io.StringIO()):
             if fail:
                 with self.assertRaises(RuntimeError):
                     release.main()
@@ -108,7 +109,17 @@ class ReleaseTests(unittest.TestCase):
 
     def test_promotion_failure_restores_previous_template_and_release(self):
         calls = self.exercise("promotion")
-        self.assertEqual([call[1] for call in calls if call[0] == "activate"][-1], "BACKEND_IMAGE=old-image\nMODEL_REVISION=model\n")
+        self.assertEqual([call[1] for call in calls if call[0] == "activate"][-1], "BACKEND_IMAGE=live-image\nMODEL_REVISION=model\n")
 
     def test_failed_external_check_rolls_back_promoted_template(self):
         self.exercise("viewer")
+
+class LiveReleaseTests(unittest.TestCase):
+    def test_reads_and_validates_the_host_snapshot(self):
+        import base64
+        content = 'BACKEND_IMAGE=live-image\nMODEL_REVISION=live-model\n'
+        with patch.object(release, 'remote_script', return_value=base64.b64encode(content.encode()).decode()):
+            self.assertEqual(release.live_release('i-host'), content)
+        with patch.object(release, 'remote_script', return_value=base64.b64encode((content+'DATABASE_URL=secret\n').encode()).decode()):
+            with self.assertRaises(ValueError):
+                release.live_release('i-host')

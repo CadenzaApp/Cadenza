@@ -7,7 +7,7 @@ import tarfile
 import time
 from pathlib import Path
 
-from provision import GROUP, ROOT, aws
+from provision import GROUP, ROOT, REGION, aws, configure_runtime_policy
 
 
 def validate_candidate(content):
@@ -62,98 +62,63 @@ def main():
     if len(members) != 1:
         raise RuntimeError("Expected one InService host")
     host = members[0]["InstanceId"]
-    # Only expected application outages are suppressed. EC2 host health stays enabled.
-    aws(
-        "autoscaling",
-        "update-auto-scaling-group",
-        AutoScalingGroupName=GROUP,
-        HealthCheckType="EC2",
+    configure_runtime_policy()
+    data = base64.b64encode(content.encode()).decode()
+    # Refresh host tooling from this release, rather than using stale bootstrap files.
+    bundle = io.BytesIO()
+    with tarfile.open(fileobj=bundle, mode="w:gz") as archive:
+        for name in [
+            "compose.yaml",
+            "prepare-monitoring.py",
+            "certs/supabase-root.cer",
+            "fetch-secrets.py",
+            "prepare-host-release.sh",
+            "start-release.sh",
+            "check-embedding.py",
+            "observe-startup.py",
+            "activate-release.sh",
+            "maintenance-release.sh",
+            "prune-images.py",
+        ]:
+            content_bytes = (ROOT / "deploy" / name).read_bytes()
+            item = tarfile.TarInfo(Path(name).name)
+            item.size, item.mode = (
+                len(content_bytes),
+                (0o644 if name.endswith(".cer") else 0o600),
+            )
+            archive.addfile(item, io.BytesIO(content_bytes))
+    tooling = base64.b64encode(bundle.getvalue()).decode()
+    script = (
+        "bash <<'RELEASE'\nset -euo pipefail\ncd /opt/cadenza\nprintf '%s' '"
+        + tooling
+        + "' | base64 -d | tar xz\nprintf '%s' '"
+        + data
+        + f"' | base64 -d > releases/candidate.env\nbash maintenance-release.sh {REGION} {GROUP} releases/candidate.env\nRELEASE"
     )
-    try:
-        data = base64.b64encode(content.encode()).decode()
-        # Refresh host tooling from this release, rather than using stale bootstrap files.
-        bundle = io.BytesIO()
-        with tarfile.open(fileobj=bundle, mode="w:gz") as archive:
-            for name in [
-                "compose.yaml",
-                "prepare-monitoring.py",
-                "certs/supabase-root.cer",
-                "fetch-secrets.py",
-                "prepare-host-release.sh",
-                "start-release.sh",
-                "check-embedding.py",
-                "observe-startup.py",
-                "activate-release.sh",
-            ]:
-                content_bytes = (ROOT / "deploy" / name).read_bytes()
-                item = tarfile.TarInfo(Path(name).name)
-                item.size, item.mode = (
-                    len(content_bytes),
-                    (0o644 if name.endswith(".cer") else 0o600),
-                )
-                archive.addfile(item, io.BytesIO(content_bytes))
-        tooling = base64.b64encode(bundle.getvalue()).decode()
-        script = (
-            "bash <<'RELEASE'\nset -euo pipefail\ncd /opt/cadenza\nprintf '%s' '"
-            + tooling
-            + "' | base64 -d | tar xz\nprintf '%s' '"
-            + data
-            + "' | base64 -d > releases/candidate.env\nbash activate-release.sh releases/candidate.env\nRELEASE"
+    command = aws(
+        "ssm",
+        "send-command",
+        DocumentName="AWS-RunShellScript",
+        InstanceIds=[host],
+        Parameters={"commands": [script], "executionTimeout": ["900"]},
+    )["Command"]["CommandId"]
+    deadline = time.monotonic() + 960
+    while time.monotonic() < deadline:
+        time.sleep(5)
+        result = aws(
+            "ssm", "get-command-invocation", CommandId=command, InstanceId=host
         )
-        command = aws(
-            "ssm",
-            "send-command",
-            DocumentName="AWS-RunShellScript",
-            InstanceIds=[host],
-            Parameters={"commands": [script], "executionTimeout": ["900"]},
-        )["Command"]["CommandId"]
-        deadline = time.monotonic() + 960
-        while time.monotonic() < deadline:
-            time.sleep(5)
-            result = aws(
-                "ssm", "get-command-invocation", CommandId=command, InstanceId=host
-            )
-            if result["Status"] in ("Pending", "InProgress", "Delayed"):
-                continue
-            if result["Status"] != "Success":
-                raise RuntimeError(
-                    "Activation failed; inspect private host log and verify rollback"
-                )
-            print(
-                "Single-host activation passed; publish the same release into the launch template using provision.py."
-            )
-            return
-        raise TimeoutError("Activation timed out; verify host release before retrying")
-    finally:
-        try:
-            # The app may be ready before ALB has observed two successes.
-            target_group = group["TargetGroupARNs"][0]
-            until = time.monotonic() + 120
-            healthy = False
-            while time.monotonic() < until:
-                rows = aws(
-                    "elbv2", "describe-target-health", TargetGroupArn=target_group
-                )["TargetHealthDescriptions"]
-                if any(
-                    r["Target"]["Id"] == host
-                    and r["TargetHealth"]["State"] == "healthy"
-                    for r in rows
-                ):
-                    healthy = True
-                    break
-                time.sleep(10)
-        finally:
-            aws(
-                "autoscaling",
-                "update-auto-scaling-group",
-                AutoScalingGroupName=GROUP,
-                HealthCheckType="ELB",
-            )
-        if not healthy:
+        if result["Status"] in ("Pending", "InProgress", "Delayed"):
+            continue
+        if result["Status"] != "Success":
             raise RuntimeError(
-                "ALB did not recover after activation/rollback; inspect native recovery"
+                "Activation failed; inspect private host log and verify rollback"
             )
-
+        print(
+            "Single-host activation passed; publish the same release into the launch template using provision.py."
+        )
+        return
+    raise TimeoutError("Activation timed out; verify host release before retrying")
 
 if __name__ == "__main__":
     main()

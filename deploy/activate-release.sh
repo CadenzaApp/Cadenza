@@ -9,6 +9,7 @@ exec 3>&1
 exec > logs/activate-release.log 2>&1
 backup=$(mktemp -d /opt/cadenza/releases/activation.XXXXXX)
 cp release.env "$backup/release.env"
+cp release.env rollback.env
 cp "$candidate" "$backup/candidate.env"
 # Download/validate before disturbing the running release.
 cp release.env "$backup/original.env"

@@ -1,5 +1,6 @@
 """Build and deploy a committed backend release from a developer workstation."""
 
+import base64
 import argparse
 import datetime
 import hashlib
@@ -23,6 +24,34 @@ from provision import ACCOUNT, GROUP, PROFILE, REGION, ROOT, aws
 
 def run(args, **kwargs):
     return subprocess.run(args, check=True, text=True, **kwargs)
+
+
+def remote_script(host, script):
+    command = aws("ssm", "send-command", DocumentName="AWS-RunShellScript",
+                  InstanceIds=[host], Parameters={"commands": [script], "executionTimeout": ["120"]})["Command"]["CommandId"]
+    for _ in range(50):
+        time.sleep(3)
+        try:
+            result = aws("ssm", "get-command-invocation", CommandId=command, InstanceId=host)
+        except RuntimeError as error:
+            if "InvocationDoesNotExist" in str(error): continue
+            raise
+        if result["Status"] in ("Pending", "InProgress", "Delayed"): continue
+        if result["Status"] != "Success": raise RuntimeError("Host release operation failed; inspect SSM result")
+        return result.get("StandardOutputContent", "")
+    raise TimeoutError("Host release operation timed out")
+
+
+def live_release(host):
+    content = base64.b64decode(remote_script(host,
+        "base64 /opt/cadenza/release.env"), validate=False).decode()
+    # Reject unexpected keys rather than carrying host secrets into local files.
+    from importlib import util
+    spec = util.spec_from_file_location("release_validation", ROOT / "deploy/recovery/update-release.py")
+    validator = util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    validator.validate_candidate(content)
+    return content
 
 
 def main():
@@ -141,15 +170,19 @@ def main():
     )["imageDetails"][0]
     reference = registry + "/cadenza-backend@" + image["imageDigest"]
     canonical = ROOT / "deploy/release.env.example"
-    old_env = canonical.read_text()
+    checkout_env = canonical.read_text()
     candidate = re.sub(
-        r"^BACKEND_IMAGE=.*$", "BACKEND_IMAGE=" + reference, old_env, flags=re.MULTILINE
+        r"^BACKEND_IMAGE=.*$", "BACKEND_IMAGE=" + reference, checkout_env, flags=re.MULTILINE
     )
     resource_path = ROOT / "deploy/recovery/resources.json"
     before_resources = resource_path.read_text()
-    before = aws(
+    group = aws(
         "autoscaling", "describe-auto-scaling-groups", AutoScalingGroupNames=[GROUP]
-    )["AutoScalingGroups"][0]["LaunchTemplate"]
+    )["AutoScalingGroups"][0]
+    hosts = [i["InstanceId"] for i in group["Instances"] if i["LifecycleState"] == "InService"]
+    if len(hosts) != 1: raise RuntimeError("Expected one serving host before release")
+    old_env = live_release(hosts[0])
+    before = group["LaunchTemplate"]
     before = {key: before[key] for key in ("LaunchTemplateId", "Version")}
     with tempfile.TemporaryDirectory(prefix="cadenza-release-") as directory:
         candidate_path = Path(directory) / "candidate.env"
@@ -184,7 +217,7 @@ def main():
                 raise RuntimeError("External readiness returned HTTP " + viewer)
 
         except Exception:
-            canonical.write_text(old_env, encoding="utf-8", newline="\n")
+            canonical.write_text(checkout_env, encoding="utf-8", newline="\n")
             old_path = Path(directory) / "rollback.env"
             old_path.write_text(old_env, encoding="utf-8", newline="\n")
             aws(
@@ -203,6 +236,10 @@ def main():
             run([sys.executable, "deploy/recovery/update-release.py", str(old_path)])
             resource_path.write_text(before_resources, encoding="utf-8", newline="\n")
             raise
+    try:
+        remote_script(hosts[0], "python3 /opt/cadenza/prune-images.py")
+    except (RuntimeError, TimeoutError):
+        print("API deployed, but old image cleanup failed; check EC2 disk space.", flush=True)
     # Monitoring has its own health result; it must not roll back a healthy API.
     monitoring_verified = False
     try:

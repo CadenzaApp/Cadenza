@@ -70,6 +70,8 @@ def bootstrap_user_data():
         "observe-startup.py",
         "install-host-tools.sh",
         "activate-release.sh",
+        "maintenance-release.sh",
+        "prune-images.py",
     ]
     bundle = io.BytesIO()
     with tarfile.open(fileobj=bundle, mode="w:gz") as archive:
@@ -94,6 +96,24 @@ def bootstrap_user_data():
     )
     assert len(userdata.encode()) < 16384
     return userdata, hashlib.sha256(bundle.getvalue()).hexdigest()
+
+
+def configure_runtime_policy():
+    aws(
+        "iam",
+        "put-role-policy",
+        RoleName=SETTINGS["runtime_role"],
+        PolicyName="single-host-bootstrap",
+        PolicyDocument=policy(
+            [
+                allow("ec2:DescribeInstances", "*"),
+                allow(
+                    ["autoscaling:CompleteLifecycleAction", "autoscaling:UpdateAutoScalingGroup"],
+                    f"arn:aws:autoscaling:{REGION}:{ACCOUNT}:autoScalingGroup:*:autoScalingGroupName/{GROUP}",
+                ),
+            ]
+        ),
+    )
 
 
 def main():
@@ -379,21 +399,7 @@ def main():
         AutoScalingGroupName=GROUP,
         TargetGroupARNs=[target["TargetGroupArn"]],
     )
-    aws(
-        "iam",
-        "put-role-policy",
-        RoleName=SETTINGS["runtime_role"],
-        PolicyName="single-host-bootstrap",
-        PolicyDocument=policy(
-            [
-                allow("ec2:DescribeInstances", "*"),
-                allow(
-                    "autoscaling:CompleteLifecycleAction",
-                    f"arn:aws:autoscaling:{REGION}:{ACCOUNT}:autoScalingGroup:*:autoScalingGroupName/{GROUP}",
-                ),
-            ]
-        ),
-    )
+    configure_runtime_policy()
     topic = aws("sns", "create-topic", Name="cadenza-demo-instance-events")["TopicArn"]
     aws(
         "autoscaling",

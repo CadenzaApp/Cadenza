@@ -100,3 +100,17 @@ Schema changes are still applied separately in Supabase. The current collaborati
 privacy and duration-tag schema is already applied. Do not replay the SQL folder as
 an automatic deployment step. Rolling back the image cannot undo schema changes;
 older backends may not understand duration tags created by this release.
+
+## Deployment recovery and disk retention
+
+Deployment maintenance runs on EC2. It arms a systemd timer before temporarily
+using EC2-only health checks. Normal completion restores application checks; an
+interrupted host command leaves the 12-minute restoration timer armed, with
+retries if AWS is unavailable. The developer's terminal need not remain online
+for this cleanup. Keep the terminal open to receive the full release result.
+
+Rollback uses release settings read from the live host, not the developer's
+branch. After successful promotion, cleanup retains the active image, the
+previous release and images referenced by any container. Other backend images
+on the instance are removed without forcing deletion. Cleanup failure is a
+warning and does not roll back a healthy backend.
