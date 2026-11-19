@@ -15,6 +15,7 @@ pub mod builder;
 pub mod card_edit;
 pub mod model;
 pub mod phone_tools;
+pub mod playlist_writes;
 pub mod prompt;
 pub mod tools;
 pub mod writes;
@@ -205,10 +206,23 @@ async fn run_confirmed_change(
         return resume;
     };
     let name = call["name"].as_str().unwrap_or_default().to_owned();
+    let arguments = call["arguments"].as_str().unwrap_or_default().to_owned();
+    if matches!(
+        name.as_str(),
+        playlist_writes::ADD_TO_APPLE_MUSIC_PLAYLIST | playlist_writes::CREATE_APPLE_MUSIC_PLAYLIST
+    ) {
+        // the phone made it; the log keeps it, as one Cadenza cannot undo
+        if let Some(action) = runner
+            .record_phone_change(&name, &arguments, &resume.output)
+            .await
+        {
+            resume.continuation.actions.push(action);
+        }
+        return resume;
+    }
     if !writes::is_write_tool(&name) {
         return resume;
     }
-    let arguments = call["arguments"].as_str().unwrap_or_default().to_owned();
     if resume.output["confirmed"].as_bool() != Some(true) {
         resume.output = json!({
             "cancelled": true,

@@ -837,6 +837,321 @@ pub async fn check_can_invite(
     Ok(())
 }
 
+/// A change to a playlist's songs that the assistant makes, inside the caller's
+/// transaction so its activity log row commits with it.
+#[derive(Clone, Copy, Debug)]
+pub enum SongEdit<'a> {
+    Add {
+        song_ids: &'a [String],
+        position: Option<i32>,
+    },
+    Remove {
+        song_ids: &'a [String],
+    },
+    Move {
+        song_id: &'a str,
+        to_position: i32,
+    },
+}
+
+/// Exactly what a [`SongEdit`] changed.
+#[derive(Clone, Debug, Default)]
+pub struct SongsEdited {
+    /// The songs it put in, leaving out any that were there already.
+    pub added: Vec<String>,
+    /// The songs it took out, each with where it was and who added it.
+    pub removed: Vec<PlaylistEntry>,
+    /// The song it moved, from and to, when it moved.
+    pub moved: Option<(String, i32, i32)>,
+    /// The new version, or None when nothing changed.
+    pub version: Option<i64>,
+}
+
+/// What putting an edit back did.
+#[derive(Clone, Debug, Default)]
+pub struct SongsReverted {
+    pub reverted: usize,
+    /// Songs left alone because they changed since.
+    pub skipped: usize,
+    /// The new version, or None when nothing changed.
+    pub version: Option<i64>,
+}
+
+/// The playlist's songs in order, with who added each and when.
+pub async fn entries_in<C: ConnectionTrait>(
+    db: &C,
+    playlist_id: i64,
+) -> Result<Vec<PlaylistEntry>, CadenzaError> {
+    Ok(PlaylistEntry::find_by_statement(stmt(
+        "SELECT song_id, position, added_by, added_at
+         FROM shared_playlist_songs WHERE playlist_id = $1 ORDER BY position, song_id",
+        vec![playlist_id.into()],
+    ))
+    .all(db)
+    .await?)
+}
+
+/// Makes `edit` in `txn`: locks the playlist, checks the caller may edit its songs, and
+/// bumps the version when anything changed. Returns exactly what changed, for the
+/// assistant's activity log. Library only songs are refused like `add_songs` refuses them.
+pub async fn edit_songs_in(
+    txn: &DatabaseTransaction,
+    user_id: Uuid,
+    playlist_id: i64,
+    edit: SongEdit<'_>,
+) -> Result<SongsEdited, CadenzaError> {
+    lock_for(txn, playlist_id, user_id, PlaylistAction::EditSongs, None).await?;
+    let before = entries_in(txn, playlist_id).await?;
+    let mut edited = SongsEdited::default();
+    match edit {
+        SongEdit::Add { song_ids, position } => {
+            check_song_ids(song_ids)?;
+            let present: HashSet<&str> = before.iter().map(|e| e.song_id.as_str()).collect();
+            edited.added = unique_in_order(song_ids)
+                .into_iter()
+                .filter(|id| !present.contains(id.as_str()))
+                .collect();
+            if !insert_songs(txn, playlist_id, user_id, &edited.added, position).await? {
+                edited.added.clear();
+                return Ok(edited);
+            }
+            renumber(txn, playlist_id).await?;
+        }
+        SongEdit::Remove { song_ids } => {
+            let wanted: HashSet<&str> = song_ids.iter().map(String::as_str).collect();
+            edited.removed = before
+                .iter()
+                .filter(|e| wanted.contains(e.song_id.as_str()))
+                .cloned()
+                .collect();
+            if edited.removed.is_empty() {
+                return Ok(edited);
+            }
+            let ids: Vec<String> = edited.removed.iter().map(|e| e.song_id.clone()).collect();
+            txn.execute_raw(stmt(
+                "DELETE FROM shared_playlist_songs WHERE playlist_id = $1 AND song_id = ANY($2)",
+                vec![playlist_id.into(), ids.into()],
+            ))
+            .await?;
+            renumber(txn, playlist_id).await?;
+        }
+        SongEdit::Move {
+            song_id,
+            to_position,
+        } => {
+            let ids: Vec<String> = before.iter().map(|e| e.song_id.clone()).collect();
+            let song_id = song_id.to_owned();
+            let order = moved_order(&ids, &song_id, to_position).ok_or(CadenzaError::NotFound)?;
+            if order == ids {
+                return Ok(edited);
+            }
+            let from = ids.iter().position(|id| *id == song_id).unwrap_or_default() as i32;
+            let to = order
+                .iter()
+                .position(|id| *id == song_id)
+                .unwrap_or_default() as i32;
+            write_song_order(
+                txn,
+                "shared_playlist_songs",
+                "playlist_id",
+                playlist_id,
+                &order,
+            )
+            .await?;
+            edited.moved = Some((song_id, from, to));
+        }
+    }
+    edited.version = Some(bump(txn, playlist_id).await?);
+    Ok(edited)
+}
+
+/// Puts back one [`edit_songs_in`] in `txn`, leaving alone what changed since: an added
+/// song someone already took out, a removed song someone already put back, a moved song
+/// that is not where the move left it. Needs the caller to still be able to edit songs.
+pub async fn revert_songs_in(
+    txn: &DatabaseTransaction,
+    user_id: Uuid,
+    playlist_id: i64,
+    added: &[String],
+    removed: &[PlaylistEntry],
+    moved: Option<(&str, i32, i32)>,
+) -> Result<SongsReverted, CadenzaError> {
+    lock_for(txn, playlist_id, user_id, PlaylistAction::EditSongs, None).await?;
+    let now = entries_in(txn, playlist_id).await?;
+    let mut order: Vec<String> = now.iter().map(|e| e.song_id.clone()).collect();
+    let mut reverted = SongsReverted::default();
+
+    let added: HashSet<&str> = added.iter().map(String::as_str).collect();
+    let before_len = order.len();
+    order.retain(|id| !added.contains(id.as_str()));
+    let taken_out = before_len - order.len();
+    reverted.reverted += taken_out;
+    reverted.skipped += added.len() - taken_out;
+
+    let mut back: Vec<&PlaylistEntry> = removed
+        .iter()
+        .filter(|e| !order.contains(&e.song_id))
+        .collect();
+    reverted.skipped += removed.len() - back.len();
+    if order.len() + back.len() > MAX_PLAYLIST_SONGS {
+        return Err(CadenzaError::InvalidRequestBody(format!(
+            "a shared playlist holds at most {MAX_PLAYLIST_SONGS} songs"
+        )));
+    }
+    back.sort_by_key(|e| e.position);
+    for entry in &back {
+        let at = (entry.position.max(0) as usize).min(order.len());
+        order.insert(at, entry.song_id.clone());
+    }
+    reverted.reverted += back.len();
+
+    if let Some((song_id, from, to)) = moved {
+        match order.iter().position(|id| id == song_id) {
+            Some(at) if at as i32 == to => {
+                let song_id = song_id.to_owned();
+                order = moved_order(&order, &song_id, from).unwrap_or(order);
+                reverted.reverted += 1;
+            }
+            _ => reverted.skipped += 1,
+        }
+    }
+
+    if !added.is_empty() && taken_out > 0 {
+        let ids: Vec<String> = added.iter().map(|id| (*id).to_owned()).collect();
+        txn.execute_raw(stmt(
+            "DELETE FROM shared_playlist_songs WHERE playlist_id = $1 AND song_id = ANY($2)",
+            vec![playlist_id.into(), ids.into()],
+        ))
+        .await?;
+    }
+    if !back.is_empty() {
+        let rows: Vec<serde_json::Value> = back
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "song_id": e.song_id,
+                    "added_by": e.added_by,
+                    "added_at": e.added_at.to_rfc3339(),
+                })
+            })
+            .collect();
+        txn.execute_raw(stmt(
+            "INSERT INTO shared_playlist_songs (playlist_id, song_id, position, added_by, added_at)
+             SELECT $1, t.song_id, 0, t.added_by, t.added_at
+             FROM jsonb_to_recordset($2) AS t(song_id text, added_by uuid, added_at timestamptz)
+             ON CONFLICT DO NOTHING",
+            vec![
+                playlist_id.into(),
+                sea_orm::Value::Json(Some(Box::new(serde_json::Value::from(rows)))),
+            ],
+        ))
+        .await?;
+    }
+    if reverted.reverted > 0 {
+        write_song_order(
+            txn,
+            "shared_playlist_songs",
+            "playlist_id",
+            playlist_id,
+            &order,
+        )
+        .await?;
+        reverted.version = Some(bump(txn, playlist_id).await?);
+    }
+    Ok(reverted)
+}
+
+/// The name and description before and after a [`update_details_in`].
+#[derive(Clone, Debug)]
+pub struct DetailsChanged {
+    pub old_name: String,
+    pub new_name: String,
+    pub old_description: String,
+    pub new_description: String,
+    pub version: i64,
+}
+
+/// [`update_details`] in the caller's transaction, returning the old and new values.
+/// Owner only. With `only_if` set, changes it only while the name and description are
+/// still those, for an undo that leaves a later rename alone; None then means they
+/// changed since.
+pub async fn update_details_in(
+    txn: &DatabaseTransaction,
+    user_id: Uuid,
+    playlist_id: i64,
+    name: Option<&str>,
+    description: Option<&str>,
+    only_if: Option<(&str, &str)>,
+) -> Result<Option<DetailsChanged>, CadenzaError> {
+    let name = name.map(|name| check_name(name, "playlist")).transpose()?;
+    let description = description.map(|d| d.trim().to_owned());
+    if description
+        .as_ref()
+        .is_some_and(|d| d.chars().count() > 500)
+    {
+        return Err(CadenzaError::InvalidRequestBody(
+            "a description is at most 500 characters".into(),
+        ));
+    }
+    lock_for(txn, playlist_id, user_id, PlaylistAction::EditDetails, None).await?;
+    let row = txn
+        .query_one_raw(stmt(
+            "SELECT name, description FROM shared_playlists WHERE playlist_id = $1",
+            vec![playlist_id.into()],
+        ))
+        .await?
+        .ok_or(CadenzaError::NotFound)?;
+    let old_name: String = row.try_get("", "name")?;
+    let old_description: String = row.try_get("", "description")?;
+    if let Some((name_now, description_now)) = only_if
+        && (old_name != name_now || old_description != description_now)
+    {
+        return Ok(None);
+    }
+    let new_name = name.unwrap_or_else(|| old_name.clone());
+    let new_description = description.unwrap_or_else(|| old_description.clone());
+    txn.execute_raw(stmt(
+        "UPDATE shared_playlists SET name = $2, description = $3 WHERE playlist_id = $1",
+        vec![
+            playlist_id.into(),
+            new_name.clone().into(),
+            new_description.clone().into(),
+        ],
+    ))
+    .await?;
+    let version = bump(txn, playlist_id).await?;
+    Ok(Some(DetailsChanged {
+        old_name,
+        new_name,
+        old_description,
+        new_description,
+        version,
+    }))
+}
+
+/// The playlist's name and the caller's role, or `NotFound` for a non member.
+pub async fn name_and_role(
+    db: &impl Db,
+    user_id: Uuid,
+    playlist_id: i64,
+) -> Result<(String, String, PlaylistRole), CadenzaError> {
+    let role = member_role(db, playlist_id, user_id)
+        .await?
+        .ok_or(CadenzaError::NotFound)?;
+    let row = db
+        .query_one_raw(stmt(
+            "SELECT name, description FROM shared_playlists WHERE playlist_id = $1",
+            vec![playlist_id.into()],
+        ))
+        .await?
+        .ok_or(CadenzaError::NotFound)?;
+    Ok((
+        row.try_get("", "name")?,
+        row.try_get("", "description")?,
+        role,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

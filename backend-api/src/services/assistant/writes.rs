@@ -8,6 +8,8 @@
 //! activity log (`db::assistant_actions`) with exactly what it did, and
 //! [`undo`] reverses that.
 //!
+//! Playlist changes live in [`super::playlist_writes`] and plug in here.
+//!
 //! What is deliberately missing: deleting tags, saved queries, or playlists, settings and
 //! privacy, the profile, anything social, members and invites, live sessions, activity and
 //! suggested tags. The prompt tells the model to say so when asked.
@@ -32,6 +34,9 @@ use crate::routes::json::{
     tag::TagType,
 };
 use crate::services::realtime::SharedEventBus;
+use crate::services::song_metadata::SongMetadataService;
+
+use super::playlist_writes::{self, EDIT_SHARED_PLAYLIST, PlaylistPlan, UPDATE_SHARED_PLAYLIST};
 use crate::services::saved_queries::{spawn_add_retagged_songs, store_saved_songs};
 use crate::services::tag_values::canonicalize_tag_value;
 
@@ -51,6 +56,8 @@ const WRITE_TOOLS: &[&str] = &[
     UPDATE_TAG,
     SAVE_QUERY,
     RENAME_SAVED_QUERY,
+    EDIT_SHARED_PLAYLIST,
+    UPDATE_SHARED_PLAYLIST,
     UNDO_ACTION,
 ];
 
@@ -84,7 +91,7 @@ pub fn label_for(name: &str) -> &'static str {
         SAVE_QUERY => "Saved a query",
         RENAME_SAVED_QUERY => "Renamed a saved query",
         UNDO_ACTION => "Undid a change",
-        _ => "Made a change",
+        other => playlist_writes::label_for(other).unwrap_or("Made a change"),
     }
 }
 
@@ -103,6 +110,8 @@ pub struct Writer<'a> {
     pub builder_settings: BuilderSettings,
     /// For telling a shared playlist's other members about a change.
     pub bus: Option<&'a SharedEventBus>,
+    /// For storing the titles of songs added to a shared playlist.
+    pub song_meta: Option<&'a SongMetadataService>,
 }
 
 /// A new tag a change makes.
@@ -158,12 +167,13 @@ enum Plan {
         saved: saved_queries::Model,
         name: String,
     },
+    Playlist(PlaylistPlan),
     Undo(ActionRow),
 }
 
 /// The songs a change names: `"card"`, a list of ids, or a query it runs.
 #[derive(Deserialize, Default)]
-struct SongArgs {
+pub(super) struct SongArgs {
     #[serde(default)]
     songs: Option<Value>,
     #[serde(default)]
@@ -230,7 +240,7 @@ struct UndoArgs {
     action_id: Option<i64>,
 }
 
-fn parse<T: for<'de> Deserialize<'de>>(arguments: &str) -> Result<T, String> {
+pub(super) fn parse<T: for<'de> Deserialize<'de>>(arguments: &str) -> Result<T, String> {
     let arguments = if arguments.trim().is_empty() {
         "{}"
     } else {
@@ -311,7 +321,7 @@ fn checked_query_name(name: &str) -> Result<String, String> {
     Ok(name.to_owned())
 }
 
-fn db_error(err: CadenzaError) -> String {
+pub(super) fn db_error(err: CadenzaError) -> String {
     match err {
         CadenzaError::TagNameAlreadyTaken => {
             "the user already has a tag with that name; use it instead of making a new one".into()
@@ -338,7 +348,7 @@ impl Writer<'_> {
 
     /// The songs a change names, each once, at most [`MAX_WRITE_SONGS`], and whether a
     /// query had more than it could count.
-    async fn songs(
+    pub(super) async fn songs(
         &self,
         args: &SongArgs,
         card: CardRef<'_>,
@@ -554,12 +564,15 @@ impl Writer<'_> {
                 }
                 Ok(Plan::Undo(row))
             }
+            EDIT_SHARED_PLAYLIST | UPDATE_SHARED_PLAYLIST => Ok(Plan::Playlist(
+                playlist_writes::plan(self, name, arguments, card).await?,
+            )),
             other => Err(format!("{other} is not a change the assistant can make")),
         }
     }
 
     /// "Purple Rain, Redbone, Nights, and 1,240 more", from what Cadenza stores.
-    async fn sample(&self, songs: &[String]) -> String {
+    pub(super) async fn sample(&self, songs: &[String]) -> String {
         let shown: Vec<String> = songs.iter().take(SAMPLE_SONGS * 2).cloned().collect();
         let rows = db::metadata_tags::get_song_rows(self.db, &shown)
             .await
@@ -675,6 +688,7 @@ impl Writer<'_> {
                 detail: "You can undo this.".into(),
                 confirm_label: "Rename".into(),
             },
+            Plan::Playlist(plan) => playlist_writes::preview(self, &plan).await,
             Plan::Undo(row) => WritePreview {
                 title: format!("Undo \"{}\"?", row.summary),
                 detail: undo_description(&row),
@@ -711,6 +725,7 @@ impl Writer<'_> {
             Plan::RenameSavedQuery { saved, name } => {
                 Some(self.rename_saved_query(saved, name).await?)
             }
+            Plan::Playlist(plan) => playlist_writes::execute(self, plan).await?,
             Plan::Undo(row) => {
                 let (row, message) = undo(self.db, self.bus, self.user_id, row.action_id)
                     .await
@@ -1013,6 +1028,9 @@ impl Writer<'_> {
 
 /// What undoing a row will do, for its confirm card.
 fn undo_description(row: &ActionRow) -> String {
+    if let Some(description) = playlist_writes::undo_description(row) {
+        return description;
+    }
     let changes = &row.changes;
     let count = |key: &str| changes[key].as_array().map_or(0, Vec::len);
     let tag = row.target_name.clone().unwrap_or_else(|| "the tag".into());
@@ -1057,7 +1075,13 @@ pub fn ids_named(name: &str, arguments: &str) -> Vec<String> {
         return Vec::new();
     };
     let mut ids = Vec::new();
-    for key in ["tag_id", "saved_query_id", "action_id"] {
+    for key in [
+        "tag_id",
+        "saved_query_id",
+        "action_id",
+        "playlist_id",
+        "song_id",
+    ] {
         if let Some(id) = super::phone_tools::id_value(&args[key]) {
             ids.push(id);
         }
@@ -1125,6 +1149,7 @@ pub async fn undo(
     let tag_id = changes["tag_id"].as_i64();
     let mut recorded = Vec::new();
     let mut retagged: Vec<String> = Vec::new();
+    let mut playlist_changed = None;
     let message = match row.kind.as_str() {
         APPLY_TAG | REMOVE_TAG => {
             let tag = match tag_id {
@@ -1287,15 +1312,23 @@ pub async fn undo(
                 )
             }
         }
-        _ => {
-            return Err(CadenzaError::CannotUndo(format!(
-                "\"{}\" can't be undone.",
-                row.summary
-            )));
-        }
+        _ => match playlist_writes::undo(&txn, user_id, &row).await {
+            Some(result) => {
+                let (message, changed) = result?;
+                playlist_changed = changed;
+                message
+            }
+            None => {
+                return Err(CadenzaError::CannotUndo(format!(
+                    "\"{}\" can't be undone.",
+                    row.summary
+                )));
+            }
+        },
     };
     let row = actions::mark_undone(&txn, user_id, action_id, &message).await?;
     txn.commit().await?;
+    playlist_writes::published(bus, playlist_changed);
     recorded.into_iter().for_each(|recorded| recorded.log());
     if let Some(tag_id) = tag_id
         && !retagged.is_empty()
@@ -1436,7 +1469,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": UNDO_ACTION,
-            "description": "Undoes a change the assistant made, from the activity log: \"undo that\", \"undo the pop tagging\". Leave action_id out for the newest change that can be undone; otherwise get the id from list_recent_actions. Waits for the user to confirm. Only reverses what the change did, leaving alone anything changed since.",
+            "description": "Undoes a change the assistant made, from the activity log: \"undo that\", \"undo the pop tagging\". Leave action_id out for the newest change that can be undone; otherwise get the id from list_recent_actions. Waits for the user to confirm. Only reverses what the change did, leaving alone anything changed since. Apple Music playlist changes cannot be undone.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1445,6 +1478,9 @@ pub fn definitions() -> Vec<Value> {
             }
         }),
     ]
+    .into_iter()
+    .chain(playlist_writes::definitions())
+    .collect()
 }
 
 #[cfg(test)]

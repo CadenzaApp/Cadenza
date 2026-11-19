@@ -59,7 +59,8 @@ Assistant section of [backend-api/src/services/README.md](../../../../backend-ap
 - `create_apple_music_playlist` and `add_to_apple_music_playlist` wait for the user: the chat
   shows a `ConfirmCard` in place of the typing dots, and Cancel sends `{ cancelled: true }`.
   Clearing the chat counts as Cancel. Everything else runs straight away, since it can be undone
-  with a tap.
+  with a tap. A successful one comes back with a done card too, marked as one Cadenza can't
+  undo, since the phone can only add to Apple Music playlists.
 - `songs: "card"` reaches the phone as the card's ids; the backend swaps them in.
 
 ## Gotchas

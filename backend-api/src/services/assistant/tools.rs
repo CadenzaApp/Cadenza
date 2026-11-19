@@ -95,6 +95,17 @@ pub trait ToolRunner: Send + Sync {
     ) -> Result<(Value, Option<ActionSummary>), String> {
         Err("changes are not available here".into())
     }
+
+    /// Logs a change a phone tool made (an Apple Music playlist add), for the done card
+    /// and the activity log. A runner with no log keeps nothing.
+    async fn record_phone_change(
+        &self,
+        _name: &str,
+        _arguments: &str,
+        _output: &Value,
+    ) -> Option<ActionSummary> {
+        None
+    }
 }
 
 /// The most songs `find_songs` looks up in one call.
@@ -135,6 +146,7 @@ impl DbTools<'_> {
             hide_explicit: self.hide_explicit,
             builder_settings: self.builder_settings,
             bus: self.bus,
+            song_meta: Some(self.song_meta),
         }
     }
 }
@@ -215,6 +227,18 @@ impl ToolRunner for DbTools<'_> {
             clip(&format!("{:?}", done.as_ref().map(|(output, _)| output))),
         );
         done.map(|(output, row)| (output, row.as_ref().map(ActionSummary::from)))
+    }
+
+    async fn record_phone_change(
+        &self,
+        name: &str,
+        arguments: &str,
+        output: &Value,
+    ) -> Option<ActionSummary> {
+        super::playlist_writes::record_apple_music(self.db, self.user_id, name, arguments, output)
+            .await
+            .as_ref()
+            .map(ActionSummary::from)
     }
 }
 

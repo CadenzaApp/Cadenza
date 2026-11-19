@@ -19,7 +19,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `pool.rs` | The connection pool one backend process opens: the cap, the queue timeout, and the statement and idle in transaction timeouts set on each connection. `PoolConfig::from_env`. Live tests are ignored. |
 | `listening_history.rs` | Another user's recent `play_counted` events, gated by `listening_history`. |
 | `invites.rs` | `invite_codes`: create, find a live one, redeem (checked and counted in one `UPDATE`), revoke for a target. Target agnostic. |
-| `shared_playlists.rs` | `shared_playlists`, members, songs. The role table `allowed`, and every read and write. Unit tested. |
+| `shared_playlists.rs` | `shared_playlists`, members, songs. The role table `allowed`, and every read and write. The assistant's edits run in the caller's transaction (`edit_songs_in`, `revert_songs_in`, `update_details_in`) so their activity log row commits with them, and return exactly what changed. Unit tested. |
 | `collab.rs` | What shared playlists and live sessions share: `check_name`, `moved_order`, `write_order` for entry ids, and `write_song_order` for catalog song ids. Unit tested. |
 | `live_sessions.rs` | `live_sessions`, members, queue. Snapshot with projected playback, joins, roles, queue ops, playback commands, host reports. Unit tested. |
 | `social_listening_tests.rs` | Ignored database tests for the three above and now playing, each in one rolled back transaction: `cargo test social_listening -- --ignored --test-threads=1`. The Supabase transaction pooler (port 6543) needs `statement-cache-capacity=0` on the URL, and still flakes on prepared statement names now and then; rerun. |

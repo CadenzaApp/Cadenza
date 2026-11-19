@@ -26,6 +26,7 @@ in-app notification for a user, and the definitions the listening analytics are 
 | `assistant/builder.rs` | `fits_simple` and `builder_for`: which query builder on the phone can hold a query, the simple one when it can and the advanced one otherwise. Tested against `assistant/builder_fixtures.json`, which the phone's `QueryImport.test.ts` reads too, so both agree. |
 | `assistant/card_edit.rs` | `edit_card`: adds and removes songs on the latest card (or this answer's) instead of replacing it, from ids tools returned. Run by the loop. Unit tested. |
 | `assistant/writes.rs` | The write tools (`apply_tag`, `remove_tag`, `create_tag`, `update_tag`, `save_query`, `rename_saved_query`, `undo_action`): their schemas, `Writer::preview` (the confirm card) and `Writer::execute` (the change and its activity log row), both from one `plan`, and `undo`. Unit tested. |
+| `assistant/playlist_writes.rs` | The playlist write tools: `edit_shared_playlist` (add, remove, or move songs in a shared playlist the user edits) and `update_shared_playlist` (rename or redescribe one they own), their plans, confirm cards, logged changes, and undos with conflict checks, each published to the playlist's members. Also `record_apple_music`, which logs the phone's Apple Music playlist adds as not undoable. Unit tested. |
 | `assistant/phone_tools.rs`               | The tools only the phone runs (`now_playing`, `play`, `playback`, `queue_songs`, `set_shuffle`, `set_repeat`, `search_apple_music`, `apple_music_playlists`, `apple_music_playlist_songs`, `apple_music_library`, `favorite_song`, `favorite_collection`, `create_apple_music_playlist`, `add_to_apple_music_playlist`, `open_screen`): their schemas and labels, `songs: "card"` swapped for the card's ids, and a `card` in the phone's output taken out for the answer. The phone side is `client-app/src/features/assistant/phone-tools.ts`. Unit tested. |
 | `assistant/model.rs`                     | The `AssistantModel` trait and `OpenAiAssistantModel` on the Responses API with function calling. Unit tested. |
 | `assistant/tools.rs`                     | The read-only tools (`list_tags`, `run_query`, `get_song_metadata`, `top_items`, `listening_summary`, `list_saved_queries`, `get_saved_query_songs`, `get_song_tags`, `list_playlists`, `get_playlist_songs`, `find_songs`, `find_artist`, `find_album`, `get_album_songs`), their JSON schemas, and the `ToolRunner` trait. `find_songs` looks up songs the model names itself in the Apple Music catalog, one search each, and keeps only a result whose title and artist match. `run_query` runs with the phone's query builder settings (`DbTools::builder_settings`) unless the model sets a scope, takes `sort`, `group` and `limit` as one `Arrangement`, and puts its query on the card (`CardQuery`) with the builder it fits, so tapping the card loads it into the query builder. Unit tested. |
@@ -388,7 +389,15 @@ append each call and its output, and repeat until the model answers with text. I
   removed, old names. Tag writes and their row commit in one transaction. `undo` reverses only
   that, row by row where the row still looks the way the change left it, and reports what it
   skipped. A tag made by the change is deleted on undo only while no song has it.
+- Shared playlist changes log the songs added, the songs removed with their old positions and
+  who added them, or the move's from and to. Undo takes out only the added songs still there,
+  puts back only the removed songs still missing, and moves a song back only if it is still
+  where the move left it; a rename goes back only while nobody renamed it since. It needs the
+  user to still be able to make the change, and publishes the new version like the app's edits.
+- Apple Music playlist adds run on the phone, which can only add, so `run_confirmed_change` logs
+  a successful one as not undoable (`ToolRunner::record_phone_change`).
 - Not offered, and the prompt says so when asked: deleting tags, saved queries, or playlists,
+  leaving a shared playlist, removing or reordering Apple Music playlist songs,
   settings and privacy, the profile, social actions, members and invites, live sessions,
   activity and suggested tags, rerunning a saved query.
 - Every server tool only reads and runs as the JWT's user. The model never supplies a user id.
