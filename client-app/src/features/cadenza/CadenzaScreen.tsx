@@ -21,6 +21,7 @@ import {
     sortTagsByApplicationCount,
 } from "@/features/query-builder/QueryUtils";
 import { ResultsSummary } from "@/features/query-builder/ResultsSummary";
+import { useAccount } from "@/lib/account";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import { useOpenScreen } from "@/lib/open-screen";
 import { describeQuery, positiveQueryTagNames } from "@/lib/query-json";
@@ -31,8 +32,14 @@ import type { Tag } from "@/lib/types";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "expo-router";
-import { useTheme } from "expo-router/react-navigation";
-import { useCallback, useLayoutEffect, useMemo, useState } from "react";
+import { useIsFocused, useTheme } from "expo-router/react-navigation";
+import {
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useState,
+} from "react";
 import {
     ActivityIndicator,
     Platform,
@@ -45,6 +52,7 @@ import Animated, {
     LinearTransition,
     ReduceMotion,
 } from "react-native-reanimated";
+import { takeQueryResults, useHasPendingQueryResults } from "./pending-results";
 import { HistoryActionButton, QuerySettingsDialog } from "./query-controls";
 import { useQuerySettings } from "./query-settings";
 import { switchQueryMode } from "./query-workspace";
@@ -67,6 +75,18 @@ export function CadenzaScreen() {
     const { colors } = useTheme();
     const headingBackground = useAppTheme().colors.background;
     const openScreen = useOpenScreen();
+    const { account } = useAccount();
+    const accountId = account?.id ?? null;
+    const focused = useIsFocused();
+    const resultsWaiting = useHasPendingQueryResults(accountId);
+    // results asked for from outside the tab (an assistant card, after it
+    // loaded its query here) open once the tab is on screen, the same way the
+    // results button opens them, so Back comes back to the builder
+    useEffect(() => {
+        if (!focused || !resultsWaiting) return;
+        const params = takeQueryResults(accountId);
+        if (params) openScreen({ pathname: "/query-results", params });
+    }, [accountId, focused, openScreen, resultsWaiting]);
     const {
         history,
         dispatch,

@@ -130,29 +130,3 @@ export function prepareHandoff(
         arrangement,
     };
 }
-
-/**
- * Closes every screen covering the tabs and opens `/query-results` with
- * `params` on the Cadenza tab's stack, over the builder, so Back lands on it.
- * React Navigation 7's navigate pushes a screen that is not the one on show,
- * so this never reuses an older results screen.
- */
-export function cadenzaResultsNavigateAction(params: Record<string, string>) {
-    return {
-        type: "NAVIGATE" as const,
-        payload: {
-            name: "(tabs)",
-            pop: true,
-            merge: true,
-            params: {
-                screen: "(cadenza)",
-                initial: false,
-                params: {
-                    screen: "query-results",
-                    initial: false,
-                    params,
-                },
-            },
-        },
-    };
-}

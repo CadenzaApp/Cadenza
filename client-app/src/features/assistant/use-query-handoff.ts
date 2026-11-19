@@ -1,4 +1,4 @@
-import { useNavigation, useNavigationContainerRef } from "expo-router";
+import { useNavigationContainerRef, useRouter } from "expo-router";
 import {
     CommonActions,
     type NavigationState,
@@ -6,6 +6,7 @@ import {
 } from "expo-router/react-navigation";
 import { useCallback } from "react";
 
+import { requestQueryResults } from "@/features/cadenza/pending-results";
 import { readQuerySettings } from "@/features/cadenza/query-settings";
 import {
     dispatchWorkspace,
@@ -16,7 +17,7 @@ import { describeQuery, positiveQueryTagNames } from "@/lib/query-json";
 import { useActivityTags, useUserTags } from "@/lib/routes/tags";
 import { encodeArrangementParam } from "@/lib/song-arrangement";
 
-import { cadenzaResultsNavigateAction, prepareHandoff } from "./query-handoff";
+import { prepareHandoff } from "./query-handoff";
 import type { AssistantCardQuery } from "./types";
 
 const NO_TAGS: never[] = [];
@@ -24,23 +25,23 @@ const NO_TAGS: never[] = [];
 type AnyState = NavigationState | PartialState<NavigationState>;
 
 /**
- * The Cadenza tab's stack, when it has been opened and holds more than the
- * builder, walking down the focused routes to the tab navigator.
+ * The Cadenza tab's stack, when it has been opened, found anywhere in the
+ * navigation tree: the assistant sheet is the focused route while this runs,
+ * so the tabs are not on the focused path.
  */
-function cadenzaStackAboveBuilder(root: AnyState): NavigationState | null {
-    let current: AnyState | undefined = root;
-    while (current) {
-        if (current.routeNames?.includes("(cadenza)")) {
-            const tab = current.routes.find(
-                (route) => route.name === "(cadenza)",
-            );
-            const stack = tab?.state;
-            return stack && stack.stale === false && stack.routes.length > 1
-                ? (stack as NavigationState)
-                : null;
-        }
-        const index: number = current.index ?? current.routes.length - 1;
-        current = current.routes[index]?.state;
+function cadenzaStack(state: AnyState | undefined): NavigationState | null {
+    if (!state) return null;
+    if (state.routeNames?.includes("(cadenza)")) {
+        const stack = state.routes.find(
+            (route) => route.name === "(cadenza)",
+        )?.state;
+        return stack && stack.stale === false
+            ? (stack as NavigationState)
+            : null;
+    }
+    for (const route of state.routes) {
+        const found = cadenzaStack(route.state);
+        if (found) return found;
     }
     return null;
 }
@@ -48,9 +49,10 @@ function cadenzaStackAboveBuilder(root: AnyState): NavigationState | null {
 /**
  * Opens a `run_query` card's query the way the Cadenza tab would have made
  * it: loads it into the simple builder (or the advanced one) as one undo
- * step, switches to the Cadenza tab, and opens its results on top, sorted,
- * grouped and limited as the card ran. Back shows the builder holding the
- * query; its Undo brings back what the user had.
+ * step, closes the assistant, and switches to the Cadenza tab, which then
+ * opens the results itself (`requestQueryResults`), sorted, grouped and
+ * limited as the card ran. Back shows the builder holding the query; its Undo
+ * brings back what the user had.
  *
  * The results follow the builder's settings as they are now, the same as the
  * builder's own results button, so an older card can disagree with them if
@@ -61,7 +63,7 @@ function cadenzaStackAboveBuilder(root: AnyState): NavigationState | null {
  * card's songs as a plain list instead.
  */
 export function useQueryHandoff() {
-    const navigation = useNavigation();
+    const router = useRouter();
     const container = useNavigationContainerRef();
     const { account } = useAccount();
     const accountId = account?.id ?? null;
@@ -83,13 +85,23 @@ export function useQueryHandoff() {
             const includeSuggested =
                 getWorkspaceHistory(accountId).present.includeSuggested;
             const allTags = [...own, ...activity];
+            requestQueryResults(accountId, {
+                query: JSON.stringify(handoff.query),
+                suggested: includeSuggested ? "1" : "",
+                library: settings.libraryOrTagged ? "1" : "",
+                relevantTags: JSON.stringify(
+                    positiveQueryTagNames(handoff.query, allTags),
+                ),
+                name: describeQuery(handoff.query, allTags),
+                arrangement: encodeArrangementParam(handoff.arrangement),
+            });
 
-            // anything already open over the builder goes, so Back from the
-            // results lands on it
+            // anything open over the builder goes, so the builder is what
+            // shows and opens the results, and Back from them lands on it
             const stack = container.isReady()
-                ? cadenzaStackAboveBuilder(container.getRootState())
+                ? cadenzaStack(container.getRootState())
                 : null;
-            if (stack) {
+            if (stack && stack.routes.length > 1) {
                 container.dispatch({
                     ...CommonActions.reset({
                         ...stack,
@@ -99,20 +111,11 @@ export function useQueryHandoff() {
                     target: stack.key,
                 });
             }
-            navigation.dispatch(
-                cadenzaResultsNavigateAction({
-                    query: JSON.stringify(handoff.query),
-                    suggested: includeSuggested ? "1" : "",
-                    library: settings.libraryOrTagged ? "1" : "",
-                    relevantTags: JSON.stringify(
-                        positiveQueryTagNames(handoff.query, allTags),
-                    ),
-                    name: describeQuery(handoff.query, allTags),
-                    arrangement: encodeArrangementParam(handoff.arrangement),
-                }),
-            );
+            // the same way `open_screen` switches tabs
+            if (router.canDismiss()) router.dismiss();
+            router.navigate("/cadenza");
             return true;
         },
-        [accountId, activity, container, navigation, own],
+        [accountId, activity, container, own, router],
     );
 }

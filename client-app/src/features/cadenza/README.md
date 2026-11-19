@@ -29,6 +29,9 @@ Each editor has its own 20-edit history. Consecutive value typing coalesces with
 Snapshots retain only the active draft; unchanged edits preserve references instead of serializing
 both trees. Undoing in one editor cannot replace the other's draft.
 
+`pending-results.ts` holds results asked for from outside the tab; `CadenzaScreen` opens them with
+its own results navigation as soon as it is focused, so they sit over the builder.
+
 `load` replaces the whole query from outside, maybe in the other editor, as one undo step that
 holds both drafts and the editor that was open. Undoing it brings all three back and switches
 editors if the load did; redo puts the loaded query back.

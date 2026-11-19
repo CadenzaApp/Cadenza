@@ -5,11 +5,7 @@ import { initialWorkspaceHistory } from "../cadenza/query-workspace.ts";
 import { queryToJSON } from "../query-builder/QueryUtils.ts";
 import { buildAdvancedQuery } from "../advanced-query-builder/AdvancedQueryUtils.ts";
 import type { Tag } from "../../lib/types.ts";
-import {
-    cadenzaResultsNavigateAction,
-    prepareHandoff,
-    type HandoffTags,
-} from "./query-handoff.ts";
+import { prepareHandoff, type HandoffTags } from "./query-handoff.ts";
 import type { AssistantCardQuery } from "./types.ts";
 
 const tag = (id: number, name: string, type: Tag["type"]): Tag => ({
@@ -155,14 +151,4 @@ test("a sort by a tag the user cannot see is left out", () => {
         group: null,
         limit: null,
     });
-});
-
-test("the results open on the Cadenza tab's stack, over the builder", () => {
-    const action = cadenzaResultsNavigateAction({ query: "{}" });
-    assert.equal(action.payload.name, "(tabs)");
-    assert.equal(action.payload.pop, true);
-    assert.equal(action.payload.params.screen, "(cadenza)");
-    assert.equal(action.payload.params.params.screen, "query-results");
-    assert.equal(action.payload.params.params.initial, false);
-    assert.deepEqual(action.payload.params.params.params, { query: "{}" });
 });
