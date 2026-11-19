@@ -41,6 +41,8 @@ type Props = {
     error?: unknown;
     /** Every song the query matched, loaded or not. */
     matchCount: number;
+    /** Full result total, independent of the visible page or open groups. */
+    trackSummary?: string;
     /** More songs from outside the user's own matched than came back. */
     capped: boolean;
     /** The query matched only songs in the user's library or tagged by them. */
@@ -87,6 +89,7 @@ export default function QueryResults({
     isLoading,
     error,
     matchCount,
+    trackSummary,
     capped,
     libraryOrTagged,
     pagination,
@@ -245,8 +248,11 @@ export default function QueryResults({
                 summary={
                     rerunning
                         ? "Rerunning..."
-                        : matchCountLabel(matchCount, capped)
+                        : trackSummary && !capped
+                          ? ""
+                          : matchCountLabel(matchCount, capped)
                 }
+                trackSummary={trackSummary}
                 pagination={pagination}
                 sections={sections}
                 arrangement={arrangement}

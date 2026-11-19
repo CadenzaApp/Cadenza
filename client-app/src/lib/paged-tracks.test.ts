@@ -9,6 +9,7 @@ import {
     queryQueueIds,
     resolvedTracks,
     uniqueBy,
+    trackIdentityKeys,
 } from "./paged-tracks.ts";
 
 const inLibrary = (songId: string) => songId.startsWith("lib");
@@ -238,4 +239,72 @@ test("a cover waits while a song near the top may still get artwork", () => {
     );
     assert.equal(done.ready, true);
     assert.equal(done.tracks.length, 1);
+});
+
+test("library and tagged catalog representations appear once across pages and queues", () => {
+    const library = {
+        id: "i.library",
+        libraryId: "i.library",
+        catalogId: "catalog",
+    };
+    const catalog = { id: "catalog", catalogId: "catalog" };
+    const otherRecording = { id: "other", catalogId: "other" };
+    const byId = new Map([
+        ["i.library", library],
+        ["catalog", catalog],
+        ["other", otherRecording],
+    ]);
+    const ids = ["i.library", "catalog", "other", "catalog"];
+    assert.deepEqual(
+        resolvedTracks(ids, 2, (id) => byId.get(id), trackIdentityKeys, false)
+            .tracks,
+        [library],
+    );
+    assert.deepEqual(
+        resolvedTracks(ids, 4, (id) => byId.get(id), trackIdentityKeys, false)
+            .tracks,
+        [library, otherRecording],
+    );
+    assert.deepEqual(
+        uniqueBy([library, catalog, otherRecording], trackIdentityKeys),
+        [library, otherRecording],
+    );
+    const seen = new Set<string>();
+    assert.deepEqual(uniqueBy([library], trackIdentityKeys, seen), [library]);
+    assert.deepEqual(
+        uniqueBy([catalog, otherRecording], trackIdentityKeys, seen),
+        [otherRecording],
+    );
+});
+
+test("catalog planning stops once the requested window and chunk are covered", () => {
+    const ids = Array.from({ length: 10000 }, (_, i) => `id${i}`);
+    let inspected = 0;
+    assert.equal(
+        catalogIdsToFetch(
+            ids,
+            50,
+            () => {
+                inspected++;
+                return false;
+            },
+            25,
+        ).length,
+        50,
+    );
+    assert.equal(inspected, 50);
+    inspected = 0;
+    assert.deepEqual(
+        catalogIdsToFetch(
+            ids,
+            0,
+            () => {
+                inspected++;
+                return false;
+            },
+            25,
+        ),
+        [],
+    );
+    assert.equal(inspected, 0);
 });

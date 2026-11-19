@@ -162,7 +162,7 @@ public class AppleMusicKitModule: Module {
         return catalogID
     }
 
-    private func artworkURLString(from artwork: Artwork?, width: Int = 200, height: Int = 200) -> String {
+    private func artworkURLString(from artwork: Artwork?, width: Int = 100, height: Int = 100) -> String {
         guard let url = artwork?.url(width: width, height: height) else { return "" }
 
         if let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
@@ -223,7 +223,7 @@ public class AppleMusicKitModule: Module {
             "playbackType": playbackType,
             "title": song.title,
             "artistName": song.artistName,
-            "artworkUrl": artworkURLString(from: song.artwork, width: 200, height: 200),
+            "artworkUrl": artworkURLString(from: song.artwork, width: 100, height: 100),
             "artworkUrlLarge": artworkURLString(from: song.artwork, width: 1200, height: 1200)
         ]
 
@@ -394,7 +394,7 @@ public class AppleMusicKitModule: Module {
 
         if let artwork = attributes["artwork"] as? [String: Any] {
             if let template = artwork["url"] as? String {
-                result["artworkUrl"] = artworkURL(template, width: 200, height: 200)
+                result["artworkUrl"] = artworkURL(template, width: 100, height: 100)
                 result["artworkUrlLarge"] = artworkURL(template, width: 1200, height: 1200)
             }
             if let artworkColor = artworkColorHex(artwork) {
@@ -452,7 +452,7 @@ public class AppleMusicKitModule: Module {
         let artworkAttributes = (catalogData?.first?["attributes"] as? [String: Any]) ?? attributes
         if let artwork = artworkAttributes["artwork"] as? [String: Any] {
             if let template = artwork["url"] as? String {
-                result["artworkUrl"] = artworkURL(template, width: 200, height: 200)
+                result["artworkUrl"] = artworkURL(template, width: 100, height: 100)
             }
             if let artworkColor = artworkColorHex(artwork) {
                 result["artworkColor"] = artworkColor

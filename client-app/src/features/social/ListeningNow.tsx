@@ -201,7 +201,7 @@ function YourListeningStory({
 }) {
     const router = useRouter();
     const session = useCurrentLiveSession();
-    const { brand, mutedForeground } = useAppTheme().colors;
+    const { brand } = useAppTheme().colors;
     const [menuOpen, setMenuOpen] = useState(false);
     const badgeSize = Math.round(size * 0.4);
     return (
@@ -239,12 +239,11 @@ function YourListeningStory({
                         accessibilityLabel="Start or join a live session"
                         hitSlop={6}
                         onPress={() => setMenuOpen(true)}
-                        className="absolute bottom-0 right-0 items-center justify-center rounded-full border-2 active:opacity-60"
+                        className="absolute bottom-0 right-0 items-center justify-center rounded-full active:opacity-60"
                         style={{
                             width: badgeSize,
                             height: badgeSize,
                             backgroundColor: brand,
-                            borderColor: neutralRing(mutedForeground),
                         }}
                     >
                         <Ionicons
@@ -256,7 +255,7 @@ function YourListeningStory({
                 </View>
                 <Text
                     className="w-full text-center text-xs text-foreground"
-                    numberOfLines={1}
+                    numberOfLines={2}
                 >
                     Your listening
                 </Text>
@@ -294,7 +293,7 @@ function ListeningStory({
                 />
                 <Text
                     className="w-full text-center text-xs text-foreground"
-                    numberOfLines={1}
+                    numberOfLines={2}
                 >
                     {friend.username}
                 </Text>

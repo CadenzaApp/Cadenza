@@ -1,3 +1,4 @@
+import { thumbnailArtworkUrl } from "@/lib/artwork";
 import {
     memo,
     useCallback,
@@ -413,7 +414,7 @@ const TrackArtwork = memo(function TrackArtwork({
 }) {
     return (
         <RemoteArtwork
-            url={artworkUrl}
+            url={thumbnailArtworkUrl(artworkUrl)}
             className="mr-2 shrink-0 rounded"
             style={{
                 width: compact ? COMPACT_ARTWORK_SIZE : ARTWORK_SIZE,

@@ -133,7 +133,7 @@ class AppleMusicKitModule : Module() {
             "artistName" to (item.artistName ?: "Unknown Artist")
         )
 
-        item.getArtworkUrl(200, 200)?.takeIf { it.isNotBlank() }?.let {
+        item.getArtworkUrl(100, 100)?.takeIf { it.isNotBlank() }?.let {
             result["artworkUrl"] = it
         }
         item.getArtworkUrl(1200, 1200)?.takeIf { it.isNotBlank() }?.let {
@@ -1070,7 +1070,7 @@ class AppleMusicKitModule : Module() {
         val artworkSource = (catalogItem?.get("attributes") as? Map<*, *>) ?: attributes
         val artwork = artworkSource["artwork"] as? Map<*, *>
         artwork?.get("url")?.toString()?.let {
-            result["artworkUrl"] = it.replace("{w}", "200").replace("{h}", "200")
+            result["artworkUrl"] = it.replace("{w}", "100").replace("{h}", "100")
         }
         artworkColorHex(artwork)?.let { result["artworkColor"] = it }
         return result
@@ -1208,8 +1208,8 @@ class AppleMusicKitModule : Module() {
         val artworkObj = attributes?.get("artwork") as? Map<*, *>
         val artworkUrlTemplate = artworkObj?.get("url")?.toString()
         result["artworkUrl"] = artworkUrlTemplate
-            ?.replace("{w}", "200")
-            ?.replace("{h}", "200")
+            ?.replace("{w}", "100")
+            ?.replace("{h}", "100")
             ?: ""
         result["artworkUrlLarge"] = artworkUrlTemplate
             ?.replace("{w}", "1200")

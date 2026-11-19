@@ -5,6 +5,7 @@ import { Pressable, View, type ColorValue } from "react-native";
 
 import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
+import { PlayerTrackTitle } from "./track-title";
 import { isUsableArtworkUrl } from "@/lib/utils";
 
 /** Side of the artwork the heading shows when the queue is open. */
@@ -53,16 +54,11 @@ export function MediaPlayerTrackHeading({
             ) : null}
 
             <View className="flex-1">
-                <Text
-                    className={
-                        compact
-                            ? "text-lg font-bold text-foreground"
-                            : "text-2xl font-bold text-foreground"
-                    }
-                    numberOfLines={1}
-                >
-                    {track.title || "Unknown Title"}
-                </Text>
+                <PlayerTrackTitle
+                    key={`${track.id}:${track.title}:${compact}`}
+                    title={track.title || "Unknown Title"}
+                    compact={compact}
+                />
                 <Pressable
                     accessibilityRole="link"
                     accessibilityLabel={`View ${track.artistName || "artist"}`}

@@ -78,12 +78,25 @@ needs device verification; no test harness simulates UIKit's material or hit tes
 `app/player/_layout.tsx` presents the sheet and its route slot. `/player`, `/player/discuss`, and
 `/player/tags` each render the same `PlayerPager`, which mounts Discuss, Player, and Tags side by
 side inside one horizontal paging `ScrollView`. The route selects Player, Discuss, or Tags.
-Swipes expose the adjacent live page under the finger, and the selection pill follows the scroll
-position continuously, stretching between tabs. The bar copies iOS 26's native tab bar
-(`player-bar.tsx`): its size, margins, a pill darker than the glass, SF Symbols, and label type, with the
-accent on the selected tab. Icons are drawn at a set point size through a `pointSize` prop that
-`patches/expo-symbols+58.0.4.patch` adds; rebuild iOS after changing the patch. It cannot be the native bar: native tabs do not page by swipe, and in a live session the bar
-holds session buttons instead of tabs. The pager's `contentOffset` is set once. Changing it later
+Swipes expose the adjacent live page under the finger. The app-owned glass tab bar in
+`player-bar.tsx` uses the same symbols and proportions as the primary native navigation.
+Its selection pill follows page swipes. Touching the bar starts an animation toward the nearest tab center
+on the raw touch-down event, before pan recognition; further movement tracks the bar-local coordinate rather than a drag
+delta. A release without pan activation still selects the touched tab instead of snapping back.
+The pager follows on the UI thread and snaps on release with a short velocity projection.
+`PlayerTabIcons` in `player-bar.tsx` uses complementary animated alpha masks: filled accent glyphs inside
+the pill and neutral outline glyphs outside it, even when an icon is only partly covered. Canceled drags return
+to the selected tab. The detector wraps the bar's actual non-flattened native view, using
+absolute local touch positions rather than comparing sheet and screen coordinates. It holds the
+iOS sheet still until the touch ends. Taps and accessibility actions still select tabs normally. Live sessions
+replace the tabs with the session's controls.
+
+Song titles show two lines before a trailing ellipsis. `track-title.tsx` measures the full
+text at the displayed width; only an overflowing title opens a small full-title popup on tap.
+The heading resets this state when its track or title changes, including in the queue view.
+`player-interactions.test.cjs` exercises the actual compiled bar callbacks and title popup.
+
+The pager's `contentOffset` is set once. Changing it later
 jumps UIKit's scroll view without animating. The three page instances stay mounted for the sheet's lifetime. Tags and Discuss do not
 start their network reads merely because their page shells are mounted. The pager enables a page's
 reads the first time that page is selected, then leaves them enabled so revisiting it is instant.
@@ -103,8 +116,12 @@ Tags show a placeholder), since the session's controls live here. Outside one it
 playback stops.
 
 `PlayerScopeProvider` resolves a `focusedSong` (id, title, artwork) from `usePlayback()`'s
-`activeTrack` or the route's `tagsSongId` / `tagsSongTitle` / `tagsArtworkUrl` /
+`activeTrack` or the route's `tagsSongId` / `tagsSongTitle` / `tagsArtistName` / `tagsArtworkUrl` /
 `tagsArtworkColor` params and shares it across the three pages.
+
+The Tags page heads its editor with the song title (two lines, then ellipsis) and artist.
+Its Your Tags panel reserves one additional tag-row height. A pinned target without an artist
+uses the shared MusicKit metadata read to resolve it.
 
 Only `PlayerPage` touches playback. `TagsPage` and `DiscussPage` take `focusedSong` and never read
 `usePlayback()`. Discuss lists posts whose topic is that song, most liked first, ten at a time. Its compose

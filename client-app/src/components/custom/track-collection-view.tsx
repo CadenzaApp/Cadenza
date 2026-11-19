@@ -40,6 +40,7 @@ import {
     formatTrackCollectionSummary,
 } from "./track-collection-utils";
 import { useAppTheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 
 const ARTWORK_SIZE = 240;
 const ARTWORK_SCROLL_SCALE_DISTANCE = 120;
@@ -112,6 +113,9 @@ type Props = {
      */
     artworkPlaceholderUrl?: string | null;
     subtitle?: string;
+    subtitleClassName?: string;
+    /** Complete count and running time, under the collection metadata. */
+    trackSummary?: string;
     summary?: string;
     header?: ReactNode;
     /**
@@ -174,6 +178,8 @@ export function TrackCollectionView({
     artworkUrls: artworkUrlsOverride,
     artworkPlaceholderUrl,
     subtitle,
+    subtitleClassName = "text-base",
+    trackSummary,
     summary: summaryOverride,
     header,
     belowActions,
@@ -317,13 +323,25 @@ export function TrackCollectionView({
                 </View>
             )}
             {subtitle ? (
-                <Text className="mt-1 text-center text-base text-muted-foreground">
+                <Text
+                    className={cn(
+                        "mt-1 text-center text-muted-foreground",
+                        subtitleClassName,
+                    )}
+                >
                     {subtitle}
                 </Text>
             ) : null}
-            <Text className="mt-1 text-sm text-muted-foreground">
-                {summary}
-            </Text>
+            {summary ? (
+                <Text className="mt-1 text-sm text-muted-foreground">
+                    {summary}
+                </Text>
+            ) : null}
+            {trackSummary ? (
+                <Text className="mt-1 text-center text-sm text-muted-foreground">
+                    {trackSummary}
+                </Text>
+            ) : null}
         </>
     );
     const actions = (

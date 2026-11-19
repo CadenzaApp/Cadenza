@@ -40,7 +40,7 @@ Tap elsewhere to cancel. Tap a basic query tag to remove it; value tags open an 
 New value tags enter the query only after Apply. Text predicates render quoted values.
 The keyboard-aware glass popup keeps value operators beside the input and valueless operators below.
 
-The palette has one outlined search field that fills the heading row to the side padding, and basic, suggested, advanced, and metadata sections.
+The palette has one neutral filled search field styled like the condition operator controls that fills the heading row to the side padding, and basic, suggested, advanced, and metadata sections.
 Optional sections have compact headings and rules. Owned tags show applied-song counts;
 query pills omit counts. Your tags and Search scroll with the tags; the resize handle stays fixed.
 Memoized sections/cells and symmetric padded pill touch areas keep interaction costs bounded.
@@ -118,3 +118,8 @@ Native gesture smoothness and glass rendering require real-device verification.
 Constraint popup controls use translucent gray fills and contrasting borders in both themes.
 
 The shared query selector uses the solid neutral gray for its track and AND/OR connectors and lines with bright foreground labels in dark mode; its sliding indicator keeps the original color. The connector pill has no outline. Light mode retains its original selector background.
+
+Matching Songs shows the full match count and summed duration beneath the header, using the
+album and playlist summary format. Complete stored durations are reused first. Missing metadata resolves through the shared
+MusicKit cache independently of visible pages and open groups. The duration appears only once all matches
+have been resolved; failed reads never display a partial duration as the total.

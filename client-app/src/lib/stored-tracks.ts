@@ -1,4 +1,5 @@
 import type { MusicItem } from "@apple-musickit";
+import { playerArtworkUrl } from "./artwork.ts";
 
 /**
  * A song's row as the backend stores it in `metadata_song_tags_applied`, sent
@@ -12,10 +13,6 @@ export type StoredSongRowJSON = {
     duration_ms?: number | null;
     artwork_url?: string | null;
 };
-
-/** The size the backend stores artwork at, and the size the player wants. */
-const STORED_ARTWORK_SIZE = "512x512";
-const LARGE_ARTWORK_SIZE = "1200x1200";
 
 /**
  * A track made from the backend's stored row, so a sorted list draws its rows
@@ -34,10 +31,7 @@ export function storedTrack(songId: string, row: StoredSongRowJSON): MusicItem {
         title: row.title,
         artistName: row.artist_name ?? undefined,
         artworkUrl,
-        artworkUrlLarge: artworkUrl?.replace(
-            `/${STORED_ARTWORK_SIZE}`,
-            `/${LARGE_ARTWORK_SIZE}`,
-        ),
+        artworkUrlLarge: playerArtworkUrl(artworkUrl),
         // the enum's values, written out so this stays importable without
         // the native module
         playbackType: (library

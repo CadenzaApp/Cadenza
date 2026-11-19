@@ -5,9 +5,12 @@ styling, SWR for data. Talks to Apple Music through a local native module and to
 over HTTP.
 
 The Social tab uses a full-screen nebula behind a transparent feed. Its compact Listening now
-story row includes temporary visual friends until presence styling is finalized; live, directly
-joinable sessions use the account accent ring. The bottom-row post action opens a keyboard-aware
-modal rather than changing the feed's layout.
+story row shows your listening and friends playing now; directly joinable live sessions use
+the account accent ring. Story labels wrap to two lines. For you and
+Friends post lists stay mounted in a horizontal pager. Only posts slide sideways; the stories,
+tab selector, and keyboard-aware inline composer are shared above both feeds. The header
+scrolls away vertically with the feed. Each feed keeps its own virtualized rows and scroll
+position.
 
 ## Files
 

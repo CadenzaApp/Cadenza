@@ -32,9 +32,10 @@ test("drag hit testing respects variable-height group headers and content offset
 
 test("edge scrolling goes in either direction and stops away from edges", () => {
     assert.equal(selectionScrollSpeed(300, 600), 0);
-    assert.equal(selectionScrollSpeed(0, 600), -600);
-    assert.equal(selectionScrollSpeed(600, 600), 600);
-    assert.equal(selectionScrollSpeed(36, 600), -300);
+    assert.equal(selectionScrollSpeed(0, 600), -1500);
+    assert.equal(selectionScrollSpeed(600, 600), 1500);
+    assert.equal(selectionScrollSpeed(36, 600), -750);
+    assert.equal(selectionScrollSpeed(564, 600), 750);
 });
 
 test("separate drag spans add to the selection without toggling earlier songs", () => {

@@ -79,6 +79,8 @@ type TagSelectorProps = {
      * one scroll rather than a scroll box inside another.
      */
     scrollableGrid?: boolean;
+    /** Extra row space in the Your Tags panel. */
+    extraTagRows?: number;
 };
 
 export function TagSelector(props: TagSelectorProps) {
@@ -109,6 +111,7 @@ function TagSelectorSession({
     emptyLabel = "You have no tags yet.",
     errorMessage,
     scrollableGrid = true,
+    extraTagRows = 0,
     opaque = false,
 }: TagSelectorProps) {
     const [managedTag, setManagedTag] = useState<Tag | null>(null);
@@ -223,7 +226,10 @@ function TagSelectorSession({
                 {loading ? (
                     <ActivityIndicator accessibilityLabel="Loading tags" />
                 ) : visibleTags.length ? (
-                    <TagGridScroll scrollable={scrollableGrid}>
+                    <TagGridScroll
+                        scrollable={scrollableGrid}
+                        extraRows={extraTagRows}
+                    >
                         <View className="flex-row flex-wrap gap-2">
                             {visibleTags.map((tag) => (
                                 <Pressable
@@ -404,16 +410,20 @@ function TagSelectorSession({
 function TagGridScroll({
     scrollable,
     children,
+    extraRows,
 }: {
     scrollable: boolean;
+    extraRows: number;
     children: ReactNode;
 }) {
-    if (!scrollable) return children;
+    const extraHeight = Math.max(0, extraRows) * (TAG_ROW_HEIGHT + TAG_ROW_GAP);
+    if (!scrollable)
+        return <View style={{ paddingBottom: extraHeight }}>{children}</View>;
     return (
         <ScrollView
             nestedScrollEnabled
             showsVerticalScrollIndicator
-            style={{ maxHeight: TAG_GRID_MAX_HEIGHT }}
+            style={{ maxHeight: TAG_GRID_MAX_HEIGHT + extraHeight }}
         >
             {children}
         </ScrollView>

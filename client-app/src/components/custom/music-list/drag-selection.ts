@@ -21,7 +21,8 @@ export function rowAtPosition(
 export function selectionScrollSpeed(y: number, height: number): number {
     const edge = Math.min(72, height / 3);
     if (edge <= 0) return 0;
-    if (y < edge) return -600 * Math.min(1, (edge - y) / edge);
-    if (y > height - edge) return 600 * Math.min(1, (y - height + edge) / edge);
+    if (y < edge) return -1500 * Math.min(1, (edge - y) / edge);
+    if (y > height - edge)
+        return 1500 * Math.min(1, (y - height + edge) / edge);
     return 0;
 }

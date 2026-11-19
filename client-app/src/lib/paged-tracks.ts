@@ -23,14 +23,23 @@ export function catalogIdsToFetch(
     inLibrary: (songId: string) => boolean,
     chunkSize: number,
 ): string[] {
+    if (requestedCount <= 0) return [];
     const unresolved: string[] = [];
+    const end = Math.min(requestedCount, songIds.length);
     let neededCount = 0;
-    songIds.forEach((songId, index) => {
-        if (inLibrary(songId)) return;
-        unresolved.push(songId);
-        if (index < requestedCount) neededCount = unresolved.length;
-    });
-    return unresolved.slice(0, Math.ceil(neededCount / chunkSize) * chunkSize);
+    for (let index = 0; index < songIds.length; index += 1) {
+        const songId = songIds[index];
+        if (!inLibrary(songId)) {
+            unresolved.push(songId);
+            if (index < end) neededCount = unresolved.length;
+        }
+        if (
+            index >= end - 1 &&
+            unresolved.length >= Math.ceil(neededCount / chunkSize) * chunkSize
+        )
+            break;
+    }
+    return unresolved;
 }
 
 /**
@@ -49,7 +58,7 @@ export function resolvedTracks<Track>(
     songIds: readonly string[],
     requestedCount: number,
     trackFor: (songId: string) => Track | undefined,
-    keyOf: (track: Track) => string,
+    keyOf: (track: Track) => string | readonly string[],
     pending: boolean,
 ): { tracks: Track[]; consumedCount: number } {
     const tracks: Track[] = [];
@@ -62,9 +71,7 @@ export function resolvedTracks<Track>(
             if (pending) break;
             continue;
         }
-        const key = keyOf(track);
-        if (shown.has(key)) continue;
-        shown.add(key);
+        if (!takeIdentity(keyOf(track), shown)) continue;
         tracks.push(track);
     }
     return { tracks, consumedCount: index };
@@ -88,14 +95,11 @@ export function queryQueueIds(
 /** `values` without repeats, keeping the first of each by `keyOf`. */
 export function uniqueBy<Value>(
     values: readonly Value[],
-    keyOf: (value: Value) => string,
+    keyOf: (value: Value) => string | readonly string[],
+    seen = new Set<string>(),
 ): Value[] {
-    const seen = new Set<string>();
     return values.filter((value) => {
-        const key = keyOf(value);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
+        return takeIdentity(keyOf(value), seen);
     });
 }
 
@@ -139,7 +143,7 @@ export function groupTracks<Track>(
     songIds: readonly string[],
     trackFor: (songId: string) => Track | undefined,
     isSettled: (songId: string) => boolean,
-    keyOf: (track: Track) => string,
+    keyOf: (track: Track) => string | readonly string[],
 ): { tracks: Track[]; waiting: boolean } {
     const tracks: Track[] = [];
     const shown = new Set<string>();
@@ -149,9 +153,7 @@ export function groupTracks<Track>(
             if (isSettled(songId)) continue;
             return { tracks, waiting: true };
         }
-        const key = keyOf(track);
-        if (shown.has(key)) continue;
-        shown.add(key);
+        if (!takeIdentity(keyOf(track), shown)) continue;
         tracks.push(track);
     }
     return { tracks, waiting: false };
@@ -186,4 +188,22 @@ export function coverTracks<Track extends { id: string; artworkUrl?: string }>(
         }
     }
     return { tracks, ready: !pending };
+}
+
+/** IDs identify recordings; matching titles or artists alone must never merge them. */
+export function trackIdentityKeys(track: {
+    id: string;
+    catalogId?: string;
+    libraryId?: string;
+}): string[] {
+    return [track.id, track.catalogId, track.libraryId].filter(
+        (id): id is string => Boolean(id),
+    );
+}
+
+function takeIdentity(identity: string | readonly string[], seen: Set<string>) {
+    const keys = typeof identity === "string" ? [identity] : identity;
+    const duplicate = keys.some((key) => seen.has(key));
+    for (const key of keys) seen.add(key);
+    return !duplicate;
 }
