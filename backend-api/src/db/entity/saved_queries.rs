@@ -20,6 +20,7 @@ pub struct Model {
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub artwork_urls: Option<Json>,
     pub songs_stored_at: Option<DateTimeWithTimeZone>,
+    pub shared: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

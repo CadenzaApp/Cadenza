@@ -14,6 +14,8 @@ pub enum DataSection {
     Tags,
     Listening,
     Social,
+    /// Now playing, shared playlists, live sessions, and invite codes.
+    SocialListening,
 }
 
 /// One number about a user, and the SQL that reads it.
@@ -84,6 +86,13 @@ pub fn user_data_counts() -> Vec<DataCount> {
             "saved_queries where user_id = $1",
         ),
         rows(
+            "shared_queries",
+            Library,
+            "Saved queries on your profile",
+            "count(*)",
+            "saved_queries where user_id = $1 and shared",
+        ),
+        rows(
             "tags",
             Tags,
             "Tags you made",
@@ -139,6 +148,18 @@ pub fn user_data_counts() -> Vec<DataCount> {
             MetricUnit::Count,
             "count(distinct payload->>'source_id') filter (where payload->>'source_kind' = 'playlist')",
         ),
+        events(
+            "shared_playlists_played",
+            "Shared playlists played from",
+            MetricUnit::Count,
+            "count(distinct payload->>'source_id') filter (where payload->>'source_kind' = 'shared_playlist')",
+        ),
+        events(
+            "live_sessions_played",
+            "Live sessions played in",
+            MetricUnit::Count,
+            "count(distinct payload->>'source_id') filter (where payload->>'source_kind' = 'live_session')",
+        ),
         rows(
             "notifications",
             Social,
@@ -165,6 +186,91 @@ pub fn user_data_counts() -> Vec<DataCount> {
             "Open friend requests",
             "count(*)",
             "friendships where $1 in (user1, user2) and status <> 'complete'",
+        ),
+        rows(
+            "favorite_friends",
+            Social,
+            "Favorite friends",
+            "count(*)",
+            "friend_favorites where user_id = $1",
+        ),
+        rows(
+            "blocked_users",
+            Social,
+            "People you blocked",
+            "count(*)",
+            "user_blocks where blocker_id = $1",
+        ),
+        rows(
+            "now_playing",
+            SocialListening,
+            "Now playing rows",
+            "count(*)",
+            "now_playing where user_id = $1",
+        ),
+        rows(
+            "shared_playlists_owned",
+            SocialListening,
+            "Shared playlists you own",
+            "count(*)",
+            "shared_playlists where owner_id = $1",
+        ),
+        rows(
+            "shared_playlists_joined",
+            SocialListening,
+            "Shared playlists you are in",
+            "count(*)",
+            "shared_playlist_members where user_id = $1",
+        ),
+        rows(
+            "shared_playlist_songs",
+            SocialListening,
+            "Songs you added to shared playlists",
+            "count(*)",
+            "shared_playlist_songs where added_by = $1",
+        ),
+        rows(
+            "live_sessions_hosted",
+            SocialListening,
+            "Live sessions you host or hosted",
+            "count(*)",
+            "live_sessions where host_id = $1",
+        ),
+        rows(
+            "live_sessions_joined",
+            SocialListening,
+            "Live sessions you joined",
+            "count(*)",
+            "live_session_members m join live_sessions s using (session_id) \
+             where m.user_id = $1 and s.host_id <> $1",
+        ),
+        rows(
+            "live_session_songs",
+            SocialListening,
+            "Songs you added to live sessions",
+            "count(*)",
+            "live_session_queue where added_by = $1",
+        ),
+        rows(
+            "live_session_suggestions",
+            SocialListening,
+            "Live session suggestions waiting or turned down",
+            "count(*)",
+            "live_session_queue where added_by = $1 and status in ('suggested', 'rejected')",
+        ),
+        rows(
+            "live_session_join_requests",
+            SocialListening,
+            "Times you asked to join a live session",
+            "count(*)",
+            "live_session_join_requests where user_id = $1",
+        ),
+        rows(
+            "invite_codes",
+            SocialListening,
+            "Invite codes you made",
+            "count(*)",
+            "invite_codes where created_by = $1",
         ),
     ]);
     counts
@@ -211,6 +317,23 @@ mod tests {
                 count.name
             );
         }
+    }
+
+    /// Runs every count against the real schema, so a renamed column fails
+    /// here and not on the Your data screen.
+    #[tokio::test]
+    #[ignore]
+    async fn every_count_runs_against_the_database() {
+        use sea_orm::{Database, TransactionTrait};
+        dotenvy::dotenv().ok();
+        let db = Database::connect(std::env::var("DATABASE_URL").expect("DATABASE_URL"))
+            .await
+            .expect("connect");
+        let txn = db.begin().await.unwrap();
+        let counts = get_user_data(&txn, Uuid::nil()).await.unwrap();
+        assert_eq!(counts.len(), user_data_counts().len());
+        assert!(counts.iter().all(|(_, value)| *value == 0));
+        txn.rollback().await.unwrap();
     }
 
     #[test]

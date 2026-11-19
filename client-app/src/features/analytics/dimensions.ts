@@ -13,8 +13,6 @@
  */
 
 import type { MusicItem } from "@apple-musickit";
-import type Ionicons from "@expo/vector-icons/Ionicons";
-import type { ComponentProps } from "react";
 
 import { decodeQuerySource } from "../../lib/play-source.ts";
 import type { EntityPlayCount, TopDimension } from "@/lib/routes/analytics";
@@ -53,11 +51,17 @@ export type QueryRoute = {
     params: { query: string; suggested: string; name?: string };
 };
 
+export type SharedPlaylistRoute = {
+    pathname: "/shared-playlist/[id]";
+    params: { id: string };
+};
+
 export type DimensionRoute =
     | ArtistRoute
     | AlbumRoute
     | PlaylistRoute
-    | QueryRoute;
+    | QueryRoute
+    | SharedPlaylistRoute;
 
 /**
  * The artist page for a ranking row, or null when no play of it recorded a
@@ -81,28 +85,28 @@ export function artistRouteFor(
 /**
  * The album page for a ranking row.
  *
- * Prefers the sample track, which carries the artwork and color the screen
- * paints itself with before its own fetch lands. Falls back to the row's own id
- * when the track did not resolve, which still opens the right album, just
- * without the head start.
+ * The row's own id wins, then the sample track's. The sample carries the
+ * artwork and color the screen paints itself with before its own fetch lands,
+ * so those ride along only when the sample is on this same album.
  */
 export function albumRouteFor(
     entity: RankedEntity,
     sample?: MusicItem,
 ): AlbumRoute | null {
-    const id = sample?.albumID ?? entity.entity_id;
+    const id = entity.entity_id ?? sample?.albumID;
     if (!id) return null;
+    const onAlbum = sample?.albumID === id ? sample : undefined;
     return {
         pathname: "/collection/[kind]/[id]",
         params: {
             kind: "album",
             id,
-            title: entity.label ?? sample?.albumName ?? "Album",
-            artistName: entity.sub_label ?? sample?.artistName,
-            artworkColor: sample?.artworkColor,
+            title: entity.label ?? onAlbum?.albumName ?? "Album",
+            artistName: entity.sub_label ?? onAlbum?.artistName,
+            artworkColor: onAlbum?.artworkColor,
             // the small one: this is what the tint is averaged from
-            artworkUrl: sample?.artworkUrl ?? sample?.artworkUrlLarge,
-            artworkUrlLarge: sample?.artworkUrlLarge,
+            artworkUrl: onAlbum?.artworkUrl ?? onAlbum?.artworkUrlLarge,
+            artworkUrlLarge: onAlbum?.artworkUrlLarge,
         },
     };
 }
@@ -136,28 +140,98 @@ export function queryRouteFor(entity: RankedEntity): QueryRoute | null {
     };
 }
 
+/** The shared playlist's page, in the tab it opens from. */
+export function sharedPlaylistRouteFor(
+    entity: RankedEntity,
+): SharedPlaylistRoute | null {
+    if (!entity.entity_id) return null;
+    return {
+        pathname: "/shared-playlist/[id]",
+        params: { id: entity.entity_id },
+    };
+}
+
 export type { TopDimension };
+
+/**
+ * The Apple Music resource a row is, so it can show that resource's picture
+ * and open it. Its id is, in order: the one a play recorded, an exact name
+ * match from a catalog search, then the sample song's. The sample comes last
+ * because a song can sit on several albums.
+ */
+export type OwnSource = {
+    kind: "album" | "playlist" | "artist";
+    /** Searched by name when no play recorded the id. */
+    search?: "artists" | "albums";
+    sampleIdFor?: (sample: MusicItem) => string | undefined;
+};
+
+/** What a catalog search finds for a row, to hold against its names. */
+export type FoundByName = { name: string; artistName?: string };
+
+/** What to search the catalog for to find the row by name. */
+export function searchTermFor(entity: RankedEntity): string | undefined {
+    if (!entity.label) return undefined;
+    return entity.sub_label
+        ? `${entity.label} ${entity.sub_label}`
+        : entity.label;
+}
+
+/**
+ * Whether a search result is this row: the same name, and the same artist when
+ * both say one. Case and outer spaces aside, since the backend groups that way.
+ */
+export function matchesByName(
+    entity: RankedEntity,
+    found: FoundByName,
+): boolean {
+    const same = (a: string, b: string) =>
+        a.trim().toLowerCase() === b.trim().toLowerCase();
+    if (!entity.label || !same(found.name, entity.label)) return false;
+    if (entity.sub_label && found.artistName) {
+        return same(found.artistName, entity.sub_label);
+    }
+    return true;
+}
+
+/** What a row's second line can be made from. */
+export type SubtitleContext = {
+    entity: RankedEntity;
+    /** The row's sample song, once Apple Music resolved it. */
+    sample?: MusicItem;
+    /** Who Apple says made the row's own resource, like a playlist's curator. */
+    ownCreator?: string;
+    /** The caller's username. */
+    myName?: string;
+};
 
 export type DimensionDescriptor = {
     name: TopDimension;
-    /** What the overview's ranking picker calls it. */
-    label: string;
-    /** The picker's icon for it. */
-    icon: ComponentProps<typeof Ionicons>["name"];
     /** The title of the full list's own page. */
     pageTitle: string;
     emptyLabel: string;
+    /** A row's second line, or undefined for none. */
+    subtitleFor: (context: SubtitleContext) => string | undefined;
     /** Artists are drawn round, the way the rest of the app draws them. */
     roundArtwork: boolean;
     /**
-     * Fetch the row's own cover by its `entity_id` as this kind of collection.
-     * Null uses the sample song's cover, which for an album already is the
-     * album's.
+     * The resource a row is, for its picture and its id: an album, a playlist,
+     * an artist. Null, or a row it finds nothing for, shows the sample song's
+     * cover.
      */
-    artworkCollection: "album" | "playlist" | null;
+    own: OwnSource | null;
+    /** The row's title, when it is worded from the label. Else the label. */
+    titleFor?: (entity: RankedEntity) => string;
+    /**
+     * A row that is a person: its label is their username, drawn as their
+     * initials in place of art, and its id is their user id, whose profile a
+     * tap opens.
+     */
+    person?: boolean;
     /**
      * Where a row goes, or null when no play of it recorded an id. A song row
-     * plays rather than navigating, so songs have no href.
+     * plays rather than navigating, so songs have no href, and neither does a
+     * person, who opens their profile.
      */
     hrefFor:
         | ((entity: RankedEntity, sample?: MusicItem) => DimensionRoute | null)
@@ -174,63 +248,94 @@ export type DimensionDescriptor = {
           };
 };
 
-/** In the order the overview's picker shows them. */
+/** In the order the overview's shelves show them. */
 export const DIMENSIONS: DimensionDescriptor[] = [
     {
         name: "song",
-        label: "Songs",
-        icon: "musical-note",
-        pageTitle: "Most Played",
+        pageTitle: "Most Played Songs",
         emptyLabel: "No plays in this window yet.",
+        subtitleFor: ({ sample }) => sample?.artistName,
         roundArtwork: false,
-        artworkCollection: null,
+        own: null,
         // a song row plays, it does not navigate
         hrefFor: null,
         seeAllHref: { pathname: "/analytics/songs" },
     },
     {
-        name: "playlist",
-        label: "Playlists",
-        icon: "list",
-        pageTitle: "Most Played Playlists",
-        emptyLabel: "Nothing played from a playlist in this window yet.",
-        roundArtwork: false,
-        artworkCollection: "playlist",
-        hrefFor: playlistRouteFor,
-        seeAllHref: rankingHref("playlist"),
-    },
-    {
-        name: "album",
-        label: "Albums",
-        icon: "disc",
-        pageTitle: "Most Listened Albums",
-        emptyLabel: "No albums recorded in this window yet.",
-        roundArtwork: false,
-        artworkCollection: null,
-        hrefFor: albumRouteFor,
-        seeAllHref: rankingHref("album"),
-    },
-    {
         name: "artist",
-        label: "Artists",
-        icon: "person",
         pageTitle: "Most Listened Artists",
         emptyLabel: "No artists recorded in this window yet.",
+        subtitleFor: () => undefined,
         roundArtwork: true,
-        artworkCollection: null,
+        own: {
+            kind: "artist",
+            search: "artists",
+            sampleIdFor: (sample) => sample.artistId,
+        },
         hrefFor: artistRouteFor,
         seeAllHref: rankingHref("artist"),
     },
     {
+        name: "album",
+        pageTitle: "Most Listened Albums",
+        emptyLabel: "No albums recorded in this window yet.",
+        subtitleFor: ({ entity, sample }) =>
+            entity.sub_label ?? sample?.artistName,
+        roundArtwork: false,
+        own: {
+            kind: "album",
+            search: "albums",
+            sampleIdFor: (sample) => sample.albumID,
+        },
+        hrefFor: albumRouteFor,
+        seeAllHref: rankingHref("album"),
+    },
+    {
+        name: "playlist",
+        pageTitle: "Most Played Playlists",
+        emptyLabel: "Nothing played from a playlist in this window yet.",
+        subtitleFor: ({ entity, ownCreator, myName }) =>
+            // Apple names a curator; a library playlist without one is yours
+            ownCreator ??
+            (entity.entity_id?.startsWith("p.") ? myName : undefined),
+        roundArtwork: false,
+        own: { kind: "playlist" },
+        hrefFor: playlistRouteFor,
+        seeAllHref: rankingHref("playlist"),
+    },
+    {
         name: "query",
-        label: "Queries",
-        icon: "funnel",
         pageTitle: "Most Played Queries",
         emptyLabel: "Nothing played from a query in this window yet.",
+        subtitleFor: () => undefined,
         roundArtwork: false,
-        artworkCollection: null,
+        own: null,
         hrefFor: queryRouteFor,
         seeAllHref: rankingHref("query"),
+    },
+    {
+        name: "shared_playlist",
+        pageTitle: "Most Played Shared Playlists",
+        emptyLabel: "Nothing played from a shared playlist in this window yet.",
+        subtitleFor: ({ entity }) => entity.sub_label ?? undefined,
+        roundArtwork: false,
+        own: null,
+        hrefFor: sharedPlaylistRouteFor,
+        seeAllHref: rankingHref("shared_playlist"),
+    },
+    {
+        name: "live_session",
+        pageTitle: "Most Played Live Sessions",
+        emptyLabel: "Nothing played in a live session in this window yet.",
+        // the backend bins every session by its host
+        titleFor: (entity) =>
+            entity.label ? `${entity.label}'s session` : "A session",
+        person: true,
+        subtitleFor: () => undefined,
+        roundArtwork: true,
+        own: null,
+        hrefFor: null,
+        seeAllHref: rankingHref("live_session"),
     },
 ];
 

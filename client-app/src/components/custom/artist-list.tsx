@@ -2,11 +2,12 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ArtistItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
 import type { ReactNode } from "react";
-import { FlatList, Image, ScrollView, View } from "react-native";
+import { FlatList, ScrollView, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { MusicListItemSkeleton } from "@/components/custom/music-list/music-list-item";
 import { ZoomTile } from "@/components/custom/zoom-tile";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
@@ -232,30 +233,13 @@ function ArtistArtwork({
     iconSize: number;
 }) {
     const { colors } = useTheme();
-    const artworkUrl = artist.artworkUrl?.trim();
-    const canRenderArtwork =
-        typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
-
-    if (canRenderArtwork) {
-        return (
-            <Image
-                source={{ uri: artworkUrl }}
-                className={cn(
-                    className,
-                    "shrink-0 aspect-square rounded-full bg-muted",
-                )}
-            />
-        );
-    }
-
     return (
-        <View
-            className={cn(
-                className,
-                "shrink-0 aspect-square items-center justify-center rounded-full bg-muted",
-            )}
-        >
-            <Ionicons name="person" size={iconSize} color={colors.text} />
-        </View>
+        <RemoteArtwork
+            url={artist.artworkUrl}
+            className={cn(className, "shrink-0 aspect-square rounded-full")}
+            fallback={
+                <Ionicons name="person" size={iconSize} color={colors.text} />
+            }
+        />
     );
 }

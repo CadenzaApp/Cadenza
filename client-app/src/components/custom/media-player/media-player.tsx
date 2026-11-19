@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useCallback, useId, useLayoutEffect, useRef } from "react";
-import { Image, Pressable, View, type LayoutChangeEvent } from "react-native";
+import { Pressable, View, type LayoutChangeEvent } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     interpolate,
@@ -12,10 +12,12 @@ import Animated, {
     type SharedValue,
 } from "react-native-reanimated";
 import { GlassSurface } from "@/components/ui/glass-surface";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import {
     usePlayerGestures,
     usePlayerPresentation,
 } from "@/lib/player-presentation";
+import { useLiveSessionBadge } from "@/features/live-session/use-live-badge";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { PLAYER_CONTROL_SIZE as SIZE } from "@/lib/screen-overlay-geometry";
 import { MediaPlayerCompact } from "./compact";
@@ -24,8 +26,6 @@ type Props = {
     visible: boolean;
     kind: "tabs" | "detail";
     bubbleLift: SharedValue<number>;
-    failedArtworkUrl: string | null;
-    onArtworkError: (url: string | null) => void;
     nativePlayer?: boolean;
 };
 
@@ -35,16 +35,16 @@ export function MediaPlayer({
     nativePlayer = false,
     kind,
     bubbleLift,
-    failedArtworkUrl,
-    onArtworkError,
 }: Props) {
     const {
         activeTrack,
         isPlaying,
         isLoading,
         canSkipToNext,
+        controlsLocked,
         isPlayerCollapsed,
     } = usePlaybackTrackState();
+    const live = useLiveSessionBadge();
     const { togglePlayback, skipToNext } = usePlaybackCommands();
     const {
         motion,
@@ -124,9 +124,13 @@ export function MediaPlayer({
         opacity: interpolate(progress.get(), [0, 0.5, 1], [1, 0, 0]),
         transform: [{ translateX: -24 * progress.get() }],
     }));
-    const artSize = nativeInline ? 28 : 32;
+    const artSize = nativeInline ? 31 : 35;
     const artworkStyle = useAnimatedStyle(() => ({
-        left: interpolate(progress.get(), [0, 1], [12, 3]),
+        left: interpolate(
+            progress.get(),
+            [0, 1],
+            [((source.get()?.height ?? height.get()) - artSize) / 2, 3],
+        ),
         top: interpolate(
             progress.get(),
             [0, 1],
@@ -134,12 +138,13 @@ export function MediaPlayer({
         ),
         width: interpolate(progress.get(), [0, 1], [artSize, SIZE - 6]),
         height: interpolate(progress.get(), [0, 1], [artSize, SIZE - 6]),
-        borderRadius: interpolate(progress.get(), [0, 1], [6, (SIZE - 6) / 2]),
+        borderRadius: interpolate(
+            progress.get(),
+            [0, 1],
+            [artSize / 2, (SIZE - 6) / 2],
+        ),
     }));
     if (!activeTrack) return null;
-    const url = activeTrack.artworkUrl?.trim();
-    const artwork =
-        url && url !== failedArtworkUrl && /^https?:\/\//i.test(url);
     return (
         <View className="flex-1" pointerEvents="box-none">
             <View
@@ -159,11 +164,18 @@ export function MediaPlayer({
                     }
                     accessibilityElementsHidden
                 >
-                    <View className="flex-1 flex-row items-center px-3">
+                    <View
+                        className="flex-1 flex-row items-center"
+                        style={{
+                            paddingHorizontal:
+                                ((nativeHeight ?? expandedHeight) - artSize) /
+                                2,
+                        }}
+                    >
                         <Pressable
                             style={{
-                                width: nativeInline ? 28 : 32,
-                                height: nativeInline ? 28 : 32,
+                                width: nativeInline ? 31 : 35,
+                                height: nativeInline ? 31 : 35,
                             }}
                             onPress={() => {
                                 if (canPress()) runOnUI(motion.collapse)(true);
@@ -177,7 +189,7 @@ export function MediaPlayer({
                         />
                         <Pressable
                             className="h-10 w-10"
-                            disabled={isLoading}
+                            disabled={isLoading || controlsLocked}
                             onPress={() => {
                                 if (canPress())
                                     void togglePlayback(activeTrack);
@@ -234,7 +246,9 @@ export function MediaPlayer({
                                     track={activeTrack}
                                     isPlaying={isPlaying}
                                     isLoading={isLoading}
+                                    canTogglePlayback={!controlsLocked}
                                     canSkipToNext={canSkipToNext}
+                                    liveLabel={live?.name ?? null}
                                     textColor={colors.text}
                                     onCollapse={() => {
                                         if (canPress())
@@ -257,21 +271,19 @@ export function MediaPlayer({
                                 className="absolute items-center justify-center overflow-hidden"
                                 style={artworkStyle}
                             >
-                                {artwork ? (
-                                    <Image
-                                        source={{ uri: url }}
-                                        className="h-full w-full"
-                                        onError={() =>
-                                            onArtworkError(url ?? null)
-                                        }
-                                    />
-                                ) : (
-                                    <Ionicons
-                                        name="musical-notes"
-                                        size={22}
-                                        color={colors.text}
-                                    />
-                                )}
+                                <RemoteArtwork
+                                    url={activeTrack.artworkUrl}
+                                    // it grows and shrinks with the collapse
+                                    animatesSize
+                                    className="h-full w-full bg-transparent"
+                                    fallback={
+                                        <Ionicons
+                                            name="musical-notes"
+                                            size={22}
+                                            color={colors.text}
+                                        />
+                                    }
+                                />
                             </Animated.View>
                             {isPlayerCollapsed ? (
                                 <Pressable

@@ -10,7 +10,7 @@ const FIELDS: readonly { key: MetadataKey; type: TagType }[] = [
     { key: "album", type: "text" },
     { key: "genre", type: "text" },
     { key: "release_date", type: "date" },
-    { key: "duration", type: "number" },
+    { key: "duration", type: "duration" },
     { key: "explicit", type: "checkbox" },
     { key: "total_plays", type: "number" },
 ];

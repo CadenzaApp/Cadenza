@@ -29,6 +29,11 @@ import { cn } from "@/lib/utils";
  */
 export type GlassSurfaceVariant = "regular" | "clear";
 
+/** Liquid glass supplies its own edge treatment; fallback surfaces keep theirs. */
+export function shouldShowGlassOutline() {
+    return !isLiquidGlassAvailable();
+}
+
 type GlassSurfaceProps = ViewProps & {
     /** Override the material appearance for an artwork-derived surface. */
     colorScheme?: "light" | "dark";
@@ -272,9 +277,15 @@ export function GlassSurface({
  * flat fill. For a container whose glass is a sibling layer under its content
  * rather than the parent of it.
  */
-export function GlassLayer({ children }: { children: ReactNode }) {
+export function GlassLayer({
+    children,
+    active = true,
+}: {
+    children: ReactNode;
+    active?: boolean;
+}) {
     return (
-        <GlassLayerContext.Provider value={true}>
+        <GlassLayerContext.Provider value={active}>
             {children}
         </GlassLayerContext.Provider>
     );

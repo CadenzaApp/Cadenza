@@ -16,6 +16,7 @@ pub enum TagType {
     Text,
     Datetime,
     Number,
+    Duration,
     Checkbox,
     Date,
 }
@@ -27,6 +28,7 @@ impl From<DbTagType> for TagType {
             DbTagType::Text => Self::Text,
             DbTagType::Datetime => Self::Datetime,
             DbTagType::Number => Self::Number,
+            DbTagType::Duration => Self::Duration,
             DbTagType::Checkbox => Self::Checkbox,
             DbTagType::Date => Self::Date,
         }
@@ -40,6 +42,7 @@ impl From<TagType> for DbTagType {
             TagType::Text => Self::Text,
             TagType::Datetime => Self::Datetime,
             TagType::Number => Self::Number,
+            TagType::Duration => Self::Duration,
             TagType::Checkbox => Self::Checkbox,
             TagType::Date => Self::Date,
         }

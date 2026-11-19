@@ -1,6 +1,9 @@
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { useAppTheme } from "@/lib/theme";
 
 /** An on/off switch painted on glass. The track tints when it is on. */
@@ -14,6 +17,7 @@ export function GlassToggle({
     accessibilityLabel: string;
 }) {
     const { brand } = useAppTheme().colors;
+    const outlined = shouldShowGlassOutline();
 
     return (
         <Pressable
@@ -25,7 +29,11 @@ export function GlassToggle({
             style={({ pressed }) => pressed && styles.pressed}
         >
             <View
-                className="overflow-hidden border border-border"
+                className={
+                    outlined
+                        ? "overflow-hidden border border-border"
+                        : "overflow-hidden"
+                }
                 style={{ width: 52, height: 32, borderRadius: 16 }}
             >
                 <View pointerEvents="none" style={StyleSheet.absoluteFill}>

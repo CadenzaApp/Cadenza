@@ -1,14 +1,15 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { MusicItem, PlaybackSnapshot } from "@apple-musickit";
 
 import { useListeningEvents } from "./listening-events";
+import { useSongInfo } from "./musickit-hooks";
 import type { PlaySource } from "./play-source";
 import {
     INITIAL_PLAY_TRACKER_STATE,
     trackPlay,
     type PlayTrackerState,
 } from "./play-tracker";
-import { trackMetadata } from "./track-metadata";
+import { trackMetadata, withCatalogIds } from "./track-metadata";
 
 /**
  * Turns playback into listening events. What counts as what is
@@ -23,10 +24,11 @@ import { trackMetadata } from "./track-metadata";
  * `source` is the playlist or query the active track was queued from, or null.
  * The provider decides it, since only it knows what each queue started with.
  *
- * Only sees what the provider samples, and the provider only polls in the
- * foreground. A song that starts and finishes entirely in the background is not
- * counted, and a listen spanning a background gap is one listen: the tracker
- * keeps its state, so it is neither re-counted nor ended twice.
+ * Only sees what the provider samples. It polls in the background too, every
+ * few seconds, for as long as iOS keeps the app running there. Whatever plays
+ * after the app is suspended is not counted, and a listen spanning that gap is
+ * one listen: the tracker keeps its state, so it is neither re-counted nor
+ * ended twice.
  */
 export function usePlayRecorder(
     snapshot: PlaybackSnapshot,
@@ -42,6 +44,19 @@ export function usePlayRecorder(
         ? (activeTrack.catalogId ?? activeTrack.id)
         : null;
 
+    // a queued track often carries no artist or album id, depending on the
+    // list it came from, so the song is looked up once to fill them in. The
+    // artist and album rankings open what these ids point at
+    const lookupIds = useMemo(() => (songId ? [songId] : []), [songId]);
+    const { songInfo } = useSongInfo(lookupIds);
+    const catalog = songInfo.find(
+        (song) => song.id === songId || song.catalogId === songId,
+    );
+    const recordedTrack = useMemo(
+        () => (activeTrack ? withCatalogIds(activeTrack, catalog) : null),
+        [activeTrack, catalog],
+    );
+
     useEffect(() => {
         const { state, events } = trackPlay(trackerRef.current, {
             songId,
@@ -53,10 +68,10 @@ export function usePlayRecorder(
         void recordPlayback(
             events,
             songId,
-            activeTrack ? trackMetadata(activeTrack, source) : null,
+            recordedTrack ? trackMetadata(recordedTrack, source) : null,
         );
     }, [
-        activeTrack,
+        recordedTrack,
         recordPlayback,
         source,
         songId,

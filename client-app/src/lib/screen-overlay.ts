@@ -30,6 +30,7 @@ import {
     calculateScreenOverlayInsets,
     bottomActionPlacement,
     playerHostIsActive,
+    baseRouteUnderSheets,
     nativePlayerAccessoryEnabled,
     OVERLAY_GAP,
     PLAYER_CONTROL_SIZE,
@@ -77,7 +78,7 @@ const SHEET_SEGMENTS = new Set([
 
 export type BottomRowAction = {
     expanded: boolean;
-    icon: "add" | "funnel" | "funnel-outline";
+    icon: "add" | "create-outline" | "funnel" | "funnel-outline";
     accessibilityLabel: string;
     onPress: () => void;
 };
@@ -267,7 +268,11 @@ export function useBaseRouteSegment() {
     // The sheet is the top of the root stack, so the screen it covers is the
     // entry directly beneath it. Route names are paths, segments are not.
     const routes = navigationState?.routes ?? [];
-    return routes[routes.length - 2]?.name.split("/")[0];
+    return baseRouteUnderSheets(
+        routes,
+        navigationState?.index ?? routes.length - 1,
+        SHEET_SEGMENTS,
+    );
 }
 
 /**

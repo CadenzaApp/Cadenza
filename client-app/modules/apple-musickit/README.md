@@ -70,7 +70,7 @@ Set the following public environment variable before starting Expo:
 EXPO_PUBLIC_MOCK_MUSICKIT=1
 ```
 
-Mock mode supplies authorization, catalog and library fixtures, paginated
+Mock mode supplies authorization, catalog and library fixtures, including album release dates, paginated
 collections, album and playlist contents, mutable favorite state for songs and
 collections, the full queue
 surface (reorder, remove, jump, play next, shuffle, repeat), playlist writes,
@@ -155,25 +155,78 @@ Compile native targets with the `AppleMusicKitModule` Xcode scheme and Gradle's
 | `android/src/main/java/.../AppleMusicKitModule.kt` | Android native module.                                                                                                                                |
 | `expo-module.config.json`                          | Autolinking config. Picked up via the `expo.autolinking.nativeModulesDir` entry in `client-app/package.json`.                                         |
 
+## Background playback
+
+Cadenza reads the player while it is in the background too: `PlaybackProvider` polls every
+5 s there (750 ms in the foreground), so the play recorder keeps counting plays and the now
+playing reporter keeps telling friends what is on. That only works while the OS keeps the app
+process running.
+
+- **iOS: done.** `UIBackgroundModes: ["audio"]` in `client-app/app.config.js` keeps the app
+  running while `ApplicationMusicPlayer` plays. Tested on a device: lock screen skips, seeks,
+  pause and resume all reach the backend within seconds. While paused iOS may suspend the app,
+  and pressing play wakes it.
+- **Android: not done.** The controller plays inside our process
+  (`createLocalController`), but nothing makes that process a foreground service. The manifest
+  asks for `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_MEDIA_PLAYBACK` and nothing uses them.
+  With the screen off for a while (Doze, or an OEM battery saver) Android can kill the process,
+  which stops the music and every report with it. There are also no notification or lock
+  screen controls.
+
+### Android task: a media foreground service
+
+Native only. No JS changes: the polling and reporting above already run once the process stays
+alive.
+
+1. **One controller, owned outside React.** Today it is a field on `AppleMusicKitModule`,
+   built from `appContext.reactContext` and released in `OnDestroy`. Move it into an
+   app scoped holder (an `object` built from `applicationContext`, with the token provider
+   reading the tokens the module sets) so the module and the service share the same instance.
+2. **`MediaPlaybackService`**, declared in this module's `android/src/main/AndroidManifest.xml`
+   with `android:foregroundServiceType="mediaPlayback"` and `exported="false"`. It holds a
+   `MediaSessionCompat` (add `androidx.media:media` to `android/build.gradle`) whose callback
+   maps play, pause, skip next, skip previous, and seek onto the controller.
+3. **Keep the session in sync** with `MediaPlayerController.Listener`
+   (`controller.addListener`). `onCurrentItemChanged` and `onMetadataUpdated` set the session
+   metadata (title, artist, album, artwork, duration), `onPlaybackStateChanged` and
+   `onPlaybackStateUpdated` set its state and position. Rebuild the notification from the same
+   callbacks.
+4. **Foreground lifecycle.** Start the service (`ContextCompat.startForegroundService`) when a
+   queue starts playing, and call `startForeground` with a `NotificationCompat.MediaStyle`
+   notification inside 5 s. When paused, `stopForeground(STOP_FOREGROUND_DETACH)` so the
+   notification stays but the app can be reclaimed, same as iOS. Back to foreground on play.
+   `stop` and `OnDestroy` release the controller and `stopSelf`.
+5. **Notification permission.** Media session notifications are exempt from Android 13's
+   `POST_NOTIFICATIONS` prompt. Confirm the notification shows on 13+ without asking.
+
+**Done when**, on a real ARM device (Apple's player does not run on x86 emulators):
+
+- Lock the phone with a queue playing and leave it 10 minutes. Music keeps playing.
+- The backend request log shows a
+  `PUT /listening/now-playing` about once a minute and on every song change.
+- Skip and pause from the notification and the lock screen. Each one shows a `PUT` within a few
+  seconds, and a friend's Listening now card follows.
+- Plays made while locked show up in Analytics.
+
 ## Library reads
 
 `MusicKit` covers songs, albums, and playlists in the user's library. Every one
 of them pages the same way: pass `{ limit, offset }`, read `nextOffset` off the
 result, stop when `hasNextPage` is false.
 
-| call                                            | returns                                                                                                                                        |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `getLibrarySongs(options)`                      | Library songs. The only one that accepts `sort`, which is iOS only.                                                                            |
-| `getLibraryAlbums(options)`                     | Library albums.                                                                                                                                |
-| `getUserPlaylists(options)`                     | Library playlists.                                                                                                                             |
-| `getAlbumSongs(albumId, options)`               | The songs on one library album.                                                                                                                |
-| `getPlaylistSongs(playlistId, options)`         | The songs in one library playlist. Apple answers 404 for a playlist holding no tracks, which comes back as an empty page rather than an error. |
-| `getRecentlyAdded(options)`                     | Recently added library items, newest first. Mixed albums, playlists, and loose songs. Apple caps `limit` at 25.                                |
-| `searchLibrarySongs(term, options)`             | Library songs matching a text term. Added after the first dev builds shipped, so a stale binary throws "rebuild the app" rather than crashing. |
-| `getLibraryArtists(options)`                    | Library artists. Same stale-binary guard as `searchLibrarySongs`.                                                                              |
-| `searchLibraryArtists(term, options)`           | Library artists matching a text term. Same guard.                                                                                              |
-| `searchLibraryCollections(term, kind, options)` | Library albums (`kind: "album"`) or playlists (`"playlist"`) matching a text term. Same guard.                                                 |
-| `getSongInfo(ids)`                              | Full metadata for song ids, in the order given. Not paged: it takes the ids it is given.                                                       |
+| call                                            | returns                                                                                                                                                                    |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getLibrarySongs(options)`                      | Library songs. The only one that accepts `sort`, which is iOS only.                                                                                                        |
+| `getLibraryAlbums(options)`                     | Library albums.                                                                                                                                                            |
+| `getUserPlaylists(options)`                     | Library playlists.                                                                                                                                                         |
+| `getAlbumSongs(albumId, options)`               | The songs on one library album.                                                                                                                                            |
+| `getPlaylistSongs(playlistId, options)`         | The songs in one library playlist. Apple answers 404 for a playlist holding no tracks, which comes back as an empty page rather than an error.                             |
+| `getRecentlyAdded(options)`                     | Recently added library items, newest first. Mixed albums, playlists, and loose songs. Apple caps `limit` at 25.                                                            |
+| `searchLibrarySongs(term, options)`             | Library songs matching a text term. Added after the first dev builds shipped, so a stale binary throws "rebuild the app" rather than crashing.                             |
+| `getLibraryArtists(options)`                    | Library artists. Same stale-binary guard as `searchLibrarySongs`.                                                                                                          |
+| `searchLibraryArtists(term, options)`           | Library artists matching a text term. Same guard.                                                                                                                          |
+| `searchLibraryCollections(term, kind, options)` | Library albums (`kind: "album"`) or playlists (`"playlist"`) matching a text term. Same guard.                                                                             |
+| `getSongInfo(ids)`                              | Full metadata for song ids, in the order given, with the first album's `albumID` and first artist's `artistId` for catalog songs. Not paged: it takes the ids it is given. |
 
 Albums and playlists come back as `MusicItem`s with `resourceKind` set to
 `"album"` or `"playlist"`, so the same item type describes all three. Pass the
@@ -219,6 +272,7 @@ otherwise.
 | `getSongFavoriteStatus(id)` / `setSongFavoriteStatus(id, isFavorite)`                         | Reads or writes a song's favorite state.                                                                                                                                              |
 | `getCollectionFavoriteStatus(kind, id)` / `setCollectionFavoriteStatus(kind, id, isFavorite)` | The same, for an album or playlist. `kind` is `"albums"` or `"playlists"`, matching the Apple Music API path segment directly rather than the app's singular `LibraryCollectionKind`. |
 | `getCollectionInfo(kind, ids)`                                                                | Metadata (title, artwork, `shareUrl`) for the album or playlist itself, mirroring `getSongInfo`.                                                                                      |
+| `getArtistsInfo(ids)`                                                                         | Name and artwork for many artists, in the order asked. JS over the native `getCollectionInfo` with kind `artists`, so no native change.                                               |
 
 All three favorite calls resolve a library-only id to its catalog equivalent
 first (`resolveCatalogSongID` for songs, the generalized `resolveCatalogID` for

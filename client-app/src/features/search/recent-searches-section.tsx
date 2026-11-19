@@ -1,8 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import type { ReactNode } from "react";
-import { Image, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 
 import type { RecentSearch } from "./recent-searches";
@@ -147,24 +148,15 @@ function QueryGlyph() {
 }
 
 function SongArtwork({ url }: { url?: string }) {
-    const artworkUrl = url?.trim();
-    const canRenderArtwork =
-        typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
-
-    if (!canRenderArtwork) {
-        return (
-            <View className="mr-3 h-11 w-11 shrink-0 aspect-square items-center justify-center rounded bg-muted">
+    return (
+        <RemoteArtwork
+            url={url}
+            className="mr-3 h-11 w-11 shrink-0 rounded"
+            fallback={
                 <Text className="text-center text-xs text-muted-foreground">
                     No Art
                 </Text>
-            </View>
-        );
-    }
-
-    return (
-        <Image
-            source={{ uri: artworkUrl }}
-            className="mr-3 h-11 w-11 shrink-0 aspect-square rounded bg-muted"
+            }
         />
     );
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { trackMetadata } from "./track-metadata.ts";
+import { trackMetadata, withCatalogIds } from "./track-metadata.ts";
 
 /** The fields `trackMetadata` reads, as a `MusicItem` carries them. */
 function track(fields: Partial<Parameters<typeof trackMetadata>[0]>) {
@@ -89,4 +89,15 @@ test("a source with no id or no name is dropped", () => {
     ]) {
         assert.deepEqual(trackMetadata(track({}), source), {});
     }
+});
+
+test("a catalog lookup fills in only the ids the track lacks", () => {
+    const played = track({ source: "library", albumID: "l.played" });
+    const catalog = track({ artistId: "966309175", albumID: "first-album" });
+
+    const filled = withCatalogIds(played, catalog);
+    assert.equal(filled.artistId, "966309175");
+    // the album actually played wins over the catalog's first album
+    assert.equal(filled.albumID, "l.played");
+    assert.equal(withCatalogIds(played), played);
 });

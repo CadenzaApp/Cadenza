@@ -1,6 +1,10 @@
+import { CadenzaLogo } from "@/components/custom/cadenza-logo";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import { Text } from "@/components/ui/text";
 import { AdvancedQueryBuilder } from "@/features/advanced-query-builder/AdvancedQueryBuilder";
@@ -34,6 +38,7 @@ import {
     Platform,
     Pressable,
     StyleSheet,
+    useWindowDimensions,
     View,
 } from "react-native";
 import Animated, {
@@ -53,6 +58,7 @@ const OUTER_OPTIONS = [
 ] as const;
 
 export function CadenzaScreen() {
+    const outlined = shouldShowGlassOutline();
     const { userTags, userTagsMeta, userTagsLoading, userTagsErr } =
         useUserTags();
     const { activityTags } = useActivityTags();
@@ -252,7 +258,9 @@ export function CadenzaScreen() {
         <View
             className={
                 Platform.OS === "ios"
-                    ? "h-9 flex-row items-center overflow-hidden rounded-full border border-border"
+                    ? outlined
+                        ? "h-9 flex-row items-center overflow-hidden rounded-full border border-border"
+                        : "h-9 flex-row items-center overflow-hidden rounded-full"
                     : "flex-row items-center gap-2"
             }
         >
@@ -271,7 +279,7 @@ export function CadenzaScreen() {
                     else dispatch({ type: "undo" });
                 }}
             />
-            {Platform.OS === "ios" ? (
+            {Platform.OS === "ios" && outlined ? (
                 <View className="h-5 border-l border-border" />
             ) : null}
             <HistoryActionButton
@@ -292,6 +300,14 @@ export function CadenzaScreen() {
             <View pointerEvents="none" className="absolute inset-0 opacity-50">
                 <NebulaBackdrop colors={nebula} />
             </View>
+            {mode === "advanced" ? (
+                <View
+                    pointerEvents="none"
+                    className="absolute inset-0 items-center justify-center"
+                >
+                    <BackdropLogo />
+                </View>
+            ) : null}
             {userTagsLoading ? (
                 <View className="flex-1 items-center justify-center">
                     <ActivityIndicator accessibilityLabel="Loading tags" />
@@ -422,6 +438,7 @@ export function CadenzaScreen() {
                     {mode === "simple" ? (
                         <QueryBuilder
                             headingOverlapHeight={headingHeight}
+                            backdrop={<BackdropLogo />}
                             resultsAction={resultsAction}
                             historyAction={historyAction}
                             pendingTag={activePendingTag}
@@ -471,6 +488,27 @@ export function CadenzaScreen() {
                 settings={settings}
                 onChange={setSetting}
                 suggestedRequired={suggestedRequired}
+            />
+        </View>
+    );
+}
+
+/** The note's width as a share of the screen's. */
+const BACKDROP_LOGO_SCALE = 0.75;
+/** Blur in the logo's units, where the note is 610 tall. */
+const BACKDROP_LOGO_BLUR = 14;
+
+/**
+ * The Cadenza note, large, soft, and faint, behind the workspace. The caller
+ * places it: the simple builder centers it on its drop zone.
+ */
+function BackdropLogo() {
+    const { width } = useWindowDimensions();
+    return (
+        <View className="opacity-20">
+            <CadenzaLogo
+                size={width * BACKDROP_LOGO_SCALE}
+                blur={BACKDROP_LOGO_BLUR}
             />
         </View>
     );

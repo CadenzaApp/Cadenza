@@ -10,7 +10,7 @@ import {
     type ViewStyle,
 } from "react-native";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import { GlassLayer, GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +20,8 @@ type ModalPopupProps = {
     onClose: () => void;
     title?: string;
     titleClassName?: string;
+    /** Sits at the top right of the title row. */
+    headerRight?: ReactNode;
     children: ReactNode;
     contentStyle?: StyleProp<ViewStyle>;
     /** Overrides the default backdrop padding around the popup. */
@@ -40,6 +42,7 @@ export function ModalPopup({
     onClose,
     title,
     titleClassName,
+    headerRight,
     children,
     contentStyle,
     backdropClassName,
@@ -55,65 +58,76 @@ export function ModalPopup({
             statusBarTranslucent={fullscreen}
             navigationBarTranslucent={fullscreen}
         >
-            <KeyboardAvoidingView
-                className="flex-1"
-                enabled={keyboardAware && !fullscreen}
-                behavior={Platform.OS === "ios" ? "padding" : "height"}
-            >
-                <View
-                    className={cn(
-                        fullscreen
-                            ? "flex-1 bg-black"
-                            : "flex-1 items-center justify-center bg-black/70 px-4 py-8",
-                        backdropClassName,
-                    )}
+            <GlassLayer active={false}>
+                <KeyboardAvoidingView
+                    className="flex-1"
+                    enabled={keyboardAware && !fullscreen}
+                    behavior={Platform.OS === "ios" ? "padding" : "height"}
                 >
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Dismiss"
-                        onPress={onClose}
-                        style={StyleSheet.absoluteFill}
-                    />
                     <View
-                        accessibilityViewIsModal
-                        collapsable={false}
                         className={cn(
-                            "z-10",
                             fullscreen
-                                ? "flex-1 self-stretch"
-                                : "w-[70%] max-w-[400px] min-w-[240px] gap-2 overflow-hidden rounded-2xl p-4",
-                            !fullscreen &&
-                                (variant === "solid"
-                                    ? "border border-border bg-popover shadow-lg shadow-black/5"
-                                    : "bg-transparent"),
+                                ? "flex-1 bg-black"
+                                : "flex-1 items-center justify-center bg-black/70 px-4 py-8",
+                            backdropClassName,
                         )}
-                        style={fullscreen ? styles.fullscreen : contentStyle}
                     >
-                        {variant === "glass" ? (
-                            <View
-                                pointerEvents="none"
-                                style={StyleSheet.absoluteFill}
-                            >
-                                <GlassSurface
-                                    variant="regular"
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Dismiss"
+                            onPress={onClose}
+                            style={StyleSheet.absoluteFill}
+                        />
+                        <View
+                            accessibilityViewIsModal
+                            collapsable={false}
+                            className={cn(
+                                "z-10",
+                                fullscreen
+                                    ? "flex-1 self-stretch"
+                                    : "w-[70%] max-w-[400px] min-w-[240px] gap-2 overflow-hidden rounded-2xl p-4",
+                                !fullscreen &&
+                                    (variant === "solid"
+                                        ? "border border-border bg-popover shadow-lg shadow-black/5"
+                                        : "bg-transparent"),
+                            )}
+                            style={
+                                fullscreen ? styles.fullscreen : contentStyle
+                            }
+                        >
+                            {variant === "glass" ? (
+                                <View
+                                    pointerEvents="none"
                                     style={StyleSheet.absoluteFill}
-                                />
-                            </View>
-                        ) : null}
-                        {title ? (
-                            <Text
-                                className={cn(
-                                    "text-lg font-semibold text-popover-foreground",
-                                    titleClassName,
-                                )}
-                            >
-                                {title}
-                            </Text>
-                        ) : null}
-                        {children}
+                                >
+                                    <GlassSurface
+                                        variant="regular"
+                                        style={StyleSheet.absoluteFill}
+                                    />
+                                </View>
+                            ) : null}
+                            {title || headerRight ? (
+                                <View className="flex-row items-start gap-2">
+                                    {title ? (
+                                        <Text
+                                            className={cn(
+                                                "flex-1 text-lg font-semibold text-popover-foreground",
+                                                titleClassName,
+                                            )}
+                                        >
+                                            {title}
+                                        </Text>
+                                    ) : (
+                                        <View className="flex-1" />
+                                    )}
+                                    {headerRight}
+                                </View>
+                            ) : null}
+                            {children}
+                        </View>
                     </View>
-                </View>
-            </KeyboardAvoidingView>
+                </KeyboardAvoidingView>
+            </GlassLayer>
         </Modal>
     );
 }

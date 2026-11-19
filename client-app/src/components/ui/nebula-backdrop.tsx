@@ -20,6 +20,7 @@ import Animated, {
     withTiming,
     type SharedValue,
 } from "react-native-reanimated";
+import { useWindowDimensions } from "react-native";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 
 import { CROSSFADE_MS, Crossfade } from "@/components/ui/crossfade";
@@ -29,12 +30,16 @@ import { tradeColor, type ColorQueue } from "@/lib/color-queue";
 /**
  * Where the blobs gather. `bottom` glows up from the lower half, under a page
  * whose top is its own content. `full` spreads them over the whole screen, so
- * no band of it is left without color.
+ * no band of it is left without color. `float` scatters eight smaller blobs
+ * over the screen that float around it.
  */
-export type NebulaLayout = "bottom" | "full";
+export type NebulaLayout = "bottom" | "full" | "float";
 
 type NebulaBackdropProps = {
-    /** Up to five colors, the most important first. None fades it out. */
+    /**
+     * Up to one color per blob (five, or eight for `float`), the most
+     * important first. None fades it out.
+     */
     colors: readonly string[];
     /** Defaults to `bottom`. */
     layout?: NebulaLayout;
@@ -43,7 +48,7 @@ type NebulaBackdropProps = {
 /**
  * Where each blob sits and how big it is, as fractions of the screen. Fixed,
  * whatever the colors, so a new set recolors the blobs in place. Ellipses run
- * wider than the screen so no edge shows. Five per layout, one per period.
+ * wider than the screen so no edge shows. At most one per period.
  */
 type Slot = { x: number; y: number; w: number; h: number };
 const SLOTS: Record<NebulaLayout, readonly Slot[]> = {
@@ -61,8 +66,26 @@ const SLOTS: Record<NebulaLayout, readonly Slot[]> = {
         { x: 0.8, y: 0.77, w: 1.3, h: 0.42 },
         { x: 0.35, y: 0.98, w: 1.4, h: 0.45 },
     ],
+    float: [
+        { x: 0.2, y: 0.08, w: 1, h: 0.36 },
+        { x: 0.8, y: 0.2, w: 0.95, h: 0.34 },
+        { x: 0.35, y: 0.34, w: 1, h: 0.36 },
+        { x: 0.75, y: 0.48, w: 0.95, h: 0.34 },
+        { x: 0.2, y: 0.6, w: 1, h: 0.36 },
+        { x: 0.7, y: 0.73, w: 0.95, h: 0.34 },
+        { x: 0.3, y: 0.87, w: 1, h: 0.36 },
+        { x: 0.8, y: 0.98, w: 1, h: 0.36 },
+    ],
 };
-const BLOB_COUNT = 5;
+
+/**
+ * How far a blob floats from its slot each way, as a fraction of the screen.
+ * x and y run on different periods, so the path is a slow loop, not a line.
+ * Layouts without one only drift a few points.
+ */
+const FLOAT: Partial<Record<NebulaLayout, { x: number; y: number }>> = {
+    float: { x: 0.3, y: 0.12 },
+};
 
 /**
  * Seconds per half cycle of each blob's size, brightness and drift. Different
@@ -74,6 +97,9 @@ const PERIODS = [
     { size: 15, glow: 8, drift: 23 },
     { size: 17, glow: 11, drift: 29 },
     { size: 19, glow: 10, drift: 31 },
+    { size: 21, glow: 12, drift: 37 },
+    { size: 23, glow: 13, drift: 41 },
+    { size: 25, glow: 14, drift: 43 },
 ];
 
 /** Opacity of each blob's center, before it breathes. */
@@ -94,7 +120,7 @@ type Palette = { key: string; colors: readonly string[]; byBlob: string[] };
  * (`layout`), in the style of Apple Music's playlist backdrop. Fixed to the screen: mount it behind the
  * scroller, and the page slides over it.
  *
- * Always five blobs in fixed places. Fewer colors repeat around them. Each
+ * Five blobs (eight for `float`) in fixed places. Fewer colors repeat around them. Each
  * blob slowly grows, shrinks, brightens, dims and drifts, on the UI thread.
  * Every so often one fades out to nothing, hands its color to the back of a
  * shared queue, and fades back in with the color at the front, so colors
@@ -109,21 +135,22 @@ export function NebulaBackdrop({
     layout = "bottom",
 }: NebulaBackdropProps) {
     const slots = SLOTS[layout];
+    const float = FLOAT[layout];
     const { colorScheme = "light" } = useColorScheme();
     const palette = useMemo<Palette | null>(() => {
         if (colors.length === 0) return null;
         const shown = colors
-            .slice(0, BLOB_COUNT)
+            .slice(0, slots.length)
             .map((color) => nebulaColor(color, colorScheme));
         return {
             key: shown.join(","),
             colors: shown,
             byBlob: Array.from(
-                { length: BLOB_COUNT },
+                { length: slots.length },
                 (_, index) => shown[index % shown.length],
             ),
         };
-    }, [colorScheme, colors]);
+    }, [colorScheme, colors, slots]);
 
     // the last real palette, so fading out to no colors still has one to show
     const [kept, setKept] = useState(palette);
@@ -160,6 +187,7 @@ export function NebulaBackdrop({
                           trade={trade}
                           slot={slot}
                           period={PERIODS[index]}
+                          float={float}
                           peak={PEAK[colorScheme]}
                       />
                   ))
@@ -174,6 +202,7 @@ function Blob({
     trade,
     slot,
     period,
+    float,
     peak,
 }: {
     paletteKey: string;
@@ -181,12 +210,19 @@ function Blob({
     trade: (current: string) => string;
     slot: Slot;
     period: (typeof PERIODS)[number];
+    float: { x: number; y: number } | undefined;
     peak: number;
 }) {
     const still = useReducedMotion();
     const size = useBreath(period.size, still);
     const glow = useBreath(period.glow, still);
     const drift = useBreath(period.drift, still);
+    const driftY = useBreath(period.drift * 1.3, still);
+    const { width, height } = useWindowDimensions();
+    // span of the float each way in points, or the plain drift
+    const [spanX, spanY] = float
+        ? [float.x * width * 2, float.y * height * 2]
+        : [48, 24];
     const { color, life } = useTradedColor(
         paletteKey,
         startColor,
@@ -197,8 +233,10 @@ function Blob({
     const breathe = useAnimatedStyle(() => ({
         opacity: life.get() * (0.6 + 0.4 * glow.get()),
         transform: [
-            { translateX: (drift.get() - 0.5) * 48 },
-            { translateY: (0.5 - drift.get()) * 24 },
+            { translateX: (drift.get() - 0.5) * spanX },
+            {
+                translateY: (0.5 - (float ? driftY : drift).get()) * spanY,
+            },
             { scale: 0.88 + 0.24 * size.get() },
         ],
     }));

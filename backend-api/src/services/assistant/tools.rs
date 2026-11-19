@@ -25,15 +25,19 @@ use crate::routes::json::{
     tag::TagType,
 };
 use crate::services::analytics::{Dimension, TimeWindow};
+use crate::services::metadata_tags::spawn_store_song_metadata;
+use crate::services::song_metadata::{SongMetadata, SongMetadataService};
 
 /// The most songs a tool describes to the model. The rest are only counted.
 pub const MAX_SONGS_TO_MODEL: usize = 25;
 /// The most song ids the song card under an answer gets.
-pub const MAX_CARD_SONGS: usize = 100;
+pub const MAX_CARD_SONGS: usize = 250;
 /// The most of a tool call's arguments and output written to the server log.
 const MAX_LOGGED_CHARS: usize = 300;
-/// The most songs `get_song_metadata` looks up in one call.
+/// The most songs `get_song_metadata` and `get_song_tags` look up in one call.
 const MAX_METADATA_SONGS: usize = 25;
+/// The most saved queries or playlists one list hands the model.
+const MAX_LISTED: usize = 50;
 const DEFAULT_TOP_LIMIT: u64 = 10;
 const MAX_TOP_LIMIT: u64 = 25;
 
@@ -69,9 +73,25 @@ pub trait ToolRunner: Send + Sync {
     async fn run(&self, name: &str, arguments: &str) -> ToolOutcome;
 }
 
+/// The most songs `find_songs` looks up in one call.
+const MAX_FOUND_SONGS: usize = 40;
+/// The most songs `find_songs` hands back: the card's share of a request, after extras
+/// named to make up for misses are trimmed off.
+const MAX_FIND_COUNT: usize = 25;
+/// How many catalog results `find_songs` weighs for each song it looks up.
+const FIND_CANDIDATES: usize = 8;
+/// How many `find_songs` catalog searches run at once. All at once can trip Apple's rate
+/// limit, which the background metadata crawl shares.
+const FIND_PARALLEL_SEARCHES: usize = 4;
+/// How long a rate limited search waits before its one retry.
+const FIND_RETRY_WAIT: std::time::Duration = std::time::Duration::from_millis(1200);
+/// How many of Apple's results go back to the model for a song with no match.
+const MAX_CLOSE_MATCHES: usize = 3;
+
 /// The tools, run against the database as one user.
 pub struct DbTools<'a> {
     pub db: &'a DatabaseConnection,
+    pub song_meta: &'a SongMetadataService,
     pub user_id: Uuid,
     pub hide_explicit: bool,
 }
@@ -95,6 +115,15 @@ impl ToolRunner for DbTools<'_> {
             "get_song_metadata" => self.get_song_metadata(args).await,
             "top_items" => self.top_items(args).await,
             "listening_summary" => self.listening_summary(args).await,
+            "list_saved_queries" => self.list_saved_queries().await,
+            "get_saved_query_songs" => self.get_saved_query_songs(args).await,
+            "get_song_tags" => self.get_song_tags(args).await,
+            "list_playlists" => self.list_playlists().await,
+            "get_playlist_songs" => self.get_playlist_songs(args).await,
+            "find_songs" => self.find_songs(args).await,
+            "find_artist" => self.find_artist(args).await,
+            "find_album" => self.find_album(args).await,
+            "get_album_songs" => self.get_album_songs(args).await,
             _ => return ToolOutcome::error(format!("there is no tool named {name}"), label),
         };
         let outcome = match result {
@@ -151,6 +180,15 @@ fn label_for(name: &str) -> &'static str {
         "get_song_metadata" => "Looked up song details",
         "top_items" => "Checked your top plays",
         "listening_summary" => "Checked your listening stats",
+        "list_saved_queries" => "Looked up your saved queries",
+        "get_saved_query_songs" => "Opened a saved query",
+        "get_song_tags" => "Looked up song tags",
+        "list_playlists" => "Looked up your playlists",
+        "get_playlist_songs" => "Looked up a playlist's songs",
+        "find_songs" => "Looking for songs on Apple Music",
+        "find_artist" => "Looked up an artist on Apple Music",
+        "find_album" => "Looked up an album on Apple Music",
+        "get_album_songs" => "Looked up an album's songs",
         _ => "Tried a tool",
     }
 }
@@ -232,6 +270,9 @@ struct RunQueryArgs {
     /// [`MAX_CARD_SONGS`]).
     #[serde(default)]
     limit: Option<u64>,
+    /// The model's short name for the list, for the card's title.
+    #[serde(default)]
+    title: Option<String>,
 }
 
 /// The `limit` the model asked for, kept to 1 through [`MAX_CARD_SONGS`].
@@ -273,6 +314,367 @@ fn count_yours(songs: &[QueryMatch]) -> (usize, usize) {
     (yours, songs.len() - yours)
 }
 
+/// The `run_query` scope that matches a saved query's "library or tagged" option.
+fn scope_of_saved(library_or_tagged: bool) -> &'static str {
+    if library_or_tagged {
+        "mine"
+    } else {
+        "everything"
+    }
+}
+
+/// Tags on a song as the model sees them: name, type, and the value for an
+/// attribute or activity tag.
+fn describe_applied(tags: Vec<(tags::Model, Option<String>)>) -> Vec<Value> {
+    tags.into_iter()
+        .map(|(tag, value)| {
+            json!({
+                "id": tag.tag_id,
+                "name": tag.name,
+                "type": TagType::from(tag.r#type),
+                "value": value,
+            })
+        })
+        .collect()
+}
+
+#[derive(Deserialize)]
+struct SavedQueryArgs {
+    saved_query_id: i64,
+}
+
+#[derive(Deserialize)]
+struct FindArtistArgs {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct AlbumSongsArgs {
+    album_id: String,
+    #[serde(default)]
+    title: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct FindAlbumArgs {
+    name: String,
+    #[serde(default)]
+    artist: Option<String>,
+}
+
+/// How many albums `find_album` hands back.
+const MAX_ALBUMS: usize = 5;
+
+/// How many artists `find_artist` hands back.
+const MAX_ARTISTS: usize = 5;
+
+#[derive(Deserialize)]
+struct FindSongsArgs {
+    songs: Vec<WantedSong>,
+    /// How many songs the user asked for. The model names more than this, best first, so
+    /// misses can be made up; the search stops once it has this many and keeps the first
+    /// this many. Left out, every song found is kept.
+    #[serde(default)]
+    count: Option<usize>,
+    /// The game, film, show, or artist the songs come from, when they all do, like
+    /// "Sonic the Hedgehog". A song matched by title alone must name it in its album or
+    /// artist, so an unrelated song with the same title does not slip in.
+    #[serde(default)]
+    from: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+}
+
+/// A song the model named, to look up in the catalog.
+#[derive(Deserialize, Clone)]
+struct WantedSong {
+    title: String,
+    #[serde(default)]
+    artist: Option<String>,
+}
+
+/// Lowercase letters, digits, and single spaces, with anything in brackets and any
+/// " - Remastered" style suffix dropped, for comparing titles and artist names.
+pub(super) fn match_key(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut depth = 0usize;
+    // a suffix like " - Remastered 2011" or " - From \"Halo\"" is not part of the title
+    let text = text.split(" - ").next().unwrap_or(text);
+    for c in text.chars() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            _ if depth > 0 => {}
+            c if c.is_alphanumeric() => out.extend(c.to_lowercase()),
+            _ => out.push(' '),
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Whether a catalog title is the title the model named: the same once brackets and
+/// suffixes are dropped, or one starting with the other's whole words.
+fn titles_match(wanted: &str, found: &str) -> bool {
+    let (wanted, found) = (match_key(wanted), match_key(found));
+    if wanted.is_empty() || found.is_empty() {
+        return false;
+    }
+    // a prefix counts only as whole words, so "Halo" is not "Halogen"
+    let starts_with_words =
+        |long: &str, short: &str| short.len() >= 4 && long.starts_with(&format!("{short} "));
+    wanted == found || starts_with_words(&found, &wanted) || starts_with_words(&wanted, &found)
+}
+
+/// Whether a catalog artist credit is the artist the model named, or credits them among
+/// others ("Frank Ocean" in "Frank Ocean & André 3000").
+fn artists_match(wanted: &str, found: &str) -> bool {
+    let (wanted, found) = (match_key(wanted), match_key(found));
+    !wanted.is_empty() && (found.contains(&wanted) || wanted.contains(&found))
+}
+
+/// The catalog song that is the one the model named: the first result whose title and
+/// artist both match, or with no artist named, the first whose title matches. None
+/// rather than a guess, so a wrong song never lands on the card.
+fn pick_match(wanted: &WantedSong, candidates: &[SongMetadata]) -> Option<SongMetadata> {
+    let artist = wanted
+        .artist
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty());
+    candidates
+        .iter()
+        .find(|song| {
+            titles_match(&wanted.title, &song.title)
+                && artist.is_none_or(|artist| artists_match(artist, &song.artist_name))
+        })
+        .cloned()
+}
+
+/// What Apple returned for a song with no match, for the model to judge: the results
+/// whose title matches (usually the right song under another artist credit, or covers),
+/// or failing that the top results.
+fn close_matches(wanted: &WantedSong, candidates: &[SongMetadata]) -> Vec<Value> {
+    let titled: Vec<&SongMetadata> = candidates
+        .iter()
+        .filter(|song| titles_match(&wanted.title, &song.title))
+        .collect();
+    let shown: Vec<&SongMetadata> = if titled.is_empty() {
+        candidates.iter().collect()
+    } else {
+        titled
+    };
+    shown
+        .into_iter()
+        .take(MAX_CLOSE_MATCHES)
+        .map(|song| json!({ "title": song.title, "artist": song.artist_name, "album": song.album_name }))
+        .collect()
+}
+
+/// One `find_songs` lookup: the match, or what Apple returned instead.
+enum Lookup {
+    /// The song, and whether Apple credits it to someone other than the artist named.
+    Found(Box<SongMetadata>, bool),
+    /// Apple answered, but nothing matched.
+    Missing(Vec<Value>),
+    /// The search itself failed, with why.
+    Failed(String),
+}
+
+/// What the model is told when every `find_songs` search failed: that the lookup itself is
+/// broken, not the songs, so it says so instead of trying again.
+fn apple_music_down_message(why: &str) -> String {
+    let cause = if why.contains("returned 401") || why.contains("returned 403") {
+        "Apple Music rejected the server's credentials (its developer token may have expired)"
+    } else {
+        "Apple Music did not answer"
+    };
+    format!(
+        "Searching Apple Music is not working right now: {cause}. None of the songs were looked up, so this says nothing about whether they exist. Do not call find_songs again in this answer. Tell the user plainly that looking songs up on Apple Music is not working right now, and offer to try their own library with run_query instead."
+    )
+}
+
+/// Searches the catalog for one song the model named, retrying once on a rate limit.
+/// Every outcome is logged, so a song that did not land can be checked against Apple.
+async fn look_up(service: &SongMetadataService, song: &WantedSong, from: Option<&str>) -> Lookup {
+    let artist = song
+        .artist
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty());
+    let term = match artist {
+        Some(artist) => format!("{} {}", song.title, artist),
+        None => song.title.clone(),
+    };
+    let candidates = match search_with_retry(service, &term).await {
+        Ok(candidates) => candidates,
+        Err(err) => {
+            println!("[assistant] find_songs \"{term}\" failed: {err}");
+            return Lookup::Failed(err.to_string());
+        }
+    };
+    if let Some(found) = pick_match(song, &candidates) {
+        println!(
+            "[assistant] find_songs \"{term}\" -> {} / {}",
+            found.title, found.artist_name
+        );
+        return Lookup::Found(Box::new(found), false);
+    }
+
+    // Apple has the song under another artist (a soundtrack whose composer Apple does not
+    // credit, or only another performer's version, like Nintendo's music), so search the
+    // title alone. On the server, this costs no model call.
+    let mut seen = candidates;
+    if artist.is_some() {
+        match search_with_retry(service, &song.title).await {
+            Ok(by_title) => {
+                if let Some(found) = pick_match(song, &by_title) {
+                    println!(
+                        "[assistant] find_songs \"{}\" (title) -> {} / {}",
+                        song.title, found.title, found.artist_name
+                    );
+                    return Lookup::Found(Box::new(found), false);
+                }
+                seen.extend(by_title);
+            }
+            Err(err) => println!(
+                "[assistant] find_songs \"{}\" (title) failed: {err}",
+                song.title
+            ),
+        }
+    }
+    if let Some(found) = pick_same_title(song, &seen, from) {
+        println!(
+            "[assistant] find_songs \"{term}\" -> {} / {} (credited differently)",
+            found.title, found.artist_name
+        );
+        return Lookup::Found(Box::new(found), artist.is_some());
+    }
+
+    let returned: Vec<String> = seen
+        .iter()
+        .take(MAX_CLOSE_MATCHES)
+        .map(|song| format!("{} / {}", song.title, song.artist_name))
+        .collect();
+    println!(
+        "[assistant] find_songs \"{term}\" no match among {} results: {returned:?}",
+        seen.len()
+    );
+    Lookup::Missing(close_matches(song, &seen))
+}
+
+/// One catalog search, retried once after a rate limit.
+async fn search_with_retry(
+    service: &SongMetadataService,
+    term: &str,
+) -> Result<Vec<SongMetadata>, CadenzaError> {
+    let result = service.search_songs(term, FIND_CANDIDATES).await;
+    if matches!(result, Err(CadenzaError::SongMetadataRateLimited)) {
+        tokio::time::sleep(FIND_RETRY_WAIT).await;
+        return service.search_songs(term, FIND_CANDIDATES).await;
+    }
+    result
+}
+
+/// The shortest title that still counts as distinctive enough to match on its own, with
+/// no artist to confirm it. "Gusty Garden Galaxy" is; "Intro" or "Theme" is not.
+const MIN_TITLE_ONLY_CHARS: usize = 8;
+
+/// A result with exactly the title the model named, whoever Apple credits, for a song
+/// whose named artist Apple does not have. Only for a title long enough to be distinctive,
+/// and never a result that says it is a remix, karaoke, or a piano or lofi version, which
+/// a title search turns up for any famous tune.
+fn pick_same_title(
+    wanted: &WantedSong,
+    candidates: &[SongMetadata],
+    from: Option<&str>,
+) -> Option<SongMetadata> {
+    let title = match_key(&wanted.title);
+    if title.chars().count() < MIN_TITLE_ONLY_CHARS {
+        return None;
+    }
+    let context = from.map(context_words).unwrap_or_default();
+    candidates
+        .iter()
+        .find(|song| {
+            match_key(&song.title) == title
+                && !is_novelty_version(&song.title)
+                && (context.is_empty() || mentions_any(song, &context))
+        })
+        .cloned()
+}
+
+/// Words that do not tell one source from another, left out of `from`.
+const CONTEXT_STOP_WORDS: &[&str] = &[
+    "the",
+    "and",
+    "from",
+    "game",
+    "games",
+    "video",
+    "music",
+    "song",
+    "songs",
+    "soundtrack",
+    "theme",
+    "themes",
+    "series",
+    "original",
+    "movie",
+    "film",
+    "show",
+    "with",
+];
+
+/// The words of `from` worth matching: four letters or more and not a stop word, so
+/// "Sonic the Hedgehog" is ["sonic", "hedgehog"].
+fn context_words(from: &str) -> Vec<String> {
+    match_key(from)
+        .split_whitespace()
+        .filter(|word| word.chars().count() >= 4 && !CONTEXT_STOP_WORDS.contains(word))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Whether a song's album or artist names any of `words`.
+fn mentions_any(song: &SongMetadata, words: &[String]) -> bool {
+    let haystack = match_key(&format!(
+        "{} {}",
+        song.album_name.as_deref().unwrap_or(""),
+        song.artist_name
+    ));
+    words
+        .iter()
+        .any(|word| haystack.split_whitespace().any(|part| part == word))
+}
+
+/// Whether a title says it is a novelty version rather than the tune itself.
+fn is_novelty_version(title: &str) -> bool {
+    let lowered = title.to_lowercase();
+    [
+        "remix",
+        "karaoke",
+        "lofi",
+        "lo-fi",
+        "piano",
+        "8-bit",
+        "8 bit",
+        "acoustic",
+        "cover",
+        "instrumental version",
+        "tribute",
+        "metal",
+        "orchestral version",
+        "music box",
+    ]
+    .iter()
+    .any(|word| lowered.contains(word))
+}
+
+#[derive(Deserialize)]
+struct PlaylistArgs {
+    playlist_id: i64,
+}
+
 #[derive(Deserialize)]
 struct SongIdsArgs {
     song_ids: Vec<String>,
@@ -300,6 +702,88 @@ struct TopItemsArgs {
     window: WindowArgs,
     #[serde(default)]
     limit: Option<u64>,
+    /// The model's short name for a song ranking, for the card's title.
+    #[serde(default)]
+    title: Option<String>,
+}
+
+/// The most characters a card title keeps. Longer ones are cut at a word.
+const MAX_TITLE_CHARS: usize = 32;
+
+/// Small words a title leaves lowercase unless they come first.
+const TITLE_SMALL_WORDS: &[&str] = &[
+    "a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "nor", "of", "on", "or", "the",
+    "to", "vs", "with",
+];
+
+/// A card title from the model, made to read like a title: trimmed, no quotes
+/// around it or punctuation at its end, every all-lowercase word capitalized
+/// (small words too when first), and cut at a word past
+/// [`MAX_TITLE_CHARS`]. A word with a capital already ("iPhone", "R&B",
+/// "AC/DC") is left as written. None when nothing is left.
+pub(super) fn card_title(title: Option<String>) -> Option<String> {
+    let title = title?;
+    let mut title = title
+        .trim()
+        .trim_matches(|c: char| matches!(c, '"' | '\u{201c}' | '\u{201d}'))
+        .trim();
+    // single quotes only when they wrap the whole title, so "'90s" keeps its own
+    if title.len() > 1 && title.starts_with('\'') && title.ends_with('\'') {
+        title = title[1..title.len() - 1].trim();
+    }
+    let title = title
+        .trim_end_matches(['.', '!', '?', ',', ';', ':'])
+        .trim();
+
+    let mut words: Vec<String> = Vec::new();
+    let mut length = 0;
+    for (index, word) in title.split_whitespace().enumerate() {
+        let added = if index == 0 {
+            word.chars().count()
+        } else {
+            word.chars().count() + 1
+        };
+        if index > 0 && length + added > MAX_TITLE_CHARS {
+            break;
+        }
+        length += added;
+        words.push(title_case_word(word, index == 0));
+    }
+    let mut title = words.join(" ");
+    if title.chars().count() > MAX_TITLE_CHARS {
+        // one word longer than the cap
+        title = title.chars().take(MAX_TITLE_CHARS).collect();
+    }
+    let title = title
+        .trim_end_matches(['.', '!', '?', ',', ';', ':', '-'])
+        .trim_end()
+        .to_owned();
+    (!title.is_empty()).then_some(title)
+}
+
+/// `word` with its first letter capitalized when it is all lowercase and not a
+/// small word in the middle of the title.
+fn title_case_word(word: &str, first: bool) -> String {
+    let all_lowercase = word.chars().all(|c| !c.is_uppercase());
+    let bare = word
+        .trim_matches(|c: char| !c.is_alphanumeric())
+        .to_lowercase();
+    if !all_lowercase || (!first && TITLE_SMALL_WORDS.contains(&bare.as_str())) {
+        return word.to_owned();
+    }
+    let mut chars = word.chars();
+    let mut out = String::with_capacity(word.len());
+    // past any leading punctuation, like the quote in "'90s"; a word that
+    // starts with a digit ("90s", "2010s") is left alone
+    for c in chars.by_ref() {
+        if c.is_alphanumeric() {
+            out.extend(c.to_uppercase());
+            break;
+        }
+        out.push(c);
+    }
+    out.extend(chars);
+    out
 }
 
 impl DbTools<'_> {
@@ -367,6 +851,7 @@ impl DbTools<'_> {
                 total: if limit.is_some() { picked.len() } else { total },
                 capped: limit.is_none() && matches.capped,
                 song_ids,
+                title: card_title(args.title),
             });
         }
         Ok(outcome)
@@ -398,6 +883,492 @@ impl DbTools<'_> {
             })
             .collect();
         Ok(ToolOutcome::ok(json!({ "songs": songs }), ""))
+    }
+
+    async fn list_saved_queries(&self) -> Result<ToolOutcome, ToolError> {
+        let saved = db::saved_queries::list_saved_queries(self.db, self.user_id).await?;
+        let total = saved.len();
+        let saved = &saved[..total.min(MAX_LISTED)];
+        let ids: Vec<i64> = saved.iter().map(|query| query.saved_query_id).collect();
+        let counts = db::saved_queries::count_songs(self.db, &ids).await?;
+        let queries: Vec<Value> = saved
+            .iter()
+            .map(|query| {
+                json!({
+                    "id": query.saved_query_id,
+                    "name": query.name,
+                    "favorite": query.favorite,
+                    "query": query.query,
+                    "scope": scope_of_saved(query.library_or_tagged),
+                    "stored_songs": counts.get(&query.saved_query_id).copied().unwrap_or(0),
+                    "stored_at": query.songs_stored_at.map(|at| at.to_rfc3339()),
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok(
+            json!({ "total": total, "queries": queries }),
+            "",
+        ))
+    }
+
+    /// The songs a saved query holds, exactly as its screen lists them: the stored
+    /// songs in stored order, not a fresh run of its query.
+    async fn get_saved_query_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: SavedQueryArgs = parse_args(args)?;
+        let not_found = |err: CadenzaError| match err {
+            CadenzaError::NotFound => ToolError::Arguments(format!(
+                "the user has no saved query with id {}; call list_saved_queries for their ids",
+                args.saved_query_id
+            )),
+            other => ToolError::Cadenza(other),
+        };
+        // for its name, which titles the card
+        let saved =
+            db::saved_queries::get_viewable_saved_query(self.db, self.user_id, args.saved_query_id)
+                .await
+                .map_err(not_found)?;
+        let stored =
+            crate::services::saved_queries::saved_songs(self.db, self.user_id, args.saved_query_id)
+                .await
+                .map_err(not_found)?;
+        let songs: Vec<QueryMatch> = stored
+            .into_iter()
+            .map(|song| QueryMatch {
+                song_id: song.song_id,
+                certain: song.certain,
+            })
+            .collect();
+        let (yours, elsewhere) = count_yours(&songs);
+        let described = self.describe_songs(&songs).await?;
+        let song_ids: Vec<String> = songs
+            .iter()
+            .take(MAX_CARD_SONGS)
+            .map(|song| song.song_id.clone())
+            .collect();
+        let mut outcome = ToolOutcome::ok(
+            json!({
+                "total": songs.len(),
+                "yours": yours,
+                "elsewhere": elsewhere,
+                "songs": described,
+                "songs_shown": described.len(),
+                "card_shows": song_ids.len(),
+            }),
+            "",
+        );
+        if !song_ids.is_empty() {
+            outcome.songs = Some(SongsCard {
+                total: songs.len(),
+                capped: false,
+                song_ids,
+                title: Some(saved.name),
+            });
+        }
+        Ok(outcome)
+    }
+
+    async fn get_song_tags(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: SongIdsArgs = parse_args(args)?;
+        if args.song_ids.len() > MAX_METADATA_SONGS {
+            return Err(ToolError::Arguments(format!(
+                "ask for at most {MAX_METADATA_SONGS} songs at a time"
+            )));
+        }
+        let mut own =
+            db::tags::get_user_tags_on_songs(self.db, self.user_id, &args.song_ids).await?;
+        let mut activity =
+            db::activity_tags::get_activity_tags_on_songs(self.db, self.user_id, &args.song_ids)
+                .await?;
+        let songs: Vec<Value> = args
+            .song_ids
+            .iter()
+            .map(|song_id| {
+                json!({
+                    "song_id": song_id,
+                    "tags": describe_applied(own.remove(song_id).unwrap_or_default()),
+                    "activity": describe_applied(activity.remove(song_id).unwrap_or_default()),
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok(json!({ "songs": songs }), ""))
+    }
+
+    async fn list_playlists(&self) -> Result<ToolOutcome, ToolError> {
+        let playlists = db::shared_playlists::list_my_playlists(self.db, self.user_id).await?;
+        let total = playlists.len();
+        let listed: Vec<Value> = playlists
+            .iter()
+            .take(MAX_LISTED)
+            .map(|playlist| {
+                json!({
+                    "id": playlist.playlist_id,
+                    "name": playlist.name,
+                    "description": playlist.description,
+                    "owner": playlist.owner_username,
+                    "your_role": playlist.role,
+                    "songs": playlist.song_count,
+                    "members": playlist.member_count,
+                    "updated_at": playlist.updated_at.to_rfc3339(),
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok(
+            json!({ "total": total, "playlists": listed }),
+            "",
+        ))
+    }
+
+    /// Looks up songs the model named in the Apple Music catalog, in its order, for a list
+    /// no query can express ("iconic video game songs"). Each is one catalog search, all at
+    /// once; only a result whose title and artist match counts, so a song Apple does not
+    /// have is reported missing rather than swapped for something else.
+    async fn find_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: FindSongsArgs = parse_args(args)?;
+        let wanted: Vec<WantedSong> = args
+            .songs
+            .into_iter()
+            .filter(|song| !song.title.trim().is_empty())
+            .take(MAX_FOUND_SONGS)
+            .collect();
+        if wanted.is_empty() {
+            return Err(ToolError::Arguments(
+                "songs needs at least one {title, artist}".to_owned(),
+            ));
+        }
+        let count = args.count.map(|count| count.clamp(1, MAX_FIND_COUNT));
+
+        // a few at a time, in order
+        let mut lookups: Vec<Lookup> = Vec::with_capacity(wanted.len());
+        for batch in wanted.chunks(FIND_PARALLEL_SEARCHES) {
+            let mut searches = tokio::task::JoinSet::new();
+            for (index, song) in batch.iter().cloned().enumerate() {
+                let service = self.song_meta.clone();
+                let from = args.from.clone();
+                searches
+                    .spawn(async move { (index, look_up(&service, &song, from.as_deref()).await) });
+            }
+            let mut results: Vec<Option<Lookup>> = (0..batch.len()).map(|_| None).collect();
+            while let Some(joined) = searches.join_next().await {
+                if let Ok((index, lookup)) = joined {
+                    results[index] = Some(lookup);
+                }
+            }
+            lookups.extend(results.into_iter().map(|lookup| {
+                lookup.unwrap_or_else(|| Lookup::Failed("the search stopped".to_owned()))
+            }));
+            // a first batch that failed whole means Apple is refusing every search, like an
+            // expired developer token; the rest would only fail the same way
+            if lookups
+                .iter()
+                .all(|lookup| matches!(lookup, Lookup::Failed(_)))
+            {
+                break;
+            }
+            // enough for the count asked: the extras were only there to make up for misses
+            if count.is_some_and(|count| self.usable_found(&lookups) >= count) {
+                break;
+            }
+        }
+        if let Some(Lookup::Failed(why)) = lookups.first()
+            && lookups
+                .iter()
+                .all(|lookup| matches!(lookup, Lookup::Failed(_)))
+        {
+            return Err(ToolError::Arguments(apple_music_down_message(why)));
+        }
+
+        let mut seen = std::collections::HashSet::new();
+        let mut found = Vec::new();
+        let mut missing = Vec::new();
+        let mut failed = Vec::new();
+        // song id -> the artist the model named, for songs Apple credits to someone else
+        let mut other_credits: HashMap<String, Option<String>> = HashMap::new();
+        for (song, lookup) in wanted.iter().zip(lookups) {
+            match lookup {
+                Lookup::Found(metadata, credited_differently)
+                    if seen.insert(metadata.id.clone()) =>
+                {
+                    if credited_differently {
+                        other_credits.insert(metadata.id.clone(), song.artist.clone());
+                    }
+                    found.push(*metadata)
+                }
+                // the same song named twice
+                Lookup::Found(..) => {}
+                Lookup::Missing(close) => missing.push(json!({
+                    "title": song.title,
+                    "artist": song.artist,
+                    "apple_music_has": close,
+                })),
+                Lookup::Failed(_) => {
+                    failed.push(json!({ "title": song.title, "artist": song.artist }))
+                }
+            }
+        }
+        if self.hide_explicit {
+            found.retain(|song| song.content_rating.as_deref() != Some("explicit"));
+        }
+        if let Some(count) = count {
+            found.truncate(count);
+        }
+        other_credits.retain(|id, _| found.iter().any(|song| &song.id == id));
+        let short_by = count.map_or(0, |count| count.saturating_sub(found.len()));
+
+        let song_ids: Vec<String> = found.iter().map(|song| song.id.clone()).collect();
+        // stored for queries and follow-up questions, off the answer's path
+        spawn_store_song_metadata(self.db.clone(), self.song_meta.clone(), song_ids.clone());
+        let described: Vec<Value> = found
+            .iter()
+            .map(|song| {
+                let mut described = json!({
+                    "song_id": song.id,
+                    "title": song.title,
+                    "artist": song.artist_name,
+                    "album": song.album_name,
+                    "album_id": song.album_id,
+                    "release_date": song.release_date,
+                });
+                if let Some(named) = other_credits.get(&song.id) {
+                    // the tune you named, but Apple credits this version to someone else
+                    described["you_named_artist"] = named.clone().into();
+                }
+                described
+            })
+            .collect();
+        let mut outcome = ToolOutcome::ok(
+            json!({
+                "found": described.len(),
+                "asked_for": count,
+                // asked for more than Apple Music had: say so, with both numbers
+                "short_by": short_by,
+                // found by title, but Apple credits these to another artist: often the only
+                // version Apple Music has, like covers of music its owner keeps off it
+                "credited_to_another_artist": other_credits.len(),
+                "songs": described,
+                // no match: Apple's closest results, which may be the right song under
+                // another credit, or only covers
+                "not_found": missing,
+                // the search failed, not the song: worth one more try
+                "lookup_failed": failed,
+            }),
+            "",
+        );
+        if !song_ids.is_empty() {
+            outcome.songs = Some(SongsCard {
+                total: song_ids.len(),
+                capped: false,
+                song_ids,
+                title: card_title(args.title),
+            });
+        }
+        Ok(outcome)
+    }
+
+    /// How many different songs `lookups` found that would stay on the card, past the Hide
+    /// explicit setting, for stopping the search once a count is met.
+    fn usable_found(&self, lookups: &[Lookup]) -> usize {
+        let mut ids = std::collections::HashSet::new();
+        for lookup in lookups {
+            if let Lookup::Found(song, _) = lookup
+                && !(self.hide_explicit && song.content_rating.as_deref() == Some("explicit"))
+            {
+                ids.insert(song.id.as_str());
+            }
+        }
+        ids.len()
+    }
+
+    /// Apple Music artists matching a name, with their catalog ids, for opening an artist's
+    /// page. The model must never invent an id, and this is where a real one comes from.
+    async fn find_artist(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: FindArtistArgs = parse_args(args)?;
+        let name = args.name.trim();
+        if name.is_empty() {
+            return Err(ToolError::Arguments("name is required".to_owned()));
+        }
+        let artists = self
+            .song_meta
+            .search_artists(name, MAX_ARTISTS)
+            .await
+            .map_err(|err| {
+                println!("[assistant] find_artist \"{name}\" failed: {err}");
+                ToolError::Arguments(
+                    apple_music_down_message(&err.to_string()).replace("find_songs", "find_artist"),
+                )
+            })?;
+        let artists: Vec<Value> = artists
+            .into_iter()
+            .map(|artist| {
+                json!({
+                    "artist_id": artist.id,
+                    "name": artist.name,
+                    "genres": artist.genre_names,
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok(json!({ "artists": artists }), ""))
+    }
+
+    /// Apple Music albums matching a name, and an artist when given, with their catalog
+    /// ids, for opening an album's page.
+    async fn find_album(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: FindAlbumArgs = parse_args(args)?;
+        let name = args.name.trim();
+        if name.is_empty() {
+            return Err(ToolError::Arguments("name is required".to_owned()));
+        }
+        let term = match args.artist.as_deref().map(str::trim) {
+            Some(artist) if !artist.is_empty() => format!("{name} {artist}"),
+            _ => name.to_owned(),
+        };
+        let albums = self
+            .song_meta
+            .search_albums(&term, MAX_ALBUMS)
+            .await
+            .map_err(|err| {
+                println!("[assistant] find_album \"{term}\" failed: {err}");
+                ToolError::Arguments(
+                    apple_music_down_message(&err.to_string()).replace("find_songs", "find_album"),
+                )
+            })?;
+        let albums: Vec<Value> = albums
+            .into_iter()
+            .map(|album| {
+                json!({
+                    "album_id": album.id,
+                    "name": album.name,
+                    "artist": album.artist_name,
+                    "release_date": album.release_date,
+                    "tracks": album.track_count,
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok(json!({ "albums": albums }), ""))
+    }
+
+    /// The songs on one Apple Music catalog album, in track order, as a card.
+    async fn get_album_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: AlbumSongsArgs = parse_args(args)?;
+        let album_id = args.album_id.trim().to_owned();
+        if album_id.is_empty() {
+            return Err(ToolError::Arguments("album_id is required".to_owned()));
+        }
+        let mut albums = self
+            .song_meta
+            .get_albums_tracks(std::slice::from_ref(&album_id))
+            .await
+            .map_err(|err| {
+                println!("[assistant] get_album_songs {album_id} failed: {err}");
+                ToolError::Arguments(
+                    apple_music_down_message(&err.to_string())
+                        .replace("find_songs", "get_album_songs"),
+                )
+            })?;
+        let Some(mut tracks) = albums.remove(&album_id) else {
+            return Err(ToolError::Arguments(format!(
+                "Apple Music has no album with id {album_id}. Get the id from find_album."
+            )));
+        };
+        if self.hide_explicit {
+            tracks.retain(|song| song.content_rating.as_deref() != Some("explicit"));
+        }
+        tracks.truncate(MAX_CARD_SONGS);
+        let song_ids: Vec<String> = tracks.iter().map(|song| song.id.clone()).collect();
+        spawn_store_song_metadata(self.db.clone(), self.song_meta.clone(), song_ids.clone());
+        let described: Vec<Value> = tracks
+            .iter()
+            .take(MAX_SONGS_TO_MODEL)
+            .map(|song| {
+                json!({
+                    "song_id": song.id,
+                    "title": song.title,
+                    "artist": song.artist_name,
+                })
+            })
+            .collect();
+        let album_name = tracks.first().and_then(|song| song.album_name.clone());
+        let mut outcome = ToolOutcome::ok(
+            json!({
+                "album": album_name,
+                "total": song_ids.len(),
+                "songs": described,
+            }),
+            "",
+        );
+        if !song_ids.is_empty() {
+            outcome.songs = Some(SongsCard {
+                total: song_ids.len(),
+                capped: false,
+                song_ids,
+                title: card_title(args.title).or(album_name),
+            });
+        }
+        Ok(outcome)
+    }
+
+    async fn get_playlist_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: PlaylistArgs = parse_args(args)?;
+        let detail = db::shared_playlists::get_playlist(self.db, self.user_id, args.playlist_id)
+            .await
+            .map_err(|err| match err {
+                // not a member reads the same as no such playlist, on purpose
+                CadenzaError::NotFound => ToolError::Arguments(format!(
+                    "the user is not in a shared playlist with id {}; call list_playlists for their ids",
+                    args.playlist_id
+                )),
+                other => ToolError::Cadenza(other),
+            })?;
+        let names: HashMap<Uuid, &str> = detail
+            .members
+            .iter()
+            .map(|member| (member.user_id, member.username.as_str()))
+            .collect();
+        let shown = &detail.entries[..detail.entries.len().min(MAX_SONGS_TO_MODEL)];
+        let shown_ids: Vec<String> = shown.iter().map(|entry| entry.song_id.clone()).collect();
+        let rows = db::metadata_tags::get_song_rows(self.db, &shown_ids).await?;
+        let songs: Vec<Value> = shown
+            .iter()
+            .map(|entry| {
+                let mut described = describe_song(&entry.song_id, rows.get(&entry.song_id));
+                described["added_by"] =
+                    entry.added_by.and_then(|id| names.get(&id).copied()).into();
+                described
+            })
+            .collect();
+        let members: Vec<Value> = detail
+            .members
+            .iter()
+            .map(|member| json!({ "username": member.username, "role": member.role }))
+            .collect();
+        let total = detail.entries.len();
+        let song_ids: Vec<String> = detail
+            .entries
+            .iter()
+            .take(MAX_CARD_SONGS)
+            .map(|entry| entry.song_id.clone())
+            .collect();
+        let mut outcome = ToolOutcome::ok(
+            json!({
+                "name": detail.header.name,
+                "description": detail.header.description,
+                "your_role": detail.my_role,
+                "members": members,
+                "total": total,
+                "songs": songs,
+                "songs_shown": songs.len(),
+                "card_shows": song_ids.len(),
+            }),
+            "",
+        );
+        if !song_ids.is_empty() {
+            outcome.songs = Some(SongsCard {
+                total,
+                capped: false,
+                song_ids,
+                title: Some(detail.header.name.clone()),
+            });
+        }
+        Ok(outcome)
     }
 
     async fn top_items(&self, args: Value) -> Result<ToolOutcome, ToolError> {
@@ -449,6 +1420,7 @@ impl DbTools<'_> {
                     total: song_ids.len(),
                     song_ids,
                     capped: false,
+                    title: card_title(args.title).or_else(|| Some("Your Top Songs".to_owned())),
                 });
             }
             return Ok(outcome);
@@ -514,7 +1486,11 @@ pub fn definitions() -> Vec<Value> {
             "enum": ["song", "artist", "album", "playlist", "query", "tag"],
             "description": "What to rank."
         },
-        "limit": { "type": "integer", "description": "How many, 1 to 25. Defaults to 10." }
+        "limit": { "type": "integer", "description": "How many, 1 to 25. Defaults to 10." },
+        "title": {
+            "type": "string",
+            "description": "For kind song: the list's title, shown when the user opens it. Title Case, 2 to 4 words, no period, like \"Top Songs This Month\"."
+        }
     });
     let mut summary_properties = json!({});
     for (key, value) in window.as_object().unwrap() {
@@ -532,7 +1508,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "run_query",
-            "description": "Finds songs matching a Cadenza query among every song Cadenza knows, the user's own first. Returns how many matched, how many of those are the user's own (in their library or tagged) and how many come from elsewhere, and the first 25 with title, artist, and a yours flag. The user sees the songs as a card under your answer, so do not list more than a few.",
+            "description": "Finds songs matching a Cadenza query among every song Cadenza knows, the user's own first. Returns how many matched, how many of those are the user's own (in their library or tagged) and how many come from elsewhere, and the first 25 with title, artist, and a yours flag. The user sees the songs as a card under your answer, so do not list them in your text.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -546,7 +1522,11 @@ pub fn definitions() -> Vec<Value> {
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Optional. When the user asks for a number of songs (\"10 songs\", \"my top 5\", \"a few\"), how many to hand back, 1 to 100, taken in order after sort. The card and Play then hold exactly these. Leave out to return every match."
+                        "description": "Optional. When the user asks for a number of songs (\"10 songs\", \"my top 5\", \"a few\"), how many to hand back, 1 to 250, taken in order after sort. The card and Play then hold exactly these. Leave out to return every match."
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "The list's title, shown when the user opens it. Always pass one. Title Case, 2 to 4 words, no period. Name what the songs are, never their order or grouping (the user can re-sort the list), so \"Chill Songs\", not \"Chill Songs, Newest First\". Like \"Chill Songs\", \"Frank Ocean Before 2015\", or \"Never Played\"."
                     },
                     "scope": {
                         "type": "string",
@@ -584,6 +1564,127 @@ pub fn definitions() -> Vec<Value> {
             "name": "listening_summary",
             "description": "Totals for a window: plays, starts, completions, skips, early skips, unique songs, plays from queries, and listening time.",
             "parameters": { "type": "object", "properties": summary_properties }
+        }),
+        json!({
+            "type": "function",
+            "name": "list_saved_queries",
+            "description": "The queries the user saved by name (under Queries in the Library tab), favorites first: id, name, the query JSON, its scope, and how many songs it holds. A saved query holds a stored list: the songs it matched when it was saved or last rerun, plus any added since by tagging. That list is what its screen shows; get_saved_query_songs reads it.",
+            "parameters": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "type": "function",
+            "name": "get_saved_query_songs",
+            "description": "The songs one saved query holds, in order, exactly as its screen in the app lists them. Returns how many, how many are the user's own, and the first 25 with title and artist; the user sees them as a card under your answer, so do not list them in your text. Get the id from list_saved_queries.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "saved_query_id": { "type": "integer" }
+                },
+                "required": ["saved_query_id"]
+            }
+        }),
+        json!({
+            "type": "function",
+            "name": "get_song_tags",
+            "description": "The user's own tags on up to 25 songs by id, with the value of each attribute tag, plus the activity tags (My Plays, First Played, Last Played, In My Library, Favorited, Tagged) and their values. For Apple's song facts (title, artist, genre) use get_song_metadata instead.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "song_ids": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["song_ids"]
+            }
+        }),
+        json!({
+            "type": "function",
+            "name": "list_playlists",
+            "description": "The Cadenza shared playlists the user is a member of, most recently changed first: id, name, description, owner, the user's role (owner, editor, viewer), song and member counts. These are not the user's Apple Music playlists; for those, use apple_music_playlists. For a playlist's songs, call get_playlist_songs.",
+            "parameters": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "type": "function",
+            "name": "find_artist",
+            "description": "Apple Music artists whose name matches, best match first, with their artist_id, name, and genres. Use it to get the id for open_screen with screen artist, or to check how Apple Music spells an artist's name. Pick the one whose name is the artist the user meant; if none is, say so.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "The artist's name, like \"Kikuo\"." }
+                },
+                "required": ["name"]
+            }
+        }),
+        json!({
+            "type": "function",
+            "name": "find_album",
+            "description": "Apple Music albums whose name matches, best match first, with album_id, name, artist, release date, and track count. Use it to get the id for open_screen with screen album. Pass the artist too when you know it. Pick the one the user meant (the original album, not a deluxe or live edition unless asked); if none is, say so.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "The album's name." },
+                    "artist": { "type": "string", "description": "Its artist, when known." }
+                },
+                "required": ["name"]
+            }
+        }),
+        json!({
+            "type": "function",
+            "name": "get_album_songs",
+            "description": "The songs on one Apple Music album, in track order, as a card. For showing, playing, or asking about an album's songs; to take the user to the album's page, use open_screen with screen album instead. Get album_id from find_album or now_playing. Not for playlists.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "album_id": { "type": "string" },
+                    "title": { "type": "string", "description": "The card's title, usually the album's name." }
+                },
+                "required": ["album_id"]
+            }
+        }),
+        json!({
+            "type": "function",
+            "name": "find_songs",
+            "description": "Shows specific songs you name yourself, from what you know about music, as a card: for a request no tag or metadata query can express, like \"10 iconic video game songs\", \"songs like Redbone\", \"the best 90s one-hit wonders\", or \"songs from the Interstellar soundtrack\". Each is looked up on Apple Music; only songs whose title and artist match are kept. not_found lists the rest with what Apple Music has under that title (apple_music_has), and lookup_failed the ones whose search failed. Name real, well-known recordings with the artist Apple Music credits.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "from": {
+                        "type": "string",
+                        "description": "When every song comes from one game, film, show, or artist, its name, like \"Sonic the Hedgehog\". Keeps unrelated songs that share a title off the card."
+                    },
+                    "count": {
+                        "type": "integer",
+                        "description": "How many songs the user asked for, 1 to 25. Leave out when they gave no number."
+                    },
+                    "songs": {
+                        "type": "array",
+                        "description": "Best first, in the order to show them, up to 40. When count is set, name about half again as many (15 for 10, 8 for 5, at least 3 extra), so misses are made up: the search stops once it has count songs and keeps the first count.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": { "type": "string" },
+                                "artist": { "type": "string", "description": "The main artist, as credited on Apple Music." }
+                            },
+                            "required": ["title", "artist"]
+                        }
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "The list's title. Title Case, 2 to 4 words, no period, like \"Iconic Video Game Songs\"."
+                    }
+                },
+                "required": ["songs", "title"]
+            }
+        }),
+        json!({
+            "type": "function",
+            "name": "get_playlist_songs",
+            "description": "The songs in one Cadenza shared playlist the user is a member of, in playlist order, with who added each, plus the playlist's members. Returns the first 25 with title and artist; the user sees them as a card under your answer, so do not list them in your text. Get the id from list_playlists.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "playlist_id": { "type": "integer" }
+                },
+                "required": ["playlist_id"]
+            }
         }),
     ]
 }
@@ -656,6 +1757,207 @@ mod tests {
             (2, 1)
         );
         assert_eq!(count_yours(&[]), (0, 0));
+    }
+
+    #[test]
+    fn a_saved_querys_scope_matches_run_query() {
+        assert_eq!(
+            query_songs_for(Some(scope_of_saved(true))).ok(),
+            Some(QuerySongs::LibraryOrTagged)
+        );
+        assert_eq!(
+            query_songs_for(Some(scope_of_saved(false))).ok(),
+            Some(QuerySongs::Everything)
+        );
+    }
+
+    #[test]
+    fn applied_tags_keep_their_values() {
+        let tag = tags::Model {
+            tag_id: 7,
+            user_id: None,
+            name: "rating".into(),
+            color: "#808080".into(),
+            r#type: crate::db::entity::sea_orm_active_enums::TagType::Number,
+            is_activity: false,
+        };
+        let described = describe_applied(vec![(tag, Some("4".into()))]);
+        assert_eq!(described[0]["name"], "rating");
+        assert_eq!(described[0]["value"], "4");
+    }
+
+    #[test]
+    fn card_titles_read_like_titles() {
+        let title = |text: &str| card_title(Some(text.into()));
+        assert_eq!(title("   "), None);
+        assert_eq!(title("."), None);
+        assert_eq!(card_title(None), None);
+        assert_eq!(title("chill songs."), Some("Chill Songs".into()));
+        assert_eq!(
+            title("\"songs for the road\""),
+            Some("Songs for the Road".into())
+        );
+        assert_eq!(
+            title("the best of frank ocean"),
+            Some("The Best of Frank Ocean".into())
+        );
+        // a word already written with capitals stays as written
+        assert_eq!(
+            title("late night R&B on iPhone"),
+            Some("Late Night R&B on iPhone".into())
+        );
+        assert_eq!(title("'90s hip hop"), Some("'90s Hip Hop".into()));
+    }
+
+    #[test]
+    fn card_titles_are_cut_at_a_word() {
+        let cut = card_title(Some(
+            "songs I have played the most since the summer began last year".into(),
+        ))
+        .unwrap();
+        assert!(cut.chars().count() <= MAX_TITLE_CHARS, "{cut}");
+        assert_eq!(cut, "Songs I Have Played the Most");
+        let one_long_word = card_title(Some("a".repeat(MAX_TITLE_CHARS + 10))).unwrap();
+        assert_eq!(one_long_word.chars().count(), MAX_TITLE_CHARS);
+    }
+
+    fn song(title: &str, artist: &str) -> SongMetadata {
+        SongMetadata {
+            id: format!("{title}|{artist}"),
+            title: title.into(),
+            artist_name: artist.into(),
+            album_name: None,
+            album_id: None,
+            duration_ms: None,
+            artwork_url: None,
+            genre_names: vec![],
+            release_date: None,
+            isrc: None,
+            content_rating: None,
+        }
+    }
+
+    fn wanted(title: &str, artist: Option<&str>) -> WantedSong {
+        WantedSong {
+            title: title.into(),
+            artist: artist.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn titles_match_past_brackets_and_suffixes() {
+        assert!(titles_match("Megalovania", "MEGALOVANIA"));
+        assert!(titles_match(
+            "Baba Yetu",
+            "Baba Yetu (From \"Civilization IV\")"
+        ));
+        assert!(titles_match("Still Alive", "Still Alive - From Portal"));
+        assert!(titles_match(
+            "Don't Stop Me Now",
+            "Don’t Stop Me Now - Remastered 2011"
+        ));
+        assert!(!titles_match("Halo", "Halogen"));
+        assert!(!titles_match("Hello", "Goodbye"));
+        assert!(!titles_match("", "Anything"));
+    }
+
+    #[test]
+    fn artists_match_when_credited_among_others() {
+        assert!(artists_match("Frank Ocean", "Frank Ocean & André 3000"));
+        assert!(artists_match("koji kondo", "Koji Kondo"));
+        assert!(!artists_match("Toby Fox", "The Megalovania Tribute Band"));
+    }
+
+    #[test]
+    fn picks_the_first_real_match_or_none() {
+        let candidates = vec![
+            song("Megalovania (Metal Cover)", "Some Band"),
+            song("Megalovania", "Toby Fox"),
+        ];
+        let picked = pick_match(&wanted("Megalovania", Some("Toby Fox")), &candidates).unwrap();
+        assert_eq!(picked.artist_name, "Toby Fox");
+
+        // a cover by someone else is not the song
+        let covers = vec![song("Megalovania", "Some Band")];
+        assert_eq!(
+            pick_match(&wanted("Megalovania", Some("Toby Fox")), &covers),
+            None
+        );
+
+        // and goes back to the model as what Apple has
+        let close = close_matches(&wanted("Megalovania", Some("Toby Fox")), &covers);
+        assert_eq!(close[0]["artist"], "Some Band");
+
+        // with no artist named, the first title match
+        let any = vec![song("Other", "A"), song("Megalovania", "B")];
+        assert_eq!(
+            pick_match(&wanted("Megalovania", None), &any)
+                .unwrap()
+                .artist_name,
+            "B"
+        );
+    }
+
+    #[test]
+    fn a_rejected_token_reads_as_apple_music_being_down() {
+        let message = apple_music_down_message(
+            r#"{"error_type":"SongMetadataErr","message":"apple music returned 401: "}"#,
+        );
+        assert!(message.contains("credentials"));
+        assert!(message.contains("Do not call find_songs again"));
+        assert!(apple_music_down_message("timed out").contains("did not answer"));
+    }
+
+    #[test]
+    fn a_distinctive_title_matches_whoever_apple_credits() {
+        let wanted = wanted("Gusty Garden Galaxy", Some("Koji Kondo"));
+        let results = vec![
+            song("Gusty Garden Galaxy (Piano Version)", "Piano Person"),
+            song("Gusty Garden Galaxy", "Arcade Player"),
+        ];
+        // not by Koji Kondo, so no full match
+        assert_eq!(pick_match(&wanted, &results), None);
+        // but the same title, past the piano version, is the tune
+        assert_eq!(
+            pick_same_title(&wanted, &results, None)
+                .unwrap()
+                .artist_name,
+            "Arcade Player"
+        );
+    }
+
+    #[test]
+    fn a_title_match_must_name_the_source_when_given() {
+        let wanted = wanted("City Escape", Some("Junsuke Yoshikawa"));
+        let mut from_the_game = song("City Escape", "Crush 40");
+        from_the_game.album_name = Some("Sonic Adventure 2 Original Soundtrack".into());
+        let unrelated = song("City Escape", "The Dear Hunter");
+        let from = Some("Sonic the Hedgehog");
+        // the unrelated song comes first in Apple's results, and is still passed over
+        assert_eq!(
+            pick_same_title(&wanted, &[unrelated.clone(), from_the_game], from)
+                .unwrap()
+                .artist_name,
+            "Crush 40"
+        );
+        assert_eq!(pick_same_title(&wanted, &[unrelated], from), None);
+        assert_eq!(context_words("Sonic the Hedgehog"), ["sonic", "hedgehog"]);
+    }
+
+    #[test]
+    fn a_short_or_novelty_title_never_matches_on_title_alone() {
+        assert_eq!(
+            pick_same_title(&wanted("Theme", Some("X")), &[song("Theme", "Y")], None),
+            None
+        );
+        assert_eq!(
+            pick_same_title(
+                &wanted("Gusty Garden Galaxy", Some("X")),
+                &[song("Gusty Garden Galaxy - Lofi Remix", "Y")],
+                None
+            ),
+            None
+        );
     }
 
     #[test]

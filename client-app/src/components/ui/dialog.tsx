@@ -1,5 +1,8 @@
 import { NativeOnlyAnimatedView } from "@/components/ui/native-only-animated-view";
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { cn } from "@/lib/utils";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
@@ -64,13 +67,15 @@ function DialogContent({
     portalHost?: string;
 }) {
     const { colors } = useTheme();
+    const outlined = shouldShowGlassOutline();
 
     return (
         <DialogPortal hostName={portalHost}>
             <DialogOverlay>
                 <DialogPrimitive.Content
                     className={cn(
-                        "border-border z-50 mx-auto flex w-full max-w-[calc(100%-2rem)] flex-col gap-4 overflow-hidden rounded-lg border p-6 shadow-lg shadow-black/5 sm:max-w-lg",
+                        "z-50 mx-auto flex w-full max-w-[calc(100%-2rem)] flex-col gap-4 overflow-hidden rounded-lg p-6 shadow-lg shadow-black/5 sm:max-w-lg",
+                        outlined && "border border-border",
                         Platform.select({
                             web: "animate-in fade-in-0 zoom-in-95 duration-200",
                         }),

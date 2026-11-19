@@ -109,6 +109,8 @@ directories with only a few straightforward files do not need documentation.
 | [client-app/src/features/onboarding/README.md](client-app/src/features/onboarding/README.md)                         | Splash, login, and the Apple Music connect step                                   |
 | [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md)                   | The drag and drop boolean query tree                                              |
 | [client-app/src/features/advanced-query-builder/README.md](client-app/src/features/advanced-query-builder/README.md) | The Obsidian-style filter builder for attribute tag queries                       |
+| [client-app/src/features/live-session/README.md](client-app/src/features/live-session/README.md)                     | Live sessions: playing one on this phone, and its screens                         |
+| [client-app/src/features/shared-playlists/README.md](client-app/src/features/shared-playlists/README.md)             | Shared playlist screens                                                           |
 | [client-app/src/features/search/README.md](client-app/src/features/search/README.md)                                 | Search tab recents and the tag shelf                                              |
 | [client-app/modules/apple-musickit/README.md](client-app/modules/apple-musickit/README.md)                           | Native Apple Music auth, catalog, library, playback, mock mode                    |
 | [client-app/modules/image-color/README.md](client-app/modules/image-color/README.md)                                 | Native average color of a remote image                                            |

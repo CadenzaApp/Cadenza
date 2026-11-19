@@ -6,8 +6,11 @@ import {
     artistRouteFor,
     DIMENSIONS,
     dimensionByName,
+    matchesByName,
     playlistRouteFor,
     queryRouteFor,
+    searchTermFor,
+    sharedPlaylistRouteFor,
     type RankedEntity,
 } from "./dimensions.ts";
 import { encodeQuerySource } from "../../lib/play-source.ts";
@@ -16,7 +19,6 @@ import { encodeQuerySource } from "../../lib/play-source.ts";
 
 test("every dimension is complete enough to draw and title", () => {
     for (const dimension of DIMENSIONS) {
-        assert.ok(dimension.label.length > 0, dimension.name);
         assert.ok(dimension.pageTitle.length > 0, dimension.name);
         assert.ok(dimension.emptyLabel.length > 0, dimension.name);
     }
@@ -40,12 +42,12 @@ test("an unknown name resolves to nothing rather than a default", () => {
     assert.equal(dimensionByName("../../etc"), undefined);
 });
 
-test("songs play, every other dimension navigates", () => {
-    // a song row plays instead, which is why its href builder is null
+test("songs play, people open their profile, the rest navigate", () => {
+    // neither has an href builder: a song row plays, a person opens a profile
     for (const dimension of DIMENSIONS) {
         assert.equal(
             dimension.hrefFor === null,
-            dimension.name === "song",
+            dimension.name === "song" || dimension.person === true,
             dimension.name,
         );
     }
@@ -64,11 +66,11 @@ test("songs see all on the playable page, the rest on the shared route", () => {
     }
 });
 
-test("only artists are drawn round", () => {
+test("only artists and people are drawn round", () => {
     for (const dimension of DIMENSIONS) {
         assert.equal(
             dimension.roundArtwork,
-            dimension.name === "artist",
+            dimension.name === "artist" || dimension.person === true,
             dimension.name,
         );
     }
@@ -127,7 +129,7 @@ test("the row's own id wins over the sample track's", () => {
 
 // ----- albums -----
 
-test("an album prefers the sample track, which carries the artwork", () => {
+test("an album with no id of its own opens the sample's, with its artwork", () => {
     const route = albumRouteFor(
         entity({ label: "Punisher", sub_label: "Phoebe Bridgers" }),
         sample({
@@ -147,6 +149,19 @@ test("an album prefers the sample track, which carries the artwork", () => {
     assert.equal(route?.params.artworkUrl, "https://example.test/small.jpg");
 });
 
+test("an album's own id wins over the sample's, which might be another release", () => {
+    const route = albumRouteFor(
+        entity({ label: "Suzume - Single", entity_id: "the-single" }),
+        sample({
+            albumID: "the-soundtrack",
+            artworkUrl: "https://example.test/soundtrack.jpg",
+        }),
+    );
+    assert.equal(route?.params.id, "the-single");
+    // the soundtrack's cover would tint the single's page wrong
+    assert.equal(route?.params.artworkUrl, undefined);
+});
+
 test("an album falls back to its own id when the track did not resolve", () => {
     const route = albumRouteFor(
         entity({ label: "Punisher", entity_id: "1504438806" }),
@@ -162,7 +177,7 @@ test("an album with no id anywhere is inert", () => {
 test("an album with no label still has a title", () => {
     const route = albumRouteFor(
         entity({ label: null, entity_id: "123" }),
-        sample({ albumName: "Hellfire" }),
+        sample({ albumID: "123", albumName: "Hellfire" }),
     );
     assert.equal(route?.params.title, "Hellfire");
 
@@ -173,7 +188,10 @@ test("an album with no label still has a title", () => {
 test("only the large artwork still fills the small slot", () => {
     const route = albumRouteFor(
         entity({ entity_id: "123" }),
-        sample({ artworkUrlLarge: "https://example.test/large.jpg" }),
+        sample({
+            albumID: "123",
+            artworkUrlLarge: "https://example.test/large.jpg",
+        }),
     );
     assert.equal(route?.params.artworkUrl, "https://example.test/large.jpg");
 });
@@ -221,4 +239,63 @@ test("a query reruns with its tree and its suggested flag", () => {
 test("a query whose id is not a query is inert", () => {
     assert.equal(queryRouteFor(entity({ entity_id: "p.abc" })), null);
     assert.equal(queryRouteFor(entity()), null);
+});
+
+test("shared playlists open by their id", () => {
+    const entity = {
+        key: "7",
+        label: "Road trip",
+        sub_label: null,
+        entity_id: "7",
+    };
+    assert.deepEqual(sharedPlaylistRouteFor(entity), {
+        pathname: "/shared-playlist/[id]",
+        params: { id: "7" },
+    });
+    assert.equal(sharedPlaylistRouteFor({ ...entity, entity_id: null }), null);
+});
+
+// ----- finding a row by name -----
+
+test("an artist matches by name, case and spaces aside", () => {
+    assert.ok(matchesByName(entity(), { name: " phoebe bridgers " }));
+    assert.ok(!matchesByName(entity(), { name: "Phoebe Bridgers & Friends" }));
+});
+
+test("an album needs its artist to match too", () => {
+    const album = entity({ label: "Punisher", sub_label: "Phoebe Bridgers" });
+    assert.ok(
+        matchesByName(album, {
+            name: "Punisher",
+            artistName: "Phoebe Bridgers",
+        }),
+    );
+    assert.ok(
+        !matchesByName(album, { name: "Punisher", artistName: "Someone Else" }),
+    );
+});
+
+test("a row with no name matches nothing and searches nothing", () => {
+    const bare = entity({ label: null });
+    assert.ok(!matchesByName(bare, { name: "" }));
+    assert.equal(searchTermFor(bare), undefined);
+});
+
+test("an album searches by its name and artist", () => {
+    assert.equal(
+        searchTermFor(
+            entity({ label: "Punisher", sub_label: "Phoebe Bridgers" }),
+        ),
+        "Punisher Phoebe Bridgers",
+    );
+});
+
+test("a live session row is its host's session, and a person", () => {
+    const sessions = dimensionByName("live_session");
+    assert.equal(
+        sessions?.titleFor?.(entity({ label: "caleb" })),
+        "caleb's session",
+    );
+    assert.equal(sessions?.person, true);
+    assert.equal(sessions?.hrefFor, null);
 });

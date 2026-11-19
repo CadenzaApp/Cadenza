@@ -16,6 +16,10 @@ import {
     type PickerSection,
 } from "@/components/custom/option-picker";
 import { Button } from "@/components/ui/button";
+import {
+    FloatingTopButton,
+    HERO_BUTTON_SIZE,
+} from "@/components/ui/floating-back-button";
 import { Text } from "@/components/ui/text";
 import { METADATA_KEY_LABELS, type MetadataKey } from "@/lib/query-json";
 import {
@@ -40,6 +44,8 @@ import { TAG_TYPE_ICONS } from "@/lib/tag-values";
 import type { Tag } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+import type { MusicListArrangePlacement } from "./types";
+
 /** The song's metadata tags, in the same order the query builder offers them. */
 const METADATA_KEYS: readonly MetadataKey[] = [
     "title",
@@ -60,53 +66,49 @@ type Choice = "sort" | "group";
 type Props = {
     value: SongArrangement;
     onChange: (arrangement: SongArrangement) => void;
+    /** See `MusicListArrangement`. */
+    placement?: MusicListArrangePlacement;
 };
 
 /**
- * The floating button that opens a list's Sort by and Group by choices. Both
- * pick any tag at all, the song's metadata tags included, from a searchable
- * list, or None. Picking a field starts it in its natural direction; the
- * direction buttons below it flip that.
+ * The button that opens a list's Sort by and Group by choices, in the bottom
+ * row or the top right corner (`placement`). Both pick any tag at all, the
+ * song's metadata tags included, from a searchable list, or None. Picking a
+ * field starts it in its natural direction; the direction buttons below it
+ * flip that.
  */
-export function MusicListArrangeButton({ value, onChange }: Props) {
+export function MusicListArrangeButton({
+    value,
+    onChange,
+    placement = "bottom",
+}: Props) {
     const { colors } = useTheme();
     const [open, setOpen] = useState(false);
     const arranged = isArranged(value);
     const openSort = useCallback(() => setOpen(true), []);
-    const rowAction = useMemo(
-        () => ({
-            expanded: open,
-            onPress: openSort,
-            icon: arranged ? ("funnel" as const) : ("funnel-outline" as const),
-            accessibilityLabel: arranged
-                ? "Sort and group, on"
-                : "Sort and group",
-        }),
-        [arranged, open, openSort],
-    );
-    const showLocal = useBottomRowActionButton(rowAction);
+    const icon = arranged ? ("funnel" as const) : ("funnel-outline" as const);
+    const label = arranged ? "Sort and group, on" : "Sort and group";
 
     return (
         <>
-            {showLocal ? (
-                <ScreenFloatingBubble
-                    size={PLAYER_CONTROL_SIZE}
-                    bordered={false}
-                    shadow={false}
-                    rightOffset={BOTTOM_ACTION_RIGHT_OFFSET}
-                    onPress={openSort}
-                    accessibilityLabel={
-                        arranged ? "Sort and group, on" : "Sort and group"
-                    }
+            {placement === "top-right" ? (
+                <FloatingTopButton
+                    side="right"
+                    size={HERO_BUTTON_SIZE}
+                    accessibilityLabel={label}
                     accessibilityState={{ expanded: open }}
+                    onPress={openSort}
                 >
-                    <Ionicons
-                        name={arranged ? "funnel" : "funnel-outline"}
-                        size={28}
-                        color={colors.text}
-                    />
-                </ScreenFloatingBubble>
-            ) : null}
+                    <Ionicons name={icon} size={22} color={colors.text} />
+                </FloatingTopButton>
+            ) : (
+                <BottomRowButton
+                    icon={icon}
+                    label={label}
+                    expanded={open}
+                    onPress={openSort}
+                />
+            )}
 
             {open ? (
                 <ArrangeSheet
@@ -116,6 +118,44 @@ export function MusicListArrangeButton({ value, onChange }: Props) {
                 />
             ) : null}
         </>
+    );
+}
+
+/**
+ * The button in the shared bottom row, or floating on its own where the
+ * screen has no row.
+ */
+function BottomRowButton({
+    icon,
+    label,
+    expanded,
+    onPress,
+}: {
+    icon: "funnel" | "funnel-outline";
+    label: string;
+    expanded: boolean;
+    onPress: () => void;
+}) {
+    const { colors } = useTheme();
+    const rowAction = useMemo(
+        () => ({ expanded, onPress, icon, accessibilityLabel: label }),
+        [expanded, onPress, icon, label],
+    );
+    const showLocal = useBottomRowActionButton(rowAction);
+    if (!showLocal) return null;
+
+    return (
+        <ScreenFloatingBubble
+            size={PLAYER_CONTROL_SIZE}
+            bordered={false}
+            shadow={false}
+            rightOffset={BOTTOM_ACTION_RIGHT_OFFSET}
+            onPress={onPress}
+            accessibilityLabel={label}
+            accessibilityState={{ expanded }}
+        >
+            <Ionicons name={icon} size={28} color={colors.text} />
+        </ScreenFloatingBubble>
     );
 }
 

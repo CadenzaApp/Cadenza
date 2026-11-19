@@ -1,93 +1,133 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { forwardRef } from "react";
-import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
+import { withAlpha } from "@/lib/artwork-color";
 import { useAppTheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 
-const FIELD_HEIGHT = 44;
-const FIELD_RADIUS = FIELD_HEIGHT / 2;
+/** Height, text size, and icon size per `size`. */
+const SIZES = {
+    md: { height: 44, fontSize: 16, icon: 17 },
+    sm: { height: 36, fontSize: 14, icon: 15 },
+} as const;
+
+export type SearchFieldSize = keyof typeof SIZES;
 /**
- * Lifts the text off the true center. A line box centers on its font metrics,
- * descender space included, so text with no descenders in it reads low.
+ * `glass` is a pill of clear glass, for a field on the page itself. `outline`
+ * is a hairline ring with no fill, for a field already on a glass panel or a
+ * popup, where more glass would stack.
  */
-const TEXT_NUDGE_Y = -3;
+export type SearchFieldSurface = "glass" | "outline";
 
 type Props = {
     value: string;
     onChangeText: (text: string) => void;
-    onSubmit: () => void;
+    placeholder: string;
+    onSubmit?: () => void;
     onFocus?: () => void;
-    onClear: () => void;
-    placeholder?: string;
+    /** Defaults to emptying the text. */
+    onClear?: () => void;
+    /** Defaults to `md`. */
+    size?: SearchFieldSize;
+    /** Defaults to `glass`. */
+    surface?: SearchFieldSurface;
     editable?: boolean;
     autoFocus?: boolean;
+    /** Defaults to the placeholder. */
+    accessibilityLabel?: string;
+    /** Classes for the pill, like `flex-1` in a row. */
+    className?: string;
 };
 
 /**
- * The search pill.
+ * The one search bar. Every search in the app is this, with its own
+ * placeholder and handlers; `size` and `surface` fit it to where it sits.
+ *
+ * Text centering: the input has a font size and nothing else, no line height
+ * and no vertical padding, and fills the pill's height, so iOS centers the
+ * text in it itself. The placeholder is drawn here rather than by the native
+ * field, centered by flexbox, so it sits exactly where typed text does.
  *
  * The glass is an absolutely positioned layer behind the content, the way
- * `GlassIconButton` does it, and the wrapper owns the size, the radius, and
- * the clip. A native glass view given children and no size of its own collapses
- * instead of laying them out, which is what broke the first version of this.
- *
- * A bare `TextInput` rather than `@/components/ui/input`: that primitive is a
- * bordered, filled form field, and every one of its base classes would have to
- * be overridden here.
+ * `GlassIconButton` does it: a native glass view given children and no size
+ * of its own collapses instead of laying them out.
  */
 export const SearchField = forwardRef<TextInput, Props>(function SearchField(
     {
         value,
         onChangeText,
+        placeholder,
         onSubmit,
         onFocus,
         onClear,
-        placeholder = "Artists and Songs",
+        size = "md",
+        surface = "glass",
         editable = true,
         autoFocus = false,
+        accessibilityLabel,
+        className,
     },
     ref,
 ) {
-    const { colors: palette } = useAppTheme();
+    const { colors } = useAppTheme();
+    const { height, fontSize, icon } = SIZES[size];
+    const radius = height / 2;
+    const text = { fontSize, paddingVertical: 0, paddingHorizontal: 0 };
 
     return (
         <View
-            className="flex-1 justify-center overflow-hidden"
-            style={{ height: FIELD_HEIGHT, borderRadius: FIELD_RADIUS }}
+            className={cn(
+                "flex-row items-center gap-2 overflow-hidden px-4",
+                editable === false && surface === "outline" && "opacity-50",
+                className,
+            )}
+            style={[
+                { height, borderRadius: radius },
+                surface === "outline" && {
+                    borderWidth: StyleSheet.hairlineWidth * 2,
+                    borderColor: withAlpha(colors.mutedForeground, 0.55),
+                },
+            ]}
         >
-            {/* Off the touch path: a native glass view may not honor
-                `pointerEvents` itself, and it would swallow the taps. */}
-            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                <GlassSurface
-                    variant="clear"
-                    style={[
-                        StyleSheet.absoluteFill,
-                        { borderRadius: FIELD_RADIUS },
-                    ]}
-                />
-            </View>
+            {surface === "glass" ? (
+                // off the touch path: a native glass view may not honor
+                // `pointerEvents` itself, and it would swallow the taps
+                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                    <GlassSurface
+                        variant="clear"
+                        style={[
+                            StyleSheet.absoluteFill,
+                            { borderRadius: radius },
+                        ]}
+                    />
+                </View>
+            ) : null}
 
-            <View className="flex-row items-center gap-2 px-4">
-                <Ionicons
-                    name="search"
-                    size={17}
-                    color={palette.mutedForeground}
-                />
+            <Ionicons
+                name="search"
+                size={icon}
+                color={colors.mutedForeground}
+            />
+            <View className="h-full flex-1 justify-center">
+                {value.length === 0 ? (
+                    <View
+                        pointerEvents="none"
+                        className="absolute inset-0 justify-center"
+                    >
+                        <Text
+                            numberOfLines={1}
+                            style={[text, { color: colors.mutedForeground }]}
+                        >
+                            {placeholder}
+                        </Text>
+                    </View>
+                ) : null}
                 <TextInput
                     ref={ref}
-                    // No height of its own: the row centers it. A fixed height
-                    // on a TextInput leaves the text sitting high, because the
-                    // platform pads the text box rather than centering it.
-                    style={{
-                        color: palette.foreground,
-                        paddingVertical: 0,
-                        includeFontPadding: false,
-                        transform: [{ translateY: TEXT_NUDGE_Y }],
-                    }}
-                    className="flex-1 text-base"
-                    placeholder={placeholder}
-                    placeholderTextColor={palette.mutedForeground}
+                    style={[text, { height, color: colors.foreground }]}
+                    accessibilityLabel={accessibilityLabel ?? placeholder}
                     value={value}
                     onChangeText={onChangeText}
                     onFocus={onFocus}
@@ -99,22 +139,22 @@ export const SearchField = forwardRef<TextInput, Props>(function SearchField(
                     autoCapitalize="none"
                     clearButtonMode="never"
                 />
-                {value.length > 0 ? (
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Clear search text"
-                        onPress={onClear}
-                        hitSlop={10}
-                        className="active:opacity-60"
-                    >
-                        <Ionicons
-                            name="close-circle"
-                            size={18}
-                            color={palette.mutedForeground}
-                        />
-                    </Pressable>
-                ) : null}
             </View>
+            {value.length > 0 && editable ? (
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear search text"
+                    onPress={onClear ?? (() => onChangeText(""))}
+                    hitSlop={10}
+                    className="active:opacity-60"
+                >
+                    <Ionicons
+                        name="close-circle"
+                        size={icon + 1}
+                        color={colors.mutedForeground}
+                    />
+                </Pressable>
+            ) : null}
         </View>
     );
 });

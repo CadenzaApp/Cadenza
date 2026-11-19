@@ -1,0 +1,162 @@
+import { useRoute, useRouter, type Href } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { Platform, View } from "react-native";
+
+import { DetailScreen } from "@/components/ui/detail-screen";
+import { GlassButton } from "@/components/ui/glass-button";
+import { GlassInput } from "@/components/ui/glass-input";
+import { Text } from "@/components/ui/text";
+import { useOpenScreen } from "@/lib/open-screen";
+import {
+    cleanInviteCode,
+    INVITE_CODE_LENGTH,
+    useRedeemInvite,
+} from "@/lib/routes/invites";
+import { useLiveSessionWrites } from "@/lib/routes/live-sessions";
+
+import { useCurrentLiveSession } from "./use-current-session";
+
+/** One line for each way a redeem can fail. */
+function failureMessage(error: unknown): string {
+    const type = (error as { error_type?: string } | null)?.error_type;
+    switch (type) {
+        case "InviteCodeInvalid":
+            return "That code is not valid any more.";
+        case "TooManyRequests":
+            return "Too many tries. Wait a minute.";
+        case "Forbidden":
+            return "You can't join this session.";
+        case "SessionEnded":
+            return "That session has ended.";
+        default:
+            return "Couldn't reach Cadenza. Try again.";
+    }
+}
+
+/**
+ * Enter an invite code for a live session or a shared playlist. With
+ * `initialCode`, from a `cadenza://join/CODE` link, it redeems straight away.
+ * A session opens in its sheet; a playlist opens in the tab underneath. A code
+ * into another session takes the caller out of the one they were in, which
+ * Listening now's Join with code warned about.
+ */
+export function JoinScreen({ initialCode }: { initialCode?: string }) {
+    const router = useRouter();
+    const route = useRoute();
+    const openScreen = useOpenScreen();
+    const { redeemInvite, redeemInviteLoading } = useRedeemInvite();
+    const current = useCurrentLiveSession();
+    const { leaveSession } = useLiveSessionWrites(
+        current?.session_id ?? "none",
+    );
+    const [code, setCode] = useState(() => cleanInviteCode(initialCode ?? ""));
+    const [error, setError] = useState<string | null>(null);
+    const autoTried = useRef(false);
+
+    const complete = code.length === INVITE_CODE_LENGTH;
+
+    /** Where a redeemed code goes: a session's sheet, or the playlist. */
+    async function open(target: { kind: string; id: string }) {
+        if (target.kind === "live_session") {
+            // one session at a time: the new one, not the old one too
+            if (current && current.session_id !== target.id) {
+                try {
+                    await leaveSession();
+                } catch (error) {
+                    console.warn("Could not leave the last session:", error);
+                }
+            }
+            router.replace("/player");
+        } else {
+            openScreen(`/shared-playlist/${target.id}` as Href, {
+                closing: route.name,
+            });
+        }
+    }
+
+    async function join(value = code) {
+        if (value.length !== INVITE_CODE_LENGTH || redeemInviteLoading) return;
+        try {
+            await open(await redeemInvite({ code: value }));
+        } catch (failure) {
+            setError(failureMessage(failure));
+        }
+    }
+
+    // a deep link redeems on open, once
+    useEffect(() => {
+        if (autoTried.current || !initialCode) return;
+        autoTried.current = true;
+        const cleaned = cleanInviteCode(initialCode);
+        if (cleaned.length !== INVITE_CODE_LENGTH) return;
+        void (async () => {
+            try {
+                await open(await redeemInvite({ code: cleaned }));
+            } catch (failure) {
+                setError(failureMessage(failure));
+            }
+        })();
+        // runs once for the link it opened with
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    return (
+        <DetailScreen presentation="sheet" title="Join with a code">
+            <View className="gap-4 px-5 pt-2">
+                <Text className="text-sm leading-5 text-muted-foreground">
+                    Join a live listening session with a friend.
+                </Text>
+                <Text className="text-sm leading-5 text-muted-foreground">
+                    Enter the 8 character code a friend sent you for a live
+                    session or a playlist.
+                </Text>
+                <GlassInput
+                    accessibilityLabel="Invite code"
+                    accessibilityHint="8 letters and numbers"
+                    value={
+                        code.length > 4
+                            ? `${code.slice(0, 4)}-${code.slice(4)}`
+                            : code
+                    }
+                    onChangeText={(text) => {
+                        setError(null);
+                        setCode(cleanInviteCode(text));
+                    }}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    autoFocus={!initialCode}
+                    textContentType="oneTimeCode"
+                    returnKeyType="go"
+                    onSubmitEditing={() => {
+                        setError(null);
+                        void join();
+                    }}
+                    className="text-center text-2xl tracking-[6px]"
+                    style={{
+                        fontFamily:
+                            Platform.OS === "ios" ? "Menlo" : "monospace",
+                    }}
+                />
+                {error ? (
+                    <Text
+                        accessibilityRole="alert"
+                        className="text-sm text-destructive"
+                    >
+                        {error}
+                    </Text>
+                ) : null}
+                <GlassButton
+                    disabled={!complete || redeemInviteLoading}
+                    onPress={() => {
+                        setError(null);
+                        void join();
+                    }}
+                >
+                    <Text className="font-semibold text-foreground">
+                        {redeemInviteLoading ? "Joining..." : "Join"}
+                    </Text>
+                </GlassButton>
+            </View>
+        </DetailScreen>
+    );
+}

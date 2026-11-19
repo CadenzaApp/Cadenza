@@ -6,47 +6,58 @@ logic out.
 
 ## Files
 
-| file                                                                          | route                     | role                                                                                                                                                         |
-| ----------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `_layout.tsx`                                                                 | root                      | Provider stack, theme, the root `Stack` navigator, and `PortalHost`.                                                                                         |
-| `(splashscreen)/index.tsx`                                                    | `/`                       | `SplashScreen` from `@/features/onboarding`. Restores the session, then replaces to the onboarding step.                                                     |
-| `auth/index.tsx`                                                              | `/auth`                   | Onboarding step one, sign in / sign up. Takes an `initialMode` search param.                                                                                 |
-| `auth/apple-music.tsx`                                                        | `/auth/apple-music`       | Onboarding step two, connect Apple Music. Back signs out.                                                                                                    |
-| `reconnect-apple-music.tsx`                                                   | `/reconnect-apple-music`  | The same connect page as a modal, opened when Apple drops the connection.                                                                                    |
-| `(tabs)/_layout.tsx`                                                          |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                                                                        |
-| `(tabs)/(<tab>)/_layout.tsx`                                                  |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                                                                        |
-| `(tabs)/(social)/social/index.tsx`                                            | `/social`                 | The ranked social feed.                                                                                                                                      |
-| `(tabs)/(social)/social/friends.tsx`                                          | `/social/friends`         | Incoming requests, then outgoing requests, then friends. Opened from the feed header.                                                                        |
-| `(tabs)/(social)/social/notifications.tsx`                                    | `/social/notifications`   | The signed-in user's notifications, from `GET /social/notifications`. A received friend request has accept and ignore. Opened from the bell next to Friends. |
-| `(tabs)/(social)/social/user/[userId].tsx`                                    | `/social/user/:userId`    | One user's public profile (username, bio) and their posts, newest first. Your own page edits both.                                                           |
-| `(tabs)/(analytics)/analytics/index.tsx`                                      | `/analytics`              | The overview: header, #1 hero, stats, heatmap, tag rail, and one card for every ranking.                                                                     |
-| `(tabs)/(analytics)/analytics/[dimension].tsx`                                | `/analytics/[dimension]`  | One full ranking. `dimension` is a name from the client's dimension registry.                                                                                |
-| `(tabs)/(analytics)/analytics/listened.tsx`                                   | `/analytics/listened`     | The songs listened to in one heatmap hour. Params: `since`, `until`, `title`, optional `tag`.                                                                |
-| `(tabs)/(cadenza)/cadenza/index.tsx`                                          | `/cadenza`                | The simple / advanced query workspace and shared result preview.                                                                                             |
-| `(tabs)/(library)/library/index.tsx`                                          | `/library`                | Library index: a row per category, then Recently Added.                                                                                                      |
-| `(tabs)/(library)/library/category/[kind].tsx`                                | `/library/category/:kind` | One library category.                                                                                                                                        |
-| `(tabs)/(search)/search/index.tsx`                                            | `/search`                 | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs).                                                |
-| `(tabs)/(analytics,cadenza,library,search,social)/collection/[kind]/[id].tsx` | `/collection/:kind/:id`   | The songs in one album or playlist.                                                                                                                          |
-| `(tabs)/(analytics,cadenza,library,search,social)/tag/[tagId].tsx`            | `/tag/:tagId`             | One tag and the songs carrying it.                                                                                                                           |
-| `(tabs)/(analytics,cadenza,library,search,social)/artist/[id].tsx`            | `/artist/:id`             | One catalog artist: the artist image and a play button, top songs, then an albums rail.                                                                      |
-| `(tabs)/(analytics,cadenza,library,search,social)/discuss/[songId].tsx`       | `/discuss/:songId`        | Posts about one song, outside the now playing sheet.                                                                                                         |
-| `(tabs)/(analytics,cadenza,library,search,social)/query-results.tsx`          | `/query-results`          | Query matches.                                                                                                                                               |
-| `account.tsx`                                                                 | `/account`                | Account sheet. Wires `AccountSettingsScreen`.                                                                                                                |
-| `appearance.tsx`                                                              | `/appearance`             | Appearance sheet: mode, accent, glass. Wires `AppearanceSettingsScreen`.                                                                                     |
-| `apple-music.tsx`                                                             | `/apple-music`            | Apple Music sheet: status, sync, connect, disconnect.                                                                                                        |
-| `listening-preferences.tsx`                                                   | `/listening-preferences`  | Tag suggestions and Hide explicit content toggles.                                                                                                           |
-| `privacy.tsx`                                                                 | `/privacy`                | What Cadenza stores. Read only.                                                                                                                              |
-| `account-details.tsx`                                                         | `/account-details`        | Username and bio editor, Your data, sign out.                                                                                                                |
-| `your-data.tsx`                                                               | `/your-data`              | Everything Cadenza keeps about you, and Delete account (not wired up yet).                                                                                   |
-| `apple-music-limits.tsx`                                                      | `/apple-music-limits`     | What Apple does not let Cadenza do. Read only.                                                                                                               |
-| `player/_layout.tsx`                                                          | `/player/*`               | Now playing sheet shell and provider stack for its always-mounted horizontal pager.                                                                          |
-| `player/index.tsx`                                                            | `/player`                 | Opens the always-mounted player pager with Player selected.                                                                                                  |
-| `player/discuss.tsx`                                                          | `/player/discuss`         | Opens the same pager with Discuss selected and optional focused-song params.                                                                                 |
-| `player/tags.tsx`                                                             | `/player/tags`            | Opens the same pager with Tags selected and optional focused-song params.                                                                                    |
-| `library-categories.tsx`                                                      | `/library-categories`     | Sheet that picks which rows the library shows.                                                                                                               |
-| `add-to-playlist.tsx`                                                         | `/add-to-playlist`        | Sheet that picks a library playlist for a song, or makes one.                                                                                                |
-| `assistant.tsx`                                                               | `/assistant`              | The assistant chat sheet. Wires `AssistantChat`. Opened from the button at the right end of the bottom row, on every screen in the tabs.                     |
-| `+not-found.tsx`                                                              |                           | 404.                                                                                                                                                         |
+| file                                                                                | route                          | role                                                                                                                                      |
+| ----------------------------------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `_layout.tsx`                                                                       | root                           | Provider stack, theme, the root `Stack` navigator, and `PortalHost`.                                                                      |
+| `(splashscreen)/index.tsx`                                                          | `/`                            | `SplashScreen` from `@/features/onboarding`. Restores the session, then replaces to the onboarding step.                                  |
+| `auth/index.tsx`                                                                    | `/auth`                        | Onboarding step one, sign in / sign up. Takes an `initialMode` search param.                                                              |
+| `auth/apple-music.tsx`                                                              | `/auth/apple-music`            | Onboarding step two, connect Apple Music. Back signs out.                                                                                 |
+| `reconnect-apple-music.tsx`                                                         | `/reconnect-apple-music`       | The same connect page as a modal, opened when Apple drops the connection.                                                                 |
+| `(tabs)/_layout.tsx`                                                                |                                | Protected native tab group, its five triggers, and the media-player bottom accessory.                                                     |
+| `(tabs)/(<tab>)/_layout.tsx`                                                        |                                | One native `Stack` per tab, using `TabStack` for the shared top rail.                                                                     |
+| `(tabs)/(social)/social/index.tsx`                                                  | `/social`                      | The Social tab: nebula-backed transparent feed, Listening now stories, an accordion composer, and a For you / Friends underline switcher. |
+| `(tabs)/(social)/social/friends.tsx`                                                | `/social/friends`              | Requests, listening now, friends, sent. Opened from the Social options menu.                                                              |
+| `(tabs)/(social)/social/notifications.tsx`                                          | `/social/notifications`        | Your notifications. A friend request has accept and ignore. Opened from the bell.                                                         |
+| `(tabs)/(social)/social/user/[userId].tsx`                                          | `/social/user/:userId`         | One user's public profile: username, bio, listening, shared playlists and queries, then posts. Your own page edits the first two.         |
+| `(tabs)/(social)/social/listening.tsx`                                              | `/social/listening`            | Every friend listening, from See all.                                                                                                     |
+| `(tabs)/(social)/social/playlists.tsx`                                              | `/social/playlists`            | The caller's shared playlists. + and Enter code in the rail. The same list is in Library > Playlists.                                     |
+| `(tabs)/(social)/social/library/[kind].tsx`                                         | `/social/library/:kind`        | A Library section on the Social stack, from a profile's See all, so back returns to the profile.                                          |
+| `live-session/new.tsx`                                                              | `/live-session/new`            | Sheet. Go live, or `?edit=1` for the session's settings.                                                                                  |
+| `live-session/[id].tsx`                                                             | `/live-session/:id`            | Sheet. Hands an open session to `/player`; says when one is over.                                                                         |
+| `join/index.tsx`, `join/[code].tsx`                                                 | `/join`, `/join/:code`         | Sheet. Join with an invite code. `cadenza://join/CODE` lands on the second and redeems at once.                                           |
+| `(tabs)/(analytics)/analytics/index.tsx`                                            | `/analytics`                   | The overview: header, #1 hero, stats, heatmap, tag rail, and one card for every ranking.                                                  |
+| `(tabs)/(analytics)/analytics/[dimension].tsx`                                      | `/analytics/[dimension]`       | One full ranking. `dimension` is a name from the client's dimension registry.                                                             |
+| `(tabs)/(analytics)/analytics/listened.tsx`                                         | `/analytics/listened`          | The songs listened to in one heatmap hour. Params: `since`, `until`, `title`, optional `tag`.                                             |
+| `(tabs)/(cadenza)/cadenza/index.tsx`                                                | `/cadenza`                     | The simple / advanced query workspace and shared result preview.                                                                          |
+| `(tabs)/(library)/library/index.tsx`                                                | `/library`                     | Library index: a row per category, then Recently Added.                                                                                   |
+| `(tabs)/(library)/library/category/[kind].tsx`                                      | `/library/category/:kind`      | One library category.                                                                                                                     |
+| `(tabs)/(search)/search/index.tsx`                                                  | `/search`                      | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs).                             |
+| `(tabs)/(analytics,cadenza,library,search,social)/collection/[kind]/[id].tsx`       | `/collection/:kind/:id`        | The songs in one album or playlist.                                                                                                       |
+| `(tabs)/(analytics,cadenza,library,search,social)/tag/[tagId].tsx`                  | `/tag/:tagId`                  | One tag and the songs carrying it.                                                                                                        |
+| `(tabs)/(analytics,cadenza,library,search,social)/artist/[id].tsx`                  | `/artist/:id`                  | One catalog artist: the artist image and a play button, top songs, then an albums rail with release month and year when available.        |
+| `(tabs)/(analytics,cadenza,library,search,social)/shared-playlist/[id].tsx`         | `/shared-playlist/:id`         | One shared playlist on `TrackCollectionView`, in the tab it opens from. Draws its own header.                                             |
+| `(tabs)/(analytics,cadenza,library,search,social)/shared-playlist/[id]/members.tsx` | `/shared-playlist/:id/members` | Members, roles, invite, add friends.                                                                                                      |
+| `(tabs)/(analytics,cadenza,library,search,social)/shared-playlist/[id]/reorder.tsx` | `/shared-playlist/:id/reorder` | Drag songs into a new order.                                                                                                              |
+| `(tabs)/(analytics,cadenza,library,search,social)/discuss/[songId].tsx`             | `/discuss/:songId`             | Posts about one song, outside the now playing sheet.                                                                                      |
+| `(tabs)/(analytics,cadenza,library,search,social)/query-results.tsx`                | `/query-results`               | Query matches.                                                                                                                            |
+| `(tabs)/(analytics,cadenza,library,search,social)/song-list.tsx`                    | `/song-list`                   | Songs by id from the AI Assistant's card (Open list), up to 250, sortable. Plays are not credited to a query.                             |
+| `account.tsx`                                                                       | `/account`                     | Account sheet. Wires `AccountSettingsScreen`.                                                                                             |
+| `assistant.tsx`                                                                     | `/assistant`                   | The assistant chat sheet. Wires `AssistantChat`. Opened from the button at the right end of the bottom row, on every screen in the tabs.  |
+| `appearance.tsx`                                                                    | `/appearance`                  | Appearance sheet: mode, accent, glass. Wires `AppearanceSettingsScreen`.                                                                  |
+| `apple-music.tsx`                                                                   | `/apple-music`                 | Apple Music sheet: status, sync, connect, disconnect.                                                                                     |
+| `listening-preferences.tsx`                                                         | `/listening-preferences`       | Tag suggestions and Hide explicit content toggles.                                                                                        |
+| `sharing.tsx`                                                                       | `/sharing`                     | Who sees your listening and profile, and who can join or add you. Wires `SharingSettingsScreen`.                                          |
+| `privacy.tsx`                                                                       | `/privacy`                     | What Cadenza stores. Read only.                                                                                                           |
+| `account-details.tsx`                                                               | `/account-details`             | Username and bio editor, Your data, sign out.                                                                                             |
+| `your-data.tsx`                                                                     | `/your-data`                   | Everything Cadenza keeps about you, and Delete account (not wired up yet).                                                                |
+| `apple-music-limits.tsx`                                                            | `/apple-music-limits`          | What Apple does not let Cadenza do. Read only.                                                                                            |
+| `player/_layout.tsx`                                                                | `/player/*`                    | Now playing sheet shell and provider stack for its always-mounted horizontal pager.                                                       |
+| `player/index.tsx`                                                                  | `/player`                      | Opens the always-mounted player pager with Player selected.                                                                               |
+| `player/discuss.tsx`                                                                | `/player/discuss`              | Opens the same pager with Discuss selected and optional focused-song params.                                                              |
+| `player/tags.tsx`                                                                   | `/player/tags`                 | Opens the same pager with Tags selected and optional focused-song params.                                                                 |
+| `library-categories.tsx`                                                            | `/library-categories`          | Sheet that picks which rows the library shows.                                                                                            |
+| `add-to-playlist.tsx`                                                               | `/add-to-playlist`             | Sheet that picks a library playlist for a song, or makes one.                                                                             |
+| `+not-found.tsx`                                                                    |                                | 404.                                                                                                                                      |
 
 `(splashscreen)`, `(tabs)`, and each `(<tab>)` are route groups, so the parentheses do not appear in
 the url. `(analytics,cadenza,library,search,social)` is a shared group: its routes exist once in
@@ -112,8 +123,7 @@ they are root stack routes. The splash screen owns session restore, which is why
 
 ## Native tabs and the mini player
 
-`(tabs)/_layout.tsx` uses SDK 58's `expo-router/native-tabs` API. The five `NativeTabs.Trigger` declarations are the tab order. Search uses the
-native `search` role, and iOS 26 draws the system Liquid Glass tab bar without an app-owned
+`(tabs)/_layout.tsx` uses SDK 58's `expo-router/native-tabs` API. The five `NativeTabs.Trigger` declarations are the tab order. Search uses a regular tab role so all five items share one bar. iOS 26 draws the system Liquid Glass tab bar without an app-owned
 background or selection bubble.
 
 On iOS 26+, expanded playback uses `NativeTabs.BottomAccessory` with
@@ -154,11 +164,11 @@ and older iOS get a plain push.
 
 Every tab is a group with a native `Stack` from `TabStack`. `TopRail` is that stack's
 header. The page title sits on the left, the account
-initials button sits on the right, and the button opens `/account`. The Social feed
-adds a friends button, a notifications button, and a "Me" button next to create
-post. Friends opens `/social/friends`. Notifications, the bell beside Friends,
-opens `/social/notifications`. Me pushes `/social/user/:userId` on the social
-stack.
+initials button sits on the right, and the button opens `/account`. The Social tab adds
+a notifications bell and an overflow menu. The menu opens the caller's profile or friends.
+Starting or joining a live session is only on the + of Your listening, the first bubble in
+Listening now; the bell opens `/social/notifications`. New posts are written
+in a composer at the top of the feed that opens in place.
 
 The rail floats over the page; it is not part of it. The screen's scroller pads its content's top
 by the rail's measured height plus `RAIL_CONTENT_GAP`, the same on every page, replacing the page's
@@ -182,15 +192,19 @@ shared suggested-tag matching scope.
 ## Sheets
 
 The settings routes (`/account`, `/apple-music`, `/listening-preferences`, `/appearance`,
-`/privacy`, `/account-details`, `/your-data`, `/apple-music-limits`), the two pickers
-(`/library-categories`, `/add-to-playlist`), and `/player` are sheets. A sheet is a native surface
+`/sharing`, `/privacy`, `/account-details`, `/your-data`, `/apple-music-limits`), the two pickers
+(`/library-categories`, `/add-to-playlist`), `/player`, the live session sheets
+(`/live-session/new`, `/live-session/:id`), and the join sheets (`/join`, `/join/:code`) are
+sheets. A sheet is a native surface
 over the whole app, so it covers the primary native tab bar and compact player while leaving them
 mounted underneath. Every settings sheet stacks from Account and keeps the same modal context. They are presented
 with `sheetScreenOptions` from `@/lib/theme`, the single definition of what a sheet looks like:
 a rounded `formSheet` at the `SHEET_DETENT` detent with a visible native grabber. That detent is
 `1`, the system's large one, so a sheet is full width, runs to the bottom edge, and stops just
 below the status bar. Anything smaller gets iOS 26's inset card, which leaves gaps down the
-sides and along the bottom. Either closes with the X or a drag down.
+sides and along the bottom. Either closes with the X or a drag down. For a short list that should
+stop partway up, like a live session's Requests over the player, use `BottomSheet`
+(`components/custom/bottom-sheet.tsx`), which the app draws full width and flush with the bottom.
 
 Open a detail screen with `useOpenScreen` (`@/lib/open-screen`) or a `ZoomTile`, not
 `router.push`. `useOpenScreen` resets the current tab's stack: opening one already on it goes back
@@ -216,7 +230,7 @@ replace whatever is playing. The sheet's own Discuss page is still the pager tab
 song the sheet is focused on. Tapping an author on either Discuss surface closes that
 screen and opens `/social/user/:userId` on the Social tab, with the feed still underneath.
 Account details' "View public profile" row uses that same navigation for your own page. The
-Social feed's "Me" button pushes `/social/user/:userId` on the social stack, like a feed author
+Social tab's overflow menu pushes `/social/user/:userId` on the social stack, like a feed author
 tap. Your own public page is read only; its Edit button opens `/account-details`, the only place a
 username and bio are edited.
 Song menus edit tags in their own `TagSelector` popup
@@ -226,7 +240,7 @@ The player sheet paints one tint in `DetailScreen`, behind its header and the tr
 All three pages stay mounted side by side, so a swipe reveals live adjacent content continuously
 instead of navigating after a threshold. The custom glass selector follows the same scroll offset.
 
-`/artist/:id`, `/collection/:kind/:id`, `/tag/:tagId`, and `/query-results` use the
+`/artist/:id`, `/collection/:kind/:id`, `/tag/:tagId`, `/query-results`, and `/song-list` use the
 shared `TrackCollectionView` instead of a `DetailScreen` header, and float a
 `FloatingBackButton` in the top left. The artist supplies a `BlendedCover` of its portrait and an
 albums rail as custom header and footer content. The collection uses the standard single-cover

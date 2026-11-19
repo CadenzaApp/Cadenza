@@ -1,48 +1,105 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation, useRouter, type Href } from "expo-router";
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import { FlatList, Pressable, View, type ListRenderItem } from "react-native";
-import Animated from "react-native-reanimated";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import Animated, {
+    useAnimatedScrollHandler,
+    useAnimatedStyle,
+    useSharedValue,
+} from "react-native-reanimated";
+import { withAlpha } from "@/lib/artwork-color";
 
+import { Toast, useToast } from "@/components/custom/toast";
 import { Button } from "@/components/ui/button";
+import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
+import { type SegmentOption } from "@/components/ui/segmented-control";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import {
+    useBlockUser,
     useCancelFriendRequest,
+    useFavoriteFriend,
+    usePost,
     useRequestFriend,
     useUserPosts,
+    useUserReplies,
 } from "@/lib/routes/social";
+import { useAppTheme } from "@/lib/theme";
+import type { SocialReply } from "@/lib/types";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 
-import { initialsFromUsername } from "./format";
+import { FriendOptionsMenu, type FriendMenuTarget } from "./FriendOptionsMenu";
+import { formatRelativeTime, initialsFromUsername } from "./format";
+import { ProfileListening } from "./ListeningNow";
 import { PostCard } from "./PostCard";
+import { PostCommentsDialog } from "./PostCommentsDialog";
+import { ProfileShelves } from "./ProfileShelves";
 import type { SocialPost } from "./types";
 
 type Props = {
     userId: string;
 };
 
+type ProfileTab = "posts" | "replies";
+
+const PROFILE_TABS: readonly SegmentOption<ProfileTab>[] = [
+    { value: "posts", label: "Posts" },
+    { value: "replies", label: "Replies" },
+];
+
+type ProfileRow =
+    | { kind: "post"; post: SocialPost }
+    | { kind: "reply"; reply: SocialReply };
+
 /**
- * One user's public profile: avatar, username, bio, then their posts newest
- * first. Opened by tapping an author on the feed, the feed's Me button,
- * account details, or from Discuss, which closes itself and lands here on the
- * Social tab. On your own page, Edit opens account details, the one place
+ * One user's public profile: avatar, username, bio, what they are playing and
+ * their recent plays, their shared playlists and shared queries, then their
+ * posts or their replies, newest first, picked by a Posts / Replies switch.
+ * Each part above the posts shows as their privacy settings allow. Tapping a
+ * reply opens its post's comments. Opened by tapping an author on the feed,
+ * the feed's My profile card, account details, or from Discuss, which closes
+ * itself and lands here on the Social tab. On your own page, Edit opens account details, the one place
  * a username and bio are edited. Under the avatar and username is how many
  * friends they have. On someone else's page, Add friend sits on that same
- * row. Already friends says Unfriend, and tapping it deletes that row. A
- * request already sent says Friend request sent, and tapping it cancels.
- * A request they already sent says Accept friend request, and tapping it
- * accepts.
+ * row. Already friends says Friends with a chevron, which opens a menu:
+ * favorite, unfriend, block. A request already sent says Friend request
+ * sent, and tapping it cancels. A request they already sent says Accept
+ * friend request, and tapping it accepts. Anyone not a friend also gets a
+ * "..." with Block. An account you blocked says Unblock and shows no posts.
  */
 export function UserProfileScreen({ userId }: Props) {
     const { listBottomInset } = useScreenOverlayInsets();
-    const scroll = useScreenScroll<FlatList<SocialPost>>();
+    const scroll = useScreenScroll();
+    const pager = useRef<ScrollView>(null);
+    const { width } = useWindowDimensions();
+    const pageWidth = width - 40;
+    const { mutedForeground } = useAppTheme().colors;
+    const progress = useSharedValue(0);
+    const [pageHeights, setPageHeights] = useState([1, 1]);
+    const onPageScroll = useAnimatedScrollHandler((event) => {
+        progress.set(event.contentOffset.x / pageWidth);
+    });
+    const underlineStyle = useAnimatedStyle(() => ({
+        transform: [
+            {
+                translateX:
+                    (Math.max(0, Math.min(1, progress.get())) * pageWidth) / 2,
+            },
+        ],
+    }));
     const navigation = useNavigation();
     const router = useRouter();
     const { account } = useAccount();
     const { profile, posts, userPostsLoading, userPostsErr } =
         useUserPosts(userId);
+    const [tab, setTab] = useState<ProfileTab>("posts");
+    const { replies, userRepliesLoading, userRepliesErr } = useUserReplies(
+        !userPostsLoading || tab === "replies" ? userId : undefined,
+    );
+    const [openPostId, setOpenPostId] = useState<number | null>(null);
+    const { post: openedPost } = usePost(openPostId);
     const { requestFriend, requestFriendLoading } = useRequestFriend();
     const { cancelFriendRequest, cancelFriendRequestLoading } =
         useCancelFriendRequest();
@@ -50,6 +107,11 @@ export function UserProfileScreen({ userId }: Props) {
     const [clearedFor, setClearedFor] = useState<string | null>(null);
     const [unfriendedFor, setUnfriendedFor] = useState<string | null>(null);
     const [acceptedFor, setAcceptedFor] = useState<string | null>(null);
+    const [menuFor, setMenuFor] = useState<FriendMenuTarget | null>(null);
+    const [confirmBlock, setConfirmBlock] = useState(false);
+    const { setFavorite } = useFavoriteFriend();
+    const { setBlocked, blockLoading } = useBlockUser();
+    const { toast, showToast } = useToast();
 
     useEffect(() => {
         if (
@@ -80,28 +142,77 @@ export function UserProfileScreen({ userId }: Props) {
         });
     }, [navigation, username]);
 
-    const renderItem = useCallback<ListRenderItem<SocialPost>>(
-        ({ item }) => <PostCard post={item} />,
-        [],
-    );
+    const isFriend =
+        unfriendedFor !== userId &&
+        (acceptedFor === userId || profile?.is_friend === true);
 
-    const loading = userPostsLoading && posts.length === 0;
-    const emptyLabel = loading
-        ? "Loading posts..."
-        : userPostsErr
-          ? "Couldn't load posts."
-          : "No posts yet.";
+    const unfriend = () => {
+        setSentTo((current) => (current === userId ? null : current));
+        setAcceptedFor((current) => (current === userId ? null : current));
+        setUnfriendedFor(userId);
+        void cancelFriendRequest({ user_id: userId }).catch(() =>
+            setUnfriendedFor((current) =>
+                current === userId ? null : current,
+            ),
+        );
+    };
+
+    const block = async () => {
+        try {
+            await setBlocked(userId, true);
+            setSentTo(null);
+            setAcceptedFor(null);
+            setConfirmBlock(false);
+            showToast(`Blocked ${username ?? "them"}`);
+        } catch {
+            showToast("Couldn't block this account.", true);
+        }
+    };
+
+    const unblock = async () => {
+        try {
+            await setBlocked(userId, false);
+            showToast(`Unblocked ${username ?? "them"}`);
+        } catch {
+            showToast("Couldn't unblock this account.", true);
+        }
+    };
+
+    const setFavoriteFor = async (favorite: boolean) => {
+        try {
+            await setFavorite(userId, favorite);
+        } catch {
+            showToast("Couldn't update favorites.", true);
+        }
+    };
+
+    const blocked = profile?.blocked === true;
+    const changeTab = (next: ProfileTab) => {
+        setTab(next);
+        pager.current?.scrollTo({
+            x: next === "replies" ? pageWidth : 0,
+            animated: true,
+        });
+    };
+    const openPost =
+        openedPost && openedPost.post_id === openPostId ? openedPost : null;
 
     return (
         <View className="flex-1 bg-background">
             <ScreenScrollMarker>
-                <Animated.FlatList
+                <Animated.ScrollView
                     {...scroll}
-                    className="flex-1"
-                    data={posts}
                     keyboardShouldPersistTaps="handled"
-                    keyExtractor={(post) => String(post.post_id)}
-                    ListHeaderComponent={
+                    contentContainerStyle={[
+                        {
+                            paddingHorizontal: 20,
+                            paddingBottom: listBottomInset + 48,
+                        },
+                        scroll.contentContainerStyle,
+                    ]}
+                    showsVerticalScrollIndicator={false}
+                >
+                    <View>
                         <ProfileHeader
                             username={username}
                             bio={bio}
@@ -111,11 +222,8 @@ export function UserProfileScreen({ userId }: Props) {
                             canAddFriend={
                                 account != null && account.id !== userId
                             }
-                            isFriend={
-                                unfriendedFor !== userId &&
-                                (acceptedFor === userId ||
-                                    profile?.is_friend === true)
-                            }
+                            isFriend={isFriend}
+                            blocked={blocked}
                             requestReceived={
                                 acceptedFor !== userId &&
                                 unfriendedFor !== userId &&
@@ -134,11 +242,12 @@ export function UserProfileScreen({ userId }: Props) {
                             }
                             onAcceptRequest={() => {
                                 setAcceptedFor(userId);
-                                void requestFriend({ user_id: userId }).catch(
-                                    () =>
-                                        setAcceptedFor((current) =>
-                                            current === userId ? null : current,
-                                        ),
+                                void requestFriend({
+                                    user_id: userId,
+                                }).catch(() =>
+                                    setAcceptedFor((current) =>
+                                        current === userId ? null : current,
+                                    ),
                                 );
                             }}
                             onAddFriend={() => {
@@ -146,11 +255,12 @@ export function UserProfileScreen({ userId }: Props) {
                                     current === userId ? null : current,
                                 );
                                 setSentTo(userId);
-                                void requestFriend({ user_id: userId }).catch(
-                                    () =>
-                                        setSentTo((current) =>
-                                            current === userId ? null : current,
-                                        ),
+                                void requestFriend({
+                                    user_id: userId,
+                                }).catch(() =>
+                                    setSentTo((current) =>
+                                        current === userId ? null : current,
+                                    ),
                                 );
                             }}
                             onCancelFriend={() => {
@@ -166,46 +276,232 @@ export function UserProfileScreen({ userId }: Props) {
                                     ),
                                 );
                             }}
-                            onUnfriend={() => {
-                                setSentTo((current) =>
-                                    current === userId ? null : current,
-                                );
-                                setAcceptedFor((current) =>
-                                    current === userId ? null : current,
-                                );
-                                setUnfriendedFor(userId);
-                                void cancelFriendRequest({
+                            onOpenMenu={() =>
+                                setMenuFor({
                                     user_id: userId,
-                                }).catch(() =>
-                                    setUnfriendedFor((current) =>
-                                        current === userId ? null : current,
-                                    ),
-                                );
-                            }}
+                                    username: username ?? "unknown",
+                                    isFriend,
+                                    isFavorite:
+                                        isFriend &&
+                                        profile?.is_favorite === true,
+                                })
+                            }
+                            onUnblock={() => void unblock()}
                             onEdit={() =>
                                 router.push("/account-details" as Href)
                             }
                         />
-                    }
-                    renderItem={renderItem}
-                    ItemSeparatorComponent={PostSeparator}
-                    contentContainerStyle={[
-                        {
-                            paddingTop: 8,
-                            paddingHorizontal: 20,
-                            paddingBottom: listBottomInset + 48,
-                        },
-                        scroll.contentContainerStyle,
-                    ]}
-                    ListEmptyComponent={
-                        <Text className="py-10 text-center text-muted-foreground">
-                            {emptyLabel}
-                        </Text>
-                    }
-                    showsVerticalScrollIndicator={false}
-                />
+                        <View className="mb-6 gap-6">
+                            <ProfileListening userId={userId} />
+                            {blocked ? null : (
+                                <ProfileShelves userId={userId} />
+                            )}
+                        </View>
+                        {blocked ? null : (
+                            <View className="mb-4">
+                                <View
+                                    className="flex-row border-b pb-1"
+                                    style={{
+                                        borderBottomColor: withAlpha(
+                                            mutedForeground,
+                                            0.55,
+                                        ),
+                                    }}
+                                >
+                                    {PROFILE_TABS.map((item) => (
+                                        <Pressable
+                                            key={item.value}
+                                            accessibilityRole="tab"
+                                            accessibilityState={{
+                                                selected: tab === item.value,
+                                            }}
+                                            onPress={() =>
+                                                changeTab(item.value)
+                                            }
+                                            className="flex-1"
+                                        >
+                                            <Text
+                                                className={
+                                                    tab === item.value
+                                                        ? "py-3 text-center font-semibold text-foreground"
+                                                        : "py-3 text-center font-semibold text-muted-foreground"
+                                                }
+                                            >
+                                                {item.label}
+                                            </Text>
+                                        </Pressable>
+                                    ))}
+                                    <Animated.View
+                                        pointerEvents="none"
+                                        className="absolute bottom-0 left-0 h-1 w-1/2 rounded-full bg-brand"
+                                        style={underlineStyle}
+                                    />
+                                </View>
+                            </View>
+                        )}
+                    </View>
+
+                    <Animated.ScrollView
+                        ref={pager}
+                        horizontal
+                        pagingEnabled
+                        bounces={false}
+                        showsHorizontalScrollIndicator={false}
+                        onScroll={onPageScroll}
+                        scrollEventThrottle={16}
+                        onMomentumScrollEnd={(event) =>
+                            setTab(
+                                event.nativeEvent.contentOffset.x >=
+                                    pageWidth / 2
+                                    ? "replies"
+                                    : "posts",
+                            )
+                        }
+                        style={{
+                            height: Math.max(
+                                120,
+                                pageHeights[tab === "posts" ? 0 : 1],
+                            ),
+                        }}
+                        contentContainerStyle={{ alignItems: "flex-start" }}
+                    >
+                        {PROFILE_TABS.map((page, index) => {
+                            const isPosts = page.value === "posts";
+                            const loading = isPosts
+                                ? userPostsLoading
+                                : userRepliesLoading;
+                            const failed = isPosts
+                                ? userPostsErr
+                                : userRepliesErr;
+                            const rows: ProfileRow[] = blocked
+                                ? []
+                                : isPosts
+                                  ? posts.map((post) => ({
+                                        kind: "post",
+                                        post,
+                                    }))
+                                  : replies.map((reply) => ({
+                                        kind: "reply",
+                                        reply,
+                                    }));
+                            const emptyLabel = blocked
+                                ? "You blocked this account."
+                                : loading
+                                  ? `Loading ${page.value}...`
+                                  : failed
+                                    ? `Couldn't load ${page.value}.`
+                                    : `No ${page.value} yet.`;
+                            return (
+                                <View
+                                    key={page.value}
+                                    style={{ width: pageWidth }}
+                                    onLayout={(event) => {
+                                        const height =
+                                            event.nativeEvent.layout.height;
+                                        setPageHeights((current) =>
+                                            current[index] === height
+                                                ? current
+                                                : current.map((value, i) =>
+                                                      i === index
+                                                          ? height
+                                                          : value,
+                                                  ),
+                                        );
+                                    }}
+                                >
+                                    {rows.length ? (
+                                        rows.map((row) => (
+                                            <View key={rowKey(row)}>
+                                                {row.kind === "post" ? (
+                                                    <PostCard post={row.post} />
+                                                ) : (
+                                                    <ReplyCard
+                                                        reply={row.reply}
+                                                        onPress={setOpenPostId}
+                                                    />
+                                                )}
+                                            </View>
+                                        ))
+                                    ) : (
+                                        <Text className="py-10 text-center text-muted-foreground">
+                                            {emptyLabel}
+                                        </Text>
+                                    )}
+                                </View>
+                            );
+                        })}
+                    </Animated.ScrollView>
+                </Animated.ScrollView>
             </ScreenScrollMarker>
+            <FriendOptionsMenu
+                target={menuFor}
+                onClose={() => setMenuFor(null)}
+                onFavorite={(favorite) => void setFavoriteFor(favorite)}
+                onUnfriend={unfriend}
+                onBlock={() => setConfirmBlock(true)}
+            />
+            <GlassConfirmDialog
+                open={confirmBlock}
+                title={`Block ${username ?? "this account"}?`}
+                description="This ends your friendship and any request between you. Neither of you will see the other's posts, and they can't send you a friend request. They won't be told."
+                confirmLabel="Block"
+                pendingLabel="Blocking..."
+                pending={blockLoading}
+                onOpenChange={setConfirmBlock}
+                onConfirm={() => void block()}
+            />
+            {openPost ? (
+                <PostCommentsDialog
+                    open
+                    onOpenChange={(open) => {
+                        if (!open) setOpenPostId(null);
+                    }}
+                    post={openPost}
+                    onAuthorPress={(authorId) => {
+                        setOpenPostId(null);
+                        router.push(`/social/user/${authorId}`);
+                    }}
+                />
+            ) : null}
+            <Toast toast={toast} />
         </View>
+    );
+}
+
+function rowKey(row: ProfileRow) {
+    return row.kind === "post"
+        ? `post:${row.post.post_id}`
+        : `reply:${row.reply.comment_id}`;
+}
+
+/** One reply: who and what it answered, then the reply itself. */
+function ReplyCard({
+    reply,
+    onPress,
+}: {
+    reply: SocialReply;
+    onPress: (postId: number) => void;
+}) {
+    return (
+        <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Reply to ${reply.post.author.username}: ${reply.content}`}
+            onPress={() => onPress(reply.post_id)}
+            className="gap-2 rounded-2xl border border-border p-4 active:opacity-60"
+        >
+            <Text className="text-xs text-muted-foreground">
+                Replying to {reply.post.author.username}
+                {" \u00b7 "}
+                {formatRelativeTime(reply.created_at)}
+            </Text>
+            <Text
+                className="border-l-2 border-border pl-3 text-sm text-muted-foreground"
+                numberOfLines={2}
+            >
+                {reply.post.content}
+            </Text>
+            <Text className="text-base text-foreground">{reply.content}</Text>
+        </Pressable>
     );
 }
 
@@ -217,13 +513,15 @@ function ProfileHeader({
     canEdit,
     canAddFriend,
     isFriend,
+    blocked,
     requestReceived,
     requestSent,
     requestBusy,
     onAddFriend,
     onAcceptRequest,
     onCancelFriend,
-    onUnfriend,
+    onOpenMenu,
+    onUnblock,
     onEdit,
 }: {
     username?: string;
@@ -233,15 +531,19 @@ function ProfileHeader({
     canEdit: boolean;
     canAddFriend: boolean;
     isFriend: boolean;
+    blocked: boolean;
     requestReceived: boolean;
     requestSent: boolean;
     requestBusy: boolean;
     onAddFriend: () => void;
     onAcceptRequest: () => void;
     onCancelFriend: () => void;
-    onUnfriend: () => void;
+    /** Friends: favorite, unfriend, block. Anyone else: block. */
+    onOpenMenu: () => void;
+    onUnblock: () => void;
     onEdit: () => void;
 }) {
+    const { foreground } = useAppTheme().colors;
     if (loading) {
         return (
             <View className="mb-4 gap-3 py-2">
@@ -254,20 +556,16 @@ function ProfileHeader({
 
     const name = username ?? "unknown";
     const trimmedBio = bio?.trim() ?? "";
-    const friendLabel = isFriend
-        ? "Unfriend"
-        : requestSent
-          ? "Friend request sent"
-          : requestReceived
-            ? "Accept friend request"
-            : "Add friend";
-    const onFriendPress = isFriend
-        ? onUnfriend
-        : requestSent
-          ? onCancelFriend
-          : requestReceived
-            ? onAcceptRequest
-            : onAddFriend;
+    const friendLabel = requestSent
+        ? "Friend request sent"
+        : requestReceived
+          ? "Accept friend request"
+          : "Add friend";
+    const onFriendPress = requestSent
+        ? onCancelFriend
+        : requestReceived
+          ? onAcceptRequest
+          : onAddFriend;
 
     return (
         <View className="mb-4 gap-3 border-b border-border pb-5 pt-2">
@@ -298,18 +596,59 @@ function ProfileHeader({
                 ) : null}
             </View>
             <View className="flex-row items-center gap-3">
-                {canAddFriend ? (
+                {!canAddFriend ? null : blocked ? (
                     <Button
-                        accessibilityLabel={friendLabel}
+                        accessibilityLabel={`Unblock ${name}`}
                         className="self-start"
                         size="sm"
                         variant="outline"
-                        disabled={requestBusy}
-                        onPress={onFriendPress}
+                        onPress={onUnblock}
                     >
-                        <Text>{friendLabel}</Text>
+                        <Text>Unblock</Text>
                     </Button>
-                ) : null}
+                ) : isFriend ? (
+                    <Button
+                        accessibilityLabel="Friends, options"
+                        className="flex-row items-center gap-1 self-start"
+                        size="sm"
+                        variant="outline"
+                        disabled={requestBusy}
+                        onPress={onOpenMenu}
+                    >
+                        <Text>Friends</Text>
+                        <Ionicons
+                            name="chevron-down"
+                            size={14}
+                            color={foreground}
+                        />
+                    </Button>
+                ) : (
+                    <>
+                        <Button
+                            accessibilityLabel={friendLabel}
+                            className="self-start"
+                            size="sm"
+                            variant="outline"
+                            disabled={requestBusy}
+                            onPress={onFriendPress}
+                        >
+                            <Text>{friendLabel}</Text>
+                        </Button>
+                        <Button
+                            accessibilityLabel={`More options for ${name}`}
+                            className="w-9 self-start px-0"
+                            size="sm"
+                            variant="outline"
+                            onPress={onOpenMenu}
+                        >
+                            <Ionicons
+                                name="ellipsis-horizontal"
+                                size={16}
+                                color={foreground}
+                            />
+                        </Button>
+                    </>
+                )}
                 <Text className="text-sm text-muted-foreground">
                     {friendCount === 1 ? "1 friend" : `${friendCount} friends`}
                 </Text>
@@ -325,8 +664,4 @@ function ProfileHeader({
             )}
         </View>
     );
-}
-
-function PostSeparator() {
-    return <View className="h-3" />;
 }

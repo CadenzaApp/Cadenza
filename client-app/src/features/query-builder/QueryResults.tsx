@@ -10,7 +10,10 @@ import type {
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { QueryOptionsMenu } from "@/components/custom/options-menu/query-options-menu";
 import { ModalPopup } from "@/components/custom/modal-popup";
-import { FloatingBackButton } from "@/components/ui/floating-back-button";
+import {
+    FloatingBackButton,
+    HERO_BUTTON_SIZE,
+} from "@/components/ui/floating-back-button";
 import { GlassButton } from "@/components/ui/glass-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,11 +22,10 @@ import { useListeningEvents } from "@/lib/listening-events";
 import { usePlayAll } from "@/lib/play-all";
 import type { PlaySource } from "@/lib/play-source";
 import { saveQueryErrorMessage } from "@/lib/routes/saved-queries";
-import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
+import { usePlayFromList } from "@/lib/play-from-list";
+import { usePlaybackTrackState } from "@/lib/playback";
 
 import { matchCountLabel } from "./QueryUtils";
-
-const HERO_BUTTON_SIZE = 52;
 
 type Props = {
     /**
@@ -67,11 +69,13 @@ type Props = {
 /** The query menu's writes. Each rejects with the backend's error. */
 export type QueryResultsActions = {
     /** Null until the query is saved. */
-    saved: { favorite: boolean } | null;
+    saved: { favorite: boolean; shared: boolean } | null;
     /** Saves the query under a name, favorited or not. */
     save: (name: string, favorite: boolean) => Promise<void>;
     /** Only called once saved. */
     setFavorite: (favorite: boolean) => Promise<void>;
+    /** Only called once saved. Shows it on the user's profile, or stops. */
+    setShared: (shared: boolean) => Promise<void>;
     /** Only called once saved. Replaces its songs with what it matches now. */
     rerun: () => Promise<void>;
 };
@@ -100,12 +104,13 @@ export default function QueryResults({
     // favorite on an unsaved query saves it first, favorited
     const [saveAsFavorite, setSaveAsFavorite] = useState(false);
     const [favoriteBusy, setFavoriteBusy] = useState(false);
+    const [sharedBusy, setSharedBusy] = useState(false);
     const [rerunning, setRerunning] = useState(false);
     const [saveName, setSaveName] = useState("");
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
     const { recordEvent } = useListeningEvents();
-    const { togglePlayback } = usePlaybackCommands();
+    const playFromList = usePlayFromList();
     const { activeTrackId, isPlaying } = usePlaybackTrackState();
     const saveDialogWidth = Math.round(screenWidth * 0.75);
     const allLoaded =
@@ -144,13 +149,20 @@ export default function QueryResults({
 
     const playOneSong = useCallback(
         async (track: MusicItem) => {
-            // togglePlayback pauses when the row is already the active track, so
-            // recording unconditionally would count a pause as a play
+            // the playing row pauses instead, so recording unconditionally
+            // would count a pause as a play
             const isPausing = activeTrackId === track.id && isPlaying;
             if (!isPausing) recordQueryPlay(track);
-            await togglePlayback(track, playSource);
+            await playFromList(songs, track, playSource);
         },
-        [activeTrackId, isPlaying, playSource, recordQueryPlay, togglePlayback],
+        [
+            activeTrackId,
+            isPlaying,
+            playFromList,
+            playSource,
+            recordQueryPlay,
+            songs,
+        ],
     );
     function openSaveDialog(favorite: boolean) {
         setSaveAsFavorite(favorite);
@@ -178,6 +190,19 @@ export default function QueryResults({
             Alert.alert("Couldn't Update Favorite", "Please try again.");
         } finally {
             setFavoriteBusy(false);
+        }
+    }
+
+    async function toggleShared() {
+        if (!actions?.saved || sharedBusy) return;
+        setSharedBusy(true);
+        try {
+            await actions.setShared(!actions.saved.shared);
+        } catch (sharedErr) {
+            console.error("Unable to share the query.", sharedErr);
+            Alert.alert("Couldn't Update Profile", "Please try again.");
+        } finally {
+            setSharedBusy(false);
         }
     }
 
@@ -270,8 +295,13 @@ export default function QueryResults({
                     saved={actions.saved !== null}
                     favorite={actions.saved?.favorite ?? false}
                     favoriteBusy={favoriteBusy}
+                    shared={actions.saved?.shared ?? false}
+                    sharedBusy={sharedBusy}
                     resolveTracks={resolvePlayQueue}
                     onToggleFavorite={() => void toggleFavorite()}
+                    onToggleShared={
+                        actions.saved ? () => void toggleShared() : undefined
+                    }
                     onSave={() => openSaveDialog(false)}
                     onRerun={() => void rerun()}
                     onClose={() => setMenuOpen(false)}

@@ -35,6 +35,8 @@ export function SongTagSelectorPopup({
         onValueRemove,
         onValueDialogClose,
         onTagCreated,
+        onTagDeleted,
+        onTagUpdated,
     } = useSongTagEditor(songId);
     return (
         <>
@@ -56,6 +58,7 @@ export function SongTagSelectorPopup({
                 >
                     {editorLoaded ? (
                         <TagSelector
+                            opaque
                             contextKey={songId}
                             tags={songTags}
                             suggestedTags={defaultTags}
@@ -66,6 +69,8 @@ export function SongTagSelectorPopup({
                                 selectDefaultTag(tag.id)
                             }
                             onCreateTag={onTagCreated}
+                            onTagDeleted={onTagDeleted}
+                            onTagUpdated={onTagUpdated}
                             errorMessage={editorError}
                             scrollableGrid={false}
                         />

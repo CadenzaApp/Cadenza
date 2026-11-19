@@ -16,6 +16,7 @@ import { Text } from "@/components/ui/text";
 import { useArtworkNebulaColors, useArtworkTint } from "@/lib/artwork-color";
 import { collectionRoute } from "@/lib/music-routes";
 import { useArtist } from "@/lib/musickit-hooks";
+import { formatReleaseMonthYear } from "@/lib/release-date";
 import { samePlayableItem } from "@/lib/playable-item";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { useOpenTransitionSettled } from "@/lib/use-open-transition-settled";
@@ -250,7 +251,7 @@ const AlbumRail = memo(function AlbumRail({
     return (
         <FlatList
             horizontal
-            style={{ height: ALBUM_TILE_WIDTH + 8 + 44 * fontScale }}
+            style={{ height: ALBUM_TILE_WIDTH + 8 + 64 * fontScale }}
             data={settled ? albums : EMPTY_ALBUMS}
             keyExtractor={albumKey}
             renderItem={renderAlbum}
@@ -299,6 +300,7 @@ function AlbumPlaceholders() {
 
 const AlbumTile = memo(function AlbumTile({ album }: { album: MusicItem }) {
     const { colors } = useTheme();
+    const releaseMonthYear = formatReleaseMonthYear(album.releaseDate);
     const artworkUrl = album.artworkUrl?.trim();
     const canRenderArtwork =
         typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
@@ -340,6 +342,14 @@ const AlbumTile = memo(function AlbumTile({ album }: { album: MusicItem }) {
             >
                 {album.title}
             </Text>
+            {releaseMonthYear ? (
+                <Text
+                    className="text-sm text-muted-foreground"
+                    numberOfLines={1}
+                >
+                    {releaseMonthYear}
+                </Text>
+            ) : null}
         </ZoomTile>
     );
 });

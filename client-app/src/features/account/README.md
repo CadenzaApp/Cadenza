@@ -8,13 +8,14 @@ glass, color slots, explicit filter, tag suggestions) go through `useUserSetting
 
 | file                            | role                                                                                                                                                                                                                                  |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `account-settings.tsx`          | `/account`. Avatar, username, and email (the header opens `/account-details`), Apple Music card, the Listening and Appearance tiles, Privacy and Apple Music limits rows.                                                             |
+| `account-settings.tsx`          | `/account`. Avatar, username, and email (the header opens `/account-details`), Apple Music card, the Listening and Appearance tiles, Sharing, Privacy and Apple Music limits rows.                                                    |
 | `apple-music-settings.tsx`      | `/apple-music`. On the Apple Music nebula: the hero with the status, then connect or reconnect, or library sync and disconnect.                                                                                                       |
 | `listening-preferences.tsx`     | `/listening-preferences`. Tag suggestions, Hide explicit content, and Update saved queries toggles.                                                                                                                                   |
 | `appearance-settings.tsx`       | `/appearance`. Mode (System, Light, Dark, Custom), background, accent, glass tint, Clear or Tinted glass, a live preview, and reset.                                                                                                  |
-| `privacy-settings.tsx`          | `/privacy`. What Cadenza keeps and what it does not, and the way into Your data.                                                                                                                                                      |
+| `sharing-settings.tsx`          | `/sharing`. Every audience setting (`everyone`, `friends`, `nobody`) as a row in three groups, Your listening, Joining you, and Your profile; a tap opens an `OptionPicker`.                                                          |
+| `privacy-settings.tsx`          | `/privacy`. What Cadenza keeps and does not, and the way into Your data. Read only.                                                                                                                                                   |
 | `account-details.tsx`           | `/account-details`. Name and member since, the username and bio form, view public profile, Your data, Cadenza sign out.                                                                                                               |
-| `your-data.tsx`                 | `/your-data`. Profile, the counts from `GET /profile/data`, and every saved setting, as tables. Delete account opens a confirm that does nothing yet, and says so.                                                                    |
+| `your-data.tsx`                 | `/your-data`. Profile, the counts from `GET /profile/data`, every saved setting, and every privacy setting, as tables closed to their title until tapped. Delete account opens a confirm that does nothing yet, and says so.          |
 | `apple-music-limits.tsx`        | `/apple-music-limits`. What MusicKit and the Apple Music API do not allow.                                                                                                                                                            |
 | `profile-form.tsx`              | `ProfileForm`, the only username and bio editor. `PATCH /profile`.                                                                                                                                                                    |
 | `account-avatar.tsx`            | `AccountAvatar`, `useAccountIdentity` (display name and initial), and `memberSince`.                                                                                                                                                  |
@@ -36,7 +37,7 @@ Apple Music connect sheet in `@/features/onboarding` adds a red nebula.
 
 The display name is `profile.username` from `useProfile`, with the email local part while it
 loads. Username and bio are edited only in account details. Your public page is read only; its
-Edit button (reached from the Social tab's Me button or View public profile) opens account details.
+Edit button (reached from the Social tab's My profile card or View public profile) opens account details.
 
 Sync now calls `useAppleMusicSync().syncNow` from `@/lib/song-init`. It joins the startup sync if
 one is running, then refreshes every library read. "Last synced" is per device and account.
@@ -73,7 +74,9 @@ the presets over them.
   `active:opacity-60`, no style function.
 - Your data lists the server counts in the order `user_data_counts` returns them, so a new
   table is a backend entry only. Settings rows come from `SETTING_ROWS`, keyed by
-  `UserSettings`, so a new setting fails to compile until it is listed.
+  `UserSettings`, and privacy rows from `PRIVACY_ROWS`, keyed by `PrivacySettings`, so a new
+  setting fails to compile until it is listed. A new count section also needs a title in
+  `SECTION_TITLES`.
 - New sheets need a `Stack.Screen` with `sheetScreenOptions` in `src/app/_layout.tsx`.
 
 ---

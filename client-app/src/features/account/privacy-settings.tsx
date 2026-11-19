@@ -2,13 +2,15 @@ import { useRouter, type Href } from "expo-router";
 
 import {
     SettingsPoints,
+    SettingsSection,
     SettingsSheet,
     type SettingsPoint,
 } from "./settings-ui";
 
-/** What Cadenza stores and what it does not. Read only. */
+/** What Cadenza stores and what it does not, and the way into Your data. */
 export function PrivacySettingsScreen() {
     const router = useRouter();
+
     const points: SettingsPoint[] = [
         {
             icon: "shield-checkmark-outline",
@@ -23,7 +25,7 @@ export function PrivacySettingsScreen() {
         {
             icon: "server-outline",
             title: "What Cadenza keeps",
-            body: "The songs in your library by id, the tags you apply, your listening history for Analytics, your settings, and anything you post on Social.",
+            body: "The songs in your library by id, the tags you apply, your listening history for Analytics, what you are playing now, your settings, and anything you post on Social.",
         },
         {
             icon: "trash-outline",
@@ -35,7 +37,9 @@ export function PrivacySettingsScreen() {
 
     return (
         <SettingsSheet title="Privacy & data">
-            <SettingsPoints points={points} />
+            <SettingsSection title="Your data">
+                <SettingsPoints points={points} />
+            </SettingsSection>
         </SettingsSheet>
     );
 }

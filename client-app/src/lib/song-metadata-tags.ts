@@ -40,7 +40,7 @@ export function metadataTagPills(
             id: -(KEY_ORDER.indexOf(key) + 1),
             name: METADATA_KEY_LABELS[key],
             color: METADATA_TAG_COLOR,
-            type,
+            type: key === "duration" ? "duration" : type,
         },
         value,
     }));

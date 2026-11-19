@@ -1,7 +1,7 @@
 use std::{error::Error, fmt, time::Duration};
 
 use axum::{body::Body, http::Response, response::IntoResponse};
-use sea_orm::{DbErr, RuntimeErr};
+use sea_orm::{ConnAcquireErr, DbErr, RuntimeErr};
 use serde_json::{Value, json};
 
 use crate::request_log::LoggedError;
@@ -30,7 +30,11 @@ pub enum CadenzaError {
     UsernameAlreadyTaken,
     /// The pair is already friends.
     FriendshipAlreadyExists,
+    /// One of the pair blocked the other.
+    UserBlocked,
     DatabaseError(String), // generic database error
+    /// Every pooled connection stayed busy past the queue timeout. Retry.
+    DatabaseBusy,
     QueryFormatError(String),
     TagGenerationErr(String),
     /// The tag generation provider turned the request away for rate limiting.
@@ -60,6 +64,21 @@ pub enum CadenzaError {
     UserRateLimited {
         retry_after: Duration,
     },
+    /// The invite code does not exist, expired, ran out of uses, or was
+    /// revoked. One error for all four, so a guess learns nothing.
+    InviteCodeInvalid,
+    /// Too many attempts in a short time, like redeeming invite codes.
+    TooManyRequests,
+    /// The caller is signed in but their role does not allow this. The
+    /// message says what was refused.
+    Forbidden(String),
+    /// The write named an `expected_version` that is no longer current.
+    /// Refetch and try again.
+    VersionConflict {
+        current: i64,
+    },
+    /// The live session has ended.
+    SessionEnded,
 }
 
 impl CadenzaError {
@@ -77,7 +96,9 @@ impl CadenzaError {
             Self::ProfileAlreadyExists => 409,
             Self::UsernameAlreadyTaken => 409,
             Self::FriendshipAlreadyExists => 409,
+            Self::UserBlocked => 403,
             Self::DatabaseError(_) => 500,
+            Self::DatabaseBusy => 503,
             Self::QueryFormatError(_) => 422,
             Self::TagGenerationErr(_) => 500,
             Self::TagGenerationRateLimited { .. } => 429,
@@ -90,6 +111,11 @@ impl CadenzaError {
             Self::AssistantErr(_) => 502,
             Self::AssistantRateLimited { .. } => 429,
             Self::UserRateLimited { .. } => 429,
+            Self::InviteCodeInvalid => 404,
+            Self::TooManyRequests => 429,
+            Self::Forbidden(_) => 403,
+            Self::VersionConflict { .. } => 409,
+            Self::SessionEnded => 410,
         }
     }
     fn get_json(&self) -> Value {
@@ -132,6 +158,14 @@ impl CadenzaError {
             Self::FriendshipAlreadyExists => json!({
                 "error_type": "FriendshipAlreadyExists",
                 "message": "you are already friends"
+            }),
+            Self::UserBlocked => json!({
+                "error_type": "UserBlocked",
+                "message": "you cannot do that with this account"
+            }),
+            Self::DatabaseBusy => json!({
+                "error_type": "DatabaseBusy",
+                "message": "the server is busy, try again"
             }),
             Self::DatabaseError(_) => json!({
                 "error_type": "DatabaseError",
@@ -198,6 +232,27 @@ impl CadenzaError {
                 "message": format!("too many requests, retry in {}s", retry_after.as_secs()),
                 "retry_after_secs": retry_after.as_secs(),
             }),
+            Self::InviteCodeInvalid => json!({
+                "error_type": "InviteCodeInvalid",
+                "message": "that code is not valid any more"
+            }),
+            Self::TooManyRequests => json!({
+                "error_type": "TooManyRequests",
+                "message": "too many attempts, wait a minute"
+            }),
+            Self::Forbidden(msg) => json!({
+                "error_type": "Forbidden",
+                "message": msg
+            }),
+            Self::VersionConflict { current } => json!({
+                "error_type": "VersionConflict",
+                "message": "this changed since you loaded it, refresh and try again",
+                "current_version": current
+            }),
+            Self::SessionEnded => json!({
+                "error_type": "SessionEnded",
+                "message": "this live session has ended"
+            }),
         }
     }
 }
@@ -246,6 +301,9 @@ impl IntoResponse for CadenzaError {
 
 impl From<DbErr> for CadenzaError {
     fn from(db_err: DbErr) -> Self {
+        if matches!(db_err, DbErr::ConnectionAcquire(ConnAcquireErr::Timeout)) {
+            return Self::DatabaseBusy;
+        }
         if let DbErr::Query(RuntimeErr::SqlxError(sqlx_err)) = &db_err
             && let Some(db_err) = sqlx_err.as_database_error()
             && let Some(code) = db_err.code()
@@ -279,7 +337,7 @@ impl From<DbErr> for CadenzaError {
 }
 
 #[cfg(test)]
-mod public_error_tests {
+mod tests {
     use super::*;
     #[tokio::test]
     async fn upstream_details_do_not_reach_clients_or_request_logs() {
@@ -304,5 +362,12 @@ mod public_error_tests {
                 .unwrap();
             assert!(!String::from_utf8_lossy(&body).contains("credential_marker"));
         }
+    }
+
+    #[test]
+    fn a_pool_timeout_is_a_503_to_retry() {
+        let err = CadenzaError::from(DbErr::ConnectionAcquire(ConnAcquireErr::Timeout));
+        assert!(matches!(err, CadenzaError::DatabaseBusy));
+        assert_eq!(err.into_response().status(), 503);
     }
 }

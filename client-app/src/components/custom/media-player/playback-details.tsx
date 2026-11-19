@@ -1,15 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import type { MusicItem, SongFavoriteStatus } from "@apple-musickit";
+import type { MusicItem } from "@apple-musickit";
 import type { ReactNode } from "react";
-import {
-    ActivityIndicator,
-    Image,
-    Pressable,
-    View,
-    type ColorValue,
-} from "react-native";
+import { Pressable, View, type ColorValue } from "react-native";
 
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
+import { isUsableArtworkUrl } from "@/lib/utils";
 
 /** Side of the artwork the heading shows when the queue is open. */
 const COMPACT_ARTWORK_SIZE = 52;
@@ -30,41 +26,29 @@ function formatTime(totalSeconds: number) {
  */
 export function MediaPlayerTrackHeading({
     track,
-    favoriteStatus,
-    isFavoriteStatusLoading,
-    isUpdatingFavorite,
     textColor,
     compact = false,
-    onFavoriteToggle,
+    onOpenTags,
     onOpenMenu,
     onOpenArtist,
 }: {
     track: MusicItem;
-    favoriteStatus: SongFavoriteStatus | null | undefined;
-    isFavoriteStatusLoading: boolean;
-    isUpdatingFavorite: boolean;
     textColor: ColorValue;
     compact?: boolean;
-    onFavoriteToggle: () => void;
+    onOpenTags: () => void;
     onOpenMenu: () => void;
     onOpenArtist?: () => void;
 }) {
-    const artworkUrl = track.artworkUrl?.trim();
-    const canRenderArtwork =
-        compact &&
-        typeof artworkUrl === "string" &&
-        /^https?:\/\//i.test(artworkUrl);
-
     return (
         <View className="flex-row items-center gap-3">
-            {canRenderArtwork ? (
-                <Image
-                    source={{ uri: artworkUrl }}
+            {compact && isUsableArtworkUrl(track.artworkUrl) ? (
+                <RemoteArtwork
+                    url={track.artworkUrl}
+                    className="rounded-lg"
                     style={{
                         width: COMPACT_ARTWORK_SIZE,
                         height: COMPACT_ARTWORK_SIZE,
                     }}
-                    className="rounded-lg bg-muted"
                 />
             ) : null}
 
@@ -103,32 +87,11 @@ export function MediaPlayerTrackHeading({
 
             <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={
-                    favoriteStatus?.isFavorite
-                        ? "Remove song from favorites"
-                        : "Add song to favorites"
-                }
-                accessibilityState={{
-                    busy: isFavoriteStatusLoading || isUpdatingFavorite,
-                    disabled:
-                        favoriteStatus === null || isFavoriteStatusLoading,
-                    selected: favoriteStatus?.isFavorite ?? false,
-                }}
-                disabled={favoriteStatus === null || isFavoriteStatusLoading}
-                onPress={onFavoriteToggle}
+                accessibilityLabel="Open tags"
+                onPress={onOpenTags}
                 className="h-11 w-11 items-center justify-center active:opacity-60"
             >
-                {isFavoriteStatusLoading || isUpdatingFavorite ? (
-                    <ActivityIndicator size="small" color={textColor} />
-                ) : (
-                    <Ionicons
-                        name={
-                            favoriteStatus?.isFavorite ? "star" : "star-outline"
-                        }
-                        size={26}
-                        color={textColor}
-                    />
-                )}
+                <Ionicons name="pricetags" size={26} color={textColor} />
             </Pressable>
             <Pressable
                 accessibilityRole="button"

@@ -114,10 +114,19 @@ Resource routers get nested alongside health routes:
 /analytics  get_analytics_router()
 /saved-queries get_saved_queries_router()
 /settings   get_settings_router()
+
+/listening  get_listening_router()
+/invites    get_invites_router()
+/shared-playlists  get_shared_playlists_router()
+/live-sessions     get_live_sessions_router()
+/realtime   get_realtime_router()    the WebSocket, see services/README.md
 /test       returns "server is reachable"
 /health/live  returns {"status":"alive"}
 /health/ready returns {"status":"ready"} or 503
 ```
+
+`AppState` also holds `event_bus` (the realtime hub, an `InMemoryBus`, one backend instance
+only) and `redeem_limiter` (the per user invite code rate limit).
 
 `/social` is the feed, posts, likes, and interests. It calls the python service
 only when it needs a sentence-transformer vector or a similarity score. See
@@ -140,6 +149,9 @@ listener binds:
   starts.
 - **notification cleanup**, always on. Deletes notifications older than 30 days, once a day,
   starting at startup. The delete walks `notifications_created_at_idx`.
+- **session sweep**, always on. Every 30 s ends live sessions that timed out (paused 10
+  minutes, the host's app closed while playing, a host alone and quiet) and tells their
+  members. At startup it marks every host away, since no socket survives a restart.
 
 They are in `src/services/`. See [src/services/README.md](src/services/README.md).
 
@@ -160,6 +172,9 @@ that shape.
 | `APPLE_MUSIC_STOREFRONT` | no | Two letter storefront for catalog lookups, e.g. `gb`. Defaults to `us`. A song not released in that storefront reads as missing. |
 | `METRICS_BIND_ADDR` | no | Separate private metrics listener, e.g. `127.0.0.1:9091`. Disabled when unset. Never publish it to the internet. |
 | `BIND_ADDR` | no | Defaults to `127.0.0.1:3000`, which is loopback only. Set `0.0.0.0:3000` to accept connections from a phone or another machine on the LAN. Panics if it does not parse as `host:port`. |
+| `DB_MAX_CONNECTIONS` | no | Connections this process may open. Defaults to 5, so three backends fit in the pooler's 15. Zero and unparseable values fall back to the default. |
+| `DB_QUEUE_TIMEOUT_SECS` | no | Longest a request waits for a free connection before a 503 `DatabaseBusy`. Defaults to 10. Zero and unparseable values fall back to the default. |
+| `DB_STATEMENT_TIMEOUT_SECS` | no | Longest one statement runs, and longest a transaction sits idle, before postgres cancels it. Defaults to 30. |
 | `DEFAULT_TAG_BACKFILL_ENABLED` | no | `true` turns on the background job that generates default tags for songs nothing has read yet. Off for any other value, and off when unset, because every pass can spend Apple Music and OpenAI calls. |
 | `DEFAULT_TAG_BACKFILL_BATCH_SIZE` | no | Songs one pass covers. Defaults to 50, clamped to 1..=200 so a pass can never reach the 300 id cap `SongMetadataService` panics past. An unparseable value falls back to the default. |
 | `DEFAULT_TAG_BACKFILL_INTERVAL_SECS` | no | Seconds between passes. Defaults to 300. Zero and unparseable values fall back to the default, since a zero interval would spin the loop. A pass OpenAI rate limited waits a fixed 300 seconds instead, however short this is. |
@@ -222,9 +237,17 @@ cargo test --locked lifecycle_
 
 ### Database connections
 
-`main.rs::db_connect_options` caps the pool at `MAX_DB_CONNECTIONS`. That cap is the point of the
-function: Sea-ORM defaults to 100 connections, and the pooler serves far fewer, so the default
-exhausts it and every later connect fails with `(EMAXCONNSESSION) max clients reached`.
+`db::pool` opens one pool per backend process, capped at `DB_MAX_CONNECTIONS` (5). Sea-ORM
+defaults to 100, and the pooler serves 15, so an uncapped backend fails every later connect with
+`(EMAXCONNSESSION) max clients reached`.
+
+A request that finds every connection busy waits in the pool's queue, first come first served,
+for at most `DB_QUEUE_TIMEOUT_SECS`, then fails fast with 503 `DatabaseBusy` for the client to
+retry. Once a query runs, each connection's `SET statement_timeout` and `SET
+idle_in_transaction_session_timeout` let postgres cancel a slow statement or a stalled
+transaction, which frees the connection for the next request. The `SET` is per connection
+because the pooler drops startup options, and it only sticks because session mode keeps the
+session.
 
 Use the **session-mode** port (5432). Transaction mode (6543) multiplexes clients across fewer
 server connections and would survive a crash better, but it breaks sqlx's named prepared
@@ -262,10 +285,14 @@ Rebuilding db entities after a schema change:
 
 ```sh
 cargo install sea-orm-cli@2.0.4 --locked
-sea-orm-cli generate entity -o ./src/db/entity --entity-format compact
+sea-orm-cli generate entity -o ./src/db/entity --entity-format compact \
+  --enum-extra-derives 'Copy,Hash,serde::Serialize,serde::Deserialize' \
+  --enum-extra-attributes 'serde(rename_all = "snake_case")'
 ```
 
-Keep the CLI version equal to the `sea-orm` version in `Cargo.lock`. The stable 2.0.0 CLI writes
+The enum flags are not optional: routes and json types use the generated enums directly, so a
+regen without them does not compile. Raw SQL still reads an enum as `col::text` and binds one
+with a `$n::type` cast. Keep the CLI version equal to the `sea-orm` version in `Cargo.lock`. The stable 2.0.0 CLI writes
 code this crate cannot compile: `rs_type = "Enum"` on Postgres enums, and `BelongsTo` relation
 fields in the dense format.
 
@@ -280,7 +307,9 @@ The schema was built by applying SQL to Supabase by hand. Keep doing that, but l
 
 ```sh
 psql "$(grep ^DATABASE_URL .env | cut -d= -f2-)" -v ON_ERROR_STOP=1 -f sql/your_change.sql
-sea-orm-cli generate entity -o ./src/db/entity --entity-format compact
+sea-orm-cli generate entity -o ./src/db/entity --entity-format compact \
+  --enum-extra-derives 'Copy,Hash,serde::Serialize,serde::Deserialize' \
+  --enum-extra-attributes 'serde(rename_all = "snake_case")'
 ```
 
 Write the DDL so it can be run twice (`create table if not exists`, `create index if not exists`),

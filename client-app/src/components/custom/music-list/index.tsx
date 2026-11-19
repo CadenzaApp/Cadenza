@@ -18,7 +18,11 @@ import {
     type ScrollViewProps,
     type ViewToken,
 } from "react-native";
-import { usePinchGesture, GestureDetector } from "react-native-gesture-handler";
+import {
+    usePinchGesture,
+    useSimultaneousGestures,
+    GestureDetector,
+} from "react-native-gesture-handler";
 import Animated, {
     Easing,
     FadeIn,
@@ -31,7 +35,7 @@ import Animated, {
 
 import { Text } from "@/components/ui/text";
 import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
-import { usePlaybackCommands } from "@/lib/playback";
+import { usePlayFromList } from "@/lib/play-from-list";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
@@ -62,6 +66,7 @@ import {
 } from "./list-windows";
 import { MusicListSectionHeader } from "./music-list-section-header";
 import type { RailLead } from "./sort-tags";
+import { useDragSelection } from "./use-drag-selection";
 import { useMusicListSelection } from "./use-music-list-selection";
 import type { MusicListProps, MusicListTrackAction } from "./types";
 
@@ -195,7 +200,7 @@ export function MusicList({
 }: MusicListProps) {
     const header = headerProp ?? listHeader;
     const tracks = useVisibleItems(givenTracks);
-    const { togglePlayback } = usePlaybackCommands();
+    const playFromList = usePlayFromList();
     const { showSuggestedTags } = useMusicListPreferences();
     const [internalCompact, setInternalCompact] = useState(false);
     const isCompact = compact ?? internalCompact;
@@ -582,6 +587,17 @@ export function MusicList({
         },
     });
 
+    const dragSelection = useDragSelection({
+        rows,
+        listRef: scroll.ref,
+        enabled: selection.enabled && !densityTransitioning,
+        onSelect: selection.addSpan,
+    });
+    const listGesture = useSimultaneousGestures(
+        pinchGesture,
+        dragSelection.gesture,
+    );
+
     useEffect(() => {
         if (densityTransitionRevision === 0) return;
         scroll.ref.current?.scrollToOffset({ offset: 0, animated: false });
@@ -635,16 +651,26 @@ export function MusicList({
                 return;
             }
 
-            void togglePlayback(track);
+            void playFromList(tracks, track);
         },
-        [isSelecting, onTrackPressOverride, togglePlayback, toggleSelection],
+        [
+            isSelecting,
+            onTrackPressOverride,
+            playFromList,
+            toggleSelection,
+            tracks,
+        ],
     );
     const closeTrackMenu = useCallback(() => setMenuTrack(null), []);
 
     return (
         <View style={{ flex: 1, position: "relative" }}>
-            <GestureDetector gesture={pinchGesture}>
-                <Animated.View className="flex-1" style={listTransitionStyle}>
+            <GestureDetector gesture={listGesture}>
+                <Animated.View
+                    className="flex-1"
+                    style={listTransitionStyle}
+                    onLayout={dragSelection.onLayout}
+                >
                     {/* always the list, loading included, so its background
                         and header are there from the first frame and the
                         header is never rebuilt when the rows land */}
@@ -745,9 +771,6 @@ export function MusicList({
                                             }
                                             accessory={renderAccessory?.(item)}
                                             onPress={handleTrackPress}
-                                            onLongPress={
-                                                selection.beginSelection
-                                            }
                                             onOpenMenu={setMenuTrack}
                                         />
                                         {highlightPhase === "playing" &&
@@ -825,6 +848,7 @@ export function MusicList({
                 <MusicListArrangeButton
                     value={arrangement.value}
                     onChange={arrangement.onChange}
+                    placement={arrangement.placement}
                 />
             ) : null}
 
@@ -887,6 +911,7 @@ export type {
     MusicListAction,
     MusicListActionIcon,
     MusicListArrangement,
+    MusicListArrangePlacement,
     MusicListMultiSelectConfig,
     MusicListPagination,
     MusicListProps,

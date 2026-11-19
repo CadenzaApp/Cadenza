@@ -1,20 +1,13 @@
-import type { MusicItem } from "@apple-musickit";
-import { useCallback, useMemo } from "react";
-import { Image, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
-import {
-    indexTracksById,
-    useCollectionsInfo,
-    useTracksForSongIds,
-} from "@/lib/musickit-hooks";
-import { usePlaybackCommands } from "@/lib/playback";
 import type { EntityPlayCount } from "@/lib/routes/analytics";
-import { cn, isUsableArtworkUrl } from "@/lib/utils";
-import { useOpenScreen } from "@/lib/open-screen";
 
+import { Initials } from "../social/MemberRow";
 import type { DimensionDescriptor } from "./dimensions";
 import { formatCount } from "./format";
+import { useRankedRows } from "./use-ranked-rows";
 
 type Props = {
     dimension: DimensionDescriptor;
@@ -22,71 +15,16 @@ type Props = {
 };
 
 /**
- * A ranked list of whatever a dimension ranks, with play counts.
+ * A ranked list of whatever a dimension ranks, with play counts. Rows come
+ * from `useRankedRows`, which owns the artwork and what a tap does.
  *
- * Every row's artwork comes from its `sample_song_id`, all resolved in one
- * batch. For an album that is exactly the album's cover. A dimension with an
- * `artworkCollection` fetches its rows' own covers instead, also in one batch,
- * and falls back to the song's when one has none. Anything else shows one of
- * its songs' covers as a stand-in.
- *
- * A row opens what the descriptor's `hrefFor` says. A dimension with no href
- * builder ranks songs, so its row plays the list from that song instead.
- *
- * Used for the overview's rankings card and for every full ranking but songs,
- * which gets a `MusicList` with options menus and tag rails.
+ * Used for every full ranking but songs, which gets a `MusicList` with options
+ * menus and tag rails.
  */
 export function TopEntityList({ dimension, entries }: Props) {
-    const openScreen = useOpenScreen();
-    const { playQueue } = usePlaybackCommands();
-    const songIds = useMemo(
-        () => entries.map((entry) => entry.sample_song_id),
-        [entries],
-    );
-    const { tracks } = useTracksForSongIds(songIds);
+    const rows = useRankedRows(dimension, entries);
 
-    // tracks come back without the ones that did not resolve, so index rather
-    // than zip: the nth row is not the nth track
-    const tracksById = useMemo(() => indexTracksById(tracks), [tracks]);
-
-    const collectionIds = useMemo(
-        () =>
-            dimension.artworkCollection
-                ? entries.flatMap((entry) =>
-                      entry.entity_id ? [entry.entity_id] : [],
-                  )
-                : [],
-        [dimension.artworkCollection, entries],
-    );
-    // with no ids the hook makes no request, so the kind is a placeholder
-    const { collections } = useCollectionsInfo(
-        dimension.artworkCollection ?? "playlist",
-        collectionIds,
-    );
-    const collectionsById = useMemo(
-        () => indexTracksById(collections),
-        [collections],
-    );
-
-    // the resolved tracks are already in rank order, so the queue is the
-    // ranking from the tapped row down, with the rows above it behind
-    const playFrom = useCallback(
-        async (track: MusicItem) => {
-            const startIndex = tracks.indexOf(track);
-            try {
-                await playQueue({
-                    tracks,
-                    startIndex: startIndex >= 0 ? startIndex : 0,
-                    chosenStart: true,
-                });
-            } catch {
-                // the playback provider owns the user-facing error
-            }
-        },
-        [playQueue, tracks],
-    );
-
-    if (entries.length === 0) {
+    if (rows.length === 0) {
         return (
             <Text className="text-muted-foreground text-sm">
                 {dimension.emptyLabel}
@@ -96,66 +34,52 @@ export function TopEntityList({ dimension, entries }: Props) {
 
     return (
         <View className="gap-3">
-            {entries.map((entry, index) => {
-                const track = tracksById.get(entry.sample_song_id);
-                // the descriptor says where a row goes, so there is no branch
-                // on the dimension here
-                const href = dimension.hrefFor?.(entry, track) ?? null;
-                // a song's title lives in Apple Music, so fall back to the id
-                // rather than dropping a row that earned its place
-                const title = entry.label ?? track?.title ?? entry.key;
-                const subtitle = entry.sub_label ?? track?.artistName;
-                const ownArtwork = entry.entity_id
-                    ? collectionsById.get(entry.entity_id)?.artworkUrl
-                    : undefined;
-                const artworkUrl = isUsableArtworkUrl(ownArtwork)
-                    ? ownArtwork
-                    : track?.artworkUrl;
-
-                const row = (
+            {rows.map((row) => {
+                const content = (
                     <View className="flex-row items-center gap-3">
                         <Text className="text-muted-foreground w-4 text-xs">
-                            {index + 1}
+                            {row.rank}
                         </Text>
-                        <Artwork
-                            url={artworkUrl}
-                            round={dimension.roundArtwork}
-                        />
+                        {row.initialsOf ? (
+                            <Initials
+                                username={row.initialsOf}
+                                size={ARTWORK_SIZE}
+                            />
+                        ) : (
+                            <Artwork
+                                url={row.artworkUrl}
+                                round={dimension.roundArtwork}
+                            />
+                        )}
                         <View className="flex-1">
                             <Text className="text-sm" numberOfLines={1}>
-                                {title}
+                                {row.title}
                             </Text>
-                            {subtitle ? (
+                            {row.subtitle ? (
                                 <Text
                                     className="text-muted-foreground text-xs"
                                     numberOfLines={1}
                                 >
-                                    {subtitle}
+                                    {row.subtitle}
                                 </Text>
                             ) : null}
                         </View>
                         <Text className="text-sm font-medium">
-                            {formatCount(entry.plays)}
+                            {formatCount(row.plays)}
                         </Text>
                     </View>
                 );
 
-                const onPress = dimension.hrefFor
-                    ? href && (() => openScreen(href))
-                    : track && (() => void playFrom(track));
-
-                // a row with no id recorded anywhere, or a song Apple Music
-                // could not resolve, has nothing to open, so it renders inert
-                if (!onPress) return <View key={entry.key}>{row}</View>;
+                if (!row.onPress) return <View key={row.key}>{content}</View>;
 
                 return (
                     <Pressable
-                        key={entry.key}
-                        onPress={onPress}
+                        key={row.key}
+                        onPress={row.onPress}
                         accessibilityRole="button"
-                        accessibilityLabel={`${title}, ${formatCount(entry.plays)} plays`}
+                        accessibilityLabel={`${row.title}, ${formatCount(row.plays)} plays`}
                     >
-                        {row}
+                        {content}
                     </Pressable>
                 );
             })}
@@ -167,18 +91,10 @@ const ARTWORK_SIZE = 40;
 
 /** The same placeholder the music list rows use. */
 function Artwork({ url, round }: { url?: string; round?: boolean }) {
-    return isUsableArtworkUrl(url) ? (
-        <Image
-            source={{ uri: url?.trim() }}
-            style={{
-                width: ARTWORK_SIZE,
-                height: ARTWORK_SIZE,
-                borderRadius: round ? ARTWORK_SIZE / 2 : 4,
-            }}
-        />
-    ) : (
-        <View
-            className={cn("bg-muted", round ? "rounded-full" : "rounded")}
+    return (
+        <RemoteArtwork
+            url={url}
+            className={round ? "rounded-full" : "rounded"}
             style={{ width: ARTWORK_SIZE, height: ARTWORK_SIZE }}
         />
     );

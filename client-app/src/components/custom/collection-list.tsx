@@ -1,20 +1,23 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
-import type { ReactNode } from "react";
-import { FlatList, Image, View } from "react-native";
+import { useContext, type ReactNode } from "react";
+import { FlatList, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { usePrefetchCollectionSongs } from "@/lib/musickit-hooks";
 
 import { MusicListItemSkeleton } from "@/components/custom/music-list/music-list-item";
 import { ZoomTile } from "@/components/custom/zoom-tile";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
-import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import {
+    InsideSheetContext,
+    useScreenOverlayInsets,
+} from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { useVisibleItems } from "@/lib/use-visible-items";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { collectionRoute } from "@/lib/music-routes";
-import { cn } from "@/lib/utils";
 
 const SKELETON_ROW_COUNT = 8;
 
@@ -55,11 +58,15 @@ export function CollectionList({
     const collections = useVisibleItems(givenCollections);
     const { listBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll<FlatList<MusicItem>>();
+    const insideSheet = useContext(InsideSheetContext);
 
     return (
         <ScreenScrollMarker>
             <Animated.FlatList
                 {...scroll}
+                // in a sheet (Add to Playlist), so a drag down scrolls back
+                // up before it closes the sheet on Android
+                nestedScrollEnabled={insideSheet}
                 className="flex-1"
                 data={collections}
                 keyExtractor={(collection) => collection.id}
@@ -118,9 +125,6 @@ function CollectionListItem({
 }) {
     const { colors } = useTheme();
     const prefetch = usePrefetchCollectionSongs();
-    const artworkUrl = collection.artworkUrl?.trim();
-    const canRenderArtwork =
-        typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
     // Playlists carry a curator in artistName and often no one at all.
     const subtitle =
         collection.artistName ??
@@ -139,17 +143,10 @@ function CollectionListItem({
             className="relative flex-row items-center px-6 py-3 active:opacity-80"
             artwork={
                 <View collapsable={false} className="mr-3 h-14 w-14 shrink-0">
-                    {canRenderArtwork ? (
-                        <Image
-                            source={{ uri: artworkUrl }}
-                            className="h-full w-full aspect-square rounded bg-muted"
-                        />
-                    ) : (
-                        <View
-                            className={cn(
-                                "h-full w-full aspect-square items-center justify-center rounded bg-muted",
-                            )}
-                        >
+                    <RemoteArtwork
+                        url={collection.artworkUrl}
+                        className="h-full w-full rounded"
+                        fallback={
                             <Ionicons
                                 name={
                                     collection.resourceKind === "playlist"
@@ -159,8 +156,8 @@ function CollectionListItem({
                                 size={22}
                                 color={colors.text}
                             />
-                        </View>
-                    )}
+                        }
+                    />
                 </View>
             }
         >

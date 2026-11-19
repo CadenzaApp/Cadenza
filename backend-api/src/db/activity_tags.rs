@@ -200,6 +200,7 @@ pub fn tag_type_name(tag_type: TagType) -> &'static str {
         TagType::Text => "text",
         TagType::Datetime => "datetime",
         TagType::Number => "number",
+        TagType::Duration => "duration",
         TagType::Checkbox => "checkbox",
         TagType::Date => "date",
     }

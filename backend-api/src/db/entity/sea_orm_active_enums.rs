@@ -2,8 +2,42 @@
 
 use sea_orm::entity::prelude::*;
 
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "audience")]
+#[serde(rename_all = "snake_case")]
+pub enum Audience {
+    #[sea_orm(string_value = "everyone")]
+    Everyone,
+    #[sea_orm(string_value = "friends")]
+    Friends,
+    #[sea_orm(string_value = "nobody")]
+    Nobody,
+}
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "friendship_status")]
+#[serde(rename_all = "snake_case")]
 pub enum FriendshipStatus {
     #[sea_orm(string_value = "to_user1")]
     ToUser1,
@@ -12,20 +46,110 @@ pub enum FriendshipStatus {
     #[sea_orm(string_value = "complete")]
     Complete,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "interest")]
+#[serde(rename_all = "snake_case")]
 pub enum Interest {
     #[sea_orm(string_value = "genre")]
     Genre,
     #[sea_orm(string_value = "artist")]
     Artist,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "invite_target")]
+#[serde(rename_all = "snake_case")]
+pub enum InviteTarget {
+    #[sea_orm(string_value = "shared_playlist")]
+    SharedPlaylist,
+    #[sea_orm(string_value = "live_session")]
+    LiveSession,
+}
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "Enum",
+    enum_name = "join_request_status"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum JoinRequestStatus {
+    #[sea_orm(string_value = "pending")]
+    Pending,
+    #[sea_orm(string_value = "accepted")]
+    Accepted,
+    #[sea_orm(string_value = "ignored")]
+    Ignored,
+}
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "listen_mode")]
+#[serde(rename_all = "snake_case")]
+pub enum ListenMode {
+    #[sea_orm(string_value = "remote")]
+    Remote,
+    #[sea_orm(string_value = "synced")]
+    Synced,
+}
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
 #[sea_orm(
     rs_type = "String",
     db_type = "Enum",
     enum_name = "metadata_crawl_status"
 )]
+#[serde(rename_all = "snake_case")]
 pub enum MetadataCrawlStatus {
     #[sea_orm(string_value = "pending")]
     Pending,
@@ -36,28 +160,186 @@ pub enum MetadataCrawlStatus {
     #[sea_orm(string_value = "failed")]
     Failed,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "notification_type")]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationType {
+    #[sea_orm(string_value = "friend_req_received")]
+    FriendReqReceived,
+    #[sea_orm(string_value = "friend_req_accepted")]
+    FriendReqAccepted,
+    #[sea_orm(string_value = "comment")]
+    Comment,
+    #[sea_orm(string_value = "session_join_request")]
+    SessionJoinRequest,
+    #[sea_orm(string_value = "session_join_accepted")]
+    SessionJoinAccepted,
+}
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "playlist_role")]
+#[serde(rename_all = "snake_case")]
+pub enum PlaylistRole {
+    #[sea_orm(string_value = "owner")]
+    Owner,
+    #[sea_orm(string_value = "editor")]
+    Editor,
+    #[sea_orm(string_value = "viewer")]
+    Viewer,
+}
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
 #[sea_orm(
     rs_type = "String",
     db_type = "Enum",
     enum_name = "post_view_status_kind"
 )]
+#[serde(rename_all = "snake_case")]
 pub enum PostViewStatusKind {
     #[sea_orm(string_value = "loaded")]
     Loaded,
     #[sea_orm(string_value = "viewed")]
     Viewed,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "repeat_mode")]
+#[serde(rename_all = "snake_case")]
+pub enum RepeatMode {
+    #[sea_orm(string_value = "off")]
+    Off,
+    #[sea_orm(string_value = "all")]
+    All,
+    #[sea_orm(string_value = "one")]
+    One,
+}
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "Enum",
+    enum_name = "session_entry_status"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionEntryStatus {
+    #[sea_orm(string_value = "suggested")]
+    Suggested,
+    #[sea_orm(string_value = "queued")]
+    Queued,
+    #[sea_orm(string_value = "played")]
+    Played,
+    #[sea_orm(string_value = "rejected")]
+    Rejected,
+}
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "session_role")]
+#[serde(rename_all = "snake_case")]
+pub enum SessionRole {
+    #[sea_orm(string_value = "listener")]
+    Listener,
+    #[sea_orm(string_value = "suggester")]
+    Suggester,
+    #[sea_orm(string_value = "queue_editor")]
+    QueueEditor,
+    #[sea_orm(string_value = "controller")]
+    Controller,
+}
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "tag_gen_status")]
+#[serde(rename_all = "snake_case")]
 pub enum TagGenStatus {
     #[sea_orm(string_value = "in_flight")]
     InFlight,
     #[sea_orm(string_value = "done")]
     Done,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    Copy,
+    Hash,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "tag_type")]
+#[serde(rename_all = "snake_case")]
 pub enum TagType {
     #[sea_orm(string_value = "basic")]
     Basic,
@@ -71,4 +353,6 @@ pub enum TagType {
     Checkbox,
     #[sea_orm(string_value = "date")]
     Date,
+    #[sea_orm(string_value = "duration")]
+    Duration,
 }

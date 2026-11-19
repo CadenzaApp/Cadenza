@@ -9,19 +9,22 @@ Everything here is presentation: no number on this tab is computed in the client
 aggregates in SQL and this formats and lays out what comes back.
 
 Adding a dimension is one entry in `dimensions.ts` and one in the backend's `Dimension::ALL`. The
-rankings card's picker, the detail route and each row's href all read that list.
+overview's shelves, the detail route and each row's href all read that list.
 
-## The rankings card
+## The ranking shelves
 
-One card for songs, playlists, albums, artists and queries. A small tab bar across its top picks
-which, songs by default. It shows the top five from the summary and "See all" opens the full list. A song row plays the
-ranking from that row; every other row opens its page: a playlist, album or artist screen, or a
-query's results run again. Playlists and queries rank off the source a play was started from; see
-Listening events in `src/lib/README.md`.
+One shelf per dimension, in `DIMENSIONS` order: songs, artists, albums, playlists, queries, shared
+playlists, live sessions. Each is a heading with "See all", which opens the full list, then the
+top five from the summary as a peeking carousel of tiles. A dimension with nothing this period has
+no shelf. A song row plays the ranking from that row; every
+other row opens its page: a playlist, album, artist, or shared playlist screen, a query's results
+run again, and a live session row, which is every session one host ran, opens the host's profile. Playlists, queries,
+shared playlists and sessions rank off the source a play was started from; see Listening events
+in `src/lib/README.md`.
 
 ## The overview
 
-Top to bottom: header, #1 hero, stats strip, heatmap, tag rail, then the rankings card. Every section sits on an `AnalyticsCard` (liquid glass), over a nebula (`NebulaBackdrop`) in
+Top to bottom: header, #1 hero, stats strip, heatmap, the tags shelf, then the ranking shelves. Every section sits on an `AnalyticsCard` (liquid glass), over a nebula (`NebulaBackdrop`) in
 no two alike: the top five tags' colors, then the hero covers' colors to fill in for tags that
 share one (`distinctColors`), and only then repeats. The nebula is fixed to the screen and the
 page scrolls over it.
@@ -55,11 +58,12 @@ it, since their period bar sits fixed above the list. Every page pads the bottom
 | `ListenedSongsScreen.tsx`     | The songs listened to in one span, as a playable `MusicList` page. Opened from the heatmap's hour; loading more raises the read's limit.                                              |
 | `tag-share.ts`                | Pure: a tag's share of listening time, and the `TagFilter` type. Tested in `tag-share.test.ts`.                                                                                       |
 | `heatmap-layout.ts`           | Pure: a heatmap shape to a grid of keyed cells, what each cell picks, and `heatLevel`. Tested in `heatmap-layout.test.ts`.                                                            |
-| `TagRotation.tsx`             | The tags played this period as a sideways rail of square tiles. Each opens its tag.                                                                                                   |
+| `TagRotation.tsx`             | The top shelf: the tags played this period, top five as `ShelfTile`s drawing the tilted tag pill in place of art, then See all. Each opens its tag.                                   |
+| `ShelfTile.tsx`               | The tile every shelf draws: square art with the rank, then title, subtitle and plays under it.                                                                                        |
 | `dimensions.ts`               | Pure: one descriptor per dimension, and where each one's rows go. Tested in `dimensions.test.ts`.                                                                                     |
-| `TopRankingsCard.tsx`         | The overview's one card for every ranking, with the dimension picker.                                                                                                                 |
-| `SegmentedBar.tsx`            | A small tab bar of icon and label segments with a sliding pill. The rankings card's picker.                                                                                           |
-| `TopEntityList.tsx`           | Ranked rows with artwork and a play count. A song row plays, any other opens its page.                                                                                                |
+| `TopShelves.tsx`              | The overview's ranking shelves, one peeking carousel of tiles per dimension.                                                                                                          |
+| `use-ranked-rows.ts`          | `useRankedRows`: a ranking's entries as rows with artwork and what a tap does. The shelves and `TopEntityList` both draw from it.                                                     |
+| `TopEntityList.tsx`           | The full ranking as rows with artwork and a play count. A song row plays, any other opens its page.                                                                                   |
 | `TopTagList.tsx`              | The tag ranking as `TagPill`s, for the full tags page.                                                                                                                                |
 | `format.ts`                   | Durations, percents, counts, hours, bucket labels, "updated ago", and `formatMetric`. Pure, tested in `format.test.ts`.                                                               |
 
@@ -134,13 +138,20 @@ survives navigating into a detail page and back.
   device.
 - **`MusicList` owns its own list and cannot go inside a `ScrollView`.** That is why the songs page
   is its own screen with the period bar above it, and why the scrolling pages use `TopEntityList`.
-- **Artwork comes from `sample_song_id`.** One `useTracksForSongIds` call per section resolves
-  every row. For an album that is the album cover; for an artist or a tag it is the cover of one
-  of its songs. A playlist row fetches its own cover by id (`artworkCollection` on the descriptor)
-  and only falls back to the song's when the playlist has none.
+- **A row opens and shows its own resource.** The descriptor's `own` names the kind (album,
+  playlist, artist). Its id is the one a play recorded, else an exact name match from a catalog
+  search, else the sample song's. Plays on iOS record no artist id and few album ids, so the
+  search is what makes those rows tappable, and a sample song can sit on several albums, which is
+  why it comes last. The picture comes from that id; with none, the sample song's cover.
+  Queries and shared playlists always show a song's cover, and a live session row its host's
+  initials. Tags show no art: the
+  tag itself, tilted across its color.
+- **Each dimension picks its own second line** (`subtitleFor`): a song's or album's artist, a
+  playlist's curator or your name for one in your library, a shared playlist's owner from the backend,
+  and nothing for artists, queries and live sessions (titled `<host>'s session`). Never the sample song's artist.
 - **`useTracksForSongIds` drops ids it cannot resolve**, so an unavailable song falls out of the
   songs page rather than listing without a title. `TopEntityList` keeps the row and falls back to
-  the key, and a tag tile falls back to a gradient of the tag's color.
+  the key.
 - **A row with no recorded entity id renders inert.** Library-only plays carry no catalog id, so
   there is nothing to open; the descriptor's `hrefFor` returns null and the row does not navigate.
 - **A period with no plays gets a message**, keyed on `stats.plays === 0`, because a page of zeros

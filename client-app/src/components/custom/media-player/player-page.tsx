@@ -1,12 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { RepeatMode, ShuffleMode } from "@apple-musickit";
+import { Image } from "expo-image";
 import { useNavigation, type Href } from "expo-router";
 import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
     Platform,
-    Alert,
-    Image,
     Pressable,
     StyleSheet,
     useWindowDimensions,
@@ -32,16 +31,18 @@ import { ModalPopup } from "@/components/custom/modal-popup";
 import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
 import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
 import { useAlbumRouteForTrack } from "@/lib/album-route";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
+import { LiveButton } from "@/features/live-session/LiveButton";
+import { useShownLiveSession } from "@/features/live-session/use-current-session";
+import { LiveChip } from "@/features/social/LiveChip";
 import { usePlayback } from "@/lib/playback";
-import {
-    useArtistPreview,
-    useSongArtists,
-    useSongFavoriteStatus,
-} from "@/lib/musickit-hooks";
+import { MAX_SESSION_QUEUE } from "@/lib/routes/live-sessions";
+import { useArtistPreview, useSongArtists } from "@/lib/musickit-hooks";
 import { useOpenScreen } from "@/lib/open-screen";
 import { SHEET_DETENT, useAppTheme } from "@/lib/theme";
-import { logHandledError } from "@/lib/log";
+import { usePlayerTabs } from "./player-tabs";
+import { isUsableArtworkUrl } from "@/lib/utils";
 
 import {
     MediaPlayerProgress,
@@ -60,6 +61,13 @@ const MIN_DETAILS_HEIGHT = 160;
 
 /** Mirrors the `DetailScreen` header, for estimates. */
 const SHEET_HEADER_HEIGHT = 76;
+
+/** A session's repeat mode as the player spells it. */
+const SESSION_REPEAT = {
+    off: RepeatMode.Off,
+    all: RepeatMode.All,
+    one: RepeatMode.One,
+} as const;
 
 /** What the page shows above the scrubber. */
 type PlayerView = "artwork" | "queue";
@@ -94,9 +102,11 @@ export function PlayerPage() {
         setRepeatMode,
         canSkipToNext,
         canSkipToPrevious,
+        controlsLocked,
         duration,
         isPreview,
     } = usePlayback();
+    const live = useShownLiveSession();
     const { colors } = useTheme();
     const { brand } = useAppTheme().colors;
     const openScreen = useOpenScreen();
@@ -127,20 +137,10 @@ export function PlayerPage() {
     const [bodyHeight, setBodyHeight] = useState(0);
     const [progressBarWidth, setProgressBarWidth] = useState(0);
     const [scrubPosition, setScrubPosition] = useState<number | null>(null);
-    const [favoriteUpdateSongId, setFavoriteUpdateSongId] = useState<
-        string | null
-    >(null);
     const scrubPositionRef = useRef<number | null>(null);
-    const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
-        null,
-    );
     const animatedPlaybackProgress = useSharedValue(progress);
     const favoriteSongId = activeTrack?.catalogId ?? activeTrack?.id;
-    const {
-        favoriteStatus,
-        favoriteStatusLoading: isFavoriteStatusLoading,
-        setSongFavoriteStatus,
-    } = useSongFavoriteStatus(favoriteSongId);
+    const { selectTab } = usePlayerTabs();
 
     const { artistIds } = useSongArtists(focused ? favoriteSongId : undefined);
     const artistId = artistIds?.[0] ?? activeTrack?.artistId;
@@ -148,11 +148,6 @@ export function PlayerPage() {
 
     const artworkUrl = activeTrack?.artworkUrl?.trim();
     const fullArtworkUrl = activeTrack?.artworkUrlLarge?.trim() || artworkUrl;
-    const canRenderFullArtwork =
-        typeof fullArtworkUrl === "string" &&
-        fullArtworkUrl !== failedArtworkUrl &&
-        /^https?:\/\//i.test(fullArtworkUrl);
-    const isUpdatingFavorite = favoriteUpdateSongId === favoriteSongId;
     const displayedProgress = scrubPosition ?? progress;
     // The sheet is shorter than the window, so size against the measured body.
     // Until that lands, estimate it so the artwork does not resize on the
@@ -228,11 +223,13 @@ export function PlayerPage() {
     }
 
     function updateScrubPosition(locationX: number) {
+        if (controlsLocked) return;
         const nextPosition = timeAtSeekLocation(locationX);
         if (nextPosition !== null) setScrubPosition(nextPosition);
     }
 
     async function finishSeek(locationX: number) {
+        if (controlsLocked) return;
         const time = timeAtSeekLocation(locationX);
         if (time === null) {
             setScrubPosition(null);
@@ -288,38 +285,32 @@ export function PlayerPage() {
 
     const seekGesture = useExclusiveGestures(seekPanGesture, seekTapGesture);
 
+    // a session with nothing playing still needs its controls, so the host
+    // can add songs or go live from here
     if (!activeTrack) {
         return (
-            <View className="flex-1 items-center justify-center px-6">
-                <Text className="text-muted-foreground">
-                    Nothing playing right now.
+            <View className="flex-1 items-center justify-center gap-4 px-6">
+                {live ? (
+                    <View className="flex-row items-center gap-2">
+                        <LiveChip />
+                        <Text
+                            className="max-w-60 text-sm font-semibold text-foreground"
+                            numberOfLines={1}
+                        >
+                            {live.name}
+                        </Text>
+                    </View>
+                ) : null}
+                <Text className="text-center text-muted-foreground">
+                    {live
+                        ? "Nothing playing yet. Add songs to start."
+                        : "Nothing playing right now."}
                 </Text>
+                <LiveButton />
             </View>
         );
     }
     const track = activeTrack;
-
-    async function handleFavoriteToggle() {
-        const songId = favoriteSongId;
-        if (!songId || !favoriteStatus || isUpdatingFavorite) return;
-
-        const isFavorite = favoriteStatus.isFavorite;
-
-        setFavoriteUpdateSongId(songId);
-        try {
-            await setSongFavoriteStatus(!isFavorite);
-        } catch (error) {
-            logHandledError("Unable to update Apple Music favorite", error);
-            Alert.alert(
-                "Couldn't Update Favorite",
-                "Please check your Apple Music connection and try again.",
-            );
-        } finally {
-            setFavoriteUpdateSongId((pendingSongId) =>
-                pendingSongId === songId ? null : pendingSongId,
-            );
-        }
-    }
 
     /** Closes this sheet and opens `href` in the tab underneath. */
     function leaveFor(href: Href) {
@@ -334,9 +325,19 @@ export function PlayerPage() {
         });
     }
 
+    // a session's modes are its own; setting them goes to it through the sink
+    const shownShuffle = live
+        ? live.playback.shuffle
+            ? ShuffleMode.Songs
+            : ShuffleMode.Off
+        : shuffleMode;
+    const shownRepeat = live
+        ? SESSION_REPEAT[live.playback.repeat_mode]
+        : repeatMode;
+
     function toggleShuffle() {
         void setShuffleMode(
-            shuffleMode === ShuffleMode.Off
+            shownShuffle === ShuffleMode.Off
                 ? ShuffleMode.Songs
                 : ShuffleMode.Off,
         );
@@ -345,9 +346,9 @@ export function PlayerPage() {
     /** Off, all, one, and back, the order Apple Music cycles in. */
     function cycleRepeat() {
         const next =
-            repeatMode === RepeatMode.Off
+            shownRepeat === RepeatMode.Off
                 ? RepeatMode.All
-                : repeatMode === RepeatMode.All
+                : shownRepeat === RepeatMode.All
                   ? RepeatMode.One
                   : RepeatMode.Off;
         void setRepeatMode(next);
@@ -369,17 +370,20 @@ export function PlayerPage() {
                 <MediaPlayerQueue
                     track={track}
                     upcoming={upcoming}
-                    shuffleMode={shuffleMode}
-                    repeatMode={repeatMode}
-                    favoriteStatus={favoriteStatus}
-                    isFavoriteStatusLoading={isFavoriteStatusLoading}
-                    isUpdatingFavorite={isUpdatingFavorite}
+                    shuffleMode={shownShuffle}
+                    repeatMode={shownRepeat}
                     textColor={colors.text}
-                    onFavoriteToggle={() => void handleFavoriteToggle()}
+                    onOpenTags={() => selectTab("tags")}
                     onOpenArtist={artistId ? openArtist : undefined}
                     onOpenMenu={() => setMenuOpen(true)}
                     onToggleShuffle={toggleShuffle}
                     onCycleRepeat={cycleRepeat}
+                    editable={!live || live.can.edit_queue}
+                    queueCount={
+                        live
+                            ? `${live.up_next.length + (live.current ? 1 : 0)}/${MAX_SESSION_QUEUE}`
+                            : undefined
+                    }
                     onPlayUpcoming={(index) =>
                         void playQueueItem(queuePositionOf(index))
                     }
@@ -397,49 +401,35 @@ export function PlayerPage() {
             ) : (
                 <>
                     <View className="flex-1 items-center justify-center">
-                        {canRenderFullArtwork ? (
-                            <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel="Artwork options"
-                                onPress={() => setArtworkView("menu")}
-                                className="active:opacity-80"
-                            >
-                                <Image
-                                    source={{ uri: fullArtworkUrl }}
-                                    style={{
-                                        width: artworkSize,
-                                        height: artworkSize,
-                                    }}
-                                    className="rounded-xl bg-muted"
-                                    onError={() =>
-                                        setFailedArtworkUrl(fullArtworkUrl)
-                                    }
-                                />
-                            </Pressable>
-                        ) : (
-                            <View
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Artwork options"
+                            disabled={!isUsableArtworkUrl(fullArtworkUrl)}
+                            onPress={() => setArtworkView("menu")}
+                            className="active:opacity-80"
+                        >
+                            <RemoteArtwork
+                                url={fullArtworkUrl}
+                                className="rounded-xl"
                                 style={{
                                     width: artworkSize,
                                     height: artworkSize,
                                 }}
-                                className="items-center justify-center rounded-xl bg-muted"
-                            >
-                                <Ionicons
-                                    name="musical-notes"
-                                    size={72}
-                                    color={colors.text}
-                                />
-                            </View>
-                        )}
+                                fallback={
+                                    <Ionicons
+                                        name="musical-notes"
+                                        size={72}
+                                        color={colors.text}
+                                    />
+                                }
+                            />
+                        </Pressable>
                     </View>
 
                     <MediaPlayerTrackHeading
                         track={track}
-                        favoriteStatus={favoriteStatus}
-                        isFavoriteStatusLoading={isFavoriteStatusLoading}
-                        isUpdatingFavorite={isUpdatingFavorite}
                         textColor={colors.text}
-                        onFavoriteToggle={() => void handleFavoriteToggle()}
+                        onOpenTags={() => selectTab("tags")}
                         onOpenArtist={artistId ? openArtist : undefined}
                         onOpenMenu={() => setMenuOpen(true)}
                     />
@@ -467,7 +457,7 @@ export function PlayerPage() {
                                 className="h-1.5 overflow-hidden rounded-full bg-muted"
                             >
                                 <Animated.View
-                                    className="h-full rounded-full bg-foreground"
+                                    className={`h-full rounded-full ${live ? "bg-brand" : "bg-foreground"}`}
                                     style={progressFillStyle}
                                 />
                             </View>
@@ -476,19 +466,31 @@ export function PlayerPage() {
                 }
             />
 
+            {live ? (
+                <View className="flex-row items-center gap-2 self-center">
+                    <LiveChip />
+                    <Text
+                        className="max-w-60 text-sm font-semibold text-foreground"
+                        numberOfLines={1}
+                    >
+                        {live.name}
+                    </Text>
+                </View>
+            ) : null}
+
             <MediaPlayerTransport
                 isPlaying={isPlaying}
                 isLoading={isLoading}
+                canTogglePlayback={!controlsLocked}
                 canSkipToNext={canSkipToNext}
                 canSkipToPrevious={canSkipToPrevious}
-                shuffleMode={shuffleMode}
+                leading={<LiveButton />}
                 queueOpen={view === "queue"}
                 textColor={colors.text}
                 accentColor={brand}
                 onTogglePlayback={() => void togglePlayback(track)}
                 onSkipToNext={() => void skipToNext()}
                 onSkipToPrevious={() => void skipToPrevious()}
-                onToggleShuffle={toggleShuffle}
                 onToggleQueue={() =>
                     setView((current) =>
                         current === "queue" ? "artwork" : "queue",
@@ -506,7 +508,8 @@ export function PlayerPage() {
                     <View className="bg-black" style={StyleSheet.absoluteFill}>
                         <Image
                             source={{ uri: fullArtworkUrl }}
-                            resizeMode="contain"
+                            contentFit="contain"
+                            cachePolicy="memory-disk"
                             style={StyleSheet.absoluteFill}
                             accessibilityLabel={`${track.title} artwork`}
                         />

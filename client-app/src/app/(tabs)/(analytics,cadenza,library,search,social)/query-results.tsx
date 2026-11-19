@@ -181,6 +181,7 @@ export default function QueryResultsScreen() {
     const actions = useQueryActions({
         savedId,
         favorite: savedQuery?.favorite ?? false,
+        shared: savedQuery?.shared ?? false,
         query,
         considerDefaultTags,
         libraryOrTagged,
@@ -268,6 +269,7 @@ function useHeldCover(list: ListView, source: ArrangeSource | null) {
 function useQueryActions({
     savedId,
     favorite,
+    shared,
     query,
     considerDefaultTags,
     libraryOrTagged,
@@ -278,6 +280,7 @@ function useQueryActions({
 }: {
     savedId: number | null;
     favorite: boolean;
+    shared: boolean;
     query: QueryJSON | null;
     considerDefaultTags: boolean;
     libraryOrTagged: boolean;
@@ -319,7 +322,7 @@ function useQueryActions({
     }, [coverUrls, needsCover, savedId, updateSavedQuery]);
 
     return {
-        saved: savedId === null ? null : { favorite },
+        saved: savedId === null ? null : { favorite, shared },
         save: async (name, favoriteOnSave) => {
             if (!query) return;
             const saved = await saveQuery({
@@ -337,6 +340,13 @@ function useQueryActions({
             await updateSavedQuery({
                 saved_query_id: savedId,
                 favorite: nextFavorite,
+            });
+        },
+        setShared: async (nextShared) => {
+            if (savedId === null) return;
+            await updateSavedQuery({
+                saved_query_id: savedId,
+                shared: nextShared,
             });
         },
         rerun: async () => {

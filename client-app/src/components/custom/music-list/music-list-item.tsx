@@ -1,5 +1,12 @@
-import { memo, useMemo, useRef, useState, type ReactNode } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import {
+    memo,
+    useCallback,
+    useMemo,
+    useRef,
+    useState,
+    type ReactNode,
+} from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import Animated, {
@@ -15,6 +22,7 @@ import Animated, {
 import type { MusicItem } from "@apple-musickit";
 
 import { Button } from "@/components/ui/button";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAppTheme, type ThemeColorToken } from "@/lib/theme";
@@ -132,6 +140,27 @@ export const MusicListItem = memo(function MusicListItem({
         };
     }, [animateSelectionTransition, fullBleed, selectionMode]);
 
+    const handlePress = useCallback(() => {
+        if (longPressConsumedRef.current) {
+            longPressConsumedRef.current = false;
+            return;
+        }
+        onPress(item);
+    }, [item, onPress]);
+    const handleLongPress = useCallback(() => {
+        longPressConsumedRef.current = true;
+        onLongPress?.(item);
+    }, [item, onLongPress]);
+    const handlePressIn = useCallback(() => {
+        setRowPressed(true);
+        longPressConsumedRef.current = false;
+    }, []);
+    const handlePressOut = useCallback(() => setRowPressed(false), []);
+    const longPress =
+        !selectionMode && multiSelectEnabled && onLongPress
+            ? handleLongPress
+            : undefined;
+
     return (
         <Animated.View
             className={cn("relative flex-row items-center justify-between")}
@@ -147,6 +176,17 @@ export const MusicListItem = memo(function MusicListItem({
                 },
             ]}
         >
+            <Pressable
+                style={StyleSheet.absoluteFill}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                onPress={handlePress}
+                onLongPress={longPress}
+                delayLongPress={300}
+                accessibilityRole="button"
+                accessibilityLabel={`${item.title} by ${item.artistName}`}
+                accessibilityState={{ selected }}
+            />
             {selectionMode ? (
                 <View
                     className={cn(
@@ -199,7 +239,11 @@ export const MusicListItem = memo(function MusicListItem({
                 </View>
             ) : null}
 
-            <Animated.View className="flex-1" style={animatedContentStyle}>
+            <Animated.View
+                pointerEvents="box-none"
+                className="flex-1"
+                style={animatedContentStyle}
+            >
                 <View
                     pointerEvents="box-none"
                     className="flex-1 flex-row items-center"
@@ -212,33 +256,6 @@ export const MusicListItem = memo(function MusicListItem({
                         rowPressed ? { opacity: 0.85 } : undefined,
                     ]}
                 >
-                    <Pressable
-                        style={StyleSheet.absoluteFill}
-                        onPressIn={() => {
-                            setRowPressed(true);
-                            longPressConsumedRef.current = false;
-                        }}
-                        onPressOut={() => setRowPressed(false)}
-                        onPress={() => {
-                            if (longPressConsumedRef.current) {
-                                longPressConsumedRef.current = false;
-                                return;
-                            }
-                            onPress(item);
-                        }}
-                        onLongPress={
-                            !selectionMode && multiSelectEnabled && onLongPress
-                                ? () => {
-                                      longPressConsumedRef.current = true;
-                                      onLongPress(item);
-                                  }
-                                : undefined
-                        }
-                        delayLongPress={300}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${item.title} by ${item.artistName}`}
-                        accessibilityState={{ selected }}
-                    />
                     <MusicListItemVisuals
                         item={item}
                         tags={itemTags}
@@ -248,6 +265,10 @@ export const MusicListItem = memo(function MusicListItem({
                         tagMetadata={tagMetadata}
                         lead={lead}
                         compact={compact}
+                        onPress={handlePress}
+                        onLongPress={longPress}
+                        onPressIn={handlePressIn}
+                        onPressOut={handlePressOut}
                     />
                 </View>
             </Animated.View>
@@ -322,6 +343,10 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
     tagMetadata,
     lead,
     compact,
+    onPress,
+    onLongPress,
+    onPressIn,
+    onPressOut,
 }: {
     item: MusicItem;
     tags: readonly AppliedTag[];
@@ -331,6 +356,10 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
     lead?: RailLead;
     compact: boolean;
+    onPress: () => void;
+    onLongPress?: () => void;
+    onPressIn: () => void;
+    onPressOut: () => void;
 }) {
     const hasTags =
         tags.length > 0 ||
@@ -340,7 +369,9 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
 
     return (
         <>
-            <TrackArtwork artworkUrl={item.artworkUrl} compact={compact} />
+            <View pointerEvents="none">
+                <TrackArtwork artworkUrl={item.artworkUrl} compact={compact} />
+            </View>
 
             <View
                 pointerEvents="box-none"
@@ -358,6 +389,10 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
                         tagMetadata={tagMetadata}
                         lead={lead}
                         compact={compact}
+                        onPress={onPress}
+                        onLongPress={onLongPress}
+                        onPressIn={onPressIn}
+                        onPressOut={onPressOut}
                     />
                 ) : null}
             </View>
@@ -370,54 +405,27 @@ const WITHOUT_TAGS_STYLE = { rowGap: 1, transform: [{ translateY: 5 }] };
 
 /** A row's cover, or a placeholder when it has none or it fails to load. */
 const TrackArtwork = memo(function TrackArtwork({
-    artworkUrl: rawUrl,
+    artworkUrl,
     compact,
 }: {
     artworkUrl?: string;
     compact: boolean;
 }) {
-    // the url that failed, not a flag: a list reuses this row for other
-    // songs, and a failed cover must not carry over to the next one
-    const [failedUrl, setFailedUrl] = useState<string | null>(null);
-    const artworkUrl = rawUrl?.trim();
-    const canRenderArtwork =
-        artworkUrl !== failedUrl &&
-        typeof artworkUrl === "string" &&
-        /^https?:\/\//i.test(artworkUrl);
-    const artworkSize = compact ? COMPACT_ARTWORK_SIZE : ARTWORK_SIZE;
-
-    return canRenderArtwork ? (
-        <View
-            pointerEvents="none"
-            className="mr-2 shrink-0"
+    return (
+        <RemoteArtwork
+            url={artworkUrl}
+            className="mr-2 shrink-0 rounded"
             style={{
-                width: artworkSize,
+                width: compact ? COMPACT_ARTWORK_SIZE : ARTWORK_SIZE,
                 aspectRatio: 1,
                 transform: [{ translateY: compact ? 2 : 4 }],
             }}
-        >
-            <Image
-                source={{ uri: artworkUrl }}
-                className="h-full w-full rounded bg-muted"
-                resizeMode="cover"
-                style={{ borderRadius: 4 }}
-                onError={() => setFailedUrl(artworkUrl ?? null)}
-            />
-        </View>
-    ) : (
-        <View
-            pointerEvents="none"
-            className="mr-2 shrink-0 items-center justify-center rounded bg-muted"
-            style={{
-                width: artworkSize,
-                aspectRatio: 1,
-                transform: [{ translateY: compact ? 2 : 4 }],
-            }}
-        >
-            <Text className="text-xs text-muted-foreground text-center">
-                No Art
-            </Text>
-        </View>
+            fallback={
+                <Text className="text-xs text-muted-foreground text-center">
+                    No Art
+                </Text>
+            }
+        />
     );
 });
 

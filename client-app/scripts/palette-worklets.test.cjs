@@ -32,6 +32,14 @@ test("palette translation defaults work in the isolated UI runtime", () => {
     assert.equal(translate(500), 0);
 });
 
+test("palette spacer tracks obscured height in the UI runtime", () => {
+    const spacer = uiWorklet("paletteBottomSpacer");
+    assert.equal(spacer(450, 0), 0);
+    assert.equal(spacer(450, 80), 80);
+    assert.equal(spacer(200, 80), 330);
+    assert.equal(spacer(600, 0), 0);
+});
+
 test("palette height clamping defaults work in the isolated UI runtime", () => {
     const clamp = uiWorklet("clampPaletteHeight");
     assert.equal(clamp(1000, 130), 450);

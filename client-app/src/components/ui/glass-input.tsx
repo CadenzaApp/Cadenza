@@ -2,7 +2,10 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { forwardRef, useState, type ComponentProps } from "react";
 import { StyleSheet, Text, TextInput, View } from "react-native";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import type { IoniconName } from "@/components/ui/ionicon-name";
 import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -36,6 +39,7 @@ export const GlassInput = forwardRef<TextInput, GlassInputProps>(
         ref,
     ) {
         const { colors } = useAppTheme();
+        const outlined = shouldShowGlassOutline();
         // an uncontrolled field still needs to know when it is empty
         const [typed, setTyped] = useState(props.defaultValue ?? "");
         const text = props.value ?? typed;
@@ -43,7 +47,8 @@ export const GlassInput = forwardRef<TextInput, GlassInputProps>(
         return (
             <View
                 className={cn(
-                    "h-12 flex-row items-center gap-2.5 overflow-hidden rounded-2xl border border-border px-4",
+                    "h-12 flex-row items-center gap-2.5 overflow-hidden rounded-2xl px-4",
+                    outlined && "border border-border",
                     editable === false && "opacity-50",
                     containerClassName,
                 )}

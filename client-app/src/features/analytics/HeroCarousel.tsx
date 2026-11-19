@@ -14,7 +14,10 @@ import Animated, {
     type SharedValue,
 } from "react-native-reanimated";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { indexTracksById, useTracksForSongIds } from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
@@ -212,6 +215,7 @@ function GlassLinkButton({
     onPress: () => void;
 }) {
     const { colors } = useTheme();
+    const outlined = shouldShowGlassOutline();
     return (
         <Pressable
             onPress={onPress}
@@ -219,7 +223,13 @@ function GlassLinkButton({
             accessibilityLabel={label}
             style={({ pressed }) => (pressed ? styles.pressed : null)}
         >
-            <View className="h-12 flex-row items-center gap-1 overflow-hidden rounded-full border border-border px-6">
+            <View
+                className={
+                    outlined
+                        ? "h-12 flex-row items-center gap-1 overflow-hidden rounded-full border border-border px-6"
+                        : "h-12 flex-row items-center gap-1 overflow-hidden rounded-full px-6"
+                }
+            >
                 <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                     <GlassSurface style={StyleSheet.absoluteFill} />
                 </View>

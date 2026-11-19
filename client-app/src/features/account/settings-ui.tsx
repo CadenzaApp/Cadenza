@@ -76,6 +76,9 @@ function SettingsScroll({
         <Animated.ScrollView
             ref={ref}
             scrollEventThrottle={16}
+            // Android's sheet only lets a drag down scroll back up inside a
+            // nested scrolling view; without it the drag closes the sheet
+            nestedScrollEnabled
             className="flex-1"
             contentContainerClassName={cn("gap-4 px-5", className)}
             contentContainerStyle={{

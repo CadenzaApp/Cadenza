@@ -38,12 +38,14 @@ a post-release spring landing also captures. A free tap first returns vertically
 pauses 80ms, then expands. The native accessory is inserted only after expansion completes. Floating glass is hidden
 in that same React commit, before native layout reports, to avoid stacked-material flashes.
 Track and queue changes preserve the current collapsed or expanded state.
+The floating artwork resizes every frame of a collapse, so its `RemoteArtwork` sets
+`animatesSize`: expo-image then skips the per-size reload that blinks it on Android.
 
 On a committed native collapse, the floating renderer owns the width and artwork animation. The screens patch
 removes insertion/removal fades. Movement below the threshold leaves native glass untouched. Run `npx pod-install` and rebuild iOS after changing
 the patch. Scroll minimization remains UIKit-owned.
 
-Sort and Library Tags' plus action share `useBottomRowActionButton`. Their sources own their
+Sort and the plus action on Library Tags share `useBottomRowActionButton` (the plus through `BottomRowActionBubble`). Their sources own their
 sheets; the host owns placement. The assistant button is always the row's rightmost
 control, whenever the row shows except under multiselect; a row action sits one slot to its
 left and both share the same lift, scale, and dock. Floating bottom glass always clips to its radius. Unclipped, it
@@ -76,9 +78,13 @@ needs device verification; no test harness simulates UIKit's material or hit tes
 `app/player/_layout.tsx` presents the sheet and its route slot. `/player`, `/player/discuss`, and
 `/player/tags` each render the same `PlayerPager`, which mounts Discuss, Player, and Tags side by
 side inside one horizontal paging `ScrollView`. The route selects Player, Discuss, or Tags.
-Swipes expose the adjacent live page under the finger, and the glass selector's highlight follows
-the scroll position continuously. Each selected tab uses its filled icon variant; inactive tabs
-use outlines. The three page instances stay mounted for the sheet's lifetime. Tags and Discuss do not
+Swipes expose the adjacent live page under the finger, and the selection pill follows the scroll
+position continuously, stretching between tabs. The bar copies iOS 26's native tab bar
+(`player-bar.tsx`): its size, margins, a pill darker than the glass, SF Symbols, and label type, with the
+accent on the selected tab. Icons are drawn at a set point size through a `pointSize` prop that
+`patches/expo-symbols+58.0.4.patch` adds; rebuild iOS after changing the patch. It cannot be the native bar: native tabs do not page by swipe, and in a live session the bar
+holds session buttons instead of tabs. The pager's `contentOffset` is set once. Changing it later
+jumps UIKit's scroll view without animating. The three page instances stay mounted for the sheet's lifetime. Tags and Discuss do not
 start their network reads merely because their page shells are mounted. The pager enables a page's
 reads the first time that page is selected, then leaves them enabled so revisiting it is instant.
 Preserve that separation when adding data to an offscreen player page.
@@ -91,6 +97,10 @@ ahead of the pages so the sheet finds it instead. It covers the pages on Discuss
 shrinks to nothing on Player, so pulling the artwork down still closes the sheet. A new vertical
 scroll view in the sheet needs nothing more, but anything nested-scrolling placed ahead of
 `SheetScrollRegion` would take its place.
+
+In a live session the sheet stays open with nothing playing (`focusedSong` is null, and Discuss and
+Tags show a placeholder), since the session's controls live here. Outside one it closes when
+playback stops.
 
 `PlayerScopeProvider` resolves a `focusedSong` (id, title, artwork) from `usePlayback()`'s
 `activeTrack` or the route's `tagsSongId` / `tagsSongTitle` / `tagsArtworkUrl` /
@@ -112,6 +122,21 @@ Detail screens push inside the current tab's stack, so the tab bar and the tab-l
 over them like any tab screen. No separate player host is needed.
 
 Playback state lives in `PlaybackProvider`, not here.
+
+The now playing sheet is also the live session's screen. The transport's left slot is
+`LiveButton` (`@/features/live-session`), a radio icon labeled Go live (Live in a session): outside a session it opens the Go live sheet
+(`/live-session/new`); in one it turns red and opens the session menu (settings,
+listen mode, hand over, leave, end). In a session a LIVE tag and the session name sit above the
+transport, and the progress bar is red. In a session the pager's tab bar is swapped for `LiveSessionBar` (Requests, People, Add,
+Share as the role allows), and the pages still swipe. Both bars share `player-bar.tsx`. The queue
+is the player's own, read only (no drag, remove, or handles) below queue editor. Its shuffle and
+repeat pills show and set the session's modes, and Continue Playing shows how full the
+session's queue is (`37/500`). A member whose phone does not play the session
+sees it here anyway, through `usePlaybackView`.
+
+The compact player shows "LIVE . {session name}" in place of the artist, from
+`useLiveSessionBadge`. When `controlsLocked` is set (a member whose role cannot control), play,
+skip, and the scrubber are disabled; the commands themselves already go to the session.
 
 The two halves are split by what they render into. `media-player.tsx` owns playback commands and
 the tap that pushes `/player`. `player-scope.tsx` owns the song shared by the sheet routes.
@@ -147,6 +172,7 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 ## Connects to
 
 - `@/lib/playback::usePlayback` for all transport.
+- `@/features/live-session` for the LIVE line, `LiveButton`, and `LiveSessionBar`.
 - `@/features/social` (`PostCard`, `CreatePostDialog`) and `@/lib/routes/social`
   (`useTopicPosts`, `useCreatePost`) for Discuss. A post there has `topic_mk_id` set to the
   focused song.
@@ -181,8 +207,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 - `PlayerPager` keeps `removeClippedSubviews` off intentionally. All three pages must remain
   mounted, including the page just outside the viewport, or an interactive swipe exposes a blank
   destination and loses page-local state.
-- Repeat is deliberately not on the transport row. It lives on the queue view next to shuffle,
-  which is where Apple keeps it and what frees the bottom-right slot for the queue button.
+- Shuffle and repeat are deliberately not on the transport row. They live on the queue view,
+  which is where Apple keeps them, and frees the left slot for LIVE and the right for the queue.
 - Both mode pills are glass while they are off and invert to a solid white pill with a dark glyph
   while they are on. Off and on differing only by icon color did not read, since `secondary` and
   `muted` are the same value in the dark palette.
@@ -210,7 +236,7 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   a time without changing their initial relevance order as choices change. The funnel in Your Tags
   switches between relevance and alphabetical order. Its + control opens tag creation. A tag
   created from it or adopted from Suggested becomes one of the user's tags and is applied to
-  `focusedSong` straight away. Basic tag toggles update
+  `focusedSong` after its value prompt when it is an attribute tag, or straight away when basic. Basic tag toggles update
   optimistically and hold that state until the refreshed backend read arrives.
 - Below the selector, the read-only Metadata Tags card uses the same theme-aware `TagSelectorPanel`
   surface as Your Tags and Suggested and is collapsed by default. Its data is not fetched
@@ -234,3 +260,9 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 
 Touching files in this directory? Update this README in the same change.
 See [../../../../../AGENT_GUIDE.md](../../../../../AGENT_GUIDE.md).
+
+The pager starts loading Tags and Discuss on the next animation frame after mounting.
+The filled multiple-tags icon beside the track heading opens Tags. Favorites stay in Song options.
+
+Expanded compact controls draw a two-point playback progress line from the artwork's left edge to the bar's right edge along the bottom, clipped by the bar. It animates linearly between playback snapshots and snaps to confirmed positions on pause or seek. Expanded artwork is 35 points (31 inline), with equal insets and a radius derived from the outer capsule minus its inset.
+The app-owned expanded bar starts at 52 points, matching the assistant bubble. Native accessory height remains UIKit-owned and is measured for handoff.

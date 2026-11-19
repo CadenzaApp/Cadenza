@@ -1,22 +1,24 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation, useRouter } from "expo-router";
-import {
-    useCallback,
-    useLayoutEffect,
-    useRef,
-    useState,
-    type ReactNode,
-} from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import Animated from "react-native-reanimated";
 
+import { ErrorNotice } from "@/components/custom/error-notice";
+import { SearchField } from "@/components/custom/search-field";
+import { Toast, useToast } from "@/components/custom/toast";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { GlassPanel } from "@/components/ui/glass-panel";
+import { Skeleton } from "@/components/ui/skeleton";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
+import { useFriendsListening } from "@/lib/routes/listening";
 import {
     useAcceptFriendRequest,
+    useBlockUser,
     useCancelFriendRequest,
-    useFriendships,
+    useFavoriteFriend,
+    useFriendshipsWithPresence,
     useUserSearch,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
@@ -26,52 +28,64 @@ import { useAppTheme } from "@/lib/theme";
 import type { SocialPerson } from "@/lib/types";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 
-import { initialsFromUsername } from "./format";
+import { LiveChip } from "./LiveChip";
+import { Initials } from "./MemberRow";
+import { isFriendOnline } from "./presence";
 
 /** How long typing has to pause before a user search runs. */
 const SEARCH_DEBOUNCE_MS = 300;
 
-/** Search, then incoming requests, outgoing requests, and friends. */
+/**
+ * Search, then requests, then friends listening now, then the rest of your
+ * friends, then requests you sent, then accounts you blocked. Friends come
+ * favorites first, then online, with a green dot on each one online and a
+ * star to favorite.
+ */
 export function FriendsScreen() {
     const navigation = useNavigation();
     const router = useRouter();
     const { listBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll();
-    const { foreground, primaryForeground } = useAppTheme().colors;
-    const { incoming, outgoing, friends, friendshipsLoading, friendshipsErr } =
-        useFriendships();
+    const { foreground, primaryForeground, mutedForeground, brand } =
+        useAppTheme().colors;
+    const {
+        incoming,
+        outgoing,
+        friends,
+        blocked,
+        friendshipsLoading,
+        friendshipsErr,
+    } = useFriendshipsWithPresence();
+    const { setFavorite, favoriteLoading } = useFavoriteFriend();
+    const { setBlocked, blockLoading } = useBlockUser();
+    const { friendsListening } = useFriendsListening();
+    const listeningById = new Map(
+        (friendsListening ?? []).map((friend) => [friend.user_id, friend]),
+    );
+    const listeningIds = new Set(listeningById.keys());
+    const listening = friends.filter((friend) =>
+        listeningById.has(friend.user_id),
+    );
+    const notListening = friends.filter(
+        (friend) => !listeningById.has(friend.user_id),
+    );
     const { acceptFriendRequest, acceptFriendRequestLoading } =
         useAcceptFriendRequest();
     const { cancelFriendRequest, cancelFriendRequestLoading } =
         useCancelFriendRequest();
     const requestBusy =
         acceptFriendRequestLoading || cancelFriendRequestLoading;
-    const [toast, setToast] = useState<string | null>(null);
-    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const showToast = useCallback((message: string) => {
-        if (toastTimer.current) clearTimeout(toastTimer.current);
-        setToast(message);
-        toastTimer.current = setTimeout(() => setToast(null), 3000);
-    }, []);
-
-    useLayoutEffect(() => {
-        return () => {
-            if (toastTimer.current) clearTimeout(toastTimer.current);
-        };
-    }, []);
+    const { toast, showToast } = useToast();
 
     useLayoutEffect(() => {
         navigation.setOptions({ title: "Friends" });
     }, [navigation]);
 
-    const friendsLabel =
-        friends.length > 0
-            ? null
-            : friendshipsLoading
-              ? "Loading..."
-              : friendshipsErr
-                ? "Couldn't load friends."
-                : "No friends yet.";
+    const nobody =
+        friends.length === 0 &&
+        incoming.length === 0 &&
+        outgoing.length === 0 &&
+        blocked.length === 0;
 
     const openProfile = (userId: string) => {
         router.push(`/social/user/${userId}`);
@@ -95,7 +109,7 @@ export function FriendsScreen() {
                     <SearchSection onPress={openProfile} />
                     {incoming.length > 0 ? (
                         <PersonSection
-                            title="Incoming requests"
+                            title="Requests"
                             people={incoming}
                             onPress={openProfile}
                             renderActions={(person) => (
@@ -147,9 +161,90 @@ export function FriendsScreen() {
                             )}
                         />
                     ) : null}
+                    {listening.length > 0 ? (
+                        <PersonSection
+                            title="Listening now"
+                            people={listening}
+                            online={() => true}
+                            subtitle={(person) => {
+                                const np = listeningById.get(
+                                    person.user_id,
+                                )?.now_playing;
+                                return np
+                                    ? [np.title, np.artist]
+                                          .filter(Boolean)
+                                          .join(" - ")
+                                    : undefined;
+                            }}
+                            onPress={openProfile}
+                            renderActions={(person) => {
+                                const np = listeningById.get(
+                                    person.user_id,
+                                )?.now_playing;
+                                if (!np) return null;
+                                return (
+                                    <View className="items-center gap-1">
+                                        <SmallArt url={np.artwork_url} />
+                                        {np.live_session_id ? (
+                                            <LiveChip />
+                                        ) : null}
+                                    </View>
+                                );
+                            }}
+                        />
+                    ) : null}
+                    {notListening.length > 0 ? (
+                        <PersonSection
+                            title="Friends"
+                            people={notListening}
+                            online={(person) =>
+                                isFriendOnline(person, listeningIds)
+                            }
+                            onPress={openProfile}
+                            renderActions={(person) => {
+                                const { favorite } = person;
+                                return (
+                                    <Pressable
+                                        accessibilityRole="button"
+                                        accessibilityLabel={
+                                            favorite
+                                                ? `Remove ${person.username} from favorites`
+                                                : `Favorite ${person.username}`
+                                        }
+                                        accessibilityState={{
+                                            selected: favorite,
+                                        }}
+                                        disabled={favoriteLoading}
+                                        hitSlop={8}
+                                        onPress={() =>
+                                            void setFavorite(
+                                                person.user_id,
+                                                !favorite,
+                                            )
+                                        }
+                                        className="active:opacity-60"
+                                    >
+                                        <Ionicons
+                                            name={
+                                                favorite
+                                                    ? "star"
+                                                    : "star-outline"
+                                            }
+                                            size={20}
+                                            color={
+                                                favorite
+                                                    ? brand
+                                                    : mutedForeground
+                                            }
+                                        />
+                                    </Pressable>
+                                );
+                            }}
+                        />
+                    ) : null}
                     {outgoing.length > 0 ? (
                         <PersonSection
-                            title="outgoing requests"
+                            title="Sent"
                             people={outgoing}
                             onPress={openProfile}
                             renderActions={(person) => (
@@ -174,25 +269,69 @@ export function FriendsScreen() {
                             )}
                         />
                     ) : null}
-                    <PersonSection
-                        title="friends"
-                        people={friends}
-                        emptyLabel={friendsLabel}
-                        onPress={openProfile}
-                    />
+                    {blocked.length > 0 ? (
+                        <PersonSection
+                            title="Blocked"
+                            people={blocked}
+                            onPress={openProfile}
+                            renderActions={(person) => (
+                                <Button
+                                    accessibilityLabel={`Unblock ${person.username}`}
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={blockLoading}
+                                    onPress={async () => {
+                                        try {
+                                            await setBlocked(
+                                                person.user_id,
+                                                false,
+                                            );
+                                            showToast(
+                                                `Unblocked ${person.username}`,
+                                            );
+                                        } catch {
+                                            showToast(
+                                                `Couldn't unblock ${person.username}`,
+                                                true,
+                                            );
+                                        }
+                                    }}
+                                >
+                                    <Text>Unblock</Text>
+                                </Button>
+                            )}
+                        />
+                    ) : null}
+                    {friendshipsErr ? (
+                        <ErrorNotice error={friendshipsErr} className="mt-6" />
+                    ) : friendshipsLoading && nobody ? (
+                        <View className="mt-6">
+                            <GlassPanel>
+                                {[0, 1, 2].map((i) => (
+                                    <View
+                                        key={i}
+                                        className="flex-row items-center gap-3 px-4 py-3"
+                                    >
+                                        <Skeleton className="h-10 w-10 rounded-full" />
+                                        <Skeleton className="h-4 w-32 rounded" />
+                                    </View>
+                                ))}
+                            </GlassPanel>
+                        </View>
+                    ) : nobody ? (
+                        <View className="items-center gap-1 py-16">
+                            <Text className="text-base font-semibold text-foreground">
+                                No friends yet.
+                            </Text>
+                            <Text className="text-center text-sm text-muted-foreground">
+                                Open someone&apos;s profile from a post to add
+                                them.
+                            </Text>
+                        </View>
+                    ) : null}
                 </Animated.ScrollView>
             </ScreenScrollMarker>
-            {toast ? (
-                <View
-                    pointerEvents="none"
-                    accessibilityRole="alert"
-                    className="absolute left-5 right-5 top-3 rounded-2xl bg-foreground px-4 py-3"
-                >
-                    <Text className="text-center text-sm text-background">
-                        {toast}
-                    </Text>
-                </View>
-            ) : null}
+            <Toast toast={toast} />
         </View>
     );
 }
@@ -231,14 +370,10 @@ function SearchSection({ onPress }: { onPress: (userId: string) => void }) {
                 <Text className="text-sm font-semibold text-muted-foreground">
                     search
                 </Text>
-                <Input
+                <SearchField
                     value={query}
                     onChangeText={setQuery}
                     placeholder="Find people"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="search"
-                    accessibilityLabel="Search people"
                 />
             </View>
             <ScrollView
@@ -286,11 +421,7 @@ function PersonRow({
 }) {
     const identity = (
         <>
-            <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
-                <Text className="text-sm font-semibold text-foreground">
-                    {initialsFromUsername(person.username)}
-                </Text>
-            </View>
+            <Initials username={person.username} />
             <Text
                 className="min-w-0 flex-1 text-base text-foreground"
                 numberOfLines={1}
@@ -321,37 +452,73 @@ function PersonRow({
     );
 }
 
-function PersonSection({
+function PersonSection<Person extends SocialPerson>({
     title,
     people,
-    emptyLabel,
+    online,
+    subtitle,
     onPress,
     renderActions,
 }: {
     title: string;
-    people: SocialPerson[];
-    emptyLabel?: string | null;
+    people: Person[];
+    /** Which avatars get the green dot. None when left out. */
+    online?: (person: Person) => boolean;
+    subtitle?: (person: Person) => string | undefined;
     onPress: (userId: string) => void;
-    renderActions?: (person: SocialPerson) => ReactNode;
+    renderActions?: (person: Person) => ReactNode;
 }) {
     return (
-        <View className="gap-2 py-3">
-            <Text className="text-sm font-semibold text-muted-foreground">
+        <View className="mt-6 gap-2">
+            <Text className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                 {title}
             </Text>
-            {people.map((person) => (
-                <PersonRow
-                    key={person.user_id}
-                    person={person}
-                    onPress={onPress}
-                    actions={renderActions?.(person)}
-                />
-            ))}
-            {emptyLabel ? (
-                <Text className="py-2 text-sm text-muted-foreground">
-                    {emptyLabel}
-                </Text>
-            ) : null}
+            <GlassPanel>
+                {people.map((person, index) => {
+                    const line = subtitle?.(person);
+                    return (
+                        <View key={person.user_id}>
+                            {index > 0 ? (
+                                <View className="ml-[68px] h-px bg-border" />
+                            ) : null}
+                            <View className="flex-row items-center gap-3 px-4 py-3">
+                                <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel={person.username}
+                                    onPress={() => onPress(person.user_id)}
+                                    className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-60"
+                                >
+                                    <Initials
+                                        username={person.username}
+                                        online={online?.(person) ?? false}
+                                    />
+                                    <View className="min-w-0 flex-1">
+                                        <Text
+                                            className="text-base text-foreground"
+                                            numberOfLines={1}
+                                        >
+                                            {person.username}
+                                        </Text>
+                                        {line ? (
+                                            <Text
+                                                className="text-xs text-muted-foreground"
+                                                numberOfLines={1}
+                                            >
+                                                {line}
+                                            </Text>
+                                        ) : null}
+                                    </View>
+                                </Pressable>
+                                {renderActions?.(person)}
+                            </View>
+                        </View>
+                    );
+                })}
+            </GlassPanel>
         </View>
     );
+}
+
+function SmallArt({ url }: { url: string | null }) {
+    return <RemoteArtwork url={url} className="h-10 w-10 rounded-lg" />;
 }

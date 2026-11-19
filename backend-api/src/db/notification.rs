@@ -2,6 +2,7 @@
 //! entities yet, so the SeaORM model lives here until the next codegen.
 //! [`list_notifications`] is the page read. [`insert_notification`] is the
 //! write, called by [`crate::services::notification::push_notification`].
+//! [`dismiss_notifications`] is the user clearing some or all.
 //! [`delete_notifications_before`] is the daily cleanup.
 
 use chrono::{DateTime, Utc};
@@ -28,6 +29,10 @@ pub enum NotificationType {
     FriendReqAccepted,
     #[sea_orm(string_value = "comment")]
     Comment,
+    #[sea_orm(string_value = "session_join_request")]
+    SessionJoinRequest,
+    #[sea_orm(string_value = "session_join_accepted")]
+    SessionJoinAccepted,
 }
 
 impl NotificationType {
@@ -36,6 +41,8 @@ impl NotificationType {
             Self::FriendReqReceived => "friend_req_received",
             Self::FriendReqAccepted => "friend_req_accepted",
             Self::Comment => "comment",
+            Self::SessionJoinRequest => "session_join_request",
+            Self::SessionJoinAccepted => "session_join_accepted",
         }
     }
 }
@@ -54,7 +61,9 @@ pub struct Model {
     pub notif_type: NotificationType,
     pub created_at: DateTimeWithTimeZone,
     pub unread: bool,
-    /// `{"post_id"}` for a comment, or `{"sender_id", "resolution"}` for a friend request.
+    /// `{"post_id"}` for a comment, `{"sender_id", "resolution"}` for a friend
+    /// request, `{"sender_id", "session_id", "resolution"}` for a session join
+    /// request, and `{"session_id"}` for being let into one.
     #[sea_orm(column_type = "JsonBinary")]
     pub metadata: Json,
 }
@@ -202,6 +211,23 @@ pub async fn mark_notifications_read(
         .exec(db)
         .await?;
     Ok(())
+}
+
+/// Deletes the caller's notifications in `notif_ids`, or all of them when
+/// `None`. Ids that belong to someone else stay. Returns how many went.
+pub async fn dismiss_notifications(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    notif_ids: Option<&[i64]>,
+) -> Result<u64, CadenzaError> {
+    let mut delete = Entity::delete_many().filter(Column::UserId.eq(user_id));
+    if let Some(ids) = notif_ids {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        delete = delete.filter(Column::NotifId.is_in(ids.iter().copied()));
+    }
+    Ok(delete.exec(db).await?.rows_affected)
 }
 
 /// Deletes every notification with `created_at` before `cutoff`.

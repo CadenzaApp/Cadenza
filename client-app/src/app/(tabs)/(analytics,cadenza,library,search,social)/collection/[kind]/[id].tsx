@@ -6,7 +6,10 @@ import { useTheme } from "expo-router/react-navigation";
 
 import { CollectionOptionsMenu } from "@/components/custom/options-menu/collection-options-menu";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
-import { FloatingBackButton } from "@/components/ui/floating-back-button";
+import {
+    FloatingBackButton,
+    HERO_BUTTON_SIZE,
+} from "@/components/ui/floating-back-button";
 import { useArrangedTrackList } from "@/lib/arranged-track-list";
 import { Text } from "@/components/ui/text";
 import { useArtworkTint } from "@/lib/artwork-color";
@@ -16,6 +19,7 @@ import {
 } from "@/lib/musickit-hooks";
 import { isTrackInCollection } from "@/lib/playable-item";
 import type { PlaySource } from "@/lib/play-source";
+import { usePlayFromList } from "@/lib/play-from-list";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import type { ArrangeSource } from "@/lib/routes/arrange";
 import {
@@ -27,8 +31,6 @@ import {
 import type { LibraryCollectionKind } from "@/lib/musickit-hooks";
 
 const DEFAULT_MULTI_SELECT_CONFIG = {} as const;
-/** Diameter of the floating close button. */
-const HERO_BUTTON_SIZE = 52;
 /**
  * The songs inside one library album or playlist. Both kinds render the same
  * way, so the kind is a route param rather than two screens.
@@ -175,10 +177,11 @@ export default function CollectionDetailScreen() {
         }
     }
 
-    /** A row plays just that song, the same as anywhere else, but credited. */
+    /** A row plays the collection from that song, credited to it. */
+    const playFromList = usePlayFromList();
     const playRow = useCallback(
-        (track: MusicItem) => togglePlayback(track, playSource),
-        [playSource, togglePlayback],
+        (track: MusicItem) => playFromList(orderedTracks, track, playSource),
+        [orderedTracks, playFromList, playSource],
     );
 
     return (

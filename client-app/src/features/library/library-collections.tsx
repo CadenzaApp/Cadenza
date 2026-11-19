@@ -1,5 +1,5 @@
 import type { MusicItem } from "@apple-musickit";
-import { useCallback } from "react";
+import { useCallback, type ReactNode } from "react";
 import { View } from "react-native";
 
 import { CollectionList } from "@/components/custom/collection-list";
@@ -38,14 +38,17 @@ const COPY: Record<
 /**
  * The Albums or Playlists category: the library's collections, or the ones
  * matching the search field. `playable` adds Play and Shuffle, which queue
- * every song of every collection loaded so far, in list order.
+ * every song of every collection loaded so far, in list order. `above` sits
+ * over the search field, scrolling with the list.
  */
 export function LibraryCollections({
     kind,
     playable,
+    above,
 }: {
     kind: LibraryCollectionKind;
     playable: boolean;
+    above?: ReactNode;
 }) {
     const search = useLibraryListSearch();
     const searching = search.term !== null;
@@ -95,20 +98,25 @@ export function LibraryCollections({
                         searching ? COPY[kind].noMatch : COPY[kind].empty
                     }
                     header={
-                        <LibraryListHeader
-                            search={search}
-                            placeholder={COPY[kind].placeholder}
-                            actions={
-                                playable
-                                    ? {
-                                          onPlay: playAll.play,
-                                          onShuffle: playAll.shuffle,
-                                          disabled: shown.length === 0,
-                                          pending: playAll.pending,
-                                      }
-                                    : undefined
-                            }
-                        />
+                        <>
+                            {above ? (
+                                <View className="px-5 pb-2">{above}</View>
+                            ) : null}
+                            <LibraryListHeader
+                                search={search}
+                                placeholder={COPY[kind].placeholder}
+                                actions={
+                                    playable
+                                        ? {
+                                              onPlay: playAll.play,
+                                              onShuffle: playAll.shuffle,
+                                              disabled: shown.length === 0,
+                                              pending: playAll.pending,
+                                          }
+                                        : undefined
+                                }
+                            />
+                        </>
                     }
                 />
             </View>

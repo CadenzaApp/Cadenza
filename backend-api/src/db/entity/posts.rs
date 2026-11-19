@@ -26,6 +26,7 @@ pub struct Model {
     pub topic_mk_id: Option<String>,
     pub comments: i64,
     pub edited_at: Option<DateTimeWithTimeZone>,
+    pub shared_playlist_id: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

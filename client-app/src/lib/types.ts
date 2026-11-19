@@ -6,6 +6,7 @@ export type TagType =
     | "text"
     | "datetime"
     | "date"
+    | "duration"
     | "number"
     | "checkbox";
 
@@ -108,7 +109,25 @@ export type SocialPost = {
     };
     /** Apple Music catalog id of the attached song or artist, or null. */
     topic_mk_id: string | null;
+    /** The attached shared playlist, or null. Never set with `topic_mk_id`. */
+    shared_playlist: PostSharedPlaylist | null;
     comment_count: number;
+};
+
+/**
+ * A shared playlist on a post, as anyone who sees the post sees it.
+ * `available` is false when the id matches no playlist. The name, counts,
+ * and covers are then empty.
+ */
+export type PostSharedPlaylist = {
+    playlist_id: number;
+    name: string;
+    song_count: number;
+    member_count: number;
+    /** The first four songs' catalog ids, for a cover mosaic. */
+    cover_song_ids: string[];
+    /** False when the playlist row is gone. The id stays on the post. */
+    available: boolean;
 };
 
 /**
@@ -132,17 +151,34 @@ export type SocialComment = {
     };
 };
 
+/** One of a user's comments, from `GET /social/comments/user/:id`. */
+export type SocialReply = SocialComment & {
+    /** The post it answers. */
+    post: {
+        post_id: number;
+        content: string;
+        author: {
+            user_id: string;
+            username: string;
+        };
+    };
+};
+
 /** What happened. The phone picks a glyph from this. */
 export type NotificationType =
     | "friend_req_received"
     | "friend_req_accepted"
-    | "comment";
+    | "comment"
+    | "session_join_request"
+    | "session_join_accepted";
 
 /**
  * Extra fields on a notification. A comment stores `post_id`. A friend
- * request stores `sender_id` and `resolution`.
+ * request stores `sender_id` and `resolution`. A session join request stores
+ * those and `session_id`; being let in stores `session_id`.
  */
 export type NotificationMetadata = {
+    session_id?: string;
     sender_id?: string;
     resolution?: "accepted" | "ignored" | null;
     post_id?: number;
@@ -174,11 +210,23 @@ export type UserSearchPerson = SocialPerson & {
     is_friend: boolean;
 };
 
-/** Completed friends and pending requests in both directions. */
+/** A completed friend from `GET /social/friends`. */
+export type SocialFriend = SocialPerson & {
+    /** Has the app open. False when they hide their now playing from friends. */
+    online: boolean;
+    /** The signed-in user's favorite. */
+    favorite: boolean;
+};
+
+/**
+ * Completed friends, favorites first, then online, then by username. Pending
+ * requests in both directions, and the accounts the signed-in user blocked.
+ */
 export type Friendships = {
     incoming: SocialPerson[];
     outgoing: SocialPerson[];
-    friends: SocialPerson[];
+    friends: SocialFriend[];
+    blocked: SocialPerson[];
 };
 
 /** Public profile header from `GET /social/posts/user/:author_id`. */
@@ -194,4 +242,8 @@ export type SocialUserProfile = {
     friend_request_received: boolean;
     /** The signed-in user and this user have a completed friendship. */
     is_friend: boolean;
+    /** The signed-in user marked this friend a favorite. */
+    is_favorite: boolean;
+    /** The signed-in user blocked this user. */
+    blocked: boolean;
 };
