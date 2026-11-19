@@ -197,7 +197,9 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `selection-utils.ts`               | `reduceMusicListSelection`, the pure reducer behind the hook.                                                                                                                                                                                                                      |
 | `types.ts`                         | `MusicListProps`, `MusicListArrangement`, and the section types, so callers do not import from `index.tsx`.                                                                                                                                                                        |
 
-Multiselect registers its panel in the shared bottom overlay. Sort and the plus on Library Tags (`BottomRowActionBubble`) use
+Multiselect registers its panel in the shared bottom overlay, but renders its Apply and Remove tags
+popup from the screen: the overlay hides while the keyboard is up, so a popup with a text field
+inside it would hide and drop focus as soon as the field was tapped. Sort and the plus on Library Tags (`BottomRowActionBubble`) use
 `useBottomRowActionButton`; sources own their dialogs while the foreground host owns placement.
 See [media-player](custom/media-player/README.md) for stacking, visibility, and animation rules.
 
