@@ -38,7 +38,7 @@ import type { PendingConfirmation } from "./types";
 /** The most songs a tool plays, queues, or puts on a card, like the backend's. */
 const MAX_SONGS = 250;
 /** The most songs a tool describes to the model. The card shows the rest. */
-const MAX_DESCRIBED = 25;
+const MAX_DESCRIBED = 250;
 /** The most Apple Music playlists listed. */
 const MAX_PLAYLISTS = 200;
 /** How many songs or playlists one Apple Music page asks for. */

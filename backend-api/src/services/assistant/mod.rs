@@ -12,6 +12,7 @@
 //! the loop up where it stopped.
 
 pub mod builder;
+pub mod card_edit;
 pub mod model;
 pub mod phone_tools;
 pub mod prompt;
@@ -121,9 +122,11 @@ async fn answer(
         .find(|message| message.role == ChatRole::Assistant && !message.song_ids.is_empty())
         .map(|message| message.song_ids.clone())
         .unwrap_or_default();
+    let latest_card = latest_card_index(kept);
     let card_ids: Vec<String> = kept
         .iter()
-        .flat_map(|message| card_song_ids(message))
+        .enumerate()
+        .flat_map(|(index, message)| card_song_ids(message, Some(index) == latest_card))
         .cloned()
         .collect();
     let card_rows = db::metadata_tags::get_song_rows(db, &card_ids).await?;
@@ -151,6 +154,7 @@ async fn answer(
     };
     let mut tool_definitions = definitions();
     tool_definitions.extend(phone_tools::definitions());
+    tool_definitions.push(card_edit::definition());
     // the tag ids the prompt lists are the model's to use without a lookup
     let tag_ids = tags
         .iter()
@@ -238,12 +242,29 @@ fn kept_messages(request: &AssistantRequest) -> &[ChatMessage] {
     &request.messages[start..]
 }
 
+/// How many songs of an older card, one before the latest, the model is told about. The
+/// latest card, the one the user is looking at and `edit_card` changes, is told in full.
+const OLDER_CARD_SONGS: usize = 25;
+
+/// The index of the last assistant message with a card, the one the user is looking at.
+fn latest_card_index(messages: &[ChatMessage]) -> Option<usize> {
+    messages
+        .iter()
+        .rposition(|message| message.role == ChatRole::Assistant && !message.song_ids.is_empty())
+}
+
 /// The songs on the card under an assistant message, as many as the model is
-/// told about. None for a user's message.
-fn card_song_ids(message: &ChatMessage) -> &[String] {
+/// told about: all of them (up to [`MAX_SONGS_TO_MODEL`]) for the latest card, the first
+/// [`OLDER_CARD_SONGS`] for an older one. None for a user's message.
+fn card_song_ids(message: &ChatMessage, latest: bool) -> &[String] {
+    let shown = if latest {
+        MAX_SONGS_TO_MODEL
+    } else {
+        OLDER_CARD_SONGS
+    };
     match message.role {
         ChatRole::User => &[],
-        ChatRole::Assistant => &message.song_ids[..message.song_ids.len().min(MAX_SONGS_TO_MODEL)],
+        ChatRole::Assistant => &message.song_ids[..message.song_ids.len().min(shown)],
     }
 }
 
@@ -256,8 +277,9 @@ fn card_song_ids(message: &ChatMessage) -> &[String] {
 /// own item rather than part of the reply, so the model does not copy its
 /// shape into later answers.
 fn to_input(messages: &[ChatMessage], rows: &HashMap<String, SongRow>) -> Vec<Value> {
+    let latest_card = latest_card_index(messages);
     let mut input = Vec::new();
-    for message in messages {
+    for (index, message) in messages.iter().enumerate() {
         if message.content.trim().is_empty() {
             continue;
         }
@@ -268,16 +290,24 @@ fn to_input(messages: &[ChatMessage], rows: &HashMap<String, SongRow>) -> Vec<Va
         };
         input.push(json!({ "role": role, "content": content }));
 
-        let ids = card_song_ids(message);
+        let latest = Some(index) == latest_card;
+        let ids = card_song_ids(message, latest);
         if !ids.is_empty() {
             let songs: Vec<Value> = ids
                 .iter()
                 .map(|id| describe_song(id, rows.get(id)))
                 .collect();
+            let which = if latest {
+                "The songs on the card under that answer, the one the user is looking at and edit_card changes"
+            } else {
+                "The first songs on the card under that answer"
+            };
             input.push(json!({
                 "role": "developer",
                 "content": format!(
-                    "The songs on the card under that answer, in order, as data: {}",
+                    "{which}, in order, {} of {}, as data: {}",
+                    ids.len(),
+                    message.song_ids.len(),
                     Value::from(songs)
                 ),
             }));
@@ -713,6 +743,27 @@ pub async fn run_loop(
         while let Some(call) = calls.next() {
             state.items.push(call.to_input_item());
 
+            if call.name == card_edit::NAME {
+                let edited = card_edit::edit(
+                    &call.arguments,
+                    &state.last_card,
+                    state.songs.as_ref(),
+                    &state.sourced_ids(),
+                );
+                let failed = edited.output.get("error").is_some();
+                let output = match &edited.card {
+                    Some(card) => with_card_note(edited.output, card.total),
+                    None => edited.output,
+                };
+                state.push_output(&call.call_id, &output);
+                state.add_step(card_edit::NAME, card_edit::LABEL);
+                // a failed edit leaves the card alone; one that took every song off clears it
+                if !failed {
+                    state.songs = edited.card;
+                }
+                continue;
+            }
+
             if !phone_tools::is_phone_tool(&call.name) {
                 let outcome = runner.run(&call.name, &call.arguments).await;
                 let output = if let Some(card) = &outcome.songs {
@@ -939,6 +990,66 @@ mod tests {
         let mut turn = call(first, "{}");
         turn.calls.extend(call(second, "{}").calls);
         turn
+    }
+
+    #[tokio::test]
+    async fn edit_card_adds_new_songs_to_the_card_the_user_is_looking_at() {
+        let model = ScriptedModel::new(vec![
+            call("run_query", "{}"),
+            call(
+                card_edit::NAME,
+                r#"{"add":["1","2"],"title":"Chill Plus Two"}"#,
+            ),
+            text("Added 2 songs to your list."),
+        ]);
+        let state = LoopState::new(vec!["a".into(), "b".into()]);
+        let AssistantResponse::Reply { songs, steps, .. } = run_with(&model, state).await else {
+            panic!("expected a reply");
+        };
+        let songs = songs.unwrap();
+        assert_eq!(songs.song_ids, ["a", "b", "1", "2"]);
+        assert_eq!(songs.title.as_deref(), Some("Chill Plus Two"));
+        assert_eq!(songs.query, None);
+        assert_eq!(steps.last().unwrap().label, card_edit::LABEL);
+    }
+
+    #[tokio::test]
+    async fn a_failed_edit_leaves_the_card_alone() {
+        let model = ScriptedModel::new(vec![
+            call("run_query", "{}"),
+            call(card_edit::NAME, r#"{"from":"previous"}"#),
+            text("Here they are."),
+        ]);
+        let AssistantResponse::Reply { songs, .. } = run(&model).await else {
+            panic!("expected a reply");
+        };
+        assert_eq!(songs.unwrap().song_ids, ["1", "2"]);
+    }
+
+    #[test]
+    fn the_latest_card_is_told_in_full_and_older_ones_in_part() {
+        let ids: Vec<String> = (0..30).map(|i| i.to_string()).collect();
+        let with_card = |content: &str| ChatMessage {
+            song_ids: ids.clone(),
+            ..assistant(content)
+        };
+        let input = to_input(
+            &[
+                user("a"),
+                with_card("first"),
+                user("b"),
+                with_card("second"),
+            ],
+            &HashMap::new(),
+        );
+        let notes: Vec<&str> = input
+            .iter()
+            .filter(|item| item["role"] == "developer")
+            .filter_map(|item| item["content"].as_str())
+            .collect();
+        assert_eq!(notes.len(), 2);
+        assert!(notes[0].contains("25 of 30"));
+        assert!(notes[1].contains("30 of 30") && notes[1].contains("edit_card"));
     }
 
     #[tokio::test]

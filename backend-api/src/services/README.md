@@ -24,6 +24,7 @@ in-app notification for a user, and the definitions the listening analytics are 
 | `rate_limit.rs` | `RateLimiter`, an in-memory sliding window limiter per key. The assistant uses it per user. Unit tested. |
 | `assistant/mod.rs`                       | `AssistantService` (the model plus the per-user request limit), `answer`, and `run_loop` with its `LoopState`: the in-app assistant's tool loop, which stops at a phone tool and picks up again from a `resume`. Unit tested with a scripted model. |
 | `assistant/builder.rs` | `fits_simple` and `builder_for`: which query builder on the phone can hold a query, the simple one when it can and the advanced one otherwise. Tested against `assistant/builder_fixtures.json`, which the phone's `QueryImport.test.ts` reads too, so both agree. |
+| `assistant/card_edit.rs` | `edit_card`: adds and removes songs on the latest card (or this answer's) instead of replacing it, from ids tools returned. Run by the loop. Unit tested. |
 | `assistant/phone_tools.rs`               | The tools only the phone runs (`now_playing`, `play`, `playback`, `queue_songs`, `set_shuffle`, `set_repeat`, `search_apple_music`, `apple_music_playlists`, `apple_music_playlist_songs`, `apple_music_library`, `favorite_song`, `favorite_collection`, `create_apple_music_playlist`, `add_to_apple_music_playlist`, `open_screen`): their schemas and labels, `songs: "card"` swapped for the card's ids, and a `card` in the phone's output taken out for the answer. The phone side is `client-app/src/features/assistant/phone-tools.ts`. Unit tested. |
 | `assistant/model.rs`                     | The `AssistantModel` trait and `OpenAiAssistantModel` on the Responses API with function calling. Unit tested. |
 | `assistant/tools.rs`                     | The read-only tools (`list_tags`, `run_query`, `get_song_metadata`, `top_items`, `listening_summary`, `list_saved_queries`, `get_saved_query_songs`, `get_song_tags`, `list_playlists`, `get_playlist_songs`, `find_songs`, `find_artist`, `find_album`, `get_album_songs`), their JSON schemas, and the `ToolRunner` trait. `find_songs` looks up songs the model names itself in the Apple Music catalog, one search each, and keeps only a result whose title and artist match. `run_query` runs with the phone's query builder settings (`DbTools::builder_settings`) unless the model sets a scope, takes `sort`, `group` and `limit` as one `Arrangement`, and puts its query on the card (`CardQuery`) with the builder it fits, so tapping the card loads it into the query builder. Unit tested. |
@@ -397,9 +398,17 @@ append each call and its output, and repeat until the model answers with text. I
   (and that it has songs), and an Apple Music playlist are confirmed with Apple before
   opening.
 - `songs: "card"` on `play`, `queue_songs`, and the Apple Music playlist tools becomes the ids on
-  this answer's card, or else the last card shown, since the model only sees the first 25. A
+  this answer's card, or else the last card shown, so the model does not have to copy 250 ids. A
   `card` in a phone tool's output (search, an Apple Music playlist) becomes the answer's card
   and is taken out of what the model reads.
+- The model sees up to 250 songs (`MAX_SONGS_TO_MODEL`), as many as a card holds: in a tool's
+  output, and in the developer note about the latest card in the conversation. Older cards are
+  noted with their first 25, to keep long chats small.
+- `edit_card` (`card_edit.rs`) changes a card rather than replacing it: it starts from the
+  latest card shown (or this answer's), takes ids off, and adds ids any tool returned in this
+  answer, at the end or a position. The loop runs it itself, since it needs the cards and
+  `sourced_ids`; an added id from nowhere is left out and reported. The result has no `query`,
+  so it opens as a song list, not in the query builder. Unit tested, and in the loop tests.
 - `find_songs` is for lists no query can express ("iconic video game songs", "songs like
   Redbone"): the model names the songs, and each is a `SongMetadataService::search_songs` call,
   four at a time, retrying once after a rate limit. A result counts only when its title

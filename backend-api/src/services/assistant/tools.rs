@@ -30,7 +30,7 @@ use crate::services::metadata_tags::spawn_store_song_metadata;
 use crate::services::song_metadata::{SongMetadata, SongMetadataService};
 
 /// The most songs a tool describes to the model. The rest are only counted.
-pub const MAX_SONGS_TO_MODEL: usize = 25;
+pub const MAX_SONGS_TO_MODEL: usize = 250;
 /// The most song ids the song card under an answer gets.
 pub const MAX_CARD_SONGS: usize = 250;
 /// The most of a tool call's arguments and output written to the server log.
@@ -1593,7 +1593,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "run_query",
-            "description": "Finds songs matching a Cadenza query, the user's own first, sorted, grouped, and cut to a number when asked. Returns how many matched, how many of those are the user's own (in their library or tagged) and how many come from elsewhere, the first 25 with title, artist, and a yours flag, and which query builder the card opens the query in. The user sees the songs as a card under your answer, so do not list them in your text. Tapping the card's song count loads the query into the Cadenza query builder and shows its results.",
+            "description": "Finds songs matching a Cadenza query, the user's own first, sorted, grouped, and cut to a number when asked. Returns how many matched, how many of those are the user's own (in their library or tagged) and how many come from elsewhere, the first 250 with title, artist, and a yours flag, and which query builder the card opens the query in. The user sees the songs as a card under your answer, so do not list them in your text. Tapping the card's song count loads the query into the Cadenza query builder and shows its results.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1668,7 +1668,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "get_saved_query_songs",
-            "description": "The songs one saved query holds, in order, exactly as its screen in the app lists them. Returns how many, how many are the user's own, and the first 25 with title and artist; the user sees them as a card under your answer, so do not list them in your text. Get the id from list_saved_queries.",
+            "description": "The songs one saved query holds, in order, exactly as its screen in the app lists them. Returns how many, how many are the user's own, and the first 250 with title and artist; the user sees them as a card under your answer, so do not list them in your text. Get the id from list_saved_queries.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1771,7 +1771,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "get_playlist_songs",
-            "description": "The songs in one Cadenza shared playlist the user is a member of, in playlist order, with who added each, plus the playlist's members. Returns the first 25 with title and artist; the user sees them as a card under your answer, so do not list them in your text. Get the id from list_playlists.",
+            "description": "The songs in one Cadenza shared playlist the user is a member of, in playlist order, with who added each, plus the playlist's members. Returns the first 250 with title and artist; the user sees them as a card under your answer, so do not list them in your text. Get the id from list_playlists.",
             "parameters": {
                 "type": "object",
                 "properties": {
