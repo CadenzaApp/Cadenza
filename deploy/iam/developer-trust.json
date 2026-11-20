@@ -1,0 +1,21 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "account-access.amazonaws.com"
+      },
+      "Action": [
+        "sts:AssumeRole",
+        "sts:SetContext"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:SourceAccount": "625530883844",
+          "aws:SourceArn": "arn:aws:account-access:us-east-1:625530883844:application/tVdWw7MMTdkku9yj"
+        }
+      }
+    }
+  ]
+}

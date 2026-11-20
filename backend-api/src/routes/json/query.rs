@@ -29,8 +29,31 @@ use crate::routes::json::tag::TagType;
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Query {
-    #[serde(rename = "where")]
+    #[serde(rename = "where", deserialize_with = "bounded_query")]
     pub root: QueryNode,
+}
+
+// Bound the tree before any query expansion or database work, including saved queries.
+fn bounded_query<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<QueryNode, D::Error> {
+    let root = QueryNode::deserialize(deserializer)?;
+    let mut pending = vec![(&root, 1)];
+    let mut count = 0;
+    while let Some((node, depth)) = pending.pop() {
+        count += 1;
+        if count > 256 || depth > 16 {
+            return Err(serde::de::Error::custom(
+                "query exceeds 256 nodes or 16 levels",
+            ));
+        }
+        match node {
+            QueryNode::And(nodes) | QueryNode::Or(nodes) => {
+                pending.extend(nodes.iter().map(|n| (n, depth + 1)))
+            }
+            QueryNode::Not(node) => pending.push((node, depth + 1)),
+            QueryNode::Filter(_) => (),
+        }
+    }
+    Ok(root)
 }
 
 /// One node of the query tree. Serialized externally tagged, so each node is an
@@ -413,5 +436,27 @@ mod tests {
             serde_json::to_value(&song).unwrap(),
             serde_json::json!({ "song_id": "1", "certain": true })
         );
+    }
+}
+
+#[cfg(test)]
+mod complexity_tests {
+    use super::*;
+    #[test]
+    fn rejects_large_or_deep_trees_before_query_execution() {
+        let leaf =
+            serde_json::json!({"filter":{"field":"tag_name","op":"contains","value":"jazz"}});
+        assert!(serde_json::from_value::<Query>(serde_json::json!({"where":leaf})).is_ok());
+        assert!(
+            serde_json::from_value::<Query>(
+                serde_json::json!({"where":{"and": vec![leaf.clone(); 256]}})
+            )
+            .is_err()
+        );
+        let mut deep = leaf;
+        for _ in 0..16 {
+            deep = serde_json::json!({"not":deep});
+        }
+        assert!(serde_json::from_value::<Query>(serde_json::json!({"where":deep})).is_err());
     }
 }

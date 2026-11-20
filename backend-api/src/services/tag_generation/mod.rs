@@ -22,11 +22,29 @@ const MAX_REQUESTED_TAG_COUNT: usize = 20;
 pub const MAX_COMBINED_SONG_DESC_LENGTH: usize = 2000;
 
 #[derive(Clone)]
-pub struct TagGenerationService(Arc<Box<dyn TagGenerator>>);
+pub struct TagGenerationService {
+    generator: Arc<Box<dyn TagGenerator>>,
+    background: crate::lifecycle::BackgroundTasks,
+}
 
 impl TagGenerationService {
     pub fn new(generator: impl TagGenerator + 'static) -> Self {
-        TagGenerationService(Arc::new(Box::new(generator)))
+        Self {
+            generator: Arc::new(Box::new(generator)),
+            background: Default::default(),
+        }
+    }
+
+    pub(crate) fn with_background_tasks(
+        mut self,
+        background: crate::lifecycle::BackgroundTasks,
+    ) -> Self {
+        self.background = background;
+        self
+    }
+
+    pub(crate) fn background_tasks(&self) -> crate::lifecycle::BackgroundTasks {
+        self.background.clone()
     }
 
     /// returns a list of generated tags for each song, in the same order as `song_descs`.
@@ -34,6 +52,18 @@ impl TagGenerationService {
     /// songs are sent to the generator in as many calls as it takes to keep each
     /// call under [`MAX_COMBINED_SONG_DESC_LENGTH`].
     pub async fn generate_tags(
+        &self,
+        song_descs: &[String],
+        requested_tag_count: Option<usize>,
+    ) -> Result<Vec<Vec<TagSpecs>>, CadenzaError> {
+        crate::operation_budget::within(
+            std::time::Duration::from_secs(40),
+            self.generate_tags_inner(song_descs, requested_tag_count),
+        )
+        .await?
+    }
+
+    async fn generate_tags_inner(
         &self,
         song_descs: &[String],
         requested_tag_count: Option<usize>,
@@ -56,7 +86,10 @@ impl TagGenerationService {
         // generate one chunk at a time, collecting the results in input order
         let mut generated = Vec::with_capacity(song_descs.len());
         for chunk in chunk_song_descs(&song_descs) {
-            let mut chunk_tags = self.0.generate_tags(chunk, requested_tag_count).await?;
+            let mut chunk_tags = self
+                .generator
+                .generate_tags(chunk, requested_tag_count)
+                .await?;
 
             // the model can return the wrong number of tag lists. pad or trim to the
             // chunk's length so later chunks don't shift onto the wrong songs

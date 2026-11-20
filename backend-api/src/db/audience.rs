@@ -113,6 +113,9 @@ pub async fn can_see_field(
     if viewer == owner {
         return Ok(true);
     }
+    if crate::db::friend_relations::blocked_either_way(db, viewer, owner).await? {
+        return Ok(false);
+    }
     let settings = get_privacy(db, owner).await?;
     can_see(db, viewer, owner, &field.read(&settings)).await
 }

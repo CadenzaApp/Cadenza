@@ -197,6 +197,7 @@ pub struct ApplyTagPayload {
 }
 
 async fn apply_user_tag_handler(
+    State(work): State<crate::lifecycle::BackgroundTasks>,
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<ApplyTagPayload>,
@@ -210,6 +211,7 @@ async fn apply_user_tag_handler(
     )
     .await?;
     spawn_add_retagged_songs(
+        work,
         db,
         claims.user_id,
         vec![payload.song_id],
@@ -228,6 +230,7 @@ pub struct SetTagValuePayload {
 }
 
 async fn set_user_tag_value_handler(
+    State(work): State<crate::lifecycle::BackgroundTasks>,
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<SetTagValuePayload>,
@@ -241,6 +244,7 @@ async fn set_user_tag_value_handler(
     )
     .await?;
     spawn_add_retagged_songs(
+        work,
         db,
         claims.user_id,
         vec![payload.song_id],
@@ -373,6 +377,7 @@ pub struct UnapplyTagPayload {
 }
 
 async fn unapply_user_tag_handler(
+    State(work): State<crate::lifecycle::BackgroundTasks>,
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<UnapplyTagPayload>,
@@ -386,6 +391,7 @@ async fn unapply_user_tag_handler(
     .await?;
     // a query that reads "not" this tag can match the song now
     spawn_add_retagged_songs(
+        work,
         db,
         claims.user_id,
         vec![payload.song_id],
@@ -397,26 +403,28 @@ async fn unapply_user_tag_handler(
 /// Applies every requested tag to every requested song. Existing applications
 /// are preserved, including attribute values. Returns an empty body.
 async fn apply_user_tags_to_songs_handler(
+    State(work): State<crate::lifecycle::BackgroundTasks>,
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<BatchEditTagsPayload>,
 ) -> Result<(), CadenzaError> {
     check_tag_edit_batch_size(&payload)?;
     apply_user_tags_to_songs(&db, claims.user_id, &payload.song_ids, &payload.tag_ids).await?;
-    spawn_add_retagged_songs(db, claims.user_id, payload.song_ids, payload.tag_ids);
+    spawn_add_retagged_songs(work, db, claims.user_id, payload.song_ids, payload.tag_ids);
     Ok(())
 }
 
 /// Removes every requested tag from every requested song. Missing applications
 /// are ignored. Returns an empty body.
 async fn unapply_user_tags_from_songs_handler(
+    State(work): State<crate::lifecycle::BackgroundTasks>,
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<BatchEditTagsPayload>,
 ) -> Result<(), CadenzaError> {
     check_tag_edit_batch_size(&payload)?;
     unapply_user_tags_from_songs(&db, claims.user_id, &payload.song_ids, &payload.tag_ids).await?;
-    spawn_add_retagged_songs(db, claims.user_id, payload.song_ids, payload.tag_ids);
+    spawn_add_retagged_songs(work, db, claims.user_id, payload.song_ids, payload.tag_ids);
     Ok(())
 }
 

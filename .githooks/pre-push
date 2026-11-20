@@ -1,22 +1,13 @@
 #!/usr/bin/env bash
-
+# Git invokes this bootstrap; all formatting logic is shared Python code.
 set -eu
-
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-
-run_format_check() {
-  case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*)
-      WINDOWS_FORMAT_SCRIPT="$(cygpath -w "$PROJECT_ROOT/scripts/format.bat")"
-      cmd.exe /d /s /c "\"$WINDOWS_FORMAT_SCRIPT\" --check"
-      ;;
-    *)
-      "$PROJECT_ROOT/scripts/format.sh" --check
-      ;;
-  esac
-}
-
-if ! run_format_check; then
-  echo "Push blocked until formatting passes." >&2
-  exit 1
-fi
+root=$(git rev-parse --show-toplevel)
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if command -v py >/dev/null 2>&1; then
+      exec py -3 "$root/scripts/format.py" --check
+    fi
+    exec python "$root/scripts/format.py" --check
+    ;;
+  *) exec python3 "$root/scripts/format.py" --check ;;
+esac
