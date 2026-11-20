@@ -22,13 +22,16 @@ import { useProfile } from "@/lib/routes/profile";
 import { withAlpha } from "@/lib/artwork-color";
 import { useSongInfo } from "@/lib/musickit-hooks";
 import {
-    useFriendsListening,
     useUserListening,
     type FriendListening,
     type NowPlaying,
     type RecentPlay,
     type UpNextSong,
 } from "@/lib/routes/listening";
+import {
+    useFriendsListeningShared,
+    useMyListening,
+} from "@/lib/routes/listening-provider";
 import { useJoinListening } from "@/lib/routes/live-sessions";
 import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -90,10 +93,10 @@ export function ListeningNowStrip() {
         1,
         (usableWidth - STORY_PEEK - visibleCount * STORY_GAP) / visibleCount,
     );
-    const { friendsListening } = useFriendsListening();
+    const { friendsListening } = useFriendsListeningShared();
     const { profile } = useProfile();
     const { account } = useAccount();
-    const myStory = useMyStory(account?.id ?? null);
+    const myStory = useMyStory();
     const stories = friendsListening ?? [];
 
     return (
@@ -143,8 +146,8 @@ export function ListeningNowStrip() {
  * session's song, paused or not, or nothing with no song queued. Otherwise it
  * is what they play now, which drops off when they stop.
  */
-function useMyStory(userId: string | null) {
-    const { userListening } = useUserListening(userId);
+function useMyStory() {
+    const userListening = useMyListening();
     const session = useShownLiveSession();
     const live =
         session !== null &&
@@ -163,7 +166,7 @@ function useMyStory(userId: string | null) {
  * Every friend listening, full cards in a column, for See all.
  */
 export function AllListening() {
-    const { friendsListening, friendsListeningErr } = useFriendsListening();
+    const { friendsListening, friendsListeningErr } = useFriendsListeningShared();
     if (friendsListeningErr) {
         return <ErrorNotice error={friendsListeningErr} />;
     }

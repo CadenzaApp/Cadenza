@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 
 import { BACKEND_URL } from "./backend";
@@ -56,6 +56,8 @@ class RealtimeClient {
     private backgroundHolds = 0;
     /** Bumped on reset, so a socket from a signed out account cannot linger. */
     private generation = 0;
+    /** Told whenever the socket connects or disconnects. */
+    private connectionListeners = new Set<(connected: boolean) => void>();
 
     constructor() {
         AppState.addEventListener("change", (state: AppStateStatus) => {
@@ -88,6 +90,26 @@ class RealtimeClient {
     /** The server's clock, in ms, from the median of recent pings. */
     serverNow(): number {
         return Date.now() + medianOffset(this.offsets);
+    }
+
+    /** Whether a socket is up and authenticated right now. */
+    isConnected(): boolean {
+        return this.ready;
+    }
+
+    /** Subscribes to connect/disconnect. Returns the unsubscribe. */
+    onConnectionChange(listener: (connected: boolean) => void): () => void {
+        this.connectionListeners.add(listener);
+        return () => {
+            this.connectionListeners.delete(listener);
+        };
+    }
+
+    /** Sets the connected flag and tells subscribers when it changed. */
+    private setReady(ready: boolean) {
+        if (this.ready === ready) return;
+        this.ready = ready;
+        for (const listener of this.connectionListeners) listener(ready);
     }
 
     subscribe(topic: RealtimeTopic, listener: Listener): () => void {
@@ -150,7 +172,7 @@ class RealtimeClient {
         socket.onclose = () => {
             if (socket !== this.socket) return;
             this.socket = null;
-            this.ready = false;
+            this.setReady(false);
             this.stopPinging();
             this.scheduleReconnect();
         };
@@ -164,7 +186,7 @@ class RealtimeClient {
     ) {
         switch (message.type) {
             case "ready": {
-                this.ready = true;
+                this.setReady(true);
                 const reconnected = this.attempt > 0;
                 this.attempt = 0;
                 for (const { topic } of this.listeners.values()) {
@@ -254,7 +276,7 @@ class RealtimeClient {
         this.stopPinging();
         const socket = this.socket;
         this.socket = null;
-        this.ready = false;
+        this.setReady(false);
         // a planned close is not a drop, so the next connect is not a reconnect.
         // subscribers still resync then, since the foreground is new data
         this.attempt = this.listeners.size > 0 ? 1 : 0;
@@ -285,6 +307,18 @@ export function useRealtimeInBackground(enabled: boolean) {
 /** Drops the socket, for an account change. */
 export function resetRealtime() {
     client.reset();
+}
+
+/**
+ * Whether the realtime socket is connected right now, as reactive state. A read
+ * that polls as a fallback subscribes to this so it can stop polling while the
+ * socket is up and lean on pushed events instead.
+ */
+export function useRealtimeConnected(): boolean {
+    return useSyncExternalStore(
+        (onChange) => client.onConnectionChange(onChange),
+        () => client.isConnected(),
+    );
 }
 
 /**
