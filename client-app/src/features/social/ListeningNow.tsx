@@ -166,7 +166,8 @@ function useMyStory() {
  * Every friend listening, full cards in a column, for See all.
  */
 export function AllListening() {
-    const { friendsListening, friendsListeningErr } = useFriendsListeningShared();
+    const { friendsListening, friendsListeningErr } =
+        useFriendsListeningShared();
     if (friendsListeningErr) {
         return <ErrorNotice error={friendsListeningErr} />;
     }
@@ -369,7 +370,7 @@ export function ListeningStoryDialog({
                     <ListeningTile
                         friend={friend}
                         width={width}
-                        onOpenProfile={onClose}
+                        onLeave={onClose}
                     />
                 ) : null}
             </View>
@@ -382,16 +383,17 @@ export function ListeningStoryDialog({
  * fifths, square, and everything else sits on the glass in the bottom two:
  * the song, the friend and how many are listening, the live progress, then
  * Join when they can be joined. Tapping the art or the text above the progress
- * opens their profile, after `onOpenProfile`.
+ * opens their profile. `onLeave` runs before it opens the profile or the
+ * session, so the popup holding it closes instead of staying over the player.
  */
 function ListeningTile({
     friend,
     width,
-    onOpenProfile,
+    onLeave,
 }: {
     friend: FriendListening;
     width: number;
-    onOpenProfile?: () => void;
+    onLeave?: () => void;
 }) {
     const router = useRouter();
     const { now_playing: nowPlaying, listener_count: listeners } = friend;
@@ -404,7 +406,7 @@ function ListeningTile({
                 accessibilityRole="button"
                 accessibilityLabel={`${friend.username} is playing ${nowPlaying.title}, ${listeners} listening`}
                 onPress={() => {
-                    onOpenProfile?.();
+                    onLeave?.();
                     router.push(`/social/user/${friend.user_id}`);
                 }}
                 className="active:opacity-80"
@@ -428,7 +430,7 @@ function ListeningTile({
                     accessibilityRole="button"
                     accessibilityLabel={`View ${friend.username}'s profile`}
                     onPress={() => {
-                        onOpenProfile?.();
+                        onLeave?.();
                         router.push(`/social/user/${friend.user_id}`);
                     }}
                     className="gap-2 active:opacity-80"
@@ -469,6 +471,7 @@ function ListeningTile({
                             userId={friend.user_id}
                             username={friend.username}
                             appearance="outline"
+                            onOpenSession={onLeave}
                         />
                     ) : null}
                 </View>
@@ -627,15 +630,18 @@ function ListeningCard({
  * session instead. Both follow the caller's session and the asked marks, so
  * being let in changes it on every card at once. `pill` is the small glass
  * pill on a full card; `outline` fills a carousel tile's width.
+ * `onOpenSession` runs right before it opens the session.
  */
 function JoinButton({
     userId,
     username,
     appearance = "pill",
+    onOpenSession,
 }: {
     userId: string;
     username?: string;
     appearance?: "pill" | "outline";
+    onOpenSession?: () => void;
 }) {
     const router = useRouter();
     const { joinListening, joinListeningLoading } = useJoinListening();
@@ -647,6 +653,11 @@ function JoinButton({
         (mine.host.user_id === userId ||
             mine.members.some((member) => member.user_id === userId));
 
+    function openSession() {
+        onOpenSession?.();
+        router.push("/player");
+    }
+
     async function join() {
         try {
             const { status, session_id } = await joinListening({
@@ -656,7 +667,7 @@ function JoinButton({
                 markAskedToJoin(session_id, userId);
                 return;
             }
-            router.push("/player");
+            openSession();
         } catch {
             setRefused(true);
         }
@@ -669,7 +680,7 @@ function JoinButton({
                 icon="radio-outline"
                 label="Open"
                 accessibilityLabel={`Open the session with ${username ?? "them"}`}
-                onPress={() => router.push("/player")}
+                onPress={openSession}
             />
         );
     }
