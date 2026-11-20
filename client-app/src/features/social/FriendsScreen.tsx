@@ -12,7 +12,7 @@ import { GlassPanel } from "@/components/ui/glass-panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
-import { useFriendsListening } from "@/lib/routes/listening";
+import { useFriendsListeningShared } from "@/lib/routes/listening-provider";
 import {
     useAcceptFriendRequest,
     useBlockUser,
@@ -58,7 +58,7 @@ export function FriendsScreen() {
     } = useFriendshipsWithPresence();
     const { setFavorite, favoriteLoading } = useFavoriteFriend();
     const { setBlocked, blockLoading } = useBlockUser();
-    const { friendsListening } = useFriendsListening();
+    const { friendsListening } = useFriendsListeningShared();
     const listeningById = new Map(
         (friendsListening ?? []).map((friend) => [friend.user_id, friend]),
     );
