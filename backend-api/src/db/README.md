@@ -398,7 +398,9 @@ transaction, so the database tests can run them inside one that rolls back.
   `closed_app` (`sql/live_session_member_away.sql`), set by `set_app_link` from the realtime
   socket. The sweep's `remove_away_members` takes out a member whose app closed a minute ago or
   went quiet for 10 (`services::live_sessions::member_gone`, `AWAY_MEMBER_SQL`), the way leaving
-  does.
+  does. A synced member quiet while the session plays goes after a minute too, like a host quiet
+  while playing: that phone keeps its socket open in the background, and a swiped away app's
+  socket can stop without a close ever reaching the server.
 - Chat is `live_session_messages` (`sql/live_session_messages.sql`), through the generated
   entity. Anyone in the open session sends and reads all of it (`check_in_open_session`). It is
   not part of the snapshot and never bumps `version`, so a message does not make members

@@ -1528,3 +1528,76 @@ async fn social_listening_live_session_chat() {
 
     txn.rollback().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_quiet_member_playing_along_leaves_in_a_minute() {
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id IN ($1, $2) AND ended_at IS NULL",
+        [host.into(), guest.into()],
+    ))
+    .await
+    .unwrap();
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Quiet",
+            default_role: SessionRole::Listener,
+            allow_join_without_code: true,
+            listen_along: false,
+            approve_joins: false,
+        },
+    )
+    .await
+    .unwrap();
+    sessions::join_session(&txn, guest, id, true).await.unwrap();
+    let went_quiet = |playing: bool| {
+        let txn = &txn;
+        async move {
+            sessions::set_app_link(txn, guest, sessions::AppLink::Quiet)
+                .await
+                .unwrap();
+            txn.execute_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "UPDATE live_session_members SET away_since = now() - interval '2 minutes'
+                 WHERE session_id = $1 AND user_id = $2",
+                [id.into(), guest.into()],
+            ))
+            .await
+            .unwrap();
+            txn.execute_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "UPDATE live_sessions SET is_playing = $2 WHERE session_id = $1",
+                [id.into(), playing.into()],
+            ))
+            .await
+            .unwrap();
+        }
+    };
+
+    // remote and quiet two minutes: frozen between glances, still in
+    went_quiet(true).await;
+    sessions::remove_away_members(&txn).await.unwrap();
+    assert!(sessions::is_participant(&txn, id, guest).await.unwrap());
+
+    // synced but the session is paused: the phone may be suspended, still in
+    sessions::set_listen_mode(&txn, guest, id, ListenMode::Synced)
+        .await
+        .unwrap();
+    went_quiet(false).await;
+    sessions::remove_away_members(&txn).await.unwrap();
+    assert!(sessions::is_participant(&txn, id, guest).await.unwrap());
+
+    // synced while it plays: the app is gone, out
+    went_quiet(true).await;
+    let gone = sessions::remove_away_members(&txn).await.unwrap();
+    let ours = gone.iter().find(|g| g.session_id == id).unwrap();
+    assert_eq!(ours.user_ids, vec![guest]);
+    assert!(!sessions::is_participant(&txn, id, guest).await.unwrap());
+
+    txn.rollback().await.unwrap();
+}

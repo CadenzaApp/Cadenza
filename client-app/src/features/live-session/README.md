@@ -129,7 +129,8 @@ More:
   album and ids (`trackToSessionSong`, `entryToTrack`), so those plays reach the artist and album
   rankings.
 - A member whose app was swiped away leaves after a minute, or after 10 quiet, the way a host's
-  session ends. The host can make anyone host from People and stays in as a controller.
+  session ends. A synced member quiet while the session plays also leaves after a minute, since
+  a swipe can kill the socket without a close. The host can make anyone host from People and stays in as a controller.
 - One session at a time. In a session, Listening now's Join with code warns first, and a code
   into another session leaves the current one (`JoinScreen`). A member who cannot control the
   session and plays a song or a list is asked: add it to the session as the role allows, or leave

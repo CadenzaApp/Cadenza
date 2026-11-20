@@ -219,12 +219,14 @@ pub async fn mark_all_away(db: &impl ConnectionTrait) -> Result<(), CadenzaError
 }
 
 /// SQL for whether member row `m` of session `s` left by their app, the same
-/// rule as `services::live_sessions::member_gone`. Never the host, whose app
-/// going away ends the session instead.
+/// rule as `services::live_sessions::member_gone`: playing along is a synced
+/// member while the session plays. Never the host, whose app going away ends
+/// the session instead.
 pub static AWAY_MEMBER_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "m.user_id <> s.host_id AND m.left_at IS NULL AND NOT m.banned
-     AND m.away_since < now() - CASE WHEN m.closed_app
+     AND m.away_since < now() - CASE
+         WHEN m.closed_app OR (s.is_playing AND m.listen_mode = 'synced')
          THEN interval '{away} seconds' ELSE interval '{quiet} seconds' END",
         away = AWAY_TIMEOUT.num_seconds(),
         quiet = MEMBER_QUIET_TIMEOUT.num_seconds(),
