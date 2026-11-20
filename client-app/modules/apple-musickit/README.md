@@ -299,13 +299,13 @@ album/playlist equivalent needed elsewhere in this module.
 
 ## Artists
 
-| call                                        | returns                                                                                                 |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `getSongArtists(songId)`                    | Catalog artist ids credited on a song, most prominent first.                                            |
-| `getArtist(artistId)`                       | An `ArtistDetail`: name, artwork, genres, a short editorial note when Apple has one, top songs, albums. |
-| `getLibraryArtists(options)`                | A page of `ArtistItem`s from the user's library.                                                        |
-| `searchLibraryArtists(term, options)`       | Library artists matching a term.                                                                        |
-| `catalogSearch(term, ["artists"], options)` | Catalog artists, on `SearchResult.artists`.                                                             |
+| call                                        | returns                                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `getSongArtists(songId)`                    | Catalog artist ids credited on a song, most prominent first.                                                             |
+| `getArtist(artistId)`                       | An `ArtistDetail`: name, artwork, genres, a short editorial note when Apple has one, top songs, albums, similar artists. |
+| `getLibraryArtists(options)`                | A page of `ArtistItem`s from the user's library.                                                                         |
+| `searchLibraryArtists(term, options)`       | Library artists matching a term.                                                                                         |
+| `catalogSearch(term, ["artists"], options)` | Catalog artists, on `SearchResult.artists`.                                                                              |
 
 An artist in a list is an `ArtistItem`, not a `MusicItem`. `MusicResourceKind`
 still has no `"artist"` and `PlaybackQueueType` still has no artist case,
@@ -318,6 +318,11 @@ full bleed behind its header, and for 300x300 alongside it as
 `artworkUrlSmall`. The screen shows the small one while the big one downloads,
 so the hero is never a blank rectangle with the tint already painted around it.
 The artist lists ask for 200x200, which is tile size.
+
+`getArtist` fetches Apple's `top-songs`, `full-albums`, and `similar-artists`
+views in the one request. Similar artists come back as `ArtistItem`s, formatted
+like any other catalog artist. A native binary built before that view was asked
+for omits the field, and the JS wrapper defaults it to an empty list.
 
 `getSongArtists` and `getArtist` are catalog only. A library song with no
 catalog equivalent resolves to no artists at all, and `MusicItem.artistId` is

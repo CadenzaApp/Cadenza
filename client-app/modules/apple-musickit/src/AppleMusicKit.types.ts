@@ -282,6 +282,8 @@ export interface ArtistDetail {
     topSongs: MusicItem[];
     /** The artist's albums, in Apple's order. */
     albums: MusicItem[];
+    /** Artists Apple considers similar, in Apple's order. Catalog artists. */
+    similarArtists: ArtistItem[];
     /** Canonical Apple Music URL for the artist. */
     shareUrl?: string;
 }
