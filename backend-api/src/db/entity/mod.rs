@@ -17,6 +17,7 @@ pub mod invite_codes;
 pub mod listening_events;
 pub mod live_session_join_requests;
 pub mod live_session_members;
+pub mod live_session_messages;
 pub mod live_session_queue;
 pub mod live_sessions;
 pub mod metadata_albums;

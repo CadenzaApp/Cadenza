@@ -463,7 +463,7 @@ append each call and its output, and repeat until the model answers with text. I
 
 `GET /realtime/ws` is push only. Writes stay on HTTP; after commit a handler publishes
 `{topic, version, kind, data}` and subscribers refetch over HTTP. Playback events carry
-playback state. Access is checked at subscription and again before delivery, including
+playback state, and chat events the new message. Access is checked at subscription and again before delivery, including
 queued events. Revoked access closes the socket so the client reconnects and refetches.
 
 - First frame `auth {token}` within 5 s (the Supabase JWT, never in the URL), answered by
@@ -481,7 +481,8 @@ queued events. Revoked access closes the socket so the client reconnects and ref
   A `live_session` event's kind is `session` (refetch), `ended` (from the session sweep with `data: {reason: host_gone | paused}`), or `playback`, which carries
   `data`: the new playback, sent only for a write that moved nothing else (play, pause, seek,
   shuffle off, a repeat change that put no songs back, a host report that kept the song).
-  Members apply it without a refetch.
+  Members apply it without a refetch. `chat` carries `data`: the new chat message, with
+  `version` set to its `message_id`, not the session's version, which chat never bumps.
 - Presence: a user is online while one of their sockets is open. The client closes its
   socket in the background unless a live session or a shared song plays there, so this is
   "has the app open, or is playing in it". The listening reads only show online users' now

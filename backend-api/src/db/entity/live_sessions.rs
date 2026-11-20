@@ -38,6 +38,8 @@ pub enum Relation {
     LiveSessionJoinRequests,
     #[sea_orm(has_many = "super::live_session_members::Entity")]
     LiveSessionMembers,
+    #[sea_orm(has_many = "super::live_session_messages::Entity")]
+    LiveSessionMessages,
     #[sea_orm(has_many = "super::live_session_queue::Entity")]
     LiveSessionQueue,
 }
@@ -51,6 +53,12 @@ impl Related<super::live_session_join_requests::Entity> for Entity {
 impl Related<super::live_session_members::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::LiveSessionMembers.def()
+    }
+}
+
+impl Related<super::live_session_messages::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::LiveSessionMessages.def()
     }
 }
 

@@ -13,10 +13,11 @@ export type RealtimeTopic =
 
 /**
  * One change. `kind` is `now_playing`, `playlist`, `session`, `playback`,
- * or `ended` from the backend, or `resync` from this client after a reconnect
- * or a lag, when events may have been missed and the subscriber should
- * refetch. `data` is null except on `playback`, where it is the session's new
- * playback.
+ * `chat`, or `ended` from the backend, or `resync` from this client after a
+ * reconnect or a lag, when events may have been missed and the subscriber
+ * should refetch. `data` is the session's new playback on `playback`, and the
+ * new message on `chat`, whose `version` is the message id rather than the
+ * session's version.
  */
 export type RealtimeEvent = {
     topic: RealtimeTopic;

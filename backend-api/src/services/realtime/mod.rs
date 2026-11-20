@@ -1,8 +1,9 @@
 //! Realtime push. Postgres holds every durable state; this mostly tells
-//! subscribers that something changed, so they refetch it over HTTP. The one
-//! exception is a live session's `playback` event, which carries the new
-//! playback so a pause or seek lands without a refetch. Only members can
-//! subscribe to a session topic, and they could read the same over HTTP.
+//! subscribers that something changed, so they refetch it over HTTP. The
+//! exceptions are a live session's `playback` event, which carries the new
+//! playback so a pause or seek lands without a refetch, and its `chat` event,
+//! which carries the new message. Only members can subscribe to a session
+//! topic, and they could read the same over HTTP.
 //!
 //! Mutations never go over the socket. A handler writes through `db/`, then
 //! publishes an [`Event`] naming the topic and its new version. The socket
@@ -56,6 +57,9 @@ pub enum EventKind {
     Session,
     /// A live session's playback alone; `data` carries it.
     Playback,
+    /// A live session chat message; `data` carries it. `version` is the
+    /// message id, not the session's version, which chat never bumps.
+    Chat,
     /// The live session or shared playlist is over.
     Ended,
 }

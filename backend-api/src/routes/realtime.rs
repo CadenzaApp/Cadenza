@@ -457,6 +457,19 @@ mod tests {
         assert_eq!(json["topic"]["kind"], "shared_playlist");
         assert_eq!(json["kind"], "playlist");
     }
+
+    #[test]
+    fn chat_events_carry_the_message() {
+        let session = Uuid::from_u128(1);
+        let message = ServerMessage::Event {
+            event: Event::new(Topic::LiveSession(session), 12, EventKind::Chat)
+                .with_data(serde_json::json!({ "message_id": 12, "body": "this one!" })),
+        };
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["kind"], "chat");
+        assert_eq!(json["version"], 12);
+        assert_eq!(json["data"]["body"], "this one!");
+    }
     #[test]
     fn message_quota_recovers_after_its_window() {
         let mut window = MessageWindow::new();

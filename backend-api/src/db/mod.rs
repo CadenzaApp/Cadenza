@@ -7,6 +7,7 @@ pub mod events;
 pub mod friend_relations;
 pub mod invites;
 pub mod listening_history;
+pub mod live_session_chat;
 pub mod live_sessions;
 pub mod metadata_tags;
 pub mod notification;

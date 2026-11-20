@@ -11,6 +11,7 @@ import { ModalPopup } from "@/components/custom/modal-popup";
 import { SongSearchSheet } from "@/components/custom/song-search-sheet";
 import { useAccount } from "@/lib/account";
 import { useOpenScreen } from "@/lib/open-screen";
+import { useSessionChatUnread } from "@/lib/routes/live-session-chat";
 import {
     SESSION_ROLE_LABELS,
     useLiveSessionWrites,
@@ -20,21 +21,22 @@ import {
 } from "@/lib/routes/live-sessions";
 
 import { MemberRow, RoleMenu } from "../social/MemberRow";
+import { ChatSheet } from "./ChatSheet";
 import { sessionSongs } from "./session-commands";
 import { RequestsSheet } from "./RequestsSheet";
 import { ROLE_CHOICES, runSessionWrite } from "./session-parts";
 
-type Open = "requests" | "people" | "add" | "share" | null;
+type Open = "requests" | "people" | "chat" | "add" | "share" | null;
 
 /** Lists in a popup scroll past this height. */
 const LIST_MAX_HEIGHT = 420;
 
 /**
  * The now playing sheet's bottom bar in a live session, in place of the page
- * tabs: Requests (the host, controllers, and queue editors), People, Add
- * songs, and Share (the host's), as the caller's role allows.
- * The bar is only as wide as the buttons it has. Requests opens in a bottom
- * sheet. The host can make anyone else host from
+ * tabs: Requests (the host, controllers, and queue editors), People, Chat
+ * (everyone), Add songs, and Share (the host's), as the caller's role allows.
+ * The bar is only as wide as the buttons it has. Requests and Chat open in a
+ * bottom sheet; Chat badges messages from others since it was last open. The host can make anyone else host from
  * People, and stays in as a controller. The queue itself is the player's own.
  */
 export function LiveSessionBar({ session }: { session: LiveSession }) {
@@ -50,8 +52,9 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
     const canReview = session.can.review;
     const requests = session.suggestions.length + session.join_requests.length;
     const canSuggest = session.can.suggest;
+    const unread = useSessionChatUnread(session.session_id);
     const buttonCount =
-        1 + (canReview ? 1 : 0) + (canSuggest ? 1 : 0) + (isHost ? 1 : 0);
+        2 + (canReview ? 1 : 0) + (canSuggest ? 1 : 0) + (isHost ? 1 : 0);
 
     function openProfile(userId: string) {
         openScreen(`/social/user/${userId}` as Href, { closing: "player" });
@@ -95,6 +98,16 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                     accessibilityLabel={`People, ${session.members.length}`}
                     onPress={() => setOpen("people")}
                 />
+                <PlayerBarButton
+                    sf="bubble.left.and.bubble.right"
+                    icon="chatbubbles-outline"
+                    label="Chat"
+                    accessibilityLabel={
+                        unread > 0 ? `Chat, ${unread} new` : "Chat"
+                    }
+                    badge={unread}
+                    onPress={() => setOpen("chat")}
+                />
                 {canSuggest ? (
                     <PlayerBarButton
                         sf="plus.circle"
@@ -118,6 +131,16 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                 session={session}
                 visible={open === "requests"}
                 onClose={() => setOpen(null)}
+            />
+
+            <ChatSheet
+                sessionId={session.session_id}
+                visible={open === "chat"}
+                onClose={() => setOpen(null)}
+                onOpenProfile={(userId) => {
+                    setOpen(null);
+                    openProfile(userId);
+                }}
             />
 
             <ModalPopup
