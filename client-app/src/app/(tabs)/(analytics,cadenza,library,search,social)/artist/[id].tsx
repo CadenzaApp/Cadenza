@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import type { ArtistDetail, MusicItem } from "@apple-musickit";
+import type { ArtistDetail, ArtistItem, MusicItem } from "@apple-musickit";
 import { Image } from "expo-image";
 import { useLocalSearchParams } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
@@ -7,6 +7,7 @@ import { memo, useCallback, useMemo, useState } from "react";
 import { FlatList, Pressable, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ArtistRail } from "@/components/custom/artist-list";
 import { BlendedCover, COVER_BLEED } from "@/components/custom/blended-cover";
 import { ErrorNotice } from "@/components/custom/error-notice";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
@@ -26,6 +27,7 @@ const EMPTY_TRACKS: MusicItem[] = [];
 const ALBUM_TILE_WIDTH = 132;
 const ALBUM_PLACEHOLDER_COUNT = 4;
 const EMPTY_ALBUMS: MusicItem[] = [];
+const EMPTY_ARTISTS: ArtistItem[] = [];
 const ALBUM_TILE_GAP = 12;
 const ALBUM_RAIL_INSET = 24;
 const ALBUM_RAIL_STYLE = { paddingHorizontal: ALBUM_RAIL_INSET };
@@ -40,13 +42,13 @@ const PORTRAIT_SIZE = 240;
 
 /**
  * One catalog artist: the artist image bleeding into a nebula colored from
- * it, their top songs, then their albums. Apple's order, and the same cover as
- * an album.
+ * it, their top songs, their albums, then artists Apple considers similar.
+ * Apple's order, and the same cover as an album.
  *
  * The whole page is one `MusicList`. It owns a `FlatList`, so the hero goes in
- * as its header and the albums rail as its footer; stacking a `ScrollView`
- * around it would nest two scroll containers and neither would behave. The
- * albums rail scrolls sideways for the same reason.
+ * as its header and the albums and similar artists rails as its footer;
+ * stacking a `ScrollView` around it would nest two scroll containers and
+ * neither would behave. Both rails scroll sideways for the same reason.
  *
  * Catalog only: a library song with no catalog equivalent has no artist ID to
  * arrive here with, and the rows that lead here are disabled for it.
@@ -60,6 +62,7 @@ export default function ArtistScreen() {
     const [playbackCommandPending, setPlaybackCommandPending] = useState(false);
     const albums = artist?.albums ?? EMPTY_ALBUMS;
     const topSongs = artist?.topSongs ?? EMPTY_TRACKS;
+    const similarArtists = artist?.similarArtists ?? EMPTY_ARTISTS;
     const nebulaColors = useArtworkNebulaColors(
         artist?.artworkUrlSmall
             ? [artist.artworkUrlSmall]
@@ -117,17 +120,30 @@ export default function ArtistScreen() {
                     </>
                 }
                 footer={
-                    artistLoading || albums.length > 0 ? (
-                        <View className="pt-6">
-                            <Text className="px-6 pb-3 text-xl font-bold text-foreground">
-                                Albums
-                            </Text>
-                            <AlbumRail
-                                albums={albums}
-                                isLoading={artistLoading}
-                            />
-                        </View>
-                    ) : null
+                    <>
+                        {artistLoading || albums.length > 0 ? (
+                            <View className="pt-6">
+                                <Text className="px-6 pb-3 text-xl font-bold text-foreground">
+                                    Albums
+                                </Text>
+                                <AlbumRail
+                                    albums={albums}
+                                    isLoading={artistLoading}
+                                />
+                            </View>
+                        ) : null}
+                        {artistLoading || similarArtists.length > 0 ? (
+                            <View className="pt-6">
+                                <Text className="px-6 pb-3 text-xl font-bold text-foreground">
+                                    Similar Artists
+                                </Text>
+                                <ArtistRail
+                                    artists={similarArtists}
+                                    isLoading={artistLoading}
+                                />
+                            </View>
+                        ) : null}
+                    </>
                 }
                 backControl={<FloatingBackButton />}
             />

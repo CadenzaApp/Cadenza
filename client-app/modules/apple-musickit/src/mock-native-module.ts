@@ -1116,6 +1116,10 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
                 artworkColor: songs[0]?.artworkColor,
                 topSongs: songs.slice(0, 10),
                 albums: MOCK_ALBUMS.filter((album) => albumIds.has(album.id)),
+                // every other catalog artist, so the rail always has tiles
+                similarArtists: MOCK_CATALOG_ARTISTS.filter(
+                    (other) => other.id !== artistId,
+                ).slice(0, 10),
             };
             return respond(artist);
         },

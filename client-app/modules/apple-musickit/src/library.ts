@@ -300,11 +300,16 @@ export const MusicKit = {
         );
     },
 
-    /** Returns a catalog artist with their top songs and albums. */
+    /**
+     * Returns a catalog artist with their top songs, albums, and similar
+     * artists. A native binary built before `similarArtists` existed leaves it
+     * out, so it defaults to empty.
+     */
     getArtist: async (artistId: string): Promise<ArtistDetail> => {
-        return requireNative().getArtist(
+        const artist = await requireNative().getArtist(
             requireIdentifier(artistId, "artist ID"),
         );
+        return { ...artist, similarArtists: artist.similarArtists ?? [] };
     },
 
     /**
