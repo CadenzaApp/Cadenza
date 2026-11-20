@@ -84,6 +84,7 @@ module.exports = {
             "expo-secure-store",
             "@react-native-community/datetimepicker",
             "./plugins/with-ios-build-fixes",
+            "expo-notifications"
         ],
         experiments: {
             typedRoutes: true,
