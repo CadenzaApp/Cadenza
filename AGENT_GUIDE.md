@@ -135,6 +135,16 @@ contracts, or gotchas. Do not create documentation that merely repeats the code.
   documentation.
 - When a README conflicts with code, the code wins. Correct the README with the final change.
 
+## Developer tooling
+
+Prefer one cross-platform Python implementation for developer-facing scripts on
+macOS and Windows. Avoid separate shell/batch/PowerShell versions or thin wrappers
+when developers can invoke the Python file directly. Use pathlib and subprocess
+argument lists, and keep necessary OS-specific behavior inside the same script.
+Document `python3` commands for macOS and `py -3` for Windows. Linux EC2 host
+scripts may remain Bash. Git's executable hook may use a minimal bootstrap to
+select Python; keep the actual tool logic in Python.
+
 ## Backend conventions
 
 - Handlers stay thin. Business logic goes in `src/db/` or `src/services/`, never in the route.

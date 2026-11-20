@@ -45,6 +45,7 @@ fn get_tag_generation_req_body(song_descs: &[String], requested_tag_count: usize
 
     json!({
         "model": OPENAI_MODEL,
+        "max_output_tokens": 4096,
         "input": [
             {
                 "role": "developer",
@@ -243,7 +244,8 @@ pub struct OpenAiTagGenerator {
 }
 impl OpenAiTagGenerator {
     pub fn new() -> Self {
-        dotenv().unwrap();
+        // Containers supply credentials through the environment without a .env file.
+        let _ = dotenv();
 
         Self {
             api_key: env::var("OPENAI_API_KEY").expect("error getting OPENAI_API_KEY env var"),
@@ -274,6 +276,10 @@ impl TagGenerator for OpenAiTagGenerator {
             return Err("song descriptions are too long!".into());
         }
 
+        let _permit =
+            crate::admission::provider_call().map_err(|_| TagGenerationError::RateLimited {
+                retry_after: Some(Duration::from_secs(60)),
+            })?;
         let resp = self
             .http_client
             .post(OPENAI_RESPONSES_URL)

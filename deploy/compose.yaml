@@ -1,0 +1,107 @@
+name: cadenza
+x-logs: &logs
+  driver: json-file
+  options:
+    max-size: "5m"
+    max-file: "3"
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE}
+    platform: linux/arm64
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 150s
+    ports:
+      - "80:3000"
+    env_file:
+      - path: ./secrets/api.env
+        format: raw
+      - path: ./secrets/ml.env
+        format: raw
+    environment:
+      API_REQUESTS_PER_USER_MINUTE: ${API_REQUESTS_PER_USER_MINUTE:-600}
+      TAG_REQUESTS_PER_USER_MINUTE: ${TAG_REQUESTS_PER_USER_MINUTE:-30}
+      TAG_REQUESTS_PER_USER_DAY: ${TAG_REQUESTS_PER_USER_DAY:-1000}
+      TAG_PROVIDER_CALLS_PER_DAY: ${TAG_PROVIDER_CALLS_PER_DAY:-7000}
+      TAG_PROVIDER_CONCURRENCY: ${TAG_PROVIDER_CONCURRENCY:-2}
+      BIND_ADDR: 0.0.0.0:3000
+      METRICS_BIND_ADDR: 0.0.0.0:9091
+      SOCIAL_FEED_URL: http://127.0.0.1:3001
+      MODEL_REVISION: ${MODEL_REVISION:?Set MODEL_REVISION}
+      HF_HOME: /cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      DEFAULT_TAG_BACKFILL_ENABLED: "false"
+      METADATA_CRAWL_LIBRARY_BATCH_SIZE: "0"
+      METADATA_CRAWL_ALBUM_BATCH_SIZE: "2"
+      METADATA_CRAWL_INTERVAL_SECS: "60"
+    volumes:
+      - model_cache:/cache/huggingface
+      - ./supabase-root.cer:/etc/ssl/certs/cadenza-supabase-root.crt:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health/ready',timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+    logging: *logs
+  prometheus:
+    image: prom/prometheus@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9
+    platform: linux/arm64
+    restart: unless-stopped
+    labels:
+      cadenza.monitoring-release: ${BACKEND_IMAGE:?Set BACKEND_IMAGE}
+    mem_limit: 384m
+    cpus: "0.5"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=14d
+      - --storage.tsdb.retention.size=2GB
+    volumes:
+      - prometheus_data:/prometheus
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    logging: *logs
+  grafana:
+    image: grafana/grafana@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
+    platform: linux/arm64
+    restart: unless-stopped
+    labels:
+      cadenza.monitoring-release: ${BACKEND_IMAGE:?Set BACKEND_IMAGE}
+    mem_limit: 768m
+    cpus: "0.5"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - "127.0.0.1:3300:3000"
+    environment:
+      GOMEMLIMIT: 512MiB
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana-admin-password
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_LOG_MODE: console
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./secrets/grafana-admin-password:/run/secrets/grafana-admin-password:ro
+      - ./monitoring/datasources.yml:/etc/grafana/provisioning/datasources/cadenza.yml:ro
+      - ./monitoring/dashboards.yml:/etc/grafana/provisioning/dashboards/cadenza.yml:ro
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards:ro
+    tmpfs:
+      - /tmp:size=32m
+    logging: *logs
+volumes:
+  model_cache:
+  prometheus_data:
+  grafana_data:

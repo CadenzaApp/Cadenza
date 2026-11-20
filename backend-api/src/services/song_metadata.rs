@@ -282,6 +282,7 @@ pub struct SongMetadataService {
     developer_token: String,
     storefront: String,
     http_client: Client,
+    background: crate::lifecycle::BackgroundTasks,
 }
 
 impl SongMetadataService {
@@ -293,6 +294,7 @@ impl SongMetadataService {
         dotenv().ok();
 
         Self {
+            background: Default::default(),
             developer_token: env::var("APPLE_MUSIC_DEVELOPER_TOKEN")
                 .expect("error getting APPLE_MUSIC_DEVELOPER_TOKEN env var"),
             storefront: env::var("APPLE_MUSIC_STOREFRONT")
@@ -302,6 +304,18 @@ impl SongMetadataService {
                 .build()
                 .expect("failed to build http client for SongMetadataService"),
         }
+    }
+
+    pub(crate) fn with_background_tasks(
+        mut self,
+        background: crate::lifecycle::BackgroundTasks,
+    ) -> Self {
+        self.background = background;
+        self
+    }
+
+    pub(crate) fn background_tasks(&self) -> crate::lifecycle::BackgroundTasks {
+        self.background.clone()
     }
 
     /// Looks up every id, keyed by the id it was found under.
@@ -831,6 +845,7 @@ mod tests {
     /// a service that can be built without a token, for the checks that never reach the network
     fn offline_service() -> SongMetadataService {
         SongMetadataService {
+            background: Default::default(),
             developer_token: "test-token".into(),
             storefront: DEFAULT_STOREFRONT.into(),
             http_client: Client::new(),

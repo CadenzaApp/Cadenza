@@ -1,0 +1,41 @@
+#!/bin/bash
+# Run as root on EC2. Retrieve secrets on the host without printing values.
+set -euo pipefail
+umask 077
+cd /opt/cadenza
+exec 3>&1
+exec > logs/prepare-release.log 2>&1
+trap 'echo "Release preparation failed; private log retained on EC2." >&3' ERR
+echo "Retrieving deployment secrets on EC2." >&3
+python3 fetch-secrets.py
+python3 - <<'VALIDATE'
+from pathlib import Path
+from urllib.parse import urlsplit, parse_qs
+values=dict(line.split("=",1) for line in Path("secrets/api.env").read_text().splitlines())
+url=urlsplit(values["DATABASE_URL"])
+if url.scheme not in ("postgres", "postgresql") or url.port != 5432:
+    raise SystemExit("DATABASE_URL must use the PostgreSQL session pooler on port 5432")
+query=parse_qs(url.query)
+if query.get("sslmode") != ["verify-full"] or query.get("sslrootcert") != ["/etc/ssl/certs/cadenza-supabase-root.crt"]:
+    raise SystemExit("DATABASE_URL must use verify-full and the deployed CA certificate")
+if not Path("supabase-root.cer").is_file():
+    raise SystemExit("Missing public database CA certificate")
+print("Secret files validated without displaying values")
+VALIDATE
+# This public CA must be readable by the non-root container user.
+chmod 644 supabase-root.cer
+registry_config=$(mktemp -d /run/cadenza-ecr.XXXXXX)
+trap 'rm -rf "$registry_config"' EXIT
+registry=$(python3 -c 'from pathlib import Path; v=dict(l.split("=",1) for l in Path("release.env").read_text().splitlines() if l and not l.startswith("#")); print(v["BACKEND_IMAGE"].split("/")[0])')
+region=$(printf '%s' "$registry" | cut -d. -f4)
+aws ecr get-login-password --region "$region" | docker --config "$registry_config" login --username AWS --password-stdin "$registry"
+echo "Pulling the pinned backend image." >&3
+docker --config "$registry_config" compose --env-file release.env pull backend
+rm -rf "$registry_config"
+trap - EXIT
+docker compose --env-file release.env config --quiet
+docker compose --env-file release.env run --rm --no-deps backend python -c 'import torch; assert torch.version.cuda is None; print("CPU-only Torch verified")'
+python3 prepare-monitoring.py
+echo "Pinned images pulled; secret files remain private." >&3
+free -m >&3
+df -h / >&3

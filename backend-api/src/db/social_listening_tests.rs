@@ -1286,3 +1286,166 @@ async fn social_listening_profile_shows_what_privacy_allows() {
 
     txn.rollback().await.unwrap();
 }
+
+/// All writes roll back; no account/profile fixtures are created or deleted.
+#[tokio::test]
+#[ignore]
+async fn social_listening_block_overrides_audience_and_codes() {
+    use crate::db::{
+        audience::{PrivacyField, can_see_field},
+        friend_relations as relations,
+    };
+    use crate::services::{
+        invite_codes::{RedeemLimiter, accept_invite},
+        realtime::{InMemoryBus, SharedEventBus},
+    };
+    let txn = scratch().await;
+    let (a, b) = two_users(&txn).await;
+    relations::unblock_user(&txn, a, b).await.unwrap();
+    relations::unblock_user(&txn, b, a).await.unwrap();
+    txn.execute_raw(crate::db::stmt(
+        "INSERT INTO privacy_settings (user_id, now_playing, session_join, playlist_add)
+         VALUES ($1, 'everyone', 'everyone', 'everyone'), ($2, 'everyone', 'everyone', 'everyone')
+         ON CONFLICT (user_id) DO UPDATE SET now_playing = 'everyone', session_join = 'everyone', playlist_add = 'everyone'",
+        vec![a.into(), b.into()],
+    )).await.unwrap();
+    txn.execute_raw(crate::db::stmt(
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id IN ($1, $2) AND ended_at IS NULL",
+        vec![a.into(), b.into()],
+    ))
+    .await
+    .unwrap();
+    let playlist = playlists::create_playlist(&txn, a, "Block regression", "", &[])
+        .await
+        .unwrap();
+    playlists::join_by_code(&txn, b, playlist, PlaylistRole::Viewer)
+        .await
+        .unwrap();
+    let session = sessions::start_session(
+        &txn,
+        a,
+        sessions::NewSession {
+            name: "Block regression",
+            default_role: SessionRole::Listener,
+            allow_join_without_code: true,
+            listen_along: false,
+            approve_joins: false,
+        },
+    )
+    .await
+    .unwrap();
+    sessions::join_session(&txn, b, session, false)
+        .await
+        .unwrap();
+    let invite = create_invite(
+        &txn,
+        a,
+        &InviteTargetRef::SharedPlaylist(playlist),
+        NewInvite {
+            max_uses: Some(1),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    relations::block_user(&txn, a, b).await.unwrap();
+    assert!(
+        !can_see_field(&txn, b, a, PrivacyField::NowPlaying)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !can_see_field(&txn, a, b, PrivacyField::NowPlaying)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        playlists::member_role(&txn, playlist, b).await.unwrap(),
+        None
+    );
+    assert!(!sessions::is_participant(&txn, session, b).await.unwrap());
+    assert_ne!(
+        sessions::current_session_id(&txn, b).await.unwrap(),
+        Some(session)
+    );
+    assert!(matches!(
+        sessions::join_session(&txn, b, session, true).await,
+        Err(CadenzaError::UserBlocked)
+    ));
+    assert!(matches!(
+        sessions::join_session(&txn, b, session, false).await,
+        Err(CadenzaError::UserBlocked)
+    ));
+    assert!(matches!(
+        sessions::join_listening(&txn, b, a).await,
+        Err(CadenzaError::UserBlocked)
+    ));
+    assert!(
+        playlists::list_my_playlists(&txn, b)
+            .await
+            .unwrap()
+            .iter()
+            .all(|p| p.playlist_id != playlist)
+    );
+    let bus: SharedEventBus = std::sync::Arc::new(InMemoryBus::new());
+    let limiter = RedeemLimiter::new();
+    assert!(matches!(
+        accept_invite(&txn, &bus, &limiter, b, &invite.code).await,
+        Err(CadenzaError::UserBlocked)
+    ));
+    // The denied attempt did not consume the one allowed use.
+    relations::unblock_user(&txn, a, b).await.unwrap();
+    accept_invite(&txn, &bus, &limiter, b, &invite.code)
+        .await
+        .unwrap();
+    assert_eq!(
+        playlists::member_role(&txn, playlist, b).await.unwrap(),
+        Some(PlaylistRole::Viewer)
+    );
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_block_preserves_third_party_membership() {
+    use crate::db::friend_relations as relations;
+    let txn = scratch().await;
+    let (a, b) = two_users(&txn).await;
+    let third = txn
+        .query_one_raw(crate::db::stmt(
+            "SELECT uid FROM profile WHERE uid NOT IN ($1, $2) ORDER BY uid LIMIT 1",
+            vec![a.into(), b.into()],
+        ))
+        .await
+        .unwrap()
+        .expect("this regression needs three existing profiles");
+    let owner: Uuid = third.try_get("", "uid").unwrap();
+    for (x, y) in [
+        (a, b),
+        (b, a),
+        (owner, a),
+        (a, owner),
+        (owner, b),
+        (b, owner),
+    ] {
+        relations::unblock_user(&txn, x, y).await.unwrap();
+    }
+    let playlist = playlists::create_playlist(&txn, owner, "Third party regression", "", &[])
+        .await
+        .unwrap();
+    for id in [a, b] {
+        playlists::join_by_code(&txn, id, playlist, PlaylistRole::Viewer)
+            .await
+            .unwrap();
+    }
+    relations::block_user(&txn, a, b).await.unwrap();
+    for id in [a, b] {
+        assert_eq!(
+            playlists::member_role(&txn, playlist, id).await.unwrap(),
+            Some(PlaylistRole::Viewer)
+        );
+        playlists::get_playlist(&txn, id, playlist).await.unwrap();
+    }
+    txn.rollback().await.unwrap();
+}

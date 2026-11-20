@@ -1,48 +1,39 @@
-# Utility Scripts
+# Developer tools
 
-Each formatting script in this directory has two versions:
-- a `.sh` file for running from macOS or Linux
-- a `.bat` file for running from Windows
+Use one cross-platform Python implementation per tool. Avoid separate `.sh`,
+`.bat` or `.ps1` copies and wrappers where a direct Python command works.
+Linux EC2 host scripts under `deploy/` are separate from these workstation tools.
 
-Both should behave essentially identically.
-Brief documentation is provided below for each script in this directory.
-If you add your own script later, be sure to update this documentation and try your best to ensure
-behavior parity between `.sh` and `.bat` versions of the script.
+Run these from the repository root. Each Python tool also resolves repository
+paths independently, so it can be invoked by absolute path from another directory.
 
-All scripts should be runnable from anywhere in the project. See `format.sh` and `format.bat` for some ideas on how to ensure that.
+| Task | macOS/Linux | Windows PowerShell |
+| --- | --- | --- |
+| Format | `python3 scripts/format.py` | `py -3 scripts/format.py` |
+| Check formatting | `python3 scripts/format.py --check` | `py -3 scripts/format.py --check` |
+| Deploy | `python3 deploy/release.py` | `py -3 deploy/release.py` |
+| Grafana | `python3 scripts/open-metrics.py` | `py -3 scripts/open-metrics.py` |
 
-## `format`
-
-Auto-format all code to meet the rust fmt and prettier standards.
-
-MacOS
-```sh
-scripts/format.sh
-```
-Windows
-```bat
-scripts\format.bat
-```
-
-To check formatting without changing any code, run with the `--check` flag.
-Run `npm ci --prefix client-app` after cloning to install the locked Prettier version.
+Formatting needs Python, Rust/cargo and Node.js. Run `npm ci --prefix client-app` after
+cloning to install the locked Prettier version. The Python formatter invokes the
+same Rust and Prettier tools on both operating systems.
 
 ## Git hooks
 
-Install the versioned pre-push hook once per clone. It blocks a push when Rust or client code is
-not formatted. The error explains the failed formatter, why formatting is required, and how to
-fix the files automatically.
+Install the versioned pre-push hook once per clone with this Git command:
 
-macOS or Linux:
-```sh
-./scripts/install-git-hooks.sh
+```text
+git config core.hooksPath .githooks
 ```
 
-Windows:
-```bat
-scripts\install-git-hooks.bat
-```
+Git invokes a minimal hook bootstrap that selects Python and runs
+`scripts/format.py --check`. It checks files without modifying them. Fix reported
+formatting with the Python command above, review and commit, then push again.
 
-The hook runs `scripts/format.sh --check` on macOS and Linux, and `scripts\format.bat --check`
-on Windows. It checks files only and does not modify them. Run the matching format command to
-apply formatting before trying again.
+## Deployment and Grafana
+
+See [developer setup](../deploy/GETTING_STARTED.md) for AWS access and prerequisites.
+Deployment needs Python 3.11+, AWS CLI v2 and Docker Desktop using Linux containers.
+Grafana also needs the Session Manager plugin. Its default browser opens when the
+private tunnel is ready; Ctrl-C closes the tunnel. Use `--port 3301` for another
+local port and `--no-browser` to open the printed URL yourself.

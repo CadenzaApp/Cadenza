@@ -1,0 +1,646 @@
+{
+  "uid": "cadenza-backend",
+  "title": "Cadenza | Backend overview",
+  "tags": [
+    "cadenza",
+    "backend",
+    "overview"
+  ],
+  "schemaVersion": 39,
+  "version": 9,
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "editable": false,
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "label": "Metrics source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {
+          "text": "Prometheus",
+          "value": "cadenza-prometheus"
+        }
+      },
+      {
+        "name": "route",
+        "label": "Operation route",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": "query_result(sort_desc(sum by (route) (increase(cadenza_http_requests_total{job=\"cadenza-backend\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range]))))",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "regex": "/route=\"([^\"]+)\"/",
+        "sort": 0,
+        "description": "Most-called routes first, over the selected dashboard time range. Methods are combined for this route selector."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Calls (range)",
+      "description": "Estimated completed invocations over the selected dashboard time range; includes error responses and excludes cancelled requests, health checks and /test. Prometheus extrapolates scraped counters, so small counts can be approximate.",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(cadenza_http_requests_total{job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range])) or vector(0)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "p50 latency",
+      "description": "Estimated percentile for the selected routes over the selected dashboard time range. Time until response headers. Sparse traffic yields noisy or empty estimates.",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range])))",
+          "legendFormat": "{{method}} {{route}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "p95 latency",
+      "description": "Estimated percentile for the selected routes over the selected dashboard time range. Time until response headers. Sparse traffic yields noisy or empty estimates.",
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range])))",
+          "legendFormat": "{{method}} {{route}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "p99 latency",
+      "description": "Estimated percentile for the selected routes over the selected dashboard time range. Time until response headers. Sparse traffic yields noisy or empty estimates.",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range])))",
+          "legendFormat": "{{method}} {{route}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "In flight",
+      "description": "All active API requests across feature groups; not filtered by the route selector.",
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(cadenza_http_requests_in_flight{job=\"cadenza-backend\"})",
+          "legendFormat": "{{method}} {{route}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Metrics scrape up",
+      "description": "Prometheus can scrape the metrics listener. This is not proof of model readiness; ALB checks readiness independently.",
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "min(up{job=\"cadenza-backend\"})",
+          "legendFormat": "{{method}} {{route}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 33,
+      "title": "Response time - all selected operations",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5,sum by(le)(rate(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__rate_interval])))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95,sum by(le)(rate(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__rate_interval])))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99,sum by(le)(rate(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__rate_interval])))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 30,
+      "title": "Call volume over time",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(method,route)(increase(cadenza_http_requests_total{job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__interval]))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{method}} {{route}}",
+          "interval": "1m"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 85,
+            "lineWidth": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "calls"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Estimated completed calls per non-overlapping time bucket, stacked by operation. Minimum bucket: 1 minute; bucket size grows with the time range. Includes error responses. Scrape-based estimates can be fractional.",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 31,
+      "title": "Failed responses and cancellations",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(status)(increase(cadenza_http_requests_total{job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status=~\"4..|5..|cancelled\"}[$__interval]))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{status}}",
+          "interval": "1m"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "stacking": {
+              "mode": "normal",
+              "group": "errors"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Estimated counts per bucket. 4xx includes authentication failures and rate limits; 5xx indicates server/provider failures. Missing series means no recorded observations.",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 7
+      }
+    },
+    {
+      "id": 32,
+      "type": "table",
+      "title": "Operations - calls and latency",
+      "description": "Busiest completed operations first. Calls and runtime percentile cover the selected dashboard range. Counts are estimates from scraped counters; includes error responses, excludes cancellations. Blank latency means insufficient observations.",
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sort_desc(sum by(operation)(label_join(increase(cadenza_http_requests_total{job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.5,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99,sum by(le,operation)(label_join(increase(cadenza_http_request_duration_seconds_bucket{histogram_schema=\"3\",job=\"cadenza-backend\",route=~\"$route\",route!~\"/health/.*|/test\",status!=\"cancelled\"}[$__range]),\"operation\",\" \",\"method\",\"route\")))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "-",
+          "custom": {
+            "minWidth": 50
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Calls"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 68
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p50"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 82
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 82
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p99"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 82
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Calls",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "operation": "Operation",
+              "Value #A": "Calls",
+              "Value #B": "p50",
+              "Value #C": "p95",
+              "Value #D": "p99"
+            },
+            "indexByName": {
+              "operation": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "Dashboards",
+      "type": "dashboards",
+      "tags": [
+        "cadenza"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true
+    }
+  ]
+}

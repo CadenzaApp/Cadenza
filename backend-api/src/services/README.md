@@ -462,13 +462,19 @@ append each call and its output, and repeat until the model answers with text. I
 ## Realtime
 
 `GET /realtime/ws` is push only. Writes stay on HTTP; after commit a handler publishes
-`{topic, version, kind, data}` and subscribers refetch over HTTP. An event carries no private data,
-so the audience checks stay in the HTTP reads, and access is checked once per subscribe.
+`{topic, version, kind, data}` and subscribers refetch over HTTP. Playback events carry
+playback state. Access is checked at subscription and again before delivery, including
+queued events. Revoked access closes the socket so the client reconnects and refetches.
 
 - First frame `auth {token}` within 5 s (the Supabase JWT, never in the URL), answered by
   `ready`. Then `subscribe` / `unsubscribe {topic}`, `ping {id}` for `pong {id,
   server_time_ms}`. Server sends `event` and `lagged {topic}` (fell behind, refetch). The
-  socket closes when the token expires.
+  socket closes when the token expires or shutdown starts. Socket work and the session
+  sweep use the shared shutdown tracker; restart bookkeeping finishes before HTTP opens.
+- Limits: 128 sockets per process (including pending authentication), four per user,
+  200 subscriptions per socket, 300 incoming frames per minute, 16 KiB frames/messages,
+  and 64 queued outgoing events. Slow consumers have five seconds per send. Subscription
+  tasks are cancelled on disconnect; a full outgoing queue applies backpressure.
 - Topics: `user` (now playing, needs the `now_playing` audience), `live_session` (members),
   `shared_playlist` (members). A `user` event's kind is `now_playing`, `presence` (came
   online or went offline), or `live_session` (started, joined, left, or ended a session).
@@ -488,12 +494,13 @@ so the audience checks stay in the HTTP reads, and access is checked once per su
   away leaves theirs.
 - `InMemoryBus` and `InMemoryPresence` work for one backend instance. A second instance
   needs a `PgNotifyBus` and a shared presence store behind the same `EventBus` and
-  `Presence` traits; nothing else changes.
+  `Presence` traits. The deployment supports one backend instance.
 
 ## Gotchas
 
-- `OpenAiTagGenerator::new()` calls `dotenv().unwrap()` and then `expect`s `OPENAI_API_KEY`, so a
-  missing `.env` or key panics during server startup, not at first use.
+- `OpenAiTagGenerator::new()` optionally loads `.env`, then requires `OPENAI_API_KEY`.
+  A missing key panics during startup. Containers can supply the key directly in
+  the environment without creating a `.env` file.
 - `MAX_COMBINED_SONG_DESC_LENGTH` is 2000 bytes across the whole batch, not per song.
   `TagGenerationService::generate_tags` splits the batch into as many generator calls as it
   takes to stay under it, and truncates any single description longer than that on its own.
@@ -548,5 +555,21 @@ so the audience checks stay in the HTTP reads, and access is checked once per su
 
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
+
+## Work lifecycle
+
+The services share `lifecycle::BackgroundTasks` injected by `main.rs`. It tracks
+periodic passes and detached default-tag, metadata/artwork, and saved-query updates
+even if the requesting client disconnects. On shutdown idle waits stop immediately
+and periodic jobs stop starting passes. Accepted requests can still enqueue their
+follow-up work; all of it shares the HTTP 120-second deadline. After that deadline
+unfinished futures are cancelled. The deployment intentionally runs one backend;
+startup claim resets and process-local social state retain that assumption.
+
+Tag generation is limited to 40 seconds for the entire generator batch, including
+sequential chunks. Timeout returns `OperationTimeout`; the default-tag service
+handles it through its existing failed-attempt cleanup. This does not
+bound every database phase of an enrichment attempt. Cross-instance claim
+ownership is outside the single-instance deployment scope.
 
 Duration tag values are validated as nonnegative integer milliseconds, at most JavaScript's safe integer limit, and canonicalized as decimal strings.

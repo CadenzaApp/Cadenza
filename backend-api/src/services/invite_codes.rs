@@ -7,9 +7,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sea_orm::{DatabaseConnection, prelude::Uuid};
+use sea_orm::prelude::Uuid;
 
 use crate::db::{
+    Db,
     invites::{InviteTargetRef, redeem_invite},
     live_sessions::join_session,
     shared_playlists::{PlaylistRole, join_by_code},
@@ -87,7 +88,7 @@ impl RedeemLimiter {
 /// Redeems `code` and joins what it points at, as one step for the client.
 /// Rate limited per user. Returns what was joined.
 pub async fn accept_invite(
-    db: &DatabaseConnection,
+    db: &impl Db,
     bus: &SharedEventBus,
     limiter: &RedeemLimiter,
     user_id: Uuid,
@@ -100,30 +101,28 @@ pub async fn accept_invite(
     if code.len() != CODE_LENGTH {
         return Err(CadenzaError::InviteCodeInvalid);
     }
-    let redeemed = redeem_invite(db, &code).await?;
-    match &redeemed.target {
+    // A rejected join must not consume a limited-use invite.
+    let txn = db.begin().await?;
+    let redeemed = redeem_invite(&txn, &code).await?;
+    let (topic, version, kind) = match &redeemed.target {
         InviteTargetRef::SharedPlaylist(playlist_id) => {
             let role = redeemed.grants_role.unwrap_or(PlaylistRole::Viewer);
-            let version = join_by_code(db, user_id, *playlist_id, role).await?;
-            publish_version(
-                bus,
+            let version = join_by_code(&txn, user_id, *playlist_id, role).await?;
+            (
                 Topic::SharedPlaylist(*playlist_id),
                 version,
                 EventKind::Playlist,
-            );
+            )
         }
         InviteTargetRef::LiveSession(session_id) => {
-            let version = join_session(db, user_id, *session_id, true)
+            let version = join_session(&txn, user_id, *session_id, true)
                 .await?
                 .version();
-            publish_version(
-                bus,
-                Topic::LiveSession(*session_id),
-                version,
-                EventKind::Session,
-            );
+            (Topic::LiveSession(*session_id), version, EventKind::Session)
         }
-    }
+    };
+    txn.commit().await?;
+    publish_version(bus, topic, version, kind);
     Ok(redeemed.target)
 }
 

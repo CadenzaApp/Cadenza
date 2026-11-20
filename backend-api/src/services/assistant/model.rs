@@ -97,6 +97,7 @@ impl AssistantModel for OpenAiAssistantModel {
             "store": false,
         });
 
+        let _permit = crate::admission::provider_call()?;
         let resp = self
             .http_client
             .post(OPENAI_RESPONSES_URL)

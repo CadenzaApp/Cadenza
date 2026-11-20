@@ -6,14 +6,14 @@
 //!
 //! Mutations never go over the socket. A handler writes through `db/`, then
 //! publishes an [`Event`] naming the topic and its new version. The socket
-//! route (`routes/realtime.rs`) checks access before it subscribes anyone,
-//! and an event carries no private data, so the audience checks stay in the
-//! HTTP reads.
+//! route (`routes/realtime.rs`) checks access before subscribing and before
+//! delivering each event. HTTP reads enforce the same membership and privacy rules.
 //!
 //! The transport is the [`EventBus`] trait, so the in memory bus can be swapped
 //! for a postgres `LISTEN/NOTIFY` one when there is more than one backend
 //! instance, without touching anything that publishes or subscribes.
 pub mod access;
+pub mod limits;
 pub mod memory_bus;
 pub mod presence;
 
