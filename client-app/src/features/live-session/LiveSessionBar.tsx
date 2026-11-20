@@ -24,7 +24,7 @@ import { MemberRow, RoleMenu } from "../social/MemberRow";
 import { ChatSheet } from "./ChatSheet";
 import { sessionSongs } from "./session-commands";
 import { RequestsSheet } from "./RequestsSheet";
-import { ROLE_CHOICES, runSessionWrite } from "./session-parts";
+import { ROLE_CHOICES, useRunSessionWrite } from "./session-parts";
 
 type Open = "requests" | "people" | "chat" | "add" | "share" | null;
 
@@ -43,6 +43,7 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
     const { account } = useAccount();
     const openScreen = useOpenScreen();
     const writes = useLiveSessionWrites(session.session_id);
+    const runSessionWrite = useRunSessionWrite();
     const isHost = session.my_role === "host";
     const [open, setOpen] = useState<Open>(null);
     const [memberMenu, setMemberMenu] = useState<LiveSessionMember | null>(

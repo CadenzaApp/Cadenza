@@ -1,7 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ReactNode } from "react";
-import { Alert, Pressable, View } from "react-native";
+import { useCallback } from "react";
+import { Pressable, View } from "react-native";
 
+import { useToast } from "@/components/custom/toast";
 import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import {
@@ -18,21 +20,29 @@ export function errorType(error: unknown) {
     return (error as { error_type?: string } | null)?.error_type;
 }
 
-/** Runs a session write, and on failure says why in an alert. */
-export async function runSessionWrite(
-    action: () => Promise<unknown>,
-    failure: string,
-) {
-    try {
-        await action();
-    } catch (error) {
-        Alert.alert(
-            "Live session",
-            errorType(error) === "Forbidden"
-                ? "Your role does not allow that."
-                : failure,
-        );
-    }
+/**
+ * Returns `runSessionWrite(action, failure)`, which runs a session write and
+ * on failure says why in an error toast: the role when the backend refused
+ * it, else `failure`.
+ */
+export function useRunSessionWrite() {
+    const { showToast } = useToast();
+    return useCallback(
+        async (action: () => Promise<unknown>, failure: string) => {
+            try {
+                await action();
+            } catch (error) {
+                showToast(
+                    errorType(error) === "Forbidden"
+                        ? "Your role does not allow that."
+                        : failure,
+                    "Live session",
+                    "error",
+                );
+            }
+        },
+        [showToast],
+    );
 }
 
 const ANSWER_SIZE = 36;

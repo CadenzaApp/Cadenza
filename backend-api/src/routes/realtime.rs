@@ -6,7 +6,7 @@
 //!   JWT the HTTP routes take. Sent as a message, not in the URL, so it never
 //!   lands in a request log. Server answers `ready {user_id}`.
 //! - client `subscribe {topic}` / `unsubscribe {topic}`. Topics are
-//!   `{kind: "user" | "live_session" | "shared_playlist", id}`. Access is checked
+//!   `{kind: "user" | "live_session" | "shared_playlist" | "inbox", id}`. Access is checked
 //!   per subscribe; server answers `subscribed` or `error`.
 //! - client `ping {id}`, server `pong {id, server_time_ms}`, for keepalive and
 //!   for the client's clock offset.
@@ -456,6 +456,20 @@ mod tests {
         assert_eq!(json["version"], 9);
         assert_eq!(json["topic"]["kind"], "shared_playlist");
         assert_eq!(json["kind"], "playlist");
+    }
+
+    #[test]
+    fn inbox_notifications_go_out_by_name() {
+        let owner = Uuid::from_u128(1);
+        let message = ServerMessage::Event {
+            event: Event::new(Topic::Inbox(owner), 5, EventKind::Notification)
+                .with_data(serde_json::json!({ "type": "comment", "content": "nice" })),
+        };
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["topic"]["kind"], "inbox");
+        assert_eq!(json["topic"]["id"], owner.to_string());
+        assert_eq!(json["kind"], "notification");
+        assert_eq!(json["data"]["content"], "nice");
     }
 
     #[test]

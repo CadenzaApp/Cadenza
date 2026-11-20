@@ -501,7 +501,8 @@ fn notification_metadata(
 /// One unread notification for `recipient_id`. A comment's title is
 /// `<username> commented on your post` and its content is the comment. A
 /// friend request's title is the other person's username. The same person
-/// gets nothing, so a comment on your own post is quiet.
+/// gets nothing, so a comment on your own post is quiet. True when a row was
+/// written.
 async fn notify_user(
     db: &impl ConnectionTrait,
     recipient_id: Uuid,
@@ -509,9 +510,9 @@ async fn notify_user(
     content: &str,
     notif_type: NotificationType,
     post_id: Option<i64>,
-) -> Result<(), CadenzaError> {
+) -> Result<bool, CadenzaError> {
     if recipient_id == sender_id {
-        return Ok(());
+        return Ok(false);
     }
     let username = actor_username(db, sender_id).await?;
     let title = match notif_type {
@@ -532,7 +533,14 @@ async fn notify_user(
         },
     )
     .await?;
-    Ok(())
+    Ok(true)
+}
+
+/// What [`insert_comment`] wrote.
+pub struct InsertedComment {
+    pub comment_id: i64,
+    /// The post's author, when they got a notification for it.
+    pub notified: Option<Uuid>,
 }
 
 /// Inserts a comment and returns its id. `NotFound` when the post is gone.
@@ -548,7 +556,7 @@ pub async fn insert_comment(
     user_id: Uuid,
     post_id: i64,
     content: &str,
-) -> Result<i64, CadenzaError> {
+) -> Result<InsertedComment, CadenzaError> {
     // `likes` and `created_at` stay unset so the database stamps them.
     // A missing post fails `comments_post_id_fkey`, which becomes `NotFound`.
     // `posts.comments` moves in the same transaction, so a failed insert
@@ -595,8 +603,9 @@ pub async fn insert_comment(
     let author_id: Option<Uuid> = author.try_get_by_index(0)?;
     // A spotlight post has no author, so the comment still saves and nobody
     // is notified.
-    if let Some(author_id) = author_id
-        && let Err(err) = notify_user(
+    let mut notified = None;
+    if let Some(author_id) = author_id {
+        match notify_user(
             &txn,
             author_id,
             user_id,
@@ -605,12 +614,20 @@ pub async fn insert_comment(
             Some(post_id),
         )
         .await
-    {
-        txn.rollback().await?;
-        return Err(err);
+        {
+            Ok(true) => notified = Some(author_id),
+            Ok(false) => {}
+            Err(err) => {
+                txn.rollback().await?;
+                return Err(err);
+            }
+        }
     }
     txn.commit().await?;
-    Ok(comment_id)
+    Ok(InsertedComment {
+        comment_id,
+        notified,
+    })
 }
 
 /// Deletes the author's comment and drops `posts.comments`. `NotFound` when

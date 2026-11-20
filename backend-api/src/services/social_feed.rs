@@ -700,7 +700,7 @@ impl SocialFeedService {
         user_id: Uuid,
         post_id: i64,
         content: &str,
-    ) -> Result<i64, CadenzaError> {
+    ) -> Result<social::InsertedComment, CadenzaError> {
         social::insert_comment(db, user_id, post_id, content).await
     }
 

@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use sea_orm::prelude::Uuid;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
 use crate::{
@@ -36,7 +36,7 @@ use crate::{
         vec_into,
     },
     services::{
-        realtime::SharedPresence,
+        realtime::{SharedEventBus, SharedPresence, publish_notification},
         social_feed::{InitialSpotlightChance, NewPostTopic, SocialFeedService},
         song_metadata::SongMetadataService,
         spotlights::spawn_spotlight_tagging,
@@ -1114,7 +1114,8 @@ struct CreateCommentBody {
 
 /// Creates a comment on this post for the signed-in user. `content` is at
 /// most 500 characters. The post's author is notified, unless they wrote the
-/// comment. 404 when the post is gone.
+/// comment, and their inbox topic gets a `notification` event once it is
+/// saved. 404 when the post is gone.
 ///
 /// ```json
 /// { "comment_id": 1 }
@@ -1122,15 +1123,29 @@ struct CreateCommentBody {
 async fn create_comment(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
+    State(bus): State<SharedEventBus>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Path(post_id): Path<i64>,
     Json(body): Json<CreateCommentBody>,
 ) -> Result<Json<CreateCommentResponse>, CadenzaError> {
     let content = require_content(&body.content, COMMENT_CONTENT_MAX)?;
-    let comment_id = social
+    let inserted = social
         .create_comment(&db, claims.user_id, post_id, content)
         .await?;
-    Ok(Json(CreateCommentResponse { comment_id }))
+    if let Some(author_id) = inserted.notified {
+        publish_notification(
+            &bus,
+            author_id,
+            json!({
+                "type": "comment",
+                "content": content,
+                "metadata": { "post_id": post_id },
+            }),
+        );
+    }
+    Ok(Json(CreateCommentResponse {
+        comment_id: inserted.comment_id,
+    }))
 }
 
 /// Replaces the signed-in user's comment text. `content` is trimmed and at

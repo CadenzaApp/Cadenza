@@ -1,11 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Alert, Pressable } from "react-native";
+import { Pressable } from "react-native";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { Text } from "@/components/ui/text";
+import { useToast } from "@/components/custom/toast";
 import {
     useLiveSessionWrites,
     type LiveSession,
@@ -13,7 +14,7 @@ import {
 import { useAppTheme } from "@/lib/theme";
 import { useMusicAccess } from "@/lib/use-music-access";
 
-import { OptionRow, errorType } from "./session-parts";
+import { OptionRow, useRunSessionWrite } from "./session-parts";
 import { useShownLiveSession } from "./use-current-session";
 
 /**
@@ -28,6 +29,7 @@ export function LiveButton() {
     const fullPlayback = useMusicAccess().can("fullPlayback");
     const { brand, foreground } = useAppTheme().colors;
     const router = useRouter();
+    const { showToast } = useToast();
     const [menuOpen, setMenuOpen] = useState(false);
 
     function press() {
@@ -36,9 +38,9 @@ export function LiveButton() {
             return;
         }
         if (!fullPlayback) {
-            Alert.alert(
-                "Live session",
+            showToast(
                 "Hosting a session needs an Apple Music subscription.",
+                "Live session",
             );
             return;
         }
@@ -96,6 +98,8 @@ function SessionMenu({
 }) {
     const fullPlayback = useMusicAccess().can("fullPlayback");
     const writes = useLiveSessionWrites(session.session_id);
+    const { showToast } = useToast();
+    const run = useRunSessionWrite();
     const isHost = session.my_role === "host";
     const synced = session.my_listen_mode === "synced";
     const [confirm, setConfirm] = useState<"end" | "leave" | null>(null);
@@ -107,19 +111,6 @@ function SessionMenu({
         next();
     };
 
-    async function run(action: () => Promise<unknown>, failure: string) {
-        try {
-            await action();
-        } catch (error) {
-            Alert.alert(
-                "Live session",
-                errorType(error) === "Forbidden"
-                    ? "Your role does not allow that."
-                    : failure,
-            );
-        }
-    }
-
     async function endOrLeave() {
         setBusy(true);
         try {
@@ -127,7 +118,7 @@ function SessionMenu({
             else await writes.leaveSession();
             setConfirm(null);
         } catch {
-            Alert.alert("Live session", "Couldn't do that. Try again.");
+            showToast("Couldn't do that. Try again.", "Live session", "error");
         } finally {
             setBusy(false);
         }

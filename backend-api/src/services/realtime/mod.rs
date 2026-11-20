@@ -1,9 +1,11 @@
 //! Realtime push. Postgres holds every durable state; this mostly tells
 //! subscribers that something changed, so they refetch it over HTTP. The
 //! exceptions are a live session's `playback` event, which carries the new
-//! playback so a pause or seek lands without a refetch, and its `chat` event,
-//! which carries the new message. Only members can subscribe to a session
-//! topic, and they could read the same over HTTP.
+//! playback so a pause or seek lands without a refetch, its `chat` event,
+//! which carries the new message, and an inbox's `notification` event, which
+//! carries the new notification. Only members can subscribe to a session
+//! topic, and only its owner to an inbox, and they could read the same over
+//! HTTP.
 //!
 //! Mutations never go over the socket. A handler writes through `db/`, then
 //! publishes an [`Event`] naming the topic and its new version. The socket
@@ -39,6 +41,8 @@ pub enum Topic {
     LiveSession(Uuid),
     /// One shared playlist: its songs, members, and details.
     SharedPlaylist(i64),
+    /// One user's own notifications. Only that user can subscribe.
+    Inbox(Uuid),
 }
 
 /// What changed. The client acts on the kind.
@@ -62,10 +66,13 @@ pub enum EventKind {
     Chat,
     /// The live session or shared playlist is over.
     Ended,
+    /// A new notification on an inbox; `data` carries it.
+    Notification,
 }
 
 /// One change. `version` is the topic's version after the change, so a
-/// client that sees a gap refetches. `data` is small and never private.
+/// client that sees a gap refetches. `data` is small, and never private
+/// beyond what everyone on the topic can already read over HTTP.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Event {
     pub topic: Topic,
@@ -116,5 +123,19 @@ pub fn publish_user(bus: &SharedEventBus, user_id: Uuid, kind: EventKind) {
         Topic::User(user_id),
         Utc::now().timestamp_millis(),
         kind,
+    );
+}
+
+/// Tells `user_id`'s inbox about a notification just written for them.
+/// `data` is `{"type", "content", "metadata"}`, the same fields
+/// `GET /social/notifications` returns. Call it after the write commits.
+pub fn publish_notification(bus: &SharedEventBus, user_id: Uuid, data: Value) {
+    bus.publish(
+        Event::new(
+            Topic::Inbox(user_id),
+            Utc::now().timestamp_millis(),
+            EventKind::Notification,
+        )
+        .with_data(data),
     );
 }

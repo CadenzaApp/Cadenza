@@ -476,7 +476,9 @@ queued events. Revoked access closes the socket so the client reconnects and ref
   and 64 queued outgoing events. Slow consumers have five seconds per send. Subscription
   tasks are cancelled on disconnect; a full outgoing queue applies backpressure.
 - Topics: `user` (now playing, needs the `now_playing` audience), `live_session` (members),
-  `shared_playlist` (members). A `user` event's kind is `now_playing`, `presence` (came
+  `shared_playlist` (members), `inbox` (the user themself). An `inbox` event's kind is
+  `notification`, with `data: {type, content, metadata}`, published after the write commits.
+  Only a new comment publishes one so far. A `user` event's kind is `now_playing`, `presence` (came
   online or went offline), or `live_session` (started, joined, left, or ended a session).
   A `live_session` event's kind is `session` (refetch), `ended` (from the session sweep with `data: {reason: host_gone | paused}`), or `playback`, which carries
   `data`: the new playback, sent only for a write that moved nothing else (play, pause, seek,

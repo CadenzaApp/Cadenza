@@ -6,7 +6,7 @@ import Animated from "react-native-reanimated";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
 import { SearchField } from "@/components/custom/search-field";
-import { Toast, useToast } from "@/components/custom/toast";
+import { useToast } from "@/components/custom/toast";
 import { Button } from "@/components/ui/button";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -75,7 +75,7 @@ export function FriendsScreen() {
         useCancelFriendRequest();
     const requestBusy =
         acceptFriendRequestLoading || cancelFriendRequestLoading;
-    const { toast, showToast } = useToast();
+    const { showToast } = useToast();
 
     useLayoutEffect(() => {
         navigation.setOptions({ title: "Friends" });
@@ -126,6 +126,8 @@ export function FriendsScreen() {
                                             }).then(() =>
                                                 showToast(
                                                     `Ignored ${person.username}'s friend request`,
+                                                    undefined,
+                                                    "success",
                                                 ),
                                             )
                                         }
@@ -147,6 +149,8 @@ export function FriendsScreen() {
                                             }).then(() =>
                                                 showToast(
                                                     `Accepted ${person.username}'s friend request`,
+                                                    undefined,
+                                                    "success",
                                                 ),
                                             )
                                         }
@@ -288,11 +292,14 @@ export function FriendsScreen() {
                                             );
                                             showToast(
                                                 `Unblocked ${person.username}`,
+                                                undefined,
+                                                "success",
                                             );
                                         } catch {
                                             showToast(
                                                 `Couldn't unblock ${person.username}`,
-                                                true,
+                                                undefined,
+                                                "error",
                                             );
                                         }
                                     }}
@@ -331,7 +338,6 @@ export function FriendsScreen() {
                     ) : null}
                 </Animated.ScrollView>
             </ScreenScrollMarker>
-            <Toast toast={toast} />
         </View>
     );
 }

@@ -8,9 +8,10 @@ import { ListeningEventProvider } from "@/lib/listening-events";
 import { ListeningProvider } from "@/lib/routes/listening-provider";
 import { LiveSessionRunner } from "@/features/live-session/live-session-runner";
 import { PlaybackProvider } from "@/lib/playback";
-import { TasksHost, TasksProvider } from "@/components/custom/tasks";
+import { ToastHost, ToastProvider } from "@/components/custom/toast";
 import { AppleMusicSessionGuard } from "@/features/account/apple-music-session-guard";
 import { SignOutHandler } from "@/features/onboarding/sign-out-handler";
+import { InboxToasts } from "@/features/social/inbox-toasts";
 import { LibraryCategoriesProvider } from "@/features/library/library-categories";
 import { BottomBarVisibilityProvider } from "@/lib/screen-overlay";
 import { PortalHost } from "@rn-primitives/portal";
@@ -28,7 +29,7 @@ export default function RootLayout() {
             <AccountProvider>
                 <UserSettingsProvider>
                     <AppleMusicProvider>
-                        <TasksProvider>
+                        <ToastProvider>
                             <SongInitProvider>
                                 <ListeningEventProvider>
                                     <ListeningProvider>
@@ -40,10 +41,11 @@ export default function RootLayout() {
                                                         <LibraryCategoriesProvider>
                                                             <RootStack />
                                                             <SignOutHandler />
+                                                            <InboxToasts />
                                                             <AppleMusicSessionGuard />
                                                             <InterestPlayTracker />
                                                             <InterestDecay />
-                                                            <TasksHost />
+                                                            <ToastHost />
                                                             <PortalHost />
                                                         </LibraryCategoriesProvider>
                                                     </BottomBarVisibilityProvider>
@@ -53,7 +55,7 @@ export default function RootLayout() {
                                     </ListeningProvider>
                                 </ListeningEventProvider>
                             </SongInitProvider>
-                        </TasksProvider>
+                        </ToastProvider>
                     </AppleMusicProvider>
                 </UserSettingsProvider>
             </AccountProvider>

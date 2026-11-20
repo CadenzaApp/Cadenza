@@ -72,7 +72,7 @@ GestureHandlerRootView
   AccountProvider          supabase session -> who is signed in
     UserSettingsProvider   the user's /settings, read once; the splash waits for it
       AppleMusicProvider     apple music auth, restored from secure store
-        TasksProvider        background task state
+        ToastProvider        toast and background task state
           SongInitProvider   syncs the apple music library into user_songs after auth
             PlaybackProvider     reads the native playback snapshot
               AppThemeProvider   user's mode, accent, and glass into css vars, nav theme, useAppTheme
@@ -82,7 +82,8 @@ GestureHandlerRootView
                     AppleMusicSessionGuard      opens /account when the apple music token dies
                     InterestPlayTracker         scores the artist and genres of each song played for 5 seconds
                     InterestDecay               decays the user's interest scores once per launch
-                    TasksHost                   background task status
+                    InboxToasts                 toasts a new comment on your post, from the realtime inbox
+                    ToastHost                   toasts and background task status, top right
                     PortalHost                  where dialogs and modals render
 ```
 

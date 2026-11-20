@@ -9,7 +9,7 @@ import {
     useState,
     ReactNode,
 } from "react";
-import { Alert, AppState } from "react-native";
+import { AppState } from "react-native";
 import {
     MusicItem,
     Playback,
@@ -41,6 +41,7 @@ import { createPreviewPlayer } from "./preview-player";
 import { useMusicAccess } from "./use-music-access";
 import { nextAction, previousAction } from "./transport";
 import { logHandledError } from "./log";
+import { useToast } from "@/components/custom/toast";
 
 export type PlaybackQueue = {
     tracks: MusicItem[];
@@ -264,6 +265,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     const { isInitializing, ensureConnected } = useAppleMusic();
     const fullPlayback = useMusicAccess().can("fullPlayback");
     const hideExplicit = useHideExplicit();
+    const { showToast } = useToast();
     const snapshot = Playback.usePlaybackSnapshot();
     const [queue, setQueue] = useState<MusicItem[]>([]);
     const [queueIndex, setQueueIndex] = useState(-1);
@@ -472,7 +474,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             await startQueue(nextQueue);
         } catch (e) {
             logHandledError("Failed to start playback queue", e);
-            Alert.alert("Playback Error", "Failed to start playback.");
+            showToast("Failed to start playback.", "Playback Error", "error");
             throw e;
         }
     }
@@ -497,9 +499,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             logHandledError("Failed to toggle playback", e);
             // playQueue already alerted on the new-track path.
             if (!isNewTrack) {
-                Alert.alert(
-                    "Playback Error",
+                showToast(
                     "Failed to update playback state.",
+                    "Playback Error",
+                    "error",
                 );
             }
         }
@@ -541,7 +544,11 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             if (index !== latest.index) setQueueIndex(index);
         } catch (e) {
             logHandledError("Failed to add tracks to playback queue", e);
-            Alert.alert("Playback Error", "Failed to add songs to the queue.");
+            showToast(
+                "Failed to add songs to the queue.",
+                "Playback Error",
+                "error",
+            );
             throw e;
         }
     }
@@ -571,7 +578,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             latestQueue.current = current;
             setQueue(current.items);
             setQueueIndex(current.index);
-            Alert.alert("Playback Error", `Failed to ${describe}.`);
+            showToast(`Failed to ${describe}.`, "Playback Error", "error");
             throw e;
         }
     }
