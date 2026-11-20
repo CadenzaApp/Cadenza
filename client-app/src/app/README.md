@@ -83,6 +83,7 @@ GestureHandlerRootView
                     InterestPlayTracker         scores the artist and genres of each song played for 5 seconds
                     InterestDecay               decays the user's interest scores once per launch
                     InboxToasts                 toasts a new comment on your post, from the realtime inbox
+                    PushNotifications           shows pushes in the foreground, android channel, permission once signed in
                     ToastHost                   toasts and background task status, top right
                     PortalHost                  where dialogs and modals render
 ```

@@ -40,6 +40,7 @@ module.exports = {
             },
             predictiveBackGestureEnabled: false,
             package: "com.cadenza.cs4000",
+            googleServicesFile: "./google-services.json"
         },
         web: {
             bundler: "metro",

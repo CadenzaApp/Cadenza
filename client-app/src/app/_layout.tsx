@@ -12,6 +12,7 @@ import { ToastHost, ToastProvider } from "@/components/custom/toast";
 import { AppleMusicSessionGuard } from "@/features/account/apple-music-session-guard";
 import { SignOutHandler } from "@/features/onboarding/sign-out-handler";
 import { InboxToasts } from "@/features/social/inbox-toasts";
+import { PushNotifications } from "@/lib/push-notifications";
 import { LibraryCategoriesProvider } from "@/features/library/library-categories";
 import { BottomBarVisibilityProvider } from "@/lib/screen-overlay";
 import { PortalHost } from "@rn-primitives/portal";
@@ -42,6 +43,7 @@ export default function RootLayout() {
                                                             <RootStack />
                                                             <SignOutHandler />
                                                             <InboxToasts />
+                                                            <PushNotifications />
                                                             <AppleMusicSessionGuard />
                                                             <InterestPlayTracker />
                                                             <InterestDecay />
