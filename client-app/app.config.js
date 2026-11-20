@@ -10,7 +10,7 @@
 // resolve signing.
 module.exports = {
     expo: {
-        name: "client-app",
+        name: "Cadenza",
         slug: "client-app",
         version: "1.0.0",
         orientation: "portrait",
@@ -33,9 +33,8 @@ module.exports = {
         },
         android: {
             adaptiveIcon: {
-                backgroundColor: "#E6F4FE",
+                backgroundColor: "#0a0a0a",
                 foregroundImage: "./assets/images/android-icon-foreground.png",
-                backgroundImage: "./assets/images/android-icon-background.png",
                 monochromeImage: "./assets/images/android-icon-monochrome.png",
             },
             predictiveBackGestureEnabled: false,

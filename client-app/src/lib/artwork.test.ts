@@ -24,12 +24,12 @@ test("preserves other sources and missing artwork", () => {
     assert.equal(playerArtworkUrl("invalid"), "invalid");
 });
 
-test("list thumbnails request 100 pixels while keeping the player variant separate", () => {
-    for (const size of [100, 200, 512, 1200]) {
+test("list thumbnails request 200 pixels while keeping the player variant separate", () => {
+    for (const size of [100, 175, 200, 512, 1200]) {
         const url = `https://is1-ssl.mzstatic.com/image/thumb/abc/${size}x${size}bb.webp?x=1`;
         assert.equal(
             thumbnailArtworkUrl(url),
-            "https://is1-ssl.mzstatic.com/image/thumb/abc/100x100bb.webp?x=1",
+            "https://is1-ssl.mzstatic.com/image/thumb/abc/200x200bb.webp?x=1",
         );
         assert.equal(
             playerArtworkUrl(url),

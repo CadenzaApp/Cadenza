@@ -83,6 +83,13 @@ npm run lint       # expo lint
 npx tsc --noEmit   # typecheck
 ```
 
+The launcher icons, native splash image, and web favicon use PNGs derived from
+`assets/images/cadenza-logo.svg`. The iOS icon, Android adaptive foreground and monochrome
+layers, and native splash are configured in `app.config.js`.
+The display name and launcher icons are native build settings: after changing them, run
+`npx expo prebuild` and rebuild the app to see them on a device. A Metro reload does not
+replace the native splash screen in an already installed build.
+
 The Cadenza tab icons are PNGs, since native tabs take no SVG. After changing
 `assets/images/cadenza-logo.svg` or `cadenza-logo-outline.svg`, render them again (macOS):
 

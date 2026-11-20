@@ -332,7 +332,7 @@ never revalidates on mount, focus, or reconnect; only a new Apple Music session 
 resolves what that cached library holds and sends the rest to `getSongInfo`.
 Library readers share one ID index per cached library snapshot. Old snapshots and their indexes
 can be collected after refresh. Query totals reuse complete stored duration metadata before
-asking Apple; visible rows retain independent paging. Small music-list artwork uses a 100x100
+asking Apple; visible rows retain independent paging. Small music-list artwork uses a 200x200
 Apple CDN variant while player artwork uses 1200x1200.
 
 `usePagedTracksForSongIds` does the same for a list too long to resolve at once, like a query

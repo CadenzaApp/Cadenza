@@ -5,7 +5,7 @@ export function playerArtworkUrl(url?: string | null): string | undefined {
 
 /** Bandwidth-saving variant for small artwork in music lists. */
 export function thumbnailArtworkUrl(url?: string | null): string | undefined {
-    return appleArtworkUrl(url, 100);
+    return appleArtworkUrl(url, 200);
 }
 
 function appleArtworkUrl(

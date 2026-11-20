@@ -311,9 +311,9 @@ convention as `MusicItem` otherwise.
 full bleed behind its header, and for 300x300 alongside it as
 `artworkUrlSmall`. The screen shows the small one while the big one downloads,
 so the hero is never a blank rectangle with the tint already painted around it.
-List artwork URLs request 100x100 on iOS and Android to reduce bandwidth and decoded
+List artwork URLs request 200x200 on iOS and Android to reduce bandwidth and decoded
 image memory. Player-sized variants remain 1200x1200. Music list rendering also normalizes
-cached Apple artwork URLs to 100x100; backend metadata still stores its original URL.
+cached Apple artwork URLs to 200x200; backend metadata still stores its original URL.
 
 `getSongArtists` and `getArtist` are catalog only. A library song with no
 catalog equivalent resolves to no artists at all, and `MusicItem.artistId` is
