@@ -29,7 +29,9 @@ export type DraftPostTag = {
     color: string;
 };
 
-export function draftTagsFromPost(tags: SocialPostTag[] | undefined): DraftPostTag[] {
+export function draftTagsFromPost(
+    tags: SocialPostTag[] | undefined,
+): DraftPostTag[] {
     return (tags ?? []).map((tag) => ({
         tag_id: tag.tag_id,
         text: tag.text,
@@ -71,22 +73,20 @@ export function PostTagFields({
     const [draft, setDraft] = useState("");
     const [colorIndex, setColorIndex] = useState<number | null>(null);
     const colorTag = colorIndex == null ? null : tags[colorIndex];
-    const dialogWidth = Math.min(
-        screenWidth - COLOR_DIALOG_MARGIN * 2,
-        360,
-    );
+    const dialogWidth = Math.min(screenWidth - COLOR_DIALOG_MARGIN * 2, 360);
 
     function addTag() {
         const text = normalizePostTagText(draft);
-        if (!text || text.length > POST_TAG_TEXT_MAX || tags.length >= MAX_POST_TAGS) {
+        if (
+            !text ||
+            text.length > POST_TAG_TEXT_MAX ||
+            tags.length >= MAX_POST_TAGS
+        ) {
             return;
         }
         const word = text.toLowerCase();
         if (tags.some((tag) => tag.text.toLowerCase() === word)) return;
-        onChange([
-            ...tags,
-            { text, color: randomPostTagColor() },
-        ]);
+        onChange([...tags, { text, color: randomPostTagColor() }]);
         setDraft("");
     }
 
@@ -244,7 +244,10 @@ export function PostTagRow({
 }
 
 /** The edit request for tags the author changed. Untouched tags are omitted. */
-export function postTagPatch(original: SocialPostTag[] | undefined, draft: DraftPostTag[]) {
+export function postTagPatch(
+    original: SocialPostTag[] | undefined,
+    draft: DraftPostTag[],
+) {
     const stored = original ?? [];
     const kept = new Set(
         draft.flatMap((tag) => (tag.tag_id == null ? [] : [tag.tag_id])),
