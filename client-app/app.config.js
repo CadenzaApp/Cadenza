@@ -42,7 +42,7 @@ module.exports = {
             },
             predictiveBackGestureEnabled: false,
             package: "com.cadenza.cs4000",
-            googleServicesFile: "./google-services.json"
+            googleServicesFile: "./google-services.json",
         },
         web: {
             bundler: "metro",
@@ -89,7 +89,7 @@ module.exports = {
             "expo-secure-store",
             "@react-native-community/datetimepicker",
             "./plugins/with-ios-build-fixes",
-            "expo-notifications"
+            "expo-notifications",
         ],
         experiments: {
             typedRoutes: true,

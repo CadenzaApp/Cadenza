@@ -29,7 +29,9 @@ const ListeningContext = createContext<ListeningContextValue | null>(null);
 export function ListeningProvider({ children }: { children: ReactNode }) {
     const { account } = useAccount();
     const friends = useFriendsListeningRead();
-    const { userListening: myListening } = useUserListening(account?.id ?? null);
+    const { userListening: myListening } = useUserListening(
+        account?.id ?? null,
+    );
 
     const value = useMemo<ListeningContextValue>(
         () => ({
