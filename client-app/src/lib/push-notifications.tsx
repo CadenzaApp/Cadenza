@@ -135,8 +135,6 @@ function pushIcon(type: unknown): ToastIcon {
             return "heart";
         case "friend_post":
             return "create";
-        case "live_session":
-            return "radio";
         default:
             return "notifications";
     }

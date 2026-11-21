@@ -8,7 +8,6 @@
 //! | a comment on a post   | the post's author          | `{"type": "comment", "post_id"}`            |
 //! | a like on a post      | the post's author          | `{"type": "post_like", "post_id"}`          |
 //! | a new post            | the author's friends       | `{"type": "friend_post", "post_id"}`        |
-//! | a new live session    | the host's friends         | `{"type": "live_session", "session_id"}`    |
 
 use std::time::Duration;
 
@@ -16,8 +15,7 @@ use sea_orm::{DatabaseConnection, prelude::Uuid};
 use serde_json::json;
 
 use super::push::{PushMessage, PushService};
-use crate::db::audience::{Audience, PrivacyField};
-use crate::db::{friend_relations, privacy, profile, social};
+use crate::db::{friend_relations, profile, social};
 use crate::err::CadenzaError;
 use crate::lifecycle::BackgroundTasks;
 
@@ -112,39 +110,6 @@ impl PushService {
                 title: format!("new post from {username}"),
                 body: preview(&content),
                 data: json!({ "type": "friend_post", "post_id": post_id }),
-            };
-            push.send_to_users(&db, &friends, &message).await;
-            Ok(())
-        });
-    }
-
-    /// Tells the host's friends they went live. Only call it for a session
-    /// that was just created, and not a listen along one. Friends see a live
-    /// session through the host's `now_playing` audience, so a host who set
-    /// it to `nobody` sends nothing.
-    pub fn notify_live_start(
-        &self,
-        db: DatabaseConnection,
-        work: &BackgroundTasks,
-        host: Uuid,
-        session_id: Uuid,
-        name: String,
-    ) {
-        let push = self.clone();
-        spawn_trigger(work, "live start", async move {
-            let settings = privacy::get_privacy(&db, host).await?;
-            if PrivacyField::NowPlaying.read(&settings) == Audience::Nobody {
-                return Ok(());
-            }
-            let friends = friend_relations::friend_ids(&db, host).await?;
-            if friends.is_empty() {
-                return Ok(());
-            }
-            let username = profile::username_or_unknown(&db, host).await?;
-            let message = PushMessage {
-                title: format!("{username} started a live session"),
-                body: name,
-                data: json!({ "type": "live_session", "session_id": session_id }),
             };
             push.send_to_users(&db, &friends, &message).await;
             Ok(())

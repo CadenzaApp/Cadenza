@@ -22,7 +22,7 @@ in-app notification for a user, and the definitions the listening analytics are 
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation of `TagGenerator`. Unit tested, plus ignored integration tests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `openai.rs` | The Responses API url and timeout, and `rate_limit_wait`, which reads a 429's headers for the wait. Shared by tag generation and the assistant. Unit tested. |
 | `push.rs` | `PushService`: sends an Expo push to every token a user registered (`db::push_tokens`), off the request, and deletes tokens Expo reports as `DeviceNotRegistered`. `spawn_receipt_check` reads push receipts. See Notifications. |
-| `push_triggers.rs` | One `PushService` method per event that pushes: a comment, a like, a friend's post, a friend going live. Each does its lookups and the send on a background task. See Notifications. |
+| `push_triggers.rs` | One `PushService` method per event that pushes: a comment, a like, a friend's post. Each does its lookups and the send on a background task. See Notifications. |
 | `rate_limit.rs` | `RateLimiter`, an in-memory sliding window limiter per key. The assistant uses it per user. Unit tested. |
 | `assistant/mod.rs`                       | `AssistantService` (the model plus the per-user request limit), `answer`, and `run_loop` with its `LoopState`: the in-app assistant's tool loop, which stops at a phone tool and picks up again from a `resume`. Unit tested with a scripted model. |
 | `assistant/phone_tools.rs`               | The tools only the phone runs (`now_playing`, `play`, `playback`, `queue_songs`, `set_shuffle`, `set_repeat`, `search_apple_music`, `apple_music_playlists`, `apple_music_playlist_songs`, `apple_music_library`, `favorite_song`, `favorite_collection`, `create_apple_music_playlist`, `add_to_apple_music_playlist`, `open_screen`): their schemas and labels, `songs: "card"` swapped for the card's ids, and a `card` in the phone's output taken out for the answer. The phone side is `client-app/src/features/assistant/phone-tools.ts`. Unit tested. |
@@ -372,12 +372,9 @@ have, in one batch.
 | comment | the post's author, also on their own post for now (testing) | `<username> commented on your post` | the comment | `comment`, with `post_id` |
 | like | the post's author, not for their own like | `<username> liked your post` | the post's first 100 characters | `post_like`, with `post_id` |
 | new post | every completed friend of the author | `new post from <username>` | the post's first 100 characters | `friend_post`, with `post_id` |
-| new live session | every completed friend of the host, when the host's `now_playing` is not `nobody` | `<username> started a live session` | the session name | `live_session`, with `session_id` |
 
 A like pushes only when the like row is new, and `first_in` keeps a like,
-unlike, like inside an hour from pushing twice. A live push needs a session
-that was just created (`db::live_sessions::start_or_reuse_session`), and not a
-listen along one, so reopening an open session sends nothing.
+unlike, like inside an hour from pushing twice.
 
 A send ticket that says `DeviceNotRegistered` deletes its token at once. Every
 other token's receipt waits in memory, and `spawn_receipt_check` reads receipts
