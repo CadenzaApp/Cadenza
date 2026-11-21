@@ -377,7 +377,7 @@ function PostSummary({
     const { unlikePost } = useUnlikePost();
     const updateCachedPostLike = useUpdateCachedPostLike();
     const spotlight = post.author == null;
-    const topic = useResolvedTopic(
+    const { topic, topicLoading, topicError, retryTopic } = useResolvedTopic(
         showTopic || spotlight ? post.topic_mk_id : null,
         showTopic || spotlight ? topicHint : null,
     );
@@ -419,7 +419,11 @@ function PostSummary({
         return (
             <View className="mt-8">
                 <SpotlightPost
+                    postId={post.post_id}
                     topic={topic}
+                    topicLoading={topicLoading}
+                    topicError={topicError}
+                    onRetryTopic={retryTopic}
                     cardId={String(post.post_id)}
                     liked={liked}
                     likes={likes}

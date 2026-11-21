@@ -66,6 +66,8 @@ module.exports = {
                     ios: {
                         deploymentTarget: "16.4",
                         usePrecompiledModules: false,
+                        // Compile the WebSocket lifecycle fix in our React Native patch.
+                        buildReactNativeFromSource: true,
                     },
                 },
             ],

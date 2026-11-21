@@ -98,6 +98,12 @@ swift scripts/render-svg-png.swift assets/images/cadenza-logo-outline.svg assets
 ## Gotchas
 
 - Use Node 26 (`nvm use` reads `.nvmrc`). SDK 58 / React Native 0.88 do not support Node 25.
+- `patches/react-native+0.88.1.patch` detaches completed iOS WebSocket delegates
+  and keeps closing sockets tracked until completion. This prevents late events
+  after listener cleanup or a reload. `ios.buildReactNativeFromSource` is enabled
+  so the patch reaches the binary; the first build takes longer than a prebuilt
+  React Native build. Run `npx expo prebuild --platform ios`, then rebuild iOS
+  after installing the patch.
 - Expo SDK 58 uses `expo-glass-effect` 58.0.5+, including fixes for missing glass after
   opacity transitions and view recycling. Native dependency updates require a full dev-client
   rebuild. The upstream JSI package includes our former cache and Swift-interface fixes.

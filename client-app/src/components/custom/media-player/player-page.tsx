@@ -43,6 +43,7 @@ import { useOpenScreen } from "@/lib/open-screen";
 import { SHEET_DETENT, useAppTheme } from "@/lib/theme";
 import { usePlayerTabs } from "./player-tabs";
 import { isUsableArtworkUrl } from "@/lib/utils";
+import { usePlayerScope } from "./player-scope";
 
 import {
     MediaPlayerProgress,
@@ -82,6 +83,16 @@ type PlayerView = "artwork" | "queue";
  * stay on screen either way, which is the whole point of the layout.
  */
 export function PlayerPage() {
+    const { requestedTrack } = usePlayerScope();
+    const playback = usePlayback();
+    const [browsedTrack, setBrowsedTrack] = useState(requestedTrack);
+    if (
+        browsedTrack &&
+        (playback.activeTrack?.catalogId ?? playback.activeTrack?.id) ===
+            (browsedTrack.catalogId ?? browsedTrack.id)
+    ) {
+        setBrowsedTrack(undefined);
+    }
     const {
         activeTrack,
         isPlaying,
@@ -105,7 +116,18 @@ export function PlayerPage() {
         controlsLocked,
         duration,
         isPreview,
-    } = usePlayback();
+    } = browsedTrack
+        ? {
+              ...playback,
+              activeTrack: browsedTrack,
+              isPlaying: false,
+              isLoading: false,
+              progress: 0,
+              duration: browsedTrack.songDuration ?? 0,
+              canSkipToNext: false,
+              canSkipToPrevious: false,
+          }
+        : playback;
     const live = useShownLiveSession();
     const { colors } = useTheme();
     const { brand } = useAppTheme().colors;
@@ -240,7 +262,7 @@ export function PlayerPage() {
         // player applies the seek, then resume interpolating from ground truth.
         setScrubPosition(time);
         try {
-            await seekTo(time);
+            if (!browsedTrack) await seekTo(time);
         } finally {
             setScrubPosition(null);
         }
@@ -491,10 +513,13 @@ export function PlayerPage() {
                 onTogglePlayback={() => void togglePlayback(track)}
                 onSkipToNext={() => void skipToNext()}
                 onSkipToPrevious={() => void skipToPrevious()}
-                onToggleQueue={() =>
-                    setView((current) =>
-                        current === "queue" ? "artwork" : "queue",
-                    )
+                onToggleQueue={
+                    browsedTrack
+                        ? undefined
+                        : () =>
+                              setView((current) =>
+                                  current === "queue" ? "artwork" : "queue",
+                              )
                 }
             />
 

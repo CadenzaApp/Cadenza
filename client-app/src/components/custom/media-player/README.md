@@ -153,6 +153,10 @@ The artist name opens the artist; artwork opens View artwork and Go to album act
 viewer supports close/native back. Opening an artist or album closes this sheet and pushes the page
 in the tab underneath, through `useOpenScreen`'s `closing: "player"`. The song menu shares these caches.
 
+Spotlight links pass a song to the sheet for immediate browsing without autoplay.
+Its Play button starts that song; seek, skip, and queue controls do not affect
+another song playing underneath. Once the selected song starts, the sheet follows playback.
+
 Queue positions are converted in exactly one place. `queue-view.tsx` works in upcoming-list
 positions, because the playing song is its heading rather than a row; `usePlayback()` works in
 whole-queue positions, because that is what native takes. `queuePositionOf` in `player-page.tsx`

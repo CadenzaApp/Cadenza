@@ -56,6 +56,7 @@ import { useAppTheme } from "@/lib/theme";
 import { COMPOSER_LAYOUT, InlinePostComposer } from "./InlinePostComposer";
 import { ListeningNowStrip } from "./ListeningNow";
 import { PostCard } from "./PostCard";
+import { useHiddenSpotlights } from "@/lib/routes/social";
 import { SocialOverflowMenu } from "./SocialOverflowMenu";
 import { topicCreateFields, topicMkId } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
@@ -97,6 +98,16 @@ export function SocialFeedScreen() {
         feedErr,
     } = useFeed();
     const [filter, setFilter] = useState<FeedFilter>("for-you");
+    const { hiddenSpotlightIds } = useHiddenSpotlights();
+    const [unavailableSpotlights, setUnavailableSpotlights] = useState<
+        Set<number>
+    >(() => new Set());
+    const hideUnavailableSpotlight = useCallback((postId: number) => {
+        setUnavailableSpotlights((current) => {
+            if (current.has(postId)) return current;
+            return new Set([...current, postId]);
+        });
+    }, []);
     const tabProgress = useSharedValue(0);
     useEffect(() => {
         tabProgress.set(
@@ -227,7 +238,7 @@ export function SocialFeedScreen() {
             if (hiddenIds.has(post.post_id)) continue;
             rows.push({ kind: "post", post, history: true });
         }
-        return withoutLinesAroundSpotlights(rows);
+        return rows;
     }, [created, hiddenIds, posts, showingSeen, unseenCount]);
 
     useLayoutEffect(() => {
@@ -359,6 +370,7 @@ export function SocialFeedScreen() {
     const reload = useCallback(async () => {
         setRefreshing(true);
         setCreated([]);
+        setUnavailableSpotlights(new Set());
         try {
             // the cards and the listening row above the posts refresh with them
             await Promise.all([
@@ -481,12 +493,14 @@ export function SocialFeedScreen() {
                     topicHint={localTopics[item.post.post_id]}
                     onDeleted={handleDeleted}
                     onDeleteFailed={handleDeleteFailed}
+                    onUnavailable={hideUnavailableSpotlight}
                     onEdited={handleEdited}
                 />
             );
         },
         [
             handleDeleteFailed,
+            hideUnavailableSpotlight,
             handleDeleted,
             handleEdited,
             listeningByUser,
@@ -502,7 +516,24 @@ export function SocialFeedScreen() {
                 .map((post) => ({ kind: "post", post })),
         [friendsFeed.friendsPosts, hiddenIds],
     );
-    const rows = showingFriends ? friendRows : feed;
+    const rows = useMemo(
+        () =>
+            withoutLinesAroundSpotlights(
+                (showingFriends ? friendRows : feed).filter(
+                    (row) =>
+                        row.kind !== "post" ||
+                        (!unavailableSpotlights.has(row.post.post_id) &&
+                            !hiddenSpotlightIds.has(row.post.post_id)),
+                ),
+            ),
+        [
+            showingFriends,
+            friendRows,
+            feed,
+            unavailableSpotlights,
+            hiddenSpotlightIds,
+        ],
+    );
     feedPostIdsRef.current = rows.flatMap((row) =>
         row.kind === "post" && !row.history ? [row.post.post_id] : [],
     );
@@ -572,7 +603,7 @@ export function SocialFeedScreen() {
                     onViewableItemsChanged={onViewableItemsChanged}
                     viewabilityConfig={VIEWABILITY_CONFIG}
                     ItemSeparatorComponent={PostSeparator}
-                    // the posts slide as the composer above them opens
+                    // Rows slide when a spotlight is removed or the composer opens.
                     itemLayoutAnimation={COMPOSER_LAYOUT}
                     ListHeaderComponent={
                         <View className="mb-3">
@@ -646,18 +677,6 @@ type FeedRow =
           divider?: boolean;
       }
     | { kind: "history-heading" };
-
-/**
- * Turns off the line under a post that sits just above a spotlight, so no
- * divider touches a spotlight on either side. A spotlight draws none of its own.
- */
-function withoutLinesAroundSpotlights(rows: FeedRow[]): FeedRow[] {
-    return rows.map((row, index) => {
-        const next = rows[index + 1];
-        if (row.kind !== "post" || next?.kind !== "post") return row;
-        return next.post.author == null ? { ...row, divider: false } : row;
-    });
-}
 
 function PreviouslyViewedHeading() {
     return (
@@ -754,4 +773,16 @@ function FeedTab({
             </Text>
         </Pressable>
     );
+}
+
+function withoutLinesAroundSpotlights(rows: FeedRow[]): FeedRow[] {
+    return rows.map((row, index) => {
+        const next = rows[index + 1];
+        return row.kind === "post"
+            ? {
+                  ...row,
+                  divider: next?.kind !== "post" || next.post.author != null,
+              }
+            : row;
+    });
 }

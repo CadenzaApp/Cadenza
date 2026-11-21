@@ -35,6 +35,7 @@ import {
     uniqueBy,
 } from "./paged-tracks";
 import { logHandledError } from "./log";
+import { resolveMusicTopic } from "./spotlight-data";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
 /**
@@ -1758,6 +1759,36 @@ export function useSongArtists(songId?: string) {
         artistIds: x.data,
         artistIdsLoading: x.isLoading || isInitializing,
         artistIdsErr: x.error,
+    };
+}
+
+/** Resolves an untyped post topic with a bounded read and explicit error state. */
+export function useMusicTopic(id?: string, enabled = true) {
+    const { canReadCatalog, isInitializing, sessionRevision } = useAppleMusic();
+    const result = useSWR(
+        enabled && id && canReadCatalog
+            ? (["MusicKit.resolveTopic", sessionRevision, id] as const)
+            : null,
+        ([, , topicId]) =>
+            resolveMusicTopic(
+                topicId,
+                (ids) => read(() => MusicKit.getSongInfo(ids)),
+                (artistId) => read(() => MusicKit.getArtist(artistId)),
+            ),
+        {
+            errorRetryCount: 0,
+            onError: (error) =>
+                logHandledError(`MusicKit.resolveTopic ${id}`, error),
+        },
+    );
+    return {
+        resolvedTopic: result.data,
+        topicLoading:
+            enabled && Boolean(id) && (result.isLoading || isInitializing),
+        topicError: result.error,
+        retryTopic: () => {
+            void result.mutate();
+        },
     };
 }
 

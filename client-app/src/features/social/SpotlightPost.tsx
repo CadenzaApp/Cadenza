@@ -4,10 +4,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useState, type ReactNode } from "react";
 import {
     ActivityIndicator,
+    Alert,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
     View,
+    useWindowDimensions,
+    type GestureResponderEvent,
 } from "react-native";
 import Animated, {
     Easing,
@@ -16,8 +20,20 @@ import Animated, {
     withDelay,
     withRepeat,
     withTiming,
+    withSpring,
+    runOnJS,
 } from "react-native-reanimated";
+import {
+    GestureDetector,
+    useNativeGesture,
+    usePanGesture,
+} from "react-native-gesture-handler";
 
+import { ErrorNotice } from "@/components/custom/error-notice";
+import { GlassPanel } from "@/components/ui/glass-panel";
+import { isUsableArtworkUrl } from "@/lib/utils";
+import { logHandledError } from "@/lib/log";
+import { useHiddenSpotlights } from "@/lib/routes/social";
 import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import { useOpenScreen } from "@/lib/open-screen";
@@ -26,6 +42,8 @@ import { useAppTheme } from "@/lib/theme";
 import type { PostTopic, SocialPostTag } from "@/lib/types";
 import { PostTagRow } from "./PostTags";
 import { topicSubtitle, topicTitle } from "./topic";
+import { SpotlightOptionsMenu } from "./PostOptionsMenu";
+import * as Haptics from "expo-haptics";
 
 /** Apple cover urls end in a size like `200x200bb`. The hero wants the large one. */
 function heroArtworkUrl(topic: PostTopic | null): string | undefined {
@@ -36,6 +54,9 @@ function heroArtworkUrl(topic: PostTopic | null): string | undefined {
     return url.replace(/\/\d+x\d+bb(?=\.)/, "/1200x1200bb");
 }
 
+const IOS_SPOTLIGHT = Platform.OS === "ios";
+const SpotlightContainer = IOS_SPOTLIGHT ? GlassPanel : View;
+const UNAVAILABLE_TOPIC = { error_type: "NotFound" };
 const ART_SONG = 220;
 const ART_ARTIST = 260;
 const VIZ_HEIGHT = 90;
@@ -62,7 +83,11 @@ const BARS = [
 ] as const;
 
 type Props = {
+    postId: number;
     topic: PostTopic | null;
+    topicLoading: boolean;
+    topicError?: unknown;
+    onRetryTopic: () => void;
     /** Distinguishes this card from others playing the same song. */
     cardId: string;
     liked: boolean;
@@ -81,14 +106,18 @@ type Props = {
  * on the bar underneath. The cover keeps that height while its image loads.
  * While a preview plays, the cover shows pause, a
  * progress bar, and a visualizer. An artist has Apple's short note when the
- * catalog has one. The artwork fills the whole card, like bar included, under
- * a shade that darkens toward the bottom, and fades out at the border.
+ * catalog has one. iOS puts the artwork inside a liquid glass panel. Android
+ * fills the card with artwork under a shade and fades it out at the border.
  * The post's tags sit along the bottom of the cover, under the name, in a row
  * that scrolls sideways and fades out at both ends. Tapping a tag does
  * nothing. The visualizer sits above them.
  */
 export function SpotlightPost({
+    postId,
     topic,
+    topicLoading,
+    topicError,
+    onRetryTopic,
     cardId,
     liked,
     likes,
@@ -97,8 +126,11 @@ export function SpotlightPost({
     onToggleLike,
     onOpenComments,
 }: Props) {
-    const { like } = useAppTheme().colors;
+    const { like, foreground, mutedForeground } = useAppTheme().colors;
+    const ink = IOS_SPOTLIGHT ? foreground : "#ffffff";
+    const idle = IOS_SPOTLIGHT ? mutedForeground : IDLE;
     const openScreen = useOpenScreen();
+    const { hiddenSpotlightIds, hideSpotlight } = useHiddenSpotlights();
     const isSong = topic?.kind === "song";
     const isArtist = topic?.kind === "artist";
     const preview = useTopicPreview();
@@ -116,19 +148,51 @@ export function SpotlightPost({
     const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
     const [failedUrl, setFailedUrl] = useState<string | null>(null);
     const [tagsHeight, setTagsHeight] = useState(0);
+    const [menuOpen, setMenuOpen] = useState(false);
     const hasTags = Boolean(tags && tags.length > 0);
-    const heroPaddingBottom = isArtist ? 10 : 14;
+    const tagScrollGesture = useNativeGesture();
+    const heroPaddingBottom = isSong ? 7 : 4;
     // the name and bio sit above the tags row, which is laid over the cover
     const textPaddingBottom = hasTags
         ? heroPaddingBottom + tagsHeight + 8
         : heroPaddingBottom;
     const artworkReady = Boolean(artworkUrl) && loadedUrl === artworkUrl;
-    const artworkFailed = Boolean(artworkUrl) && failedUrl === artworkUrl;
-    // No url yet means the topic is still resolving. A url keeps the same
-    // frame and only swaps the spinner for the bitmap.
-    const artworkLoading = artworkUrl
-        ? !artworkReady && !artworkFailed
-        : !topic;
+    const usableArtwork = isUsableArtworkUrl(artworkUrl);
+    const artworkFailed =
+        Boolean(artworkUrl) && (!usableArtwork || failedUrl === artworkUrl);
+    const artworkLoading =
+        topicLoading || (usableArtwork && !artworkReady && !artworkFailed);
+    useEffect(() => {
+        if (!artworkUrl || !usableArtwork || artworkReady || artworkFailed)
+            return;
+        const timer = setTimeout(() => {
+            setFailedUrl(artworkUrl);
+            logHandledError(
+                "spotlight artwork",
+                new Error("Artwork loading timed out."),
+            );
+        }, 15_000);
+        return () => clearTimeout(timer);
+    }, [artworkUrl, usableArtwork, artworkReady, artworkFailed]);
+
+    function openOptionsWithHaptic() {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+            () => {},
+        );
+        setMenuOpen(true);
+    }
+    const openSongMenu = isSong
+        ? (event: GestureResponderEvent) => {
+              event.stopPropagation();
+              setMenuOpen(true);
+          }
+        : undefined;
+    const holdSongMenu = isSong
+        ? (event: GestureResponderEvent) => {
+              event.stopPropagation();
+              openOptionsWithHaptic();
+          }
+        : undefined;
 
     function onPlay() {
         if (topic?.kind !== "song") return;
@@ -137,6 +201,16 @@ export function SpotlightPost({
             topic.catalogId ?? topic.id,
             topic.previewUrl,
         );
+    }
+
+    async function onHide() {
+        try {
+            await hideSpotlight(postId);
+        } catch (error) {
+            logHandledError("Swipe to hide spotlight", error);
+            Alert.alert("Couldn't hide post", "Please try again.");
+            throw error;
+        }
     }
 
     function onArtPress() {
@@ -159,44 +233,78 @@ export function SpotlightPost({
           ? "MUSIC SPOTLIGHT"
           : "SPOTLIGHT";
 
+    const artwork = (
+        <RemoteArtwork
+            url={artworkFailed ? undefined : artworkUrl}
+            className={
+                IOS_SPOTLIGHT
+                    ? "absolute top-11 h-36 w-36 self-center rounded-2xl"
+                    : "absolute inset-0 h-full w-full"
+            }
+            style={{
+                backgroundColor: topic?.artworkColor ?? "#111111",
+                opacity: artworkLoading ? 0 : 1,
+            }}
+            onLoad={() => {
+                if (artworkUrl) setLoadedUrl(artworkUrl);
+            }}
+            onError={() => {
+                if (artworkUrl) setFailedUrl(artworkUrl);
+            }}
+            fallback={
+                artworkFailed || (topic && !artworkUrl) ? (
+                    <Ionicons
+                        name={isArtist ? "person" : "musical-notes"}
+                        size={36}
+                        color="rgba(255,255,255,0.7)"
+                    />
+                ) : null
+            }
+        />
+    );
+
+    if (hiddenSpotlightIds.has(postId)) return null;
+
     return (
-        <View className="overflow-hidden rounded-3xl">
-            <SoftEdges>
-                <RemoteArtwork
-                    url={artworkUrl}
-                    className="absolute inset-0 h-full w-full"
-                    style={{
-                        backgroundColor: topic?.artworkColor ?? "#111111",
-                        opacity: artworkLoading ? 0 : 1,
-                    }}
-                    onLoad={() => {
-                        if (artworkUrl) setLoadedUrl(artworkUrl);
-                    }}
-                    onError={() => {
-                        if (artworkUrl) setFailedUrl(artworkUrl);
-                    }}
-                    fallback={
-                        artworkFailed || (topic && !artworkUrl) ? (
-                            <Ionicons
-                                name={isArtist ? "person" : "musical-notes"}
-                                size={36}
-                                color="rgba(255,255,255,0.7)"
-                            />
-                        ) : null
-                    }
-                />
-                <HeroShade artist={isArtist} />
-            </SoftEdges>
+        <SpotlightFrame
+            onDismiss={onHide}
+            tagGesture={hasTags ? tagScrollGesture : undefined}
+        >
+            {!IOS_SPOTLIGHT ? (
+                <SoftEdges>
+                    {artwork}
+                    <HeroShade artist={isArtist} />
+                </SoftEdges>
+            ) : null}
             <View
                 className="relative"
-                style={{ height: isArtist ? ART_ARTIST : ART_SONG }}
+                style={{
+                    height: IOS_SPOTLIGHT
+                        ? isArtist
+                            ? bio
+                                ? 330
+                                : 280
+                            : 300
+                        : isArtist
+                          ? ART_ARTIST
+                          : ART_SONG,
+                }}
             >
+                {IOS_SPOTLIGHT && topic ? artwork : null}
+                {!topic && !topicLoading ? (
+                    <View className="absolute inset-0 z-10 justify-center">
+                        <ErrorNotice
+                            error={topicError ?? UNAVAILABLE_TOPIC}
+                            onRetry={onRetryTopic}
+                        />
+                    </View>
+                ) : null}
                 {artworkLoading ? (
                     <View
                         pointerEvents="none"
                         className="absolute inset-0 z-10 items-center justify-center"
                     >
-                        <ActivityIndicator color="#ffffff" />
+                        <ActivityIndicator color={ink} />
                     </View>
                 ) : null}
                 {topic ? (
@@ -210,6 +318,8 @@ export function SpotlightPost({
                                 : `View ${title}`
                         }
                         onPress={onArtPress}
+                        onLongPress={openOptionsWithHaptic}
+                        accessibilityHint="Hold for spotlight options"
                         style={StyleSheet.absoluteFill}
                         className="z-10"
                     >
@@ -219,23 +329,40 @@ export function SpotlightPost({
                         >
                             <View
                                 className="px-4"
-                                style={{ paddingRight: playing ? 160 : 16 }}
+                                style={{
+                                    paddingRight: playing ? 160 : 16,
+                                }}
                             >
                                 {title ? (
                                     <Text
+                                        onPress={openSongMenu}
+                                        onLongPress={holdSongMenu}
+                                        accessibilityRole={
+                                            isSong ? "button" : undefined
+                                        }
                                         className="text-[22px] font-semibold text-white"
                                         numberOfLines={1}
-                                        style={{ letterSpacing: -0.4 }}
+                                        style={{
+                                            letterSpacing: -0.4,
+                                            color: ink,
+                                        }}
                                     >
                                         {title}
                                     </Text>
                                 ) : null}
                                 {subtitle ? (
                                     <Text
+                                        onPress={openSongMenu}
+                                        onLongPress={holdSongMenu}
+                                        accessibilityRole={
+                                            isSong ? "button" : undefined
+                                        }
                                         className="text-[13px]"
                                         numberOfLines={1}
                                         style={{
-                                            color: "rgba(255,255,255,0.78)",
+                                            color: IOS_SPOTLIGHT
+                                                ? mutedForeground
+                                                : "rgba(255,255,255,0.78)",
                                             marginTop: 1,
                                         }}
                                     >
@@ -247,7 +374,9 @@ export function SpotlightPost({
                                         className="text-[13px]"
                                         numberOfLines={3}
                                         style={{
-                                            color: "rgba(255,255,255,0.82)",
+                                            color: IOS_SPOTLIGHT
+                                                ? mutedForeground
+                                                : "rgba(255,255,255,0.82)",
                                             marginTop: 8,
                                             lineHeight: 18,
                                         }}
@@ -263,17 +392,21 @@ export function SpotlightPost({
                                 className="absolute right-4 top-3 z-20"
                             >
                                 {loading ? (
-                                    <Ionicons
-                                        name="ellipsis-horizontal"
-                                        size={28}
-                                        color="#ffffff"
-                                    />
+                                    <View className="h-7 w-7 items-center justify-center">
+                                        <ActivityIndicator
+                                            size="small"
+                                            color={ink}
+                                            accessibilityLabel="Loading playback"
+                                        />
+                                    </View>
                                 ) : (
                                     <Ionicons
                                         name={playing ? "pause" : "play"}
                                         size={28}
-                                        color="#ffffff"
-                                        style={{ marginLeft: playing ? 0 : 2 }}
+                                        color={ink}
+                                        style={{
+                                            marginLeft: playing ? 0 : 2,
+                                        }}
                                     />
                                 )}
                             </View>
@@ -297,20 +430,27 @@ export function SpotlightPost({
                         }
                         maskElement={<SideFadeMask />}
                     >
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={{ paddingHorizontal: 16 }}
-                            style={{ flexGrow: 0 }}
-                        >
-                            <PostTagRow tags={tags} compact />
-                        </ScrollView>
+                        <GestureDetector gesture={tagScrollGesture}>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={{
+                                    paddingHorizontal: 16,
+                                }}
+                                style={{ flexGrow: 0 }}
+                            >
+                                <PostTagRow tags={tags} compact />
+                            </ScrollView>
+                        </GestureDetector>
                     </MaskedView>
                 ) : null}
                 <Text
-                    pointerEvents="none"
+                    pointerEvents={isSong ? "auto" : "none"}
+                    onPress={openSongMenu}
+                    onLongPress={holdSongMenu}
+                    accessibilityRole={isSong ? "button" : undefined}
                     className="absolute left-4 top-3.5 z-20 text-[11px] font-semibold text-white"
-                    style={{ letterSpacing: 0.7 }}
+                    style={{ letterSpacing: 0.7, color: ink }}
                 >
                     {label}
                 </Text>
@@ -331,7 +471,7 @@ export function SpotlightPost({
             <Pressable
                 onPress={onOpenComments}
                 disabled={!onOpenComments}
-                className="flex-row items-center gap-4 px-4 pb-4 pt-[14px]"
+                className="flex-row items-center gap-4 px-4 pb-4 pt-1"
             >
                 <Pressable
                     accessibilityRole="button"
@@ -351,7 +491,7 @@ export function SpotlightPost({
                     />
                     <Text
                         className="text-sm"
-                        style={{ color: liked ? like : IDLE }}
+                        style={{ color: liked ? like : idle }}
                     >
                         {likes}
                     </Text>
@@ -370,14 +510,21 @@ export function SpotlightPost({
                     <Ionicons
                         name="chatbubble-outline"
                         size={18}
-                        color={IDLE}
+                        color={idle}
                     />
-                    <Text className="text-sm" style={{ color: IDLE }}>
+                    <Text className="text-sm" style={{ color: idle }}>
                         {commentCount}
                     </Text>
                 </Pressable>
             </Pressable>
-        </View>
+            {menuOpen && topic ? (
+                <SpotlightOptionsMenu
+                    topic={topic}
+                    postId={postId}
+                    onClose={() => setMenuOpen(false)}
+                />
+            ) : null}
+        </SpotlightFrame>
     );
 }
 
@@ -545,5 +692,100 @@ function ProgressBar({ ratio }: { ratio: number }) {
                 style={{ width: `${Math.max(0, Math.min(1, ratio)) * 100}%` }}
             />
         </View>
+    );
+}
+
+/** Slides out first, then collapses its space before persisting the dismissal. */
+function SpotlightFrame({
+    children,
+    onDismiss,
+    tagGesture,
+}: {
+    children: ReactNode;
+    onDismiss: () => Promise<void>;
+    tagGesture?: ReturnType<typeof useNativeGesture>;
+}) {
+    const { width: screenWidth } = useWindowDimensions();
+    const x = useSharedValue(0);
+    const width = useSharedValue(0);
+    const height = useSharedValue(0);
+    const collapsingHeight = useSharedValue(-1);
+    const dismissing = useSharedValue(false);
+    async function commitDismissal() {
+        try {
+            await onDismiss();
+        } catch {
+            // The caller reports the storage error. Restore the card for retry.
+            x.set(withSpring(0));
+            collapsingHeight.set(
+                withTiming(height.get(), { duration: 180 }, () => {
+                    collapsingHeight.set(-1);
+                    dismissing.set(false);
+                }),
+            );
+        }
+    }
+    const pan = usePanGesture({
+        activeOffsetX: [-18, 18],
+        failOffsetY: [-12, 12],
+        requireToFail: tagGesture,
+        onUpdate: (event) => {
+            "worklet";
+            if (!dismissing.get()) x.set(event.translationX);
+        },
+        onDeactivate: (event) => {
+            "worklet";
+            if (dismissing.get()) return;
+            const direction =
+                !event.canceled &&
+                width.get() > 0 &&
+                Math.abs(event.translationX) >= Math.max(64, width.get() * 0.3)
+                    ? Math.sign(event.translationX)
+                    : 0;
+            if (!direction) {
+                x.set(withSpring(0, { damping: 22, stiffness: 250 }));
+                return;
+            }
+            dismissing.set(true);
+            x.set(
+                withTiming(
+                    direction * screenWidth,
+                    { duration: 180 },
+                    (finished) => {
+                        if (!finished) return;
+                        collapsingHeight.set(height.get());
+                        collapsingHeight.set(
+                            withTiming(0, { duration: 200 }, (collapsed) => {
+                                if (collapsed) runOnJS(commitDismissal)();
+                            }),
+                        );
+                    },
+                ),
+            );
+        },
+    });
+    const slideStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: x.get() }],
+    }));
+    const collapseStyle = useAnimatedStyle(() => ({
+        height: collapsingHeight.get() < 0 ? undefined : collapsingHeight.get(),
+        overflow: collapsingHeight.get() < 0 ? "visible" : "hidden",
+    }));
+    return (
+        <Animated.View style={collapseStyle}>
+            <GestureDetector gesture={pan}>
+                <Animated.View
+                    style={slideStyle}
+                    onLayout={(event) => {
+                        width.set(event.nativeEvent.layout.width);
+                        height.set(event.nativeEvent.layout.height);
+                    }}
+                >
+                    <SpotlightContainer className="overflow-hidden rounded-3xl">
+                        {children}
+                    </SpotlightContainer>
+                </Animated.View>
+            </GestureDetector>
+        </Animated.View>
     );
 }

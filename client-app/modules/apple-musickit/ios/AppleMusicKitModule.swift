@@ -14,6 +14,9 @@ internal final class MusicKitException: Exception, @unchecked Sendable {
     private let bridgeReason: String
 
     override var reason: String { bridgeReason }
+    // The name is already an ERR_* code. Expo's default conversion expects a
+    // class name and would turn it into an unrecognizable ERR_E_RR_* value.
+    override var code: String { name }
 
     init(
         name: String,
@@ -675,10 +678,16 @@ public class AppleMusicKitModule: Module {
                 guard let id = item["id"] as? String, !id.isEmpty else { continue }
                 switch item["type"] as? String {
                 case "songs":
-                    let name = self.resourceName(item) ?? await self.catalogResourceName(kind: "songs", id: id)
+                    var name = self.resourceName(item)
+                    if name == nil {
+                        name = await self.catalogResourceName(kind: "songs", id: id)
+                    }
                     self.appendRecommendation(&out, seen: &seen, type: "song", id: id, name: name)
                 case "artists":
-                    let name = self.resourceName(item) ?? await self.catalogResourceName(kind: "artists", id: id)
+                    var name = self.resourceName(item)
+                    if name == nil {
+                        name = await self.catalogResourceName(kind: "artists", id: id)
+                    }
                     self.appendRecommendation(&out, seen: &seen, type: "artist", id: id, name: name)
                 case "albums", "playlists":
                     if fetches >= 12 { continue }

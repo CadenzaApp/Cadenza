@@ -57,6 +57,8 @@ type Props = {
     onDeleted?: (postId: number) => void;
     /** The delete request failed. The caller can show the post again. */
     onDeleteFailed?: (postId: number) => void;
+    /** Removes a spotlight whose catalog topic cannot be resolved. */
+    onUnavailable?: (postId: number) => void;
     /**
      * The text changed on a copy the cache does not own, such as one just
      * written. `editedAt` is null when an edit is reverted.
@@ -92,6 +94,7 @@ function PostCardBase({
     onAuthorPress,
     onDeleted,
     onDeleteFailed,
+    onUnavailable,
     onEdited,
     authorListening,
     unseen = false,
@@ -110,7 +113,13 @@ function PostCardBase({
     const isOwnPost = account?.id != null && account.id === author?.user_id;
     // Resolved even when the card hides the topic, so an edit can send the
     // same title and artist the create request uses for the embedding.
-    const topic = useResolvedTopic(post.topic_mk_id, topicHint);
+    const { topic, topicLoading, topicError, retryTopic } = useResolvedTopic(
+        post.topic_mk_id,
+        topicHint,
+    );
+    useEffect(() => {
+        if (spotlight && !topic && !topicLoading) onUnavailable?.(post.post_id);
+    }, [spotlight, topic, topicLoading, onUnavailable, post.post_id]);
     const [liked, setLiked] = useState(post.liked);
     const likedRef = useRef(liked);
     const [commentsOpen, setCommentsOpen] = useState(false);
@@ -298,6 +307,10 @@ function PostCardBase({
         else router.push(`/social/user/${id}`);
     }
 
+    // A spotlight with no resolved topic has nothing to show. Keep ordinary
+    // posts visible even if their optional song or artist cannot be read.
+    if (spotlight && !topic && !topicLoading) return null;
+
     const authorName = author?.username ?? "";
     const authorSubtitle = `${formatRelativeTime(post.created_at)}${
         topic
@@ -343,7 +356,11 @@ function PostCardBase({
         <>
             {spotlight ? (
                 <SpotlightPost
+                    postId={post.post_id}
                     topic={topic}
+                    topicLoading={topicLoading}
+                    topicError={topicError}
+                    onRetryTopic={retryTopic}
                     cardId={String(post.post_id)}
                     liked={liked}
                     likes={likes}
@@ -534,7 +551,7 @@ function PostAuthorAvatar({
                     if (listening) setOpen(true);
                     else onProfilePress();
                 }}
-                className="h-10 w-10 overflow-visible rounded-full"
+                className="h-10 w-10 overflow-visible rounded-full bg-muted"
                 style={{
                     shadowColor: "#000",
                     shadowOpacity: 0.22,

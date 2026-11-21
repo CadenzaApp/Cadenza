@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MusicKit, type MusicRecommendation } from "@apple-musickit";
-import { useSWRConfig } from "swr";
+import useSWR, { useSWRConfig } from "swr";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createHiddenSpotlightStore } from "../spotlight-data";
 import useSWRInfinite from "swr/infinite";
 
 import { useAccount } from "../account";
@@ -1702,4 +1704,26 @@ export function useUpdateCachedPostCommentCount() {
         },
         [cache, mutate],
     );
+}
+
+const EMPTY: number[] = [];
+const store = createHiddenSpotlightStore(AsyncStorage);
+
+/** Spotlight dismissals are private, persisted on this device per account. */
+export function useHiddenSpotlights() {
+    const { account } = useAccount();
+    const key = account ? `cadenza.hidden-spotlights:${account.id}` : null;
+    const { data = EMPTY, mutate } = useSWR<number[]>(key, store.read);
+    return {
+        hiddenSpotlightIds: useMemo(() => new Set(data), [data]),
+        hideSpotlight: async (postId: number) => {
+            if (!key) return;
+            const add = (ids = EMPTY) => [...new Set([...ids, postId])];
+            await mutate(() => store.hide(key, postId), {
+                optimisticData: add,
+                rollbackOnError: true,
+                revalidate: false,
+            });
+        },
+    };
 }
