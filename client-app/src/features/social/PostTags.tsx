@@ -1,11 +1,18 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
-import { Pressable, TextInput, useWindowDimensions, View } from "react-native";
+import {
+    Pressable,
+    StyleSheet,
+    TextInput,
+    useWindowDimensions,
+    View,
+} from "react-native";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { TagColorPicker } from "@/components/custom/tag-color-picker";
 import { DialogCloseButton } from "@/components/ui/dialog-close-button";
 import { Text } from "@/components/ui/text";
+import { withAlpha } from "@/lib/artwork-color";
 import { TAG_COLOR_OPTIONS } from "@/lib/tag-color-palette";
 import { useAppTheme } from "@/lib/theme";
 import type { SocialPostTag } from "@/lib/types";
@@ -138,7 +145,13 @@ export function PostTagFields({
                     ))}
                 </View>
             ) : null}
-            <View className="overflow-hidden rounded-2xl border border-border">
+            <View
+                className="overflow-hidden rounded-full"
+                style={{
+                    borderWidth: StyleSheet.hairlineWidth * 2,
+                    borderColor: withAlpha(mutedForeground, 0.55),
+                }}
+            >
                 <TextInput
                     value={draft}
                     onChangeText={(text) =>
