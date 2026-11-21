@@ -9,6 +9,7 @@ use sea_orm::DatabaseConnection;
 use sea_orm::prelude::Uuid;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     AppState,
@@ -18,15 +19,16 @@ use crate::{
         friend_relations,
         notification::{self, NotificationCursor as DbNotificationCursor},
         social::{
-            self, CommentsCursor as DbCommentsCursor, FeedExclude, InterestDelta,
-            TopicPostsCursor as DbTopicPostsCursor,
+            self, CommentsCursor as DbCommentsCursor, FeedExclude, InterestDelta, NewPostTag,
+            POST_TAG_LIMIT, PostTagPatch, SpotlightInput, TopicPostsCursor as DbTopicPostsCursor,
         },
     },
     err::CadenzaError,
     routes::json::{
         social::{
-            CommentsCursor, CreateCommentResponse, CreatePostResponse, FeedResponse,
-            FriendshipsResponse, NotificationCursor, NotificationsResponse, PostCommentsResponse,
+            AddSpotlightsResponse, CommentsCursor, CreateCommentResponse, CreatePostResponse,
+            FeedHistoryItem, FeedHistoryResponse, FeedResponse, FriendshipsResponse,
+            NotificationCursor, NotificationsResponse, PostCommentsResponse, PostTagsResponse,
             SocialAuthor, SocialComment, SocialFriend, SocialNotification, SocialPost,
             TopicPostsCursor, TopicPostsResponse, UserPostsResponse, UserRepliesResponse,
             UserSearchPerson, UserSearchResponse,
@@ -35,22 +37,42 @@ use crate::{
     },
     services::{
         realtime::SharedPresence,
-        social_feed::{NewPostTopic, SocialFeedService},
+        social_feed::{InitialSpotlightChance, NewPostTopic, SocialFeedService},
+        song_metadata::SongMetadataService,
+        spotlights::spawn_spotlight_tagging,
+        tag_generation::TagGenerationService,
     },
 };
 
 const POST_CONTENT_MAX: usize = 500;
+const POST_TAG_TEXT_MAX: usize = 24;
 const COMMENT_CONTENT_MAX: usize = 500;
 const TOPIC_MK_ID_MAX: usize = 128;
 const TOPIC_NAME_MAX: usize = 200;
 
-/// Ranked posts for the signed-in user.
+/// Ranked posts for the signed-in user. A spotlight may follow a ranked post.
 ///
-/// `exclude` is `none`, `loaded`, or `viewed` (default `none`). At most 10
-/// posts. Each returned id is marked `loaded`.
+/// `exclude` is `none`, `loaded`, or `viewed` (default `none`).
+/// `first_page` is true on the first page. That response includes
+/// `latest_view_order`, the highest `view_order` when the page was fetched.
+/// Previously viewed starts at that number and goes down. Later pages omit it.
+/// `initial_spotlight_chance` is `history` or a number from 0 to 1 (default
+/// `0`). `history` reads the 3 newest viewed posts: 0.2 for each leading
+/// non-spotlight, stopping at a spotlight, capped at 0.6. A spotlight viewed
+/// more than two days ago sets that start to 0.6. A number is used as the
+/// starting chance. `spotlight_chance` in the response is the chance after
+/// this page, and the next page sends that number back. Up to 10 similar
+/// and hot posts. After each ranked post,
+/// a roll under the current chance inserts the next unviewed spotlight
+/// behind it and resets the chance to 0, then the chance rises by 0.15.
+/// Spotlights are not appended once those posts run out. The posts returned
+/// are marked `loaded` and get no `view_order`.
+/// `author` is null for a spotlight. `not_enough_spotlights`
+/// is true when fewer than five of this user's spotlight posts are still
+/// unviewed. `loaded` still counts.
 ///
 /// ```json
-/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ] }
+/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ], "not_enough_spotlights": false, "spotlight_chance": 0.4, "latest_view_order": 12 }
 /// ```
 async fn get_feed(
     State(db): State<DatabaseConnection>,
@@ -58,11 +80,139 @@ async fn get_feed(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Query(query): Query<FeedQuery>,
 ) -> Result<Json<FeedResponse>, CadenzaError> {
-    let posts = social
-        .get_feed(&db, claims.user_id, query.exclude()?)
+    let latest_view_order = if query.first_page() {
+        Some(social::max_view_order(&db, claims.user_id).await?)
+    } else {
+        None
+    };
+    let page = social
+        .get_feed(
+            &db,
+            claims.user_id,
+            query.exclude()?,
+            query.initial_spotlight_chance()?,
+        )
         .await?;
     Ok(Json(FeedResponse {
-        feed: posts.into_iter().map(SocialPost::from).collect(),
+        feed: page.posts.into_iter().map(SocialPost::from).collect(),
+        not_enough_spotlights: Some(page.not_enough_spotlights),
+        spotlight_chance: Some(page.spotlight_chance),
+        latest_view_order,
+    }))
+}
+
+/// Posts this user viewed, from `before_view_order` downward.
+///
+/// `before_view_order` is the highest number included. The first page passes
+/// `latest_view_order` from `GET /social/feed?first_page=true`. The next page
+/// passes one less than the last row's `view_order`. `limit` defaults to 10
+/// and caps at 50. Each item is a `SocialPost` plus `view_order` and
+/// `viewed_at`. Blocked authors are left out.
+///
+/// ```json
+/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0, "view_order": 4, "viewed_at": "2026-11-01T18:00:00Z" } ] }
+/// ```
+async fn get_feed_history(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(query): Query<HistoryQuery>,
+) -> Result<Json<FeedHistoryResponse>, CadenzaError> {
+    let limit = query.limit()?;
+    let posts =
+        social::feed_history(&db, claims.user_id, query.before_view_order()?, limit).await?;
+    Ok(Json(FeedHistoryResponse {
+        feed: posts
+            .into_iter()
+            .map(|row| FeedHistoryItem {
+                post: row.post.into(),
+                view_order: row.view_order,
+                viewed_at: row.viewed_at,
+            })
+            .collect(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct HistoryQuery {
+    before_view_order: Option<i32>,
+    limit: Option<i64>,
+}
+
+impl HistoryQuery {
+    fn before_view_order(&self) -> Result<i32, CadenzaError> {
+        self.before_view_order
+            .ok_or_else(|| CadenzaError::InvalidRequestBody("before_view_order is required".into()))
+    }
+
+    fn limit(&self) -> Result<i64, CadenzaError> {
+        match self.limit {
+            None => Ok(social::HISTORY_DEFAULT_LIMIT),
+            Some(limit) if limit < 1 => Err(CadenzaError::InvalidRequestBody(
+                "limit must be at least 1".into(),
+            )),
+            Some(limit) => Ok(limit.min(social::HISTORY_MAX_LIMIT)),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct SpotlightsBody {
+    spotlights: Vec<SpotlightItem>,
+}
+
+#[derive(Deserialize)]
+struct SpotlightItem {
+    #[serde(rename = "type")]
+    kind: String,
+    id: String,
+}
+
+/// Queues catalog ids as spotlight posts for the signed-in user. At most 5.
+/// `type` is `artist` or `song`. `id` is a non-empty catalog id, at most 128
+/// characters. A catalog id shares one null-author post. When that post has
+/// no tags, a song gets up to five of its default tags and an artist gets up
+/// to five of its Apple Music genres, read by the backend rather than taken
+/// from the body. Tags already stored are applied before this answers. The
+/// rest are generated or read after it, so a new song or artist post has no
+/// tags for those few seconds. `added` is how many queue rows were new.
+///
+/// ```json
+/// { "added": 2 }
+/// ```
+async fn add_spotlights(
+    State(db): State<DatabaseConnection>,
+    State(song_meta_service): State<SongMetadataService>,
+    State(tag_gen_service): State<TagGenerationService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(body): Json<SpotlightsBody>,
+) -> Result<Json<AddSpotlightsResponse>, CadenzaError> {
+    if body.spotlights.len() > social::SPOTLIGHT_QUEUE as usize {
+        return Err(CadenzaError::InvalidRequestBody(
+            "at most 5 spotlights".into(),
+        ));
+    }
+    let mut items = Vec::with_capacity(body.spotlights.len());
+    for item in body.spotlights {
+        if item.kind != "artist" && item.kind != "song" {
+            return Err(CadenzaError::InvalidRequestBody(
+                "type must be artist or song".into(),
+            ));
+        }
+        let id = item.id.trim();
+        if id.is_empty() || id.chars().count() > TOPIC_MK_ID_MAX {
+            return Err(CadenzaError::InvalidRequestBody(
+                "id must be a non-empty catalog id of at most 128 characters".into(),
+            ));
+        }
+        items.push(SpotlightInput {
+            spotlight_type: item.kind,
+            musickit_id: id.to_owned(),
+        });
+    }
+    let queued = social::add_spotlights(&db, claims.user_id, &items).await?;
+    spawn_spotlight_tagging(db, song_meta_service, tag_gen_service, queued.untagged);
+    Ok(Json(AddSpotlightsResponse {
+        added: queued.added,
     }))
 }
 
@@ -81,6 +231,9 @@ async fn get_friends_feed(
     let posts = social::get_friends_feed(&db, claims.user_id, query.before).await?;
     Ok(Json(FeedResponse {
         feed: posts.into_iter().map(SocialPost::from).collect(),
+        not_enough_spotlights: None,
+        spotlight_chance: None,
+        latest_view_order: None,
     }))
 }
 
@@ -92,9 +245,15 @@ struct FriendsFeedQuery {
 #[derive(Deserialize)]
 struct FeedQuery {
     exclude: Option<String>,
+    initial_spotlight_chance: Option<String>,
+    first_page: Option<bool>,
 }
 
 impl FeedQuery {
+    fn first_page(&self) -> bool {
+        self.first_page.unwrap_or(false)
+    }
+
     fn exclude(&self) -> Result<FeedExclude, CadenzaError> {
         match self.exclude.as_deref().unwrap_or("none") {
             "none" => Ok(FeedExclude::None),
@@ -104,6 +263,30 @@ impl FeedQuery {
                 "exclude must be none, loaded, or viewed, not {other}"
             ))),
         }
+    }
+
+    fn initial_spotlight_chance(&self) -> Result<InitialSpotlightChance, CadenzaError> {
+        let Some(raw) = self.initial_spotlight_chance.as_deref() else {
+            return Ok(InitialSpotlightChance::Fixed(0.0));
+        };
+        let raw = raw.trim();
+        if raw.is_empty() || raw == "0" {
+            return Ok(InitialSpotlightChance::Fixed(0.0));
+        }
+        if raw == "history" {
+            return Ok(InitialSpotlightChance::History);
+        }
+        let chance: f64 = raw.parse().map_err(|_| {
+            CadenzaError::InvalidRequestBody(
+                "initial_spotlight_chance must be history or a number from 0 to 1".into(),
+            )
+        })?;
+        if !(0.0..=1.0).contains(&chance) {
+            return Err(CadenzaError::InvalidRequestBody(
+                "initial_spotlight_chance must be history or a number from 0 to 1".into(),
+            ));
+        }
+        Ok(InitialSpotlightChance::Fixed(chance))
     }
 }
 
@@ -182,6 +365,14 @@ struct CreatePostBody {
     topic_artist_name: Option<String>,
     #[serde(default)]
     shared_playlist_id: Option<i64>,
+    #[serde(default)]
+    tags: Vec<IncomingPostTag>,
+}
+
+#[derive(Deserialize)]
+struct IncomingPostTag {
+    text: String,
+    color: String,
 }
 
 /// Creates a post for the signed-in user. `content` is at most 500 characters.
@@ -192,8 +383,13 @@ struct CreatePostBody {
 /// used only to prefix the embedding; stored content is unchanged.
 ///
 /// ```json
-/// { "post_id": 1 }
+/// { "post_id": 1, "tags": [{ "tag_id": 4, "text": "live", "color": "#2061f1" }] }
 /// ```
+///
+/// `tags` is optional, at most 10. Each is `{text, color}`. Text is trimmed,
+/// internal whitespace is collapsed, and it is at most 24 characters. Color
+/// is `#` plus 6 hex digits. A repeated word, ignoring case, is 422. The
+/// author is marked `viewed` on the new post with their next `view_order`.
 async fn create_post(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
@@ -224,10 +420,14 @@ async fn create_post(
         (None, Some(playlist_id)) => NewPostTopic::SharedPlaylist(playlist_id),
         (None, None) => NewPostTopic::None,
     };
-    let post_id = social
-        .create_post(&db, claims.user_id, &body.content, topic)
+    let tags = parse_new_tags(&body.tags)?;
+    let (post_id, tags) = social
+        .create_post(&db, claims.user_id, &body.content, topic, &tags)
         .await?;
-    Ok(Json(CreatePostResponse { post_id }))
+    Ok(Json(CreatePostResponse {
+        post_id,
+        tags: tags.into_iter().map(Into::into).collect(),
+    }))
 }
 
 #[derive(Deserialize)]
@@ -239,6 +439,15 @@ struct EditContentBody {
     topic_song_title: Option<String>,
     #[serde(default)]
     topic_artist_name: Option<String>,
+    /// Existing tags to rewrite, keyed by tag id. An id not listed is left alone.
+    #[serde(default)]
+    edit: HashMap<i64, IncomingPostTag>,
+    /// Tag ids to remove.
+    #[serde(default)]
+    delete: Vec<i64>,
+    /// Tags to add. The server assigns each `tag_id`.
+    #[serde(default)]
+    add: Vec<IncomingPostTag>,
 }
 
 /// Replaces the signed-in user's post text. `content` is trimmed and at most
@@ -247,21 +456,28 @@ struct EditContentBody {
 /// re-embeds the stored text. When the post has a topic, `topic_song_title`
 /// and `topic_artist_name` prefix that embedding the same way as create.
 /// 404 when the post is missing or belongs to someone else. Responds with
-/// `null`.
+/// `{tags}`, the post's tags after the edit. An older `timestamp` changes
+/// neither the text nor the tags, and still returns the stored tags.
+///
+/// `edit` rewrites listed tags. `delete` removes those ids. `add` inserts
+/// new ones. A field that is omitted does nothing. An id in both `edit` and
+/// `delete`, or an id that is not on this post, is 422. More than 10 tags
+/// after the write, or a repeated word ignoring case, is 422.
 async fn update_post(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Path(post_id): Path<i64>,
     Json(body): Json<EditContentBody>,
-) -> Result<Json<Value>, CadenzaError> {
+) -> Result<Json<PostTagsResponse>, CadenzaError> {
     let content = require_content(&body.content, POST_CONTENT_MAX)?;
     let edited_at = edited_at_from_millis(body.timestamp)?;
     let topic_song_title =
         parse_optional_text(body.topic_song_title, "topic_song_title", TOPIC_NAME_MAX)?;
     let topic_artist_name =
         parse_optional_text(body.topic_artist_name, "topic_artist_name", TOPIC_NAME_MAX)?;
-    social
+    let tags = parse_tag_patch(body.edit, body.delete, body.add)?;
+    let tags = social
         .update_post(
             &db,
             claims.user_id,
@@ -270,9 +486,12 @@ async fn update_post(
             edited_at,
             topic_song_title.as_deref(),
             topic_artist_name.as_deref(),
+            &tags,
         )
         .await?;
-    Ok(Json(Value::Null))
+    Ok(Json(PostTagsResponse {
+        tags: tags.into_iter().map(Into::into).collect(),
+    }))
 }
 
 /// Deletes the signed-in user's post. Likes, comments, and view rows go with
@@ -320,6 +539,79 @@ fn require_content(raw: &str, max_chars: usize) -> Result<&str, CadenzaError> {
     Ok(content)
 }
 
+fn parse_new_tags(tags: &[IncomingPostTag]) -> Result<Vec<NewPostTag>, CadenzaError> {
+    if tags.len() > POST_TAG_LIMIT {
+        return Err(CadenzaError::InvalidRequestBody(
+            "a post can have at most 10 tags".into(),
+        ));
+    }
+    let mut seen = HashSet::new();
+    let mut parsed = Vec::with_capacity(tags.len());
+    for tag in tags {
+        let parsed_tag = parse_post_tag(tag)?;
+        if !seen.insert(parsed_tag.text.to_lowercase()) {
+            return Err(CadenzaError::InvalidRequestBody(
+                "a post already has that tag".into(),
+            ));
+        }
+        parsed.push(parsed_tag);
+    }
+    Ok(parsed)
+}
+
+fn parse_tag_patch(
+    edit: HashMap<i64, IncomingPostTag>,
+    delete: Vec<i64>,
+    add: Vec<IncomingPostTag>,
+) -> Result<PostTagPatch, CadenzaError> {
+    let mut seen_delete = HashSet::new();
+    for id in &delete {
+        if !seen_delete.insert(*id) {
+            return Err(CadenzaError::InvalidRequestBody(
+                "a tag cannot be deleted twice".into(),
+            ));
+        }
+        if edit.contains_key(id) {
+            return Err(CadenzaError::InvalidRequestBody(
+                "a tag cannot be edited and deleted".into(),
+            ));
+        }
+    }
+    let mut parsed_edit = HashMap::with_capacity(edit.len());
+    for (id, tag) in edit {
+        parsed_edit.insert(id, parse_post_tag(&tag)?);
+    }
+    Ok(PostTagPatch {
+        edit: parsed_edit,
+        delete,
+        add: parse_new_tags(&add)?,
+    })
+}
+
+fn parse_post_tag(tag: &IncomingPostTag) -> Result<NewPostTag, CadenzaError> {
+    let text = tag.text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() {
+        return Err(CadenzaError::InvalidRequestBody(
+            "tag text is required".into(),
+        ));
+    }
+    if text.chars().count() > POST_TAG_TEXT_MAX {
+        return Err(CadenzaError::InvalidRequestBody(
+            "tag text is longer than 24 characters".into(),
+        ));
+    }
+    let color = tag.color.trim().to_ascii_lowercase();
+    let hex = color.as_bytes();
+    let valid =
+        hex.len() == 7 && hex[0] == b'#' && hex[1..].iter().all(|byte| byte.is_ascii_hexdigit());
+    if !valid {
+        return Err(CadenzaError::InvalidRequestBody(
+            "tag color must be #rrggbb".into(),
+        ));
+    }
+    Ok(NewPostTag { text, color })
+}
+
 fn parse_optional_text(
     raw: Option<String>,
     field: &str,
@@ -345,7 +637,9 @@ struct MarkViewedBody {
     post_ids: Vec<i64>,
 }
 
-/// Marks posts `viewed` for the signed-in user. Responds with `null`.
+/// Marks posts `viewed` for the signed-in user. Every id takes the next
+/// `view_order`, in `post_ids` order. A row that already had a number gets a
+/// new, higher one. Responds with `null`.
 async fn mark_viewed(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
@@ -384,7 +678,7 @@ impl TopicPostsQuery {
 }
 
 /// Posts whose topic is this Apple Music catalog id, at most 10. Most liked
-/// first, then newest, then post id.
+/// first, then newest, then post id. A post with no author is left out.
 ///
 /// Omit `likes`, `created_at`, and `post_id` for the first page. Pass `next`
 /// from the previous response as those three fields for the following page.
@@ -913,7 +1207,9 @@ async fn unlike_comment(
 pub fn get_social_router() -> Router<AppState> {
     Router::new()
         .route("/feed", get(get_feed))
+        .route("/feed/history", get(get_feed_history))
         .route("/feed/friends", get(get_friends_feed))
+        .route("/spotlights", post(add_spotlights))
         .route("/interests/update", patch(update_interests))
         .route("/interests/decay", patch(decay_interests))
         .route("/posts", post(create_post))
@@ -959,4 +1255,44 @@ pub fn get_social_router() -> Router<AppState> {
             "/comments/{comment_id}/likes",
             post(like_comment).delete(unlike_comment),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tag(text: &str, color: &str) -> IncomingPostTag {
+        IncomingPostTag {
+            text: text.to_owned(),
+            color: color.to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_tag_trims_and_collapses_whitespace() {
+        let parsed = parse_post_tag(&tag("  Live   Show  ", " #2061F1 ")).unwrap();
+        assert_eq!(parsed.text, "Live Show");
+        assert_eq!(parsed.color, "#2061f1");
+    }
+
+    #[test]
+    fn a_tag_rejects_empty_text_and_a_bad_color() {
+        assert!(parse_post_tag(&tag("   ", "#2061f1")).is_err());
+        assert!(parse_post_tag(&tag("live", "blue")).is_err());
+        assert!(parse_post_tag(&tag("live", "#fff")).is_err());
+        assert!(parse_post_tag(&tag(&"x".repeat(25), "#2061f1")).is_err());
+    }
+
+    #[test]
+    fn repeated_words_are_rejected() {
+        let tags = vec![tag("Live", "#2061f1"), tag(" live ", "#00907f")];
+        assert!(parse_new_tags(&tags).is_err());
+    }
+
+    #[test]
+    fn an_edit_cannot_also_delete_the_same_tag() {
+        let mut edit = HashMap::new();
+        edit.insert(4, tag("live", "#2061f1"));
+        assert!(parse_tag_patch(edit, vec![4], Vec::new()).is_err());
+    }
 }

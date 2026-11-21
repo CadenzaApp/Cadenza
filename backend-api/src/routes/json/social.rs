@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::db::social::{
-    AttachedPlaylist, AuthorComment, PublicProfile, SocialComment as CommentRow,
+    AttachedPlaylist, AuthorComment, PostTag, PublicProfile, SocialComment as CommentRow,
     SocialPost as PostRow,
 };
 
@@ -22,7 +22,8 @@ use crate::db::social::{
 ///   "author": { "user_id": "11111111-1111-1111-1111-111111111111", "username": "ada" },
 ///   "topic_mk_id": "1615585008",
 ///   "shared_playlist": null,
-///   "comment_count": 3
+///   "comment_count": 3,
+///   "tags": [{ "tag_id": 4, "text": "live", "color": "#2061f1" }]
 /// }
 /// ```
 #[derive(Serialize)]
@@ -34,12 +35,37 @@ pub struct SocialPost {
     pub created_at: DateTime<Utc>,
     /// `null` until the author edits the post.
     pub edited_at: Option<DateTime<Utc>>,
-    pub author: SocialAuthor,
+    /// `null` for a spotlight post, which has no author.
+    pub author: Option<SocialAuthor>,
     /// Apple Music catalog id of the attached song or artist, or `null`.
     pub topic_mk_id: Option<String>,
     /// The attached shared playlist, or `null`. Never set with `topic_mk_id`.
     pub shared_playlist: Option<PostSharedPlaylist>,
     pub comment_count: i64,
+    /// Decorative labels on this post, sorted by `tag_id`. Not song tags.
+    pub tags: Vec<SocialPostTag>,
+}
+
+/// One decorative label on a post.
+///
+/// ```json
+/// { "tag_id": 4, "text": "live", "color": "#2061f1" }
+/// ```
+#[derive(Serialize)]
+pub struct SocialPostTag {
+    pub tag_id: i64,
+    pub text: String,
+    pub color: String,
+}
+
+impl From<PostTag> for SocialPostTag {
+    fn from(tag: PostTag) -> Self {
+        Self {
+            tag_id: tag.tag_id,
+            text: tag.text,
+            color: tag.color,
+        }
+    }
 }
 
 /// A shared playlist on a post. Shown to anyone who sees the post; opening
@@ -103,13 +129,14 @@ impl From<PostRow> for SocialPost {
             liked: post.liked,
             created_at: post.created_at,
             edited_at: post.edited_at,
-            author: SocialAuthor {
-                user_id: post.author_id.to_string(),
-                username: post.author_username,
-            },
+            author: post.author_id.map(|user_id| SocialAuthor {
+                user_id: user_id.to_string(),
+                username: post.author_username.unwrap_or_else(|| "unknown".to_owned()),
+            }),
             topic_mk_id: post.topic_mk_id,
             shared_playlist: post.shared_playlist.map(Into::into),
             comment_count: post.comment_count,
+            tags: post.tags.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -197,11 +224,59 @@ impl From<PublicProfile> for SocialUserProfile {
 #[derive(Serialize)]
 pub struct FeedResponse {
     pub feed: Vec<SocialPost>,
+    /// Set by `GET /social/feed`. True when fewer than five of this user's
+    /// spotlight posts are still unviewed. `loaded` still counts as unviewed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_enough_spotlights: Option<bool>,
+    /// Chance after this page. The next `GET /social/feed` passes it as
+    /// `initial_spotlight_chance`. Omitted on the friends feed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spotlight_chance: Option<f64>,
+    /// Highest `view_order` when `first_page=true`. Previously viewed starts
+    /// here and goes down. Omitted on later pages and on the friends feed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_view_order: Option<i32>,
 }
 
+/// One previously viewed post from `GET /social/feed/history`.
+/// `view_order` is the order it was viewed. `viewed_at` is when this user viewed it.
+#[derive(Serialize)]
+pub struct FeedHistoryItem {
+    #[serde(flatten)]
+    pub post: SocialPost,
+    pub view_order: i32,
+    pub viewed_at: DateTime<Utc>,
+}
+
+/// `{feed}` from `GET /social/feed/history`, from `before_view_order` downward.
+#[derive(Serialize)]
+pub struct FeedHistoryResponse {
+    pub feed: Vec<FeedHistoryItem>,
+}
+
+/// `{added}` from `POST /social/spotlights`. How many queue rows were new.
+#[derive(Serialize)]
+pub struct AddSpotlightsResponse {
+    pub added: i64,
+}
+
+/// `{post_id, tags}` from `POST /social/posts`. `tags` is the stored rows,
+/// sorted by `tag_id`.
+///
+/// ```json
+/// { "post_id": 1, "tags": [{ "tag_id": 4, "text": "live", "color": "#2061f1" }] }
+/// ```
 #[derive(Serialize)]
 pub struct CreatePostResponse {
     pub post_id: i64,
+    pub tags: Vec<SocialPostTag>,
+}
+
+/// `{tags}` from `PATCH /social/posts/:id`. The post's tags after the edit,
+/// including when an older timestamp left them unchanged.
+#[derive(Serialize)]
+pub struct PostTagsResponse {
+    pub tags: Vec<SocialPostTag>,
 }
 
 #[derive(Serialize)]
@@ -215,7 +290,8 @@ pub struct UserPostsResponse {
 pub struct RepliedPost {
     pub post_id: i64,
     pub content: String,
-    pub author: SocialAuthor,
+    /// `null` when the post is a spotlight and has no author.
+    pub author: Option<SocialAuthor>,
 }
 
 /// One of a user's comments, with its post.
@@ -232,10 +308,12 @@ impl From<AuthorComment> for SocialReply {
             post: RepliedPost {
                 post_id: reply.comment.post_id,
                 content: reply.post_content,
-                author: SocialAuthor {
-                    user_id: reply.post_author_id.to_string(),
-                    username: reply.post_author_username,
-                },
+                author: reply.post_author_id.map(|user_id| SocialAuthor {
+                    user_id: user_id.to_string(),
+                    username: reply
+                        .post_author_username
+                        .unwrap_or_else(|| "unknown".to_owned()),
+                }),
             },
             comment: reply.comment.into(),
         }

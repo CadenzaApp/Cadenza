@@ -4,23 +4,27 @@
 //! Ranking math that does not need the database lives here too. Turning text
 //! into vectors is `services::social_feed`, which calls the python model.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::db::entity::{comment_likes, comments, post_likes, posts, profile};
+use crate::db::entity::{
+    comment_likes, comments, post_likes, post_tags_applied, posts, profile, user_spotlights,
+};
 use crate::db::friend_relations::{
     NOT_BLOCKED_AUTHOR, blocked_either_way, clear_favorites_between,
 };
 use crate::db::shared_playlists::{PlaylistCard, playlist_cards};
+use crate::db::tags::shared_default_tag_labels;
 use crate::err::CadenzaError;
 use crate::services::notification::{NewNotification, NotificationType, push_notification};
-use chrono::{DateTime, TimeZone, Utc};
+use crate::services::tag_generation::openai_tag_generator::random_suggested_tag_color;
+use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
     ActiveValue::{NotSet, Set},
     ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
     FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect, QueryTrait, RuntimeErr,
     Statement, TransactionTrait, Value,
-    sea_query::{Expr, ExprTrait, Func, OnConflict},
+    sea_query::{Expr, ExprTrait, Func, LockType, OnConflict},
 };
 
 /// How many posts one `/feed` call returns. A shorter page means that exclude
@@ -67,8 +71,11 @@ pub struct SocialPost {
     pub created_at: DateTime<Utc>,
     /// `None` until the author edits the post.
     pub edited_at: Option<DateTime<Utc>>,
-    pub author_id: Uuid,
-    pub author_username: String,
+    /// `None` for a spotlight post, which has no author.
+    pub author_id: Option<Uuid>,
+    /// `None` when `author_id` is `None`. A real author with no profile row
+    /// is `"unknown"`.
+    pub author_username: Option<String>,
     /// Apple Music catalog id of the attached song or artist, when the author
     /// picked one. Kind is not stored; the client asks MusicKit.
     pub topic_mk_id: Option<String>,
@@ -76,7 +83,36 @@ pub struct SocialPost {
     /// when the id matches no playlist.
     pub shared_playlist: Option<AttachedPlaylist>,
     pub comment_count: i64,
+    /// Decorative labels on this post, sorted by `tag_id`. Not song tags.
+    pub tags: Vec<PostTag>,
 }
+
+/// One decorative label on a post. `tag_id` stays put when the text changes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PostTag {
+    pub tag_id: i64,
+    pub text: String,
+    pub color: String,
+}
+
+/// Text and color for a tag that does not have an id yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewPostTag {
+    pub text: String,
+    pub color: String,
+}
+
+/// A partial change to one post's tags. An empty field changes nothing.
+/// A tag id that is in neither `edit` nor `delete` is left alone.
+#[derive(Clone, Debug, Default)]
+pub struct PostTagPatch {
+    pub edit: HashMap<i64, NewPostTag>,
+    pub delete: Vec<i64>,
+    pub add: Vec<NewPostTag>,
+}
+
+/// How many decorative tags one post can hold.
+pub const POST_TAG_LIMIT: usize = 10;
 
 /// A shared playlist on a post. `Unavailable` is an id that matches no row,
 /// which is what deleting the playlist leaves behind.
@@ -142,7 +178,7 @@ pub struct FeedCandidate {
 /// `embedding_w_bday` is that vector with days-since-epoch in front.
 /// `topic_mk_id` is the Apple Music catalog id of an attached song or artist.
 pub async fn insert_post(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: Uuid,
     content: &str,
     embedding: &[f64],
@@ -169,6 +205,84 @@ pub async fn insert_post(
         .await?
         .ok_or_else(|| CadenzaError::DatabaseError("inserting a post returned no id".into()))?;
     Ok(row.try_get_by_index(0)?)
+}
+
+/// Inserts a post, its tags, and the author's `viewed` row in one transaction.
+/// Tags are returned sorted by `tag_id`. `view_order` is `latest + 1`.
+/// [`LoadedOrderError::Taken`] rolls the post back.
+pub async fn insert_post_with_tags(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    content: &str,
+    embedding: &[f64],
+    embedding_w_bday: &[f64],
+    topic_mk_id: Option<&str>,
+    shared_playlist_id: Option<i64>,
+    tags: &[NewPostTag],
+    latest: i32,
+) -> Result<(i64, Vec<PostTag>, i32), LoadedOrderError> {
+    if tags.len() > POST_TAG_LIMIT {
+        return Err(LoadedOrderError::Other(too_many_tags()));
+    }
+    if duplicate_tag_words(tags.iter().map(|tag| tag.text.as_str())) {
+        return Err(LoadedOrderError::Other(duplicate_tag()));
+    }
+    let txn = db
+        .begin()
+        .await
+        .map_err(|err| LoadedOrderError::Other(err.into()))?;
+    let post_id = insert_post(
+        &txn,
+        user_id,
+        content,
+        embedding,
+        embedding_w_bday,
+        topic_mk_id,
+        shared_playlist_id,
+    )
+    .await
+    .map_err(LoadedOrderError::Other)?;
+    insert_tags(&txn, post_id, tags)
+        .await
+        .map_err(LoadedOrderError::Other)?;
+    let stored = tags_for_post(&txn, post_id)
+        .await
+        .map_err(LoadedOrderError::Other)?;
+    let order = insert_author_view(&txn, user_id, post_id, latest).await?;
+    txn.commit()
+        .await
+        .map_err(|err| LoadedOrderError::Other(err.into()))?;
+    Ok((post_id, stored, order))
+}
+
+/// Marks `post_id` `viewed` for its author at `latest + 1`.
+async fn insert_author_view(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    post_id: i64,
+    latest: i32,
+) -> Result<i32, LoadedOrderError> {
+    let row = ViewOrderRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "INSERT INTO post_view_status (post_id, user_id, status, view_order)
+         VALUES ($1, $2, 'viewed', $3 + 1)
+         RETURNING view_order",
+        vec![post_id.into(), user_id.into(), latest.into()],
+    ))
+    .one(db)
+    .await
+    .map_err(|err| {
+        if is_view_order_conflict(&err) {
+            LoadedOrderError::Taken
+        } else {
+            LoadedOrderError::Other(err.into())
+        }
+    })?;
+    row.map(|row| row.view_order).ok_or_else(|| {
+        LoadedOrderError::Other(CadenzaError::DatabaseError(
+            "marking a new post viewed returned no view order".into(),
+        ))
+    })
 }
 
 /// Deletes the author's post. `NotFound` when no row matches, including a post
@@ -226,9 +340,10 @@ pub fn edit_replaces(stored: Option<DateTime<Utc>>, incoming: DateTime<Utc>) -> 
     stored.is_none_or(|stored| incoming >= stored)
 }
 
-/// Replaces the author's post text and embedding. `edited_at` is `now()`.
-/// `client_time` older than the stored `edited_at` leaves the row alone.
-/// `NotFound` when the post is missing or owned by someone else.
+/// Replaces the author's post text and embedding, then applies `tags`, in one
+/// transaction. `edited_at` is `now()`. `client_time` older than the stored
+/// `edited_at` leaves the text and the tags alone. Returns the post's tags
+/// either way. `NotFound` when the post is missing or owned by someone else.
 pub async fn update_post_text(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -237,8 +352,10 @@ pub async fn update_post_text(
     embedding: &[f64],
     embedding_w_bday: &[f64],
     client_time: DateTime<Utc>,
-) -> Result<(), CadenzaError> {
-    let row = db
+    tags: &PostTagPatch,
+) -> Result<Vec<PostTag>, CadenzaError> {
+    let txn = db.begin().await?;
+    let kept = txn
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "UPDATE posts
@@ -259,15 +376,25 @@ pub async fn update_post_text(
             ],
         ))
         .await?;
-    if row.is_some() {
-        return Ok(());
+    if kept.is_none() {
+        let exists = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "SELECT post_id FROM posts WHERE post_id = $1 AND user_id = $2",
+                vec![post_id.into(), user_id.into()],
+            ))
+            .await?;
+        if exists.is_none() {
+            return Err(CadenzaError::NotFound);
+        }
+        let stored = tags_for_post(&txn, post_id).await?;
+        txn.commit().await?;
+        return Ok(stored);
     }
-    finish_stale_edit(
-        db,
-        "SELECT post_id FROM posts WHERE post_id = $1 AND user_id = $2",
-        vec![post_id.into(), user_id.into()],
-    )
-    .await
+    apply_tag_patch(&txn, post_id, tags).await?;
+    let stored = tags_for_post(&txn, post_id).await?;
+    txn.commit().await?;
+    Ok(stored)
 }
 
 /// Records a like and bumps `likes` / `hot_score` only when the row is new.
@@ -413,7 +540,8 @@ async fn notify_user(
 /// The post's author gets a `comment` notification, title
 /// "<username> commented on your post" and content the comment, in this same
 /// transaction. Metadata is `{"post_id"}`.
-/// The author commenting on their own post gets none. A failed notification
+/// The author commenting on their own post gets none. A spotlight post has no
+/// author, so a comment on it notifies nobody. A failed notification
 /// rolls the comment back.
 pub async fn insert_comment(
     db: &DatabaseConnection,
@@ -464,16 +592,19 @@ pub async fn insert_comment(
         txn.rollback().await?;
         return Err(CadenzaError::NotFound);
     };
-    let author_id: Uuid = author.try_get_by_index(0)?;
-    if let Err(err) = notify_user(
-        &txn,
-        author_id,
-        user_id,
-        content,
-        NotificationType::Comment,
-        Some(post_id),
-    )
-    .await
+    let author_id: Option<Uuid> = author.try_get_by_index(0)?;
+    // A spotlight post has no author, so the comment still saves and nobody
+    // is notified.
+    if let Some(author_id) = author_id
+        && let Err(err) = notify_user(
+            &txn,
+            author_id,
+            user_id,
+            content,
+            NotificationType::Comment,
+            Some(post_id),
+        )
+        .await
     {
         txn.rollback().await?;
         return Err(err);
@@ -755,7 +886,31 @@ pub async fn unlike_comment(
     Ok(())
 }
 
-/// Inserts `loaded` for ids that have no row yet. Never downgrades `viewed`.
+/// Why a `view_order` write did not store the number.
+pub enum LoadedOrderError {
+    /// `(user_id, view_order)` was already taken. The caller drops its cached
+    /// maximum and tries again.
+    Taken,
+    Other(CadenzaError),
+}
+
+/// This user's highest `view_order`, or 0 when none of their rows are numbered.
+pub async fn max_view_order(db: &DatabaseConnection, user_id: Uuid) -> Result<i32, CadenzaError> {
+    let row = ViewOrderRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT COALESCE(MAX(view_order), 0)::int AS view_order
+         FROM post_view_status
+         WHERE user_id = $1",
+        vec![user_id.into()],
+    ))
+    .one(db)
+    .await?
+    .ok_or_else(|| CadenzaError::DatabaseError("view order max returned no row".into()))?;
+    Ok(row.view_order)
+}
+
+/// Inserts `loaded` for ids that have no row yet. Does not set `view_order`
+/// and never downgrades `viewed`.
 pub async fn mark_posts_loaded(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -776,27 +931,64 @@ pub async fn mark_posts_loaded(
     Ok(())
 }
 
-/// Sets `viewed`, inserting or upgrading from `loaded`.
+/// True when the insert lost the `(user_id, view_order)` unique index.
+fn is_view_order_conflict(err: &DbErr) -> bool {
+    let DbErr::Query(RuntimeErr::SqlxError(sqlx_err)) = err else {
+        return false;
+    };
+    let Some(db_err) = sqlx_err.as_database_error() else {
+        return false;
+    };
+    db_err.code().as_deref() == Some("23505")
+        && (db_err.constraint() == Some("post_view_status_user_view_order_idx")
+            || db_err.table() == Some("post_view_status"))
+}
+
+/// Sets `viewed`. Every id takes the next `view_order`, in `post_ids` order,
+/// including a row that already had one. The new numbers are higher than
+/// `latest`.
+///
+/// `Ok(None)` means `post_ids` was empty. `Ok(Some(n))` is the highest
+/// `view_order` stored. A `(user_id, view_order)` conflict returns
+/// [`LoadedOrderError::Taken`] and writes nothing.
 pub async fn mark_posts_viewed(
     db: &DatabaseConnection,
     user_id: Uuid,
     post_ids: &[i64],
-) -> Result<(), CadenzaError> {
+    latest: i32,
+) -> Result<Option<i32>, LoadedOrderError> {
     if post_ids.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
-    db.execute_raw(Statement::from_sql_and_values(
+    let inserted = ViewOrderRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "INSERT INTO post_view_status (post_id, user_id, status)
-         SELECT post_id, $1, 'viewed'
-         FROM unnest($2::bigint[]) AS post_id
+        "INSERT INTO post_view_status (post_id, user_id, status, view_order)
+         SELECT post_id, $1, 'viewed', $3 + rn
+         FROM (
+             SELECT post_id, row_number() OVER (ORDER BY ord)::int AS rn
+             FROM (
+                 SELECT DISTINCT ON (post_id) post_id, ord
+                 FROM unnest($2::bigint[]) WITH ORDINALITY AS t(post_id, ord)
+                 ORDER BY post_id, ord
+             ) AS ids
+         ) AS page
          ON CONFLICT (post_id, user_id) DO UPDATE
          SET status = 'viewed',
-             date = now()",
-        vec![user_id.into(), post_ids.to_vec().into()],
+             date = now(),
+             view_order = EXCLUDED.view_order
+         RETURNING view_order",
+        vec![user_id.into(), post_ids.to_vec().into(), latest.into()],
     ))
-    .await?;
-    Ok(())
+    .all(db)
+    .await
+    .map_err(|err| {
+        if is_view_order_conflict(&err) {
+            LoadedOrderError::Taken
+        } else {
+            LoadedOrderError::Other(err.into())
+        }
+    })?;
+    Ok(inserted.into_iter().map(|row| row.view_order).max())
 }
 
 /// Display fields for `post_ids`, in that order. Missing ids are skipped.
@@ -808,7 +1000,22 @@ pub async fn get_posts(
     if post_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows = PostRow::find_by_statement(Statement::from_sql_and_values(
+    let rows = PostRow::find_by_statement(posts_statement(viewer_id, post_ids))
+        .all(db)
+        .await?;
+
+    let mut by_id: HashMap<i64, PostRow> = rows.into_iter().map(|row| (row.post_id, row)).collect();
+    let ordered: Vec<PostRow> = post_ids
+        .iter()
+        .filter_map(|post_id| by_id.remove(post_id))
+        .collect();
+    to_posts(db, &ordered).await
+}
+
+// The mixer already chose these IDs, including null-author spotlights. Only
+// candidate selection excludes spotlights; hydration must keep both kinds.
+fn posts_statement(viewer_id: Uuid, post_ids: &[i64]) -> Statement {
+    Statement::from_sql_and_values(
         DbBackend::Postgres,
         format!(
             "SELECT
@@ -820,7 +1027,7 @@ pub async fn get_posts(
              p.edited_at,
              p.topic_mk_id,
              p.shared_playlist_id,
-             COALESCE(pr.username, 'unknown') AS username,
+             CASE WHEN p.user_id IS NULL THEN NULL ELSE COALESCE(pr.username, 'unknown') END AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
                  WHERE post_likes.post_id = p.post_id
@@ -830,20 +1037,10 @@ pub async fn get_posts(
          FROM posts p
          LEFT JOIN profile pr ON pr.uid = p.user_id
          WHERE p.post_id = ANY($2::bigint[])
-           AND p.user_id IS NOT NULL
            AND {NOT_BLOCKED_AUTHOR}"
         ),
         vec![viewer_id.into(), post_ids.to_vec().into()],
-    ))
-    .all(db)
-    .await?;
-
-    let mut by_id: HashMap<i64, PostRow> = rows.into_iter().map(|row| (row.post_id, row)).collect();
-    let ordered: Vec<PostRow> = post_ids
-        .iter()
-        .filter_map(|post_id| by_id.remove(post_id))
-        .collect();
-    to_posts(db, &ordered).await
+    )
 }
 
 /// The author's profile row, when they have one.
@@ -1320,9 +1517,10 @@ pub struct TopicPostPage {
 
 /// Posts whose topic is this Apple Music catalog id, at most [`TOPIC_POST_LIMIT`].
 ///
-/// Order is `likes` desc, `created_at` desc, `post_id` desc. `created_at` is
-/// not unique, so `post_id` finishes the order and the cursor. `cursor` is
-/// `None` for the first page. Later pages pass the previous `next`.
+/// A post with no author is left out. Order is `likes` desc, `created_at`
+/// desc, `post_id` desc. `created_at` is not unique, so `post_id` finishes the
+/// order and the cursor. `cursor` is `None` for the first page. Later pages
+/// pass the previous `next`.
 pub async fn get_topic_posts(
     db: &DatabaseConnection,
     viewer_id: Uuid,
@@ -1355,7 +1553,7 @@ const TOPIC_POSTS_SELECT: &str = "SELECT
              p.edited_at,
              p.topic_mk_id,
              p.shared_playlist_id,
-             COALESCE(pr.username, 'unknown') AS username,
+             CASE WHEN p.user_id IS NULL THEN NULL ELSE COALESCE(pr.username, 'unknown') END AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
                  WHERE post_likes.post_id = p.post_id
@@ -1378,6 +1576,7 @@ fn topic_posts_statement(
             format!(
                 "{TOPIC_POSTS_SELECT}
                  WHERE p.topic_mk_id = $2
+                   AND p.user_id IS NOT NULL
                    AND {NOT_BLOCKED_AUTHOR}
                  ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
                  LIMIT $3"
@@ -1393,6 +1592,7 @@ fn topic_posts_statement(
             format!(
                 "{TOPIC_POSTS_SELECT}
                  WHERE p.topic_mk_id = $2
+                   AND p.user_id IS NOT NULL
                    AND {NOT_BLOCKED_AUTHOR}
                    AND (p.likes, p.created_at, p.post_id) < ($3, $4, $5)
                  ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC
@@ -1433,7 +1633,7 @@ pub async fn get_friends_feed(
              p.edited_at,
              p.topic_mk_id,
              p.shared_playlist_id,
-             COALESCE(pr.username, 'unknown') AS username,
+             CASE WHEN p.user_id IS NULL THEN NULL ELSE COALESCE(pr.username, 'unknown') END AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
                  WHERE post_likes.post_id = p.post_id
@@ -1485,7 +1685,7 @@ pub async fn get_author_posts(
              p.edited_at,
              p.topic_mk_id,
              p.shared_playlist_id,
-             COALESCE(pr.username, 'unknown') AS username,
+             CASE WHEN p.user_id IS NULL THEN NULL ELSE COALESCE(pr.username, 'unknown') END AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
                  WHERE post_likes.post_id = p.post_id
@@ -1513,8 +1713,10 @@ const AUTHOR_COMMENT_LIMIT: u64 = 100;
 pub struct AuthorComment {
     pub comment: SocialComment,
     pub post_content: String,
-    pub post_author_id: Uuid,
-    pub post_author_username: String,
+    /// `None` when the post is a spotlight and has no author.
+    pub post_author_id: Option<Uuid>,
+    /// `None` when `post_author_id` is `None`.
+    pub post_author_username: Option<String>,
 }
 
 #[derive(Debug, FromQueryResult)]
@@ -1522,8 +1724,8 @@ struct AuthorCommentRow {
     #[sea_orm(nested)]
     comment: CommentRow,
     post_content: String,
-    post_author_id: Uuid,
-    post_author_username: String,
+    post_author_id: Option<Uuid>,
+    post_author_username: Option<String>,
 }
 
 /// One author's comments, newest first, at most [`AUTHOR_COMMENT_LIMIT`].
@@ -1553,7 +1755,7 @@ pub async fn get_author_comments(
              ) AS liked,
              p.content AS post_content,
              p.user_id AS post_author_id,
-             COALESCE(pr.username, 'unknown') AS post_author_username
+             CASE WHEN p.user_id IS NULL THEN NULL ELSE COALESCE(pr.username, 'unknown') END AS post_author_username
          FROM comments c
          JOIN posts p ON p.post_id = c.post_id
          LEFT JOIN profile cr ON cr.uid = c.user_id
@@ -1664,6 +1866,609 @@ pub fn merge_feed_candidates(
         by_id.entry(post.post_id).or_insert(post);
     }
     by_id.into_values().collect()
+}
+
+/// How many unviewed spotlights `/feed` wants before it asks the client for more.
+pub const SPOTLIGHT_QUEUE: i64 = 5;
+
+/// Default and maximum page size for `GET /social/feed/history`.
+pub const HISTORY_DEFAULT_LIMIT: i64 = 10;
+pub const HISTORY_MAX_LIMIT: i64 = 50;
+
+/// How much one ranked post raises the chance the next slot is a spotlight.
+const SPOTLIGHT_STEP: f64 = 0.15;
+
+/// How much one recent non-spotlight raises the starting chance.
+const INITIAL_SPOTLIGHT_STEP: f64 = 0.2;
+
+/// Cap for a starting chance taken from recent views or the loaded feed.
+const INITIAL_SPOTLIGHT_CAP: f64 = 0.6;
+
+/// How many newest viewed posts `history` reads for its starting chance.
+pub const INITIAL_VIEW_COUNT: i64 = 3;
+
+/// A spotlight viewed longer ago than this sets the starting chance to the cap.
+const STALE_SPOTLIGHT: TimeDelta = TimeDelta::days(2);
+
+/// Unviewed spotlight post ids for the mix, plus whether the queue is short.
+pub struct SpotlightCandidates {
+    pub post_ids: Vec<i64>,
+    /// True when fewer than `count` of this user's spotlight posts are unviewed.
+    /// `loaded` still counts as unviewed. Ignores the request's `exclude`.
+    pub not_enough: bool,
+}
+
+/// One viewed post in view order, before it is hydrated.
+#[derive(Clone, Debug)]
+pub struct ViewedPostRef {
+    pub post_id: i64,
+    /// Order this post was viewed for this user. History pages by this.
+    pub view_order: i32,
+    pub viewed_at: DateTime<Utc>,
+}
+
+/// A history row: the post, its view order, and when this user viewed it.
+#[derive(Clone, Debug)]
+pub struct HistoryPost {
+    pub post: SocialPost,
+    pub view_order: i32,
+    pub viewed_at: DateTime<Utc>,
+}
+
+/// How many decorative tags a spotlight post is given.
+const SPOTLIGHT_TAG_LIMIT: usize = 5;
+
+/// Matches `post_tags_applied.text`.
+const SPOTLIGHT_TAG_TEXT_MAX: usize = 24;
+
+/// Apple tags nearly every artist with this as well as its real genres.
+const CATCH_ALL_GENRE: &str = "Music";
+
+/// One catalog id to queue for this user.
+#[derive(Clone, Debug)]
+pub struct SpotlightInput {
+    pub spotlight_type: String,
+    pub musickit_id: String,
+}
+
+/// What [`add_spotlights`] did. `untagged` is one item per shared post that
+/// still has no tags, for [`tag_spotlight_posts`] to fill later.
+pub struct AddedSpotlights {
+    pub added: i64,
+    pub untagged: Vec<SpotlightInput>,
+}
+
+/// Inserts a shared spotlight post per catalog id, then queues it for `user_id`.
+/// `added` is how many queue rows were new. An id that already has a spotlight
+/// post reuses it. A queue row that already exists is left alone. A repeated
+/// catalog id uses its first item.
+///
+/// Makes no outside calls. A song post with no tags gets up to five of the
+/// default tags already stored for it. Every post still without tags, which
+/// is every new artist post and any song with no stored default tags yet, is
+/// returned in `untagged`.
+///
+/// A fixed number of statements, whatever the number of items: posts, tags,
+/// and queue rows are each read or written for every item at once.
+pub async fn add_spotlights(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    items: &[SpotlightInput],
+) -> Result<AddedSpotlights, CadenzaError> {
+    let mut seen = HashSet::new();
+    let items: Vec<&SpotlightInput> = items
+        .iter()
+        .filter(|item| seen.insert((item.spotlight_type.as_str(), item.musickit_id.as_str())))
+        .collect();
+    if items.is_empty() {
+        return Ok(AddedSpotlights {
+            added: 0,
+            untagged: Vec::new(),
+        });
+    }
+    let musickit_ids: Vec<String> = items.iter().map(|item| item.musickit_id.clone()).collect();
+    let txn = db.begin().await?;
+    let post_ids = ensure_spotlight_posts(&txn, &musickit_ids).await?;
+    let untagged = fill_spotlight_tags(&txn, &items, &post_ids, &HashMap::new()).await?;
+    let rows = items.iter().map(|item| user_spotlights::ActiveModel {
+        user_id: Set(user_id),
+        spotlight_type: Set(item.spotlight_type.clone()),
+        musickit_id: Set(item.musickit_id.clone()),
+        post_id: Set(post_ids[&item.musickit_id]),
+    });
+    let added = user_spotlights::Entity::insert_many(rows)
+        .on_conflict(
+            OnConflict::columns([
+                user_spotlights::Column::UserId,
+                user_spotlights::Column::SpotlightType,
+                user_spotlights::Column::MusickitId,
+            ])
+            .do_nothing()
+            .to_owned(),
+        )
+        .exec_without_returning(&txn)
+        .await?;
+    txn.commit().await?;
+    Ok(AddedSpotlights {
+        added: added as i64,
+        untagged,
+    })
+}
+
+/// Tags the shared posts of `items` that still have none, in one short
+/// transaction. A song gets up to five of its stored default tags and an
+/// artist up to five of its entry in `artist_genres`, keyed by artist id. A
+/// post that already has tags is left alone.
+pub async fn tag_spotlight_posts(
+    db: &DatabaseConnection,
+    items: &[SpotlightInput],
+    artist_genres: &HashMap<String, Vec<String>>,
+) -> Result<(), CadenzaError> {
+    if items.is_empty() {
+        return Ok(());
+    }
+    let items: Vec<&SpotlightInput> = items.iter().collect();
+    let musickit_ids: Vec<String> = items.iter().map(|item| item.musickit_id.clone()).collect();
+    let txn = db.begin().await?;
+    let post_ids = ensure_spotlight_posts(&txn, &musickit_ids).await?;
+    fill_spotlight_tags(&txn, &items, &post_ids, artist_genres).await?;
+    txn.commit().await?;
+    Ok(())
+}
+
+/// Tags every spotlight post in `post_ids` that has none yet, and returns the
+/// first item of each post it found nothing to tag with.
+///
+/// Only empty posts are locked, so the usual case, a post that already has
+/// tags, takes no lock. They are locked in one statement in `post_id` order,
+/// so two requests that share posts take the locks in the same order and
+/// cannot deadlock. `NO KEY UPDATE` still lets likes, comments, and queue rows
+/// that reference the post go through.
+async fn fill_spotlight_tags(
+    db: &impl ConnectionTrait,
+    items: &[&SpotlightInput],
+    post_ids: &HashMap<String, i64>,
+    artist_genres: &HashMap<String, Vec<String>>,
+) -> Result<Vec<SpotlightInput>, CadenzaError> {
+    let all: Vec<i64> = post_ids.values().copied().collect();
+    let tagged = tags_for_posts(db, &all).await?;
+    let mut empty: Vec<i64> = all
+        .into_iter()
+        .filter(|post_id| !tagged.contains_key(post_id))
+        .collect();
+    if empty.is_empty() {
+        return Ok(Vec::new());
+    }
+    empty.sort_unstable();
+    posts::Entity::find()
+        .select_only()
+        .column(posts::Column::PostId)
+        .filter(posts::Column::PostId.is_in(empty.clone()))
+        .order_by_asc(posts::Column::PostId)
+        .lock(LockType::NoKeyUpdate)
+        .into_tuple::<i64>()
+        .all(db)
+        .await?;
+    // another request may have tagged some of them while this one waited
+    let filled = tags_for_posts(db, &empty).await?;
+    let empty: HashSet<i64> = empty
+        .into_iter()
+        .filter(|post_id| !filled.contains_key(post_id))
+        .collect();
+    if empty.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut claimed = HashSet::new();
+    let todo: Vec<(i64, &SpotlightInput)> = items
+        .iter()
+        .map(|item| (post_ids[&item.musickit_id], *item))
+        .filter(|(post_id, _)| empty.contains(post_id) && claimed.insert(*post_id))
+        .collect();
+    let song_ids: Vec<String> = todo
+        .iter()
+        .filter(|(_, item)| item.spotlight_type == "song")
+        .map(|(_, item)| item.musickit_id.clone())
+        .collect();
+    let labels = shared_default_tag_labels(db, &song_ids).await?;
+
+    let mut untagged = Vec::new();
+    let mut rows: Vec<post_tags_applied::ActiveModel> = Vec::new();
+    for (post_id, item) in todo {
+        let tags = if item.spotlight_type == "song" {
+            spotlight_song_tags(labels.get(&item.musickit_id).map_or(&[], Vec::as_slice))
+        } else {
+            spotlight_genre_tags(
+                artist_genres
+                    .get(&item.musickit_id)
+                    .map_or(&[], Vec::as_slice),
+            )
+        };
+        if tags.is_empty() {
+            untagged.push(item.clone());
+        }
+        rows.extend(tags.into_iter().map(|tag| post_tags_applied::ActiveModel {
+            tag_id: NotSet,
+            post_id: Set(post_id),
+            text: Set(tag.text),
+            color: Set(tag.color),
+        }));
+    }
+    // a word the lowercase check above let through but postgres `lower()`
+    // still counts as a repeat is dropped rather than failing every spotlight
+    post_tags_applied::Entity::insert_many(rows)
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(db)
+        .await?;
+    Ok(untagged)
+}
+
+/// Up to five default-tag labels that fit on a post. A name longer than 24
+/// characters, a color that is not `#rrggbb`, an empty name, or a repeated
+/// word is skipped. The rest stay in the order they were given.
+fn spotlight_song_tags(tags: &[(String, String)]) -> Vec<NewPostTag> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for (name, color) in tags {
+        if out.len() == SPOTLIGHT_TAG_LIMIT {
+            break;
+        }
+        let Some(text) = spotlight_tag_text(name) else {
+            continue;
+        };
+        let Some(color) = spotlight_tag_color(color) else {
+            continue;
+        };
+        if !seen.insert(text.to_lowercase()) {
+            continue;
+        }
+        out.push(NewPostTag { text, color });
+    }
+    out
+}
+
+/// Up to five artist genres that fit on a post, in the order Apple sent them.
+/// `Music`, an empty name, a name longer than 24 characters, or a repeated
+/// word is skipped. Each kept genre gets a random palette color.
+fn spotlight_genre_tags(genres: &[String]) -> Vec<NewPostTag> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for genre in genres {
+        if out.len() == SPOTLIGHT_TAG_LIMIT {
+            break;
+        }
+        let Some(text) = spotlight_tag_text(genre) else {
+            continue;
+        };
+        if text == CATCH_ALL_GENRE || !seen.insert(text.to_lowercase()) {
+            continue;
+        }
+        out.push(NewPostTag {
+            text,
+            color: random_suggested_tag_color(),
+        });
+    }
+    out
+}
+
+/// Trimmed tag text, or nothing when it is empty or longer than 24 characters.
+fn spotlight_tag_text(raw: &str) -> Option<String> {
+    let text = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() || text.chars().count() > SPOTLIGHT_TAG_TEXT_MAX {
+        return None;
+    }
+    Some(text)
+}
+
+/// `#rrggbb`, lowercased, or nothing.
+fn spotlight_tag_color(raw: &str) -> Option<String> {
+    let color = raw.trim().to_ascii_lowercase();
+    let hex = color.as_bytes();
+    let valid =
+        hex.len() == 7 && hex[0] == b'#' && hex[1..].iter().all(|byte| byte.is_ascii_hexdigit());
+    valid.then_some(color)
+}
+
+/// The shared spotlight post for each catalog id, keyed by that id. Missing
+/// posts are inserted in one statement, in catalog id order, so two requests
+/// that insert the same new ids wait on each other in the same order.
+async fn ensure_spotlight_posts(
+    db: &impl ConnectionTrait,
+    musickit_ids: &[String],
+) -> Result<HashMap<String, i64>, CadenzaError> {
+    let mut ids = musickit_ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    let rows = SpotlightPostRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "WITH ids AS (SELECT unnest($1::text[]) AS musickit_id),
+         inserted AS (
+             INSERT INTO posts (user_id, content, embedding, embedding_w_bday, topic_mk_id)
+             SELECT NULL, '', NULL, NULL, musickit_id FROM ids ORDER BY musickit_id
+             ON CONFLICT (topic_mk_id) WHERE user_id IS NULL AND topic_mk_id IS NOT NULL
+             DO NOTHING
+             RETURNING post_id, topic_mk_id
+         )
+         SELECT post_id, topic_mk_id FROM inserted
+         UNION ALL
+         SELECT p.post_id, p.topic_mk_id
+         FROM posts p
+         JOIN ids ON ids.musickit_id = p.topic_mk_id
+         WHERE p.user_id IS NULL
+           AND NOT EXISTS (SELECT 1 FROM inserted i WHERE i.topic_mk_id = p.topic_mk_id)",
+        vec![ids.clone().into()],
+    ))
+    .all(db)
+    .await?;
+    let mut found: HashMap<String, i64> = rows
+        .into_iter()
+        .map(|row| (row.topic_mk_id, row.post_id))
+        .collect();
+
+    // a post another request inserted while this statement waited on it was
+    // committed after this statement's snapshot, so only a new statement sees it
+    let missing: Vec<String> = ids
+        .iter()
+        .filter(|id| !found.contains_key(*id))
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        let late: Vec<(i64, Option<String>)> = posts::Entity::find()
+            .select_only()
+            .column(posts::Column::PostId)
+            .column(posts::Column::TopicMkId)
+            .filter(posts::Column::UserId.is_null())
+            .filter(posts::Column::TopicMkId.is_in(missing))
+            .into_tuple()
+            .all(db)
+            .await?;
+        for (post_id, topic_mk_id) in late {
+            if let Some(topic_mk_id) = topic_mk_id {
+                found.insert(topic_mk_id, post_id);
+            }
+        }
+    }
+    if found.len() != ids.len() {
+        return Err(CadenzaError::DatabaseError(
+            "inserting a spotlight post returned no id".into(),
+        ));
+    }
+    Ok(found)
+}
+
+#[derive(Debug, FromQueryResult)]
+struct SpotlightPostRow {
+    post_id: i64,
+    topic_mk_id: String,
+}
+
+/// Spotlight posts to mix into this page, and whether the unviewed pool is short.
+///
+/// `not_enough` counts unviewed rows (`loaded` included) and ignores `exclude`.
+/// The ids actually returned honor `exclude`, and that filter is applied before
+/// `LIMIT`, so a loaded spotlight does not use up a slot.
+pub async fn spotlight_posts(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    exclude: FeedExclude,
+    count: i64,
+) -> Result<SpotlightCandidates, CadenzaError> {
+    let unviewed = UnviewedCount::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        format!(
+            "SELECT COUNT(DISTINCT us.post_id)::bigint AS count
+             FROM user_spotlights us
+             JOIN posts p ON p.post_id = us.post_id
+             WHERE us.user_id = $1
+               AND NOT EXISTS (
+                   SELECT 1 FROM post_view_status v
+                   WHERE v.post_id = us.post_id
+                     AND v.user_id = $1
+                     AND v.status = 'viewed'
+               )
+               AND {NOT_BLOCKED_AUTHOR}"
+        ),
+        vec![user_id.into()],
+    ))
+    .one(db)
+    .await?
+    .map(|row| row.count)
+    .unwrap_or(0);
+
+    let values = vec![user_id.into(), count.into()];
+    let rows = IdRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        format!(
+            "SELECT us.post_id
+             FROM user_spotlights us
+             JOIN posts p ON p.post_id = us.post_id
+             WHERE us.user_id = $1
+               {view_filter}
+               AND {NOT_BLOCKED_AUTHOR}
+             GROUP BY us.post_id
+             ORDER BY us.post_id
+             LIMIT $2",
+            view_filter = spotlight_view_filter(exclude),
+        ),
+        values,
+    ))
+    .all(db)
+    .await?;
+
+    Ok(SpotlightCandidates {
+        post_ids: rows.into_iter().map(|row| row.post_id).collect(),
+        not_enough: unviewed < count,
+    })
+}
+
+/// `exclude` for the spotlight mix. `$1` is the viewer, already bound.
+fn spotlight_view_filter(exclude: FeedExclude) -> &'static str {
+    match exclude {
+        FeedExclude::None => "",
+        FeedExclude::Viewed => {
+            "AND NOT EXISTS (
+                 SELECT 1 FROM post_view_status v
+                 WHERE v.post_id = us.post_id
+                   AND v.user_id = $1
+                   AND v.status = 'viewed'
+             )"
+        }
+        FeedExclude::Loaded => {
+            "AND NOT EXISTS (
+                 SELECT 1 FROM post_view_status v
+                 WHERE v.post_id = us.post_id
+                   AND v.user_id = $1
+             )"
+        }
+    }
+}
+
+/// Viewed posts from `before_view_order` downward.
+///
+/// `before_view_order` is the highest number included. Previously viewed
+/// passes the `latest_view_order` from the first feed page, then one less
+/// than the last row. Blocked authors are left out.
+pub async fn viewed_posts(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    before_view_order: i32,
+    limit: i64,
+) -> Result<Vec<ViewedPostRef>, CadenzaError> {
+    let rows = ViewedPostRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        format!(
+            "SELECT p.post_id, v.view_order, v.date AS viewed_at
+             FROM post_view_status v
+             JOIN posts p ON p.post_id = v.post_id
+             WHERE v.user_id = $1
+               AND v.status = 'viewed'
+               AND v.view_order IS NOT NULL
+               AND v.view_order <= $2
+               AND {NOT_BLOCKED_AUTHOR}
+             ORDER BY v.view_order DESC
+             LIMIT $3"
+        ),
+        vec![user_id.into(), before_view_order.into(), limit.into()],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ViewedPostRef {
+            post_id: row.post_id,
+            view_order: row.view_order,
+            viewed_at: row.viewed_at.with_timezone(&Utc),
+        })
+        .collect())
+}
+
+/// [`viewed_posts`] hydrated in that order. A post the hydrate step drops is
+/// left out.
+pub async fn feed_history(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    before_view_order: i32,
+    limit: i64,
+) -> Result<Vec<HistoryPost>, CadenzaError> {
+    let refs = viewed_posts(db, user_id, before_view_order, limit).await?;
+    let ids: Vec<i64> = refs.iter().map(|row| row.post_id).collect();
+    let posts = get_posts(db, user_id, &ids).await?;
+    let mut by_id: HashMap<i64, SocialPost> =
+        posts.into_iter().map(|post| (post.post_id, post)).collect();
+    let mut out = Vec::with_capacity(refs.len());
+    for row in refs {
+        if let Some(post) = by_id.remove(&row.post_id) {
+            out.push(HistoryPost {
+                post,
+                view_order: row.view_order,
+                viewed_at: row.viewed_at,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Inserts spotlight ids after ranked posts. Ranked ids are kept in order.
+///
+/// Chance starts at `start`. For each ranked id, a roll under the current
+/// chance places the next spotlight after that id and resets the chance to 0.
+/// The chance then rises by 0.15, capped at 1. `roll` returns a number in
+/// `0..1`. Nothing is appended once the ranked ids end. The returned chance
+/// is the value after the last ranked post, so the next page can start there.
+pub fn mix_feed(
+    ranked: &[i64],
+    spotlights: &[i64],
+    start: f64,
+    mut roll: impl FnMut() -> f64,
+) -> (Vec<i64>, f64) {
+    let mut out = Vec::with_capacity(ranked.len() + spotlights.len());
+    let mut spotlight_at = 0;
+    let mut chance = start;
+    for &post_id in ranked {
+        out.push(post_id);
+        if spotlight_at < spotlights.len() && roll() < chance {
+            out.push(spotlights[spotlight_at]);
+            spotlight_at += 1;
+            chance = 0.0;
+        }
+        chance = (chance + SPOTLIGHT_STEP).min(1.0);
+    }
+    (out, chance)
+}
+
+/// Starting spotlight chance from the newest views.
+///
+/// Each leading non-spotlight adds 0.2, and the walk stops at the first
+/// spotlight. Three views and no spotlight cap the chance at 0.6. A spotlight
+/// viewed more than two days ago sets the chance to 0.6.
+pub fn initial_spotlight_chance(viewed: &[RecentView], now: DateTime<Utc>) -> f64 {
+    let mut chance = 0.0;
+    for row in viewed.iter().take(INITIAL_VIEW_COUNT as usize) {
+        if row.author_id.is_none() {
+            if now - row.viewed_at > STALE_SPOTLIGHT {
+                return INITIAL_SPOTLIGHT_CAP;
+            }
+            return chance;
+        }
+        chance = (chance + INITIAL_SPOTLIGHT_STEP).min(INITIAL_SPOTLIGHT_CAP);
+    }
+    chance
+}
+
+/// One recently viewed post, newest first, for [`initial_spotlight_chance`].
+#[derive(Clone, Debug)]
+pub struct RecentView {
+    /// `None` when the post is a spotlight.
+    pub author_id: Option<Uuid>,
+    pub viewed_at: DateTime<Utc>,
+}
+
+/// The newest viewed posts for `user_id`, at most `limit`.
+pub async fn recent_viewed_posts(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    limit: i64,
+) -> Result<Vec<RecentView>, CadenzaError> {
+    let rows = RecentViewRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT p.user_id AS author_id, v.date AS viewed_at
+         FROM post_view_status v
+         JOIN posts p ON p.post_id = v.post_id
+         WHERE v.user_id = $1
+           AND v.status = 'viewed'
+         ORDER BY v.date DESC, p.post_id DESC
+         LIMIT $2",
+        vec![user_id.into(), limit.into()],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| RecentView {
+            author_id: row.author_id,
+            viewed_at: row.viewed_at.with_timezone(&Utc),
+        })
+        .collect())
 }
 
 /// Ensures each interest exists. Returns whether it already had an embedding.
@@ -1929,24 +2734,33 @@ async fn candidate_posts(
         .collect()
 }
 
-fn exclude_clause(exclude: FeedExclude, user_id: Uuid) -> (&'static str, Vec<Value>) {
+fn exclude_clause(exclude: FeedExclude, user_id: Uuid) -> (String, Vec<Value>) {
+    // Null-author rows are spotlights. They are inserted afterwards, so the
+    // similar, hot, and unfiltered pools stay ordinary posts.
+    let author = "posts.user_id IS NOT NULL";
     match exclude {
-        FeedExclude::None => ("", Vec::new()),
+        FeedExclude::None => (format!("WHERE {author}"), Vec::new()),
         FeedExclude::Viewed => (
-            "WHERE NOT EXISTS (
-                 SELECT 1 FROM post_view_status
-                 WHERE post_view_status.post_id = posts.post_id
-                   AND post_view_status.user_id = $1
-                   AND post_view_status.status = 'viewed'
-             )",
+            format!(
+                "WHERE {author}
+                 AND NOT EXISTS (
+                     SELECT 1 FROM post_view_status
+                     WHERE post_view_status.post_id = posts.post_id
+                       AND post_view_status.user_id = $1
+                       AND post_view_status.status = 'viewed'
+                 )"
+            ),
             vec![user_id.into()],
         ),
         FeedExclude::Loaded => (
-            "WHERE NOT EXISTS (
-                 SELECT 1 FROM post_view_status
-                 WHERE post_view_status.post_id = posts.post_id
-                   AND post_view_status.user_id = $1
-             )",
+            format!(
+                "WHERE {author}
+                 AND NOT EXISTS (
+                     SELECT 1 FROM post_view_status
+                     WHERE post_view_status.post_id = posts.post_id
+                       AND post_view_status.user_id = $1
+                 )"
+            ),
             vec![user_id.into()],
         ),
     }
@@ -1972,12 +2786,12 @@ fn is_missing_post(err: &DbErr) -> bool {
 #[derive(Debug, FromQueryResult)]
 struct PostRow {
     post_id: i64,
-    author_id: Uuid,
+    author_id: Option<Uuid>,
     content: String,
     likes: i64,
     created_at: DateTime<chrono::FixedOffset>,
     edited_at: Option<DateTime<chrono::FixedOffset>>,
-    username: String,
+    username: Option<String>,
     liked: bool,
     topic_mk_id: Option<String>,
     shared_playlist_id: Option<i64>,
@@ -1996,16 +2810,20 @@ async fn to_posts(
         .filter_map(|row| row.shared_playlist_id)
         .collect();
     let cards = playlist_cards(db, &ids).await?;
-    Ok(rows
+    let post_ids: Vec<i64> = rows.iter().map(|row| row.post_id).collect();
+    let mut tags = tags_for_posts(db, &post_ids).await?;
+    let posts = rows
         .iter()
         .map(|row| SocialPost {
             shared_playlist: row.shared_playlist_id.map(|id| match cards.get(&id) {
                 Some(card) => AttachedPlaylist::Card(card.clone()),
                 None => AttachedPlaylist::Unavailable(id),
             }),
+            tags: tags.remove(&row.post_id).unwrap_or_default(),
             ..row.to_post()
         })
-        .collect())
+        .collect();
+    Ok(posts)
 }
 
 impl PostRow {
@@ -2024,8 +2842,193 @@ impl PostRow {
             topic_mk_id: self.topic_mk_id.clone(),
             shared_playlist: None,
             comment_count: self.comment_count,
+            tags: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, FromQueryResult)]
+struct PostTagRow {
+    tag_id: i64,
+    post_id: i64,
+    text: String,
+    color: String,
+}
+
+pub async fn post_tags(
+    db: &impl ConnectionTrait,
+    post_id: i64,
+) -> Result<Vec<PostTag>, CadenzaError> {
+    tags_for_post(db, post_id).await
+}
+
+async fn tags_for_post(
+    db: &impl ConnectionTrait,
+    post_id: i64,
+) -> Result<Vec<PostTag>, CadenzaError> {
+    let mut tags = tags_for_posts(db, &[post_id]).await?;
+    Ok(tags.remove(&post_id).unwrap_or_default())
+}
+
+/// Tags for these posts, sorted by `tag_id` within each post.
+async fn tags_for_posts(
+    db: &impl ConnectionTrait,
+    post_ids: &[i64],
+) -> Result<HashMap<i64, Vec<PostTag>>, CadenzaError> {
+    if post_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = PostTagRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT tag_id, post_id, text, color
+         FROM post_tags_applied
+         WHERE post_id = ANY($1)
+         ORDER BY tag_id",
+        vec![post_ids.to_vec().into()],
+    ))
+    .all(db)
+    .await?;
+    let mut tags: HashMap<i64, Vec<PostTag>> = HashMap::new();
+    for row in rows {
+        tags.entry(row.post_id).or_default().push(PostTag {
+            tag_id: row.tag_id,
+            text: row.text,
+            color: row.color,
+        });
+    }
+    Ok(tags)
+}
+
+async fn insert_tags(
+    db: &impl ConnectionTrait,
+    post_id: i64,
+    tags: &[NewPostTag],
+) -> Result<(), CadenzaError> {
+    let rows = tags.iter().map(|tag| post_tags_applied::ActiveModel {
+        tag_id: NotSet,
+        post_id: Set(post_id),
+        text: Set(tag.text.clone()),
+        color: Set(tag.color.clone()),
+    });
+    post_tags_applied::Entity::insert_many(rows)
+        .exec_without_returning(db)
+        .await?;
+    Ok(())
+}
+
+/// Applies `patch` to the post's tags. Ids are checked against the rows this
+/// transaction can see, which is after the post row was locked by its update.
+async fn apply_tag_patch(
+    db: &impl ConnectionTrait,
+    post_id: i64,
+    patch: &PostTagPatch,
+) -> Result<(), CadenzaError> {
+    if patch.edit.is_empty() && patch.delete.is_empty() && patch.add.is_empty() {
+        return Ok(());
+    }
+    let current = tags_for_post(db, post_id).await?;
+    let ids: std::collections::HashSet<i64> = current.iter().map(|tag| tag.tag_id).collect();
+    for id in patch.edit.keys().chain(patch.delete.iter()) {
+        if !ids.contains(id) {
+            return Err(CadenzaError::InvalidRequestBody(
+                "tag is not on this post".into(),
+            ));
+        }
+    }
+    if patch.delete.iter().any(|id| patch.edit.contains_key(id)) {
+        return Err(CadenzaError::InvalidRequestBody(
+            "a tag cannot be edited and deleted".into(),
+        ));
+    }
+    let deleted: std::collections::HashSet<i64> = patch.delete.iter().copied().collect();
+    if deleted.len() != patch.delete.len() {
+        return Err(CadenzaError::InvalidRequestBody(
+            "a tag cannot be deleted twice".into(),
+        ));
+    }
+    let mut next: Vec<PostTag> = current
+        .into_iter()
+        .filter(|tag| !deleted.contains(&tag.tag_id))
+        .map(|mut tag| {
+            if let Some(edit) = patch.edit.get(&tag.tag_id) {
+                tag.text = edit.text.clone();
+                tag.color = edit.color.clone();
+            }
+            tag
+        })
+        .collect();
+    for tag in &patch.add {
+        next.push(PostTag {
+            tag_id: 0,
+            text: tag.text.clone(),
+            color: tag.color.clone(),
+        });
+    }
+    if next.len() > POST_TAG_LIMIT {
+        return Err(too_many_tags());
+    }
+    if duplicate_tag_words(next.iter().map(|tag| tag.text.as_str())) {
+        return Err(duplicate_tag());
+    }
+    if !patch.delete.is_empty() {
+        db.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "DELETE FROM post_tags_applied WHERE post_id = $1 AND tag_id = ANY($2)",
+            vec![post_id.into(), patch.delete.clone().into()],
+        ))
+        .await?;
+    }
+    if !patch.edit.is_empty() {
+        let mut sql = String::from(
+            "UPDATE post_tags_applied AS t
+             SET text = v.text, color = v.color
+             FROM (VALUES ",
+        );
+        let mut values: Vec<Value> = vec![post_id.into()];
+        for (index, (tag_id, tag)) in patch.edit.iter().enumerate() {
+            if index > 0 {
+                sql.push_str(", ");
+            }
+            let base = 2 + index * 3;
+            sql.push_str(&format!(
+                "(${base}::bigint, ${}::text, ${}::text)",
+                base + 1,
+                base + 2
+            ));
+            values.push((*tag_id).into());
+            values.push(tag.text.clone().into());
+            values.push(tag.color.clone().into());
+        }
+        sql.push_str(
+            ") AS v(tag_id, text, color)
+             WHERE t.post_id = $1 AND t.tag_id = v.tag_id",
+        );
+        db.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            &sql,
+            values,
+        ))
+        .await?;
+    }
+    insert_tags(db, post_id, &patch.add).await
+}
+
+fn duplicate_tag_words<'a>(words: impl Iterator<Item = &'a str>) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    for word in words {
+        if !seen.insert(word.to_lowercase()) {
+            return true;
+        }
+    }
+    false
+}
+
+fn too_many_tags() -> CadenzaError {
+    CadenzaError::InvalidRequestBody("a post can have at most 10 tags".into())
+}
+
+fn duplicate_tag() -> CadenzaError {
+    CadenzaError::InvalidRequestBody("a post already has that tag".into())
 }
 
 #[derive(Debug, FromQueryResult)]
@@ -2102,6 +3105,34 @@ struct CandidateRow {
     created_at: DateTime<chrono::FixedOffset>,
 }
 
+#[derive(Debug, FromQueryResult)]
+struct UnviewedCount {
+    count: i64,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct IdRow {
+    post_id: i64,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct ViewedPostRow {
+    post_id: i64,
+    view_order: i32,
+    viewed_at: DateTime<chrono::FixedOffset>,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct ViewOrderRow {
+    view_order: i32,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct RecentViewRow {
+    author_id: Option<Uuid>,
+    viewed_at: DateTime<chrono::FixedOffset>,
+}
+
 /// An interest row just inserted or already present.
 #[derive(Debug, Clone, FromQueryResult)]
 pub struct UpsertedInterest {
@@ -2154,6 +3185,85 @@ mod tests {
             likes: 0,
             created_at: Utc::now(),
         }
+    }
+
+    fn recent(spotlight: bool, hours_ago: i64, now: DateTime<Utc>) -> RecentView {
+        RecentView {
+            author_id: (!spotlight).then_some(Uuid::nil()),
+            viewed_at: now - TimeDelta::hours(hours_ago),
+        }
+    }
+
+    #[test]
+    fn mix_inserts_a_spotlight_behind_the_ranked_post() {
+        // Chance starts at 0, so the first post never takes a spotlight.
+        // A roll of 0 hits as soon as the chance is 0.15.
+        let (mixed, chance) = mix_feed(&[1, 2, 3], &[10], 0.0, || 0.0);
+        assert_eq!(mixed, vec![1, 2, 10, 3]);
+        assert!((chance - 0.3).abs() < 1e-9);
+    }
+
+    #[test]
+    fn mix_resets_chance_after_a_spotlight_then_steps_by_fifteen_percent() {
+        // post 1: 1.0 < 0, chance 0.15
+        // post 2: 0.0 < 0.15, spotlight behind 2, chance resets then steps to 0.15
+        // post 3: 0.25 < 0.15, chance 0.3
+        // post 4: 0.1 < 0.3, spotlight behind 4
+        let mut rolls = [1.0, 0.0, 0.25, 0.1].into_iter();
+        let (mixed, _) = mix_feed(&[1, 2, 3, 4], &[10, 11], 0.0, || rolls.next().unwrap());
+        assert_eq!(mixed, vec![1, 2, 10, 3, 4, 11]);
+    }
+
+    #[test]
+    fn mix_uses_a_starting_chance_on_the_first_post() {
+        let (mixed, chance) = mix_feed(&[1, 2], &[10], 0.5, || 0.0);
+        assert_eq!(mixed, vec![1, 10, 2]);
+        assert!((chance - 0.3).abs() < 1e-9);
+    }
+
+    #[test]
+    fn mix_does_not_append_spotlights_when_ranked_posts_run_out() {
+        let spotlights: Vec<i64> = (10..30).collect();
+        assert_eq!(mix_feed(&[1, 2], &spotlights, 0.0, || 1.0).0, vec![1, 2]);
+        let (mixed, chance) = mix_feed(&[], &[10, 11, 12, 13, 14], 0.3, || 0.0);
+        assert_eq!(mixed, Vec::<i64>::new());
+        assert!((chance - 0.3).abs() < 1e-9);
+    }
+
+    fn chance_near(actual: f64, expected: f64) {
+        assert!((actual - expected).abs() < 1e-9, "{actual} != {expected}");
+    }
+
+    #[test]
+    fn initial_chance_counts_non_spotlights_until_a_spotlight() {
+        let now = Utc::now();
+        chance_near(initial_spotlight_chance(&[], now), 0.0);
+        let three = vec![
+            recent(false, 1, now),
+            recent(false, 2, now),
+            recent(false, 3, now),
+        ];
+        chance_near(initial_spotlight_chance(&three, now), 0.6);
+        let five = vec![recent(false, 1, now); 5];
+        chance_near(initial_spotlight_chance(&five, now), 0.6);
+        let stopped = vec![
+            recent(false, 1, now),
+            recent(false, 2, now),
+            recent(true, 3, now),
+            recent(false, 4, now),
+        ];
+        chance_near(initial_spotlight_chance(&stopped, now), 0.4);
+        chance_near(initial_spotlight_chance(&[recent(true, 1, now)], now), 0.0);
+    }
+
+    #[test]
+    fn initial_chance_caps_when_the_spotlight_is_older_than_two_days() {
+        let now = Utc::now();
+        let old = vec![recent(false, 1, now), recent(true, 49, now)];
+        chance_near(initial_spotlight_chance(&old, now), 0.6);
+        chance_near(initial_spotlight_chance(&[recent(true, 49, now)], now), 0.6);
+        let fresh = vec![recent(false, 1, now), recent(true, 47, now)];
+        chance_near(initial_spotlight_chance(&fresh, now), 0.2);
     }
 
     #[test]
@@ -2288,6 +3398,26 @@ mod tests {
     }
 
     #[test]
+    fn post_hydration_keeps_mixed_spotlights_and_block_filter() {
+        let viewer = Uuid::nil();
+        let (mixed, _) = mix_feed(&[1, 2], &[3], 1.0, || 0.0);
+        assert_eq!(mixed, vec![1, 3, 2]);
+        let statement = posts_statement(viewer, &mixed);
+        assert!(statement.sql.contains("p.post_id = ANY($2::bigint[])"));
+        assert!(statement.sql.contains("LEFT JOIN profile"));
+        assert!(statement.sql.contains(NOT_BLOCKED_AUTHOR));
+        assert!(
+            statement
+                .sql
+                .contains("CASE WHEN p.user_id IS NULL THEN NULL")
+        );
+        assert!(!statement.sql.contains("p.user_id IS NOT NULL"));
+        let values = &statement.values.as_ref().unwrap().0;
+        assert_eq!(values[0], Value::from(viewer));
+        assert_eq!(values[1], Value::from(mixed));
+    }
+
+    #[test]
     fn topic_posts_statement_pages_by_likes() {
         let viewer = Uuid::nil();
         let first = topic_posts_statement(viewer, "1615585008", None);
@@ -2296,6 +3426,7 @@ mod tests {
             "{}",
             first.sql
         );
+        assert!(first.sql.contains("p.user_id IS NOT NULL"), "{}", first.sql);
         assert!(
             first
                 .sql
@@ -2324,12 +3455,56 @@ mod tests {
             "{}",
             next.sql
         );
+        assert!(next.sql.contains("p.user_id IS NOT NULL"), "{}", next.sql);
         assert!(next.sql.contains("LIMIT $6"), "{}", next.sql);
         let values = &next.values.as_ref().unwrap().0;
         assert_eq!(values[2], Value::from(4_i64));
         assert_eq!(values[3], Value::from(created_at));
         assert_eq!(values[4], Value::from(12_i64));
         assert_eq!(values[5], Value::from(TOPIC_POST_LIMIT));
+    }
+
+    #[test]
+    fn spotlight_song_tags_keep_five_that_fit() {
+        let long = "n".repeat(25);
+        let tags = vec![
+            ("one".into(), "#111111".into()),
+            ("two".into(), "#222222".into()),
+            (long, "#333333".into()),
+            ("three".into(), "red".into()),
+            ("One".into(), "#444444".into()),
+            ("four".into(), "#0000FF".into()),
+            ("five".into(), "#555555".into()),
+            ("six".into(), "#666666".into()),
+            ("seven".into(), "#777777".into()),
+        ];
+        let kept = spotlight_song_tags(&tags);
+        let names: Vec<_> = kept.iter().map(|tag| tag.text.as_str()).collect();
+        assert_eq!(names, ["one", "two", "four", "five", "six"]);
+        assert_eq!(kept[2].color, "#0000ff");
+    }
+
+    #[test]
+    fn spotlight_genre_tags_drop_music_and_use_palette_colors() {
+        use crate::services::tag_generation::openai_tag_generator::is_suggested_tag_color;
+
+        let long = "g".repeat(25);
+        let genres = vec![
+            "Music".into(),
+            "  Alt   Rock ".into(),
+            " ".into(),
+            "Pop".into(),
+            " pop ".into(),
+            long,
+            "Jazz".into(),
+            "Soul".into(),
+            "Metal".into(),
+            "Folk".into(),
+        ];
+        let kept = spotlight_genre_tags(&genres);
+        let names: Vec<_> = kept.iter().map(|tag| tag.text.as_str()).collect();
+        assert_eq!(names, ["Alt Rock", "Pop", "Jazz", "Soul", "Metal"]);
+        assert!(kept.iter().all(|tag| is_suggested_tag_color(&tag.color)));
     }
 }
 

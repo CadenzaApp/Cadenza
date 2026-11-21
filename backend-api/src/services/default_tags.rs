@@ -55,7 +55,8 @@ const RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(300);
 /// would outlive the attempt and the song would be skipped forever.
 ///
 /// `song_ids` must hold at most 300 entries, the cap `SongMetadataService` panics past.
-/// Both callers go through `routes::songs::check_batch_size` first, which caps at 200.
+/// The default tag routes go through `routes::songs::check_batch_size` first, which caps
+/// at 200. `POST /social/spotlights` passes at most `social::SPOTLIGHT_QUEUE` (5) song ids.
 pub async fn ensure_default_tags_generated(
     db: &DatabaseConnection,
     song_meta_service: &SongMetadataService,

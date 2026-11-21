@@ -439,10 +439,14 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
                             }}
                         />
                     }
-                    onCreate={async (content) => {
+                    onCreate={async (content, _topic, _playlist, tags) => {
                         await createPost({
                             content,
                             shared_playlist_id: playlist.playlist_id,
+                            tags: tags?.map(({ text, color }) => ({
+                                text,
+                                color,
+                            })),
                         });
                         showNotice("Shared to your feed.");
                     }}
