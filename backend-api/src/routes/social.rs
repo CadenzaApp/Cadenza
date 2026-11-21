@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use sea_orm::prelude::Uuid;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
 use crate::{
@@ -24,6 +24,7 @@ use crate::{
         },
     },
     err::CadenzaError,
+    lifecycle::BackgroundTasks,
     routes::json::{
         social::{
             AddSpotlightsResponse, CommentsCursor, CreateCommentResponse, CreatePostResponse,
@@ -35,8 +36,9 @@ use crate::{
         },
         vec_into,
     },
+    services::push::PushService,
     services::{
-        realtime::SharedPresence,
+        realtime::{SharedEventBus, SharedPresence, publish_notification},
         social_feed::{InitialSpotlightChance, NewPostTopic, SocialFeedService},
         song_metadata::SongMetadataService,
         spotlights::spawn_spotlight_tagging,
@@ -381,6 +383,7 @@ struct IncomingPostTag {
 /// instead; the two cannot both be set.
 /// `topic_song_title` and `topic_artist_name` are display names from MusicKit,
 /// used only to prefix the embedding; stored content is unchanged.
+/// After the response, the author's friends get a "new post from <username>" push.
 ///
 /// ```json
 /// { "post_id": 1, "tags": [{ "tag_id": 4, "text": "live", "color": "#2061f1" }] }
@@ -393,6 +396,8 @@ struct IncomingPostTag {
 async fn create_post(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
+    State(push): State<PushService>,
+    State(work): State<BackgroundTasks>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(body): Json<CreatePostBody>,
 ) -> Result<Json<CreatePostResponse>, CadenzaError> {
@@ -424,6 +429,7 @@ async fn create_post(
     let (post_id, tags) = social
         .create_post(&db, claims.user_id, &body.content, topic, &tags)
         .await?;
+    push.notify_friend_post(db.clone(), &work, claims.user_id, post_id, body.content);
     Ok(Json(CreatePostResponse {
         post_id,
         tags: tags.into_iter().map(Into::into).collect(),
@@ -1025,17 +1031,24 @@ struct LikeBody {
 
 /// Likes a post. `timestamp` is the client's click time in milliseconds. A
 /// click older than the last one this process accepted for the pair is ignored.
-/// Responds with `null`.
+/// A new like pushes "<username> liked your post" to the author, at most once
+/// an hour per liker and post, and never for your own post. Responds with
+/// `null`.
 async fn like_post(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
+    State(push): State<PushService>,
+    State(work): State<BackgroundTasks>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Path(post_id): Path<i64>,
     Json(body): Json<LikeBody>,
 ) -> Result<Json<Value>, CadenzaError> {
-    social
+    let liked_now = social
         .like_post(&db, claims.user_id, post_id, body.timestamp)
         .await?;
+    if liked_now {
+        push.notify_post_like(db.clone(), &work, claims.user_id, post_id);
+    }
     Ok(Json(Value::Null))
 }
 
@@ -1114,7 +1127,11 @@ struct CreateCommentBody {
 
 /// Creates a comment on this post for the signed-in user. `content` is at
 /// most 500 characters. The post's author is notified, unless they wrote the
-/// comment. 404 when the post is gone.
+/// comment, and their inbox topic gets a `notification` event once it is
+/// saved. Every phone the author is signed in on also gets a push, after the
+/// response. For now that includes the author's own comments, for testing.
+/// See `services::push_triggers`.
+/// 404 when the post is gone.
 ///
 /// ```json
 /// { "comment_id": 1 }
@@ -1122,15 +1139,41 @@ struct CreateCommentBody {
 async fn create_comment(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
+    State(bus): State<SharedEventBus>,
+    State(push): State<PushService>,
+    State(work): State<BackgroundTasks>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Path(post_id): Path<i64>,
     Json(body): Json<CreateCommentBody>,
 ) -> Result<Json<CreateCommentResponse>, CadenzaError> {
     let content = require_content(&body.content, COMMENT_CONTENT_MAX)?;
-    let comment_id = social
+    let inserted = social
         .create_comment(&db, claims.user_id, post_id, content)
         .await?;
-    Ok(Json(CreateCommentResponse { comment_id }))
+    if let Some(author_id) = inserted.notified {
+        publish_notification(
+            &bus,
+            author_id,
+            json!({
+                "type": "comment",
+                "content": content,
+                "metadata": { "post_id": post_id },
+            }),
+        );
+    }
+    if let Some(author_id) = inserted.post_author {
+        push.notify_comment(
+            db.clone(),
+            &work,
+            author_id,
+            claims.user_id,
+            post_id,
+            content.to_owned(),
+        );
+    }
+    Ok(Json(CreateCommentResponse {
+        comment_id: inserted.comment_id,
+    }))
 }
 
 /// Replaces the signed-in user's comment text. `content` is trimmed and at

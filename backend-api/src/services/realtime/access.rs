@@ -22,6 +22,7 @@ pub async fn can_subscribe(
         Topic::SharedPlaylist(playlist_id) => {
             Ok(member_role(db, *playlist_id, user_id).await?.is_some())
         }
+        Topic::Inbox(owner) => Ok(*owner == user_id),
     }
 }
 

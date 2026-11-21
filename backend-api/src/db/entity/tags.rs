@@ -9,7 +9,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub tag_id: i64,
     pub user_id: Option<Uuid>,
-    #[sea_orm(column_type = "Text", unique)]
+    #[sea_orm(column_type = "Text")]
     pub name: String,
     #[sea_orm(column_type = "Text")]
     pub color: String,

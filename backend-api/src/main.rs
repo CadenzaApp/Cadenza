@@ -25,10 +25,10 @@ use crate::{
         analytics::get_analytics_router, assistant::get_assistant_router,
         events::get_events_router, invites::get_invites_router, listening::get_listening_router,
         live_sessions::get_live_sessions_router, profile::get_profile_router,
-        queries::get_queries_router, realtime::get_realtime_router,
-        saved_queries::get_saved_queries_router, settings::get_settings_router,
-        shared_playlists::get_shared_playlists_router, social::get_social_router,
-        songs::get_songs_router, tags::get_tags_router,
+        push_tokens::get_push_tokens_router, queries::get_queries_router,
+        realtime::get_realtime_router, saved_queries::get_saved_queries_router,
+        settings::get_settings_router, shared_playlists::get_shared_playlists_router,
+        social::get_social_router, songs::get_songs_router, tags::get_tags_router,
     },
     services::{
         assistant::{AssistantService, model::OpenAiAssistantModel},
@@ -36,6 +36,7 @@ use crate::{
         invite_codes::RedeemLimiter,
         metadata_tags::{MetadataCrawlConfig, MetadataCrawler, spawn_metadata_crawl},
         notification::spawn_notification_cleanup,
+        push::{PushService, spawn_receipt_check},
         realtime::{InMemoryBus, InMemoryPresence, SharedEventBus, SharedPresence},
         social_feed::{self, SocialFeedService},
         song_metadata::SongMetadataService,
@@ -58,6 +59,8 @@ struct AppState {
     /// Who has the app open. See services::realtime::presence.
     presence: SharedPresence,
     redeem_limiter: RedeemLimiter,
+    /// Sends Expo pushes to phones. See services::push.
+    push_service: PushService,
 }
 
 #[tokio::main]
@@ -142,6 +145,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // then once a day. notifications_created_at_idx is the index it walks
     spawn_notification_cleanup(db.clone(), background_tasks.clone());
 
+    // reads Expo push receipts and deletes tokens Expo no longer delivers to
+    let push_service = PushService::new();
+    spawn_receipt_check(push_service.clone(), db.clone(), background_tasks.clone());
+
     // ends live sessions left paused, or whose host closed the app, and tells
     // their members
     let event_bus: services::realtime::SharedEventBus = std::sync::Arc::new(InMemoryBus::new());
@@ -165,6 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         event_bus,
         presence: std::sync::Arc::new(InMemoryPresence::new()),
         redeem_limiter: RedeemLimiter::new(),
+        push_service,
     };
 
     // route paths
@@ -174,6 +182,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/queries", get_queries_router())
         .nest("/saved-queries", get_saved_queries_router())
         .nest("/profile", get_profile_router())
+        .nest("/push-tokens", get_push_tokens_router())
         .nest("/settings", get_settings_router())
         .nest("/social", get_social_router())
         .nest("/events", get_events_router())

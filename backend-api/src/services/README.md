@@ -21,6 +21,8 @@ in-app notification for a user, and the definitions the listening analytics are 
 | `tag_generation/mod.rs`                  | The `TagGenerator` trait, its `TagGenerationError`, and the `TagGenerationService` wrapper.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation of `TagGenerator`. Unit tested, plus ignored integration tests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `openai.rs` | The Responses API url and timeout, and `rate_limit_wait`, which reads a 429's headers for the wait. Shared by tag generation and the assistant. Unit tested. |
+| `push.rs` | `PushService`: sends an Expo push to every token a user registered (`db::push_tokens`), off the request, and deletes tokens Expo reports as `DeviceNotRegistered`. `spawn_receipt_check` reads push receipts. See Notifications. |
+| `push_triggers.rs` | One `PushService` method per event that pushes: a comment, a like, a friend's post. Each does its lookups and the send on a background task. See Notifications. |
 | `rate_limit.rs` | `RateLimiter`, an in-memory sliding window limiter per key. The assistant uses it per user. Unit tested. |
 | `assistant/mod.rs`                       | `AssistantService` (the model plus the per-user request limit), `answer`, and `run_loop` with its `LoopState`: the in-app assistant's tool loop, which stops at a phone tool and picks up again from a `resume`. Unit tested with a scripted model. |
 | `assistant/phone_tools.rs`               | The tools only the phone runs (`now_playing`, `play`, `playback`, `queue_songs`, `set_shuffle`, `set_repeat`, `search_apple_music`, `apple_music_playlists`, `apple_music_playlist_songs`, `apple_music_library`, `favorite_song`, `favorite_collection`, `create_apple_music_playlist`, `add_to_apple_music_playlist`, `open_screen`): their schemas and labels, `songs: "card"` swapped for the card's ids, and a `card` in the phone's output taken out for the answer. The phone side is `client-app/src/features/assistant/phone-tools.ts`. Unit tested. |
@@ -357,8 +359,33 @@ Accepting or ignoring the request sets `metadata.resolution` to `accepted` or
 `ignored` on the `friend_req_received` row.
 
 A kept call inserts one unread row and returns its `notif_id`. `created_at` is
-the database clock. Nothing here sends a phone push; the row waits until the
-app next reads the list.
+the database clock. The row waits until the app next reads the list.
+
+Phone pushes are separate, in `push.rs` and `push_triggers.rs`. A route calls
+`notify_session_chat` after saving chat messages, sending a preview to current
+session members except the sender. Payloads include `session_id` and `message_id`.
+A route calls
+one `PushService::notify_*` method after its write, and the method looks up
+names and recipients and sends on a background task, so the request does not
+wait on Expo. `send_to_users` sends one message to every token those users
+have, in one batch.
+
+| event | sent to | title | body | data `type` |
+| --- | --- | --- | --- | --- |
+| comment | the post's author, also on their own post for now (testing) | `<username> commented on your post` | the comment | `comment`, with `post_id` |
+| like | the post's author, not for their own like | `<username> liked your post` | the post's first 100 characters | `post_like`, with `post_id` |
+| new post | every completed friend of the author | `new post from <username>` | the post's first 100 characters | `friend_post`, with `post_id` |
+
+A like pushes only when the like row is new, and `first_in` keeps a like,
+unlike, like inside an hour from pushing twice.
+
+A send ticket that says `DeviceNotRegistered` deletes its token at once. Every
+other token's receipt waits in memory, and `spawn_receipt_check` reads receipts
+at least 15 minutes old every 5 minutes, deleting tokens whose receipt says
+`DeviceNotRegistered`. A receipt Expo has not written yet is retried for a day.
+The queue and the like memory are lost on restart, and the queue is capped at
+10,000, so a dead token can outlive one push, but the next push to it catches
+it.
 
 `spawn_notification_cleanup` runs for the life of the server, spawned from
 `main.rs`. The first pass runs at startup, then once a day. It deletes every
@@ -463,7 +490,7 @@ append each call and its output, and repeat until the model answers with text. I
 
 `GET /realtime/ws` is push only. Writes stay on HTTP; after commit a handler publishes
 `{topic, version, kind, data}` and subscribers refetch over HTTP. Playback events carry
-playback state. Access is checked at subscription and again before delivery, including
+playback state, and chat events the new message. Access is checked at subscription and again before delivery, including
 queued events. Revoked access closes the socket so the client reconnects and refetches.
 
 - First frame `auth {token}` within 5 s (the Supabase JWT, never in the URL), answered by
@@ -476,12 +503,15 @@ queued events. Revoked access closes the socket so the client reconnects and ref
   and 64 queued outgoing events. Slow consumers have five seconds per send. Subscription
   tasks are cancelled on disconnect; a full outgoing queue applies backpressure.
 - Topics: `user` (now playing, needs the `now_playing` audience), `live_session` (members),
-  `shared_playlist` (members). A `user` event's kind is `now_playing`, `presence` (came
+  `shared_playlist` (members), `inbox` (the user themself). An `inbox` event's kind is
+  `notification`, with `data: {type, content, metadata}`, published after the write commits.
+  Only a new comment publishes one so far. A `user` event's kind is `now_playing`, `presence` (came
   online or went offline), or `live_session` (started, joined, left, or ended a session).
   A `live_session` event's kind is `session` (refetch), `ended` (from the session sweep with `data: {reason: host_gone | paused}`), or `playback`, which carries
   `data`: the new playback, sent only for a write that moved nothing else (play, pause, seek,
   shuffle off, a repeat change that put no songs back, a host report that kept the song).
-  Members apply it without a refetch.
+  Members apply it without a refetch. `chat` carries `data`: the new chat message, with
+  `version` set to its `message_id`, not the session's version, which chat never bumps.
 - Presence: a user is online while one of their sockets is open. The client closes its
   socket in the background unless a live session or a shared song plays there, so this is
   "has the app open, or is playing in it". The listening reads only show online users' now

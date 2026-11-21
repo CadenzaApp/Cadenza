@@ -1,7 +1,7 @@
 import type { MusicItem } from "@apple-musickit";
 import { ShuffleMode } from "@apple-musickit";
 import { useRouter, type Href } from "expo-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
@@ -9,6 +9,7 @@ import { InviteCodePopup } from "@/components/custom/invite-code-popup";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import type { MusicListTrackAction } from "@/components/custom/music-list/types";
 import { SongSearchSheet } from "@/components/custom/song-search-sheet";
+import { useToast } from "@/components/custom/toast";
 import {
     TrackCollectionView,
     type TrackCollectionOption,
@@ -78,14 +79,7 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
     const [confirmLeave, setConfirmLeave] = useState(false);
     const [sharing, setSharing] = useState(false);
     const { createPost } = useCreatePost();
-    const [notice, setNotice] = useState<string | null>(null);
-    const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    const showNotice = useCallback((message: string) => {
-        if (noticeTimer.current) clearTimeout(noticeTimer.current);
-        setNotice(message);
-        noticeTimer.current = setTimeout(() => setNotice(null), 3000);
-    }, []);
+    const { showToast } = useToast();
 
     const reorderHref = `/shared-playlist/${playlistId}/reorder` as Href;
     const role = playlist?.my_role;
@@ -119,13 +113,17 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
             } catch (error) {
                 if (isVersionConflict(error)) {
                     await reloadSharedPlaylist();
-                    showNotice("Playlist changed, try again.");
+                    showToast(
+                        "Playlist changed, try again.",
+                        undefined,
+                        "error",
+                    );
                 } else {
-                    showNotice(failure);
+                    showToast(failure, undefined, "error");
                 }
             }
         },
-        [reloadSharedPlaylist, showNotice],
+        [reloadSharedPlaylist, showToast],
     );
 
     const entryFor = useCallback(
@@ -183,9 +181,9 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
         if (!playlist) return;
         try {
             await createPlaylist(playlist.name, songIds);
-            showNotice("Saved a copy to Apple Music.");
+            showToast("Saved a copy to Apple Music.", undefined, "success");
         } catch {
-            showNotice("Couldn't save a copy.");
+            showToast("Couldn't save a copy.", undefined, "error");
         }
     }
 
@@ -197,7 +195,11 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
             setConfirmLeave(false);
             router.back();
         } catch {
-            showNotice(isOwner ? "Couldn't delete it." : "Couldn't leave.");
+            showToast(
+                isOwner ? "Couldn't delete it." : "Couldn't leave.",
+                undefined,
+                "error",
+            );
         }
     }
 
@@ -322,18 +324,6 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
                 }
             />
 
-            {notice ? (
-                <View
-                    pointerEvents="none"
-                    accessibilityRole="alert"
-                    className="absolute bottom-32 left-5 right-5 rounded-2xl bg-foreground px-4 py-3"
-                >
-                    <Text className="text-center text-sm text-background">
-                        {notice}
-                    </Text>
-                </View>
-            ) : null}
-
             {optionsOpen && playlist ? (
                 <ModalPopup
                     visible
@@ -448,7 +438,7 @@ export function SharedPlaylistScreen({ playlistId }: { playlistId: number }) {
                                 color,
                             })),
                         });
-                        showNotice("Shared to your feed.");
+                        showToast("Shared to your feed.", undefined, "success");
                     }}
                 />
             ) : null}

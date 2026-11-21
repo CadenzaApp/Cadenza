@@ -26,7 +26,7 @@ import Animated, {
     type SharedValue,
 } from "react-native-reanimated";
 
-import { Toast, useToast } from "@/components/custom/toast";
+import { useToast } from "@/components/custom/toast";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import { Text } from "@/components/ui/text";
@@ -35,10 +35,8 @@ import { useKeyboardScroll } from "@/lib/keyboard-scroll";
 import { withAlpha } from "@/lib/artwork-color";
 import { useProfile } from "@/lib/routes/profile";
 import type { SharedPlaylistSummary } from "@/lib/routes/shared-playlists";
-import {
-    useFriendsListening,
-    type FriendListening,
-} from "@/lib/routes/listening";
+import { type FriendListening } from "@/lib/routes/listening";
+import { useFriendsListeningShared } from "@/lib/routes/listening-provider";
 import {
     useCreatePost,
     useFeed,
@@ -121,7 +119,7 @@ export function SocialFeedScreen() {
         filterRef.current = filter;
     }, [filter]);
     const friendsFeed = useFriendsFeed(!feedLoading || filter === "friends");
-    const { friendsListening } = useFriendsListening();
+    const { friendsListening } = useFriendsListeningShared();
     const { createPost } = useCreatePost();
     const { markPostsViewed } = useMarkPostsViewed();
     const { notifications, invalidateNotifications } = useNotifications();
@@ -212,7 +210,7 @@ export function SocialFeedScreen() {
         setFilter(next);
     }, []);
     const socialNebula = useMemo(() => [brand, "#7b61ff", "#20a9a0"], [brand]);
-    const { toast, showToast } = useToast();
+    const { showToast } = useToast();
 
     const feed = useMemo((): FeedRow[] => {
         const loaded = new Set(posts.map((post) => post.post_id));
@@ -339,7 +337,7 @@ export function SocialFeedScreen() {
                     [publishedId]: topic,
                 }));
             }
-            showToast("Post published");
+            showToast("Post published", undefined, "success");
         },
         [createPost, profile?.uid, profile?.username, showToast],
     );
@@ -459,7 +457,7 @@ export function SocialFeedScreen() {
                     }));
                 }
             }
-            showToast("Couldn't delete your post.", true);
+            showToast("Couldn't delete your post.", undefined, "error");
         },
         [showToast],
     );
@@ -662,7 +660,6 @@ export function SocialFeedScreen() {
                 open={socialMenuOpen}
                 onClose={() => setSocialMenuOpen(false)}
             />
-            <Toast toast={toast} />
         </View>
     );
 }

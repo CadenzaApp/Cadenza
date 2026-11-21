@@ -937,7 +937,7 @@ mod tests {
             .build(DbBackend::Postgres)
             .to_string();
         assert_eq!(
-            requeue.matches(r#"AS "metadata_crawl_status""#).count(),
+            requeue.matches(r#"::"metadata_crawl_status""#).count(),
             2,
             "{requeue}"
         );
@@ -946,7 +946,7 @@ mod tests {
             .build(DbBackend::Postgres)
             .to_string();
         assert_eq!(
-            reset.matches(r#"AS "metadata_crawl_status""#).count(),
+            reset.matches(r#"::"metadata_crawl_status""#).count(),
             2,
             "{reset}"
         );

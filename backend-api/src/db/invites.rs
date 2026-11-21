@@ -96,8 +96,8 @@ where
                     "a playlist code grants viewer or editor".into(),
                 ));
             }
-            Some(role) => role.to_value(),
-            None => PlaylistRole::Viewer.to_value(),
+            Some(role) => role.to_value().value.into_owned(),
+            None => PlaylistRole::Viewer.to_value().value.into_owned(),
         },
         InviteTargetRef::LiveSession(_) => NO_ROLE.to_string(),
     };

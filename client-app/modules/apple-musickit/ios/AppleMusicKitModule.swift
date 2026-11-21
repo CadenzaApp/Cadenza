@@ -1710,7 +1710,7 @@ public class AppleMusicKitModule: Module {
                 ?? artistId
             let response = try await self.makeAPIRequest(
                 path:
-                    "/v1/catalog/\(storefront)/artists/\(encodedID)?views=top-songs,full-albums")
+                    "/v1/catalog/\(storefront)/artists/\(encodedID)?views=top-songs,full-albums,similar-artists")
             guard let artist = (response["data"] as? [[String: Any]])?.first else {
                 throw MusicKitException(
                     name: "ERR_NOT_FOUND",
@@ -1724,6 +1724,7 @@ public class AppleMusicKitModule: Module {
                 "name": attributes["name"] as? String ?? "Unknown Artist",
                 "topSongs": self.viewResources(views["top-songs"]),
                 "albums": self.viewResources(views["full-albums"]),
+                "similarArtists": self.viewArtists(views["similar-artists"]),
             ]
             if let genres = attributes["genreNames"] as? [String] {
                 result["genres"] = genres
@@ -1779,5 +1780,11 @@ public class AppleMusicKitModule: Module {
     private func viewResources(_ view: Any?) -> [[String: Any]] {
         let data = (view as? [String: Any])?["data"] as? [[String: Any]] ?? []
         return data.map(formatAPIResource)
+    }
+
+    /// The artist counterpart to `viewResources`, for a view like `similar-artists`.
+    private func viewArtists(_ view: Any?) -> [[String: Any]] {
+        let data = (view as? [String: Any])?["data"] as? [[String: Any]] ?? []
+        return data.map(formatAPIArtist)
     }
 }

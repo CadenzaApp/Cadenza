@@ -97,6 +97,9 @@ swift scripts/render-svg-png.swift assets/images/cadenza-logo-outline.svg assets
 
 ## Gotchas
 
+- Live chat sends pushes to other session members. An open chat suppresses its
+  matching foreground push toast; background notifications still appear.
+
 - Use Node 26 (`nvm use` reads `.nvmrc`). SDK 58 / React Native 0.88 do not support Node 25.
 - `patches/react-native+0.88.1.patch` detaches completed iOS WebSocket delegates
   and keeps closing sockets tracked until completion. This prevents late events

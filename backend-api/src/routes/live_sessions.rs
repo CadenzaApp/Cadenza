@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{get, patch, post},
 };
 use axum_jwt_auth::Claims;
@@ -12,23 +12,26 @@ use crate::{
     auth::SupabaseClaims,
     db::{
         invites::{InviteTargetRef, NewInvite, create_invite},
+        live_session_chat,
         live_sessions::{
             self as sessions, AddAt, Change, Joined, Left, NewSession, PlaybackCommand,
             SessionPatch, StartAt,
         },
     },
     err::CadenzaError,
+    lifecycle::BackgroundTasks,
     routes::json::{
         invite::{CreateInvite, Invite},
         live_session::{
-            AddToQueue, AnswerJoinRequest, JoinListeningResult, JoinResult, LiveSessionId,
-            LiveSessionPlayback, LiveSessionSnapshot, PatchLiveSession, PlaybackBody,
-            QueueEntryAction, SessionVersion, SetListenMode, SetLiveSessionRole, StartLiveSession,
-            TransferHost,
+            AddToQueue, AnswerJoinRequest, ChatPageQuery, JoinListeningResult, JoinResult,
+            LiveSessionChatMessage, LiveSessionChatPage, LiveSessionId, LiveSessionPlayback,
+            LiveSessionSnapshot, PatchLiveSession, PlaybackBody, QueueEntryAction, SendChatMessage,
+            SessionVersion, SetListenMode, SetLiveSessionRole, StartLiveSession, TransferHost,
         },
     },
     services::{
         live_sessions::SessionRole,
+        push::PushService,
         realtime::{Event, EventKind, SharedEventBus, Topic, publish_user, publish_version},
     },
 };
@@ -493,6 +496,74 @@ async fn playback_handler(
     }
 }
 
+/// Posts a chat message. Anyone in the session, any role. Publishes a `chat`
+/// event whose `data` is this same message and whose `version` is its id, so
+/// members add it without a refetch. The session's own version does not move.
+/// Sends a push preview to the other current participants in the background.
+///
+/// ```json
+/// { "message_id": 12, "user_id": "6f1c...", "username": "ada", "body": "this one!", "sent_at": "2026-11-20T18:00:00Z" }
+/// ```
+async fn send_message_handler(
+    State(db): State<DatabaseConnection>,
+    State(bus): State<SharedEventBus>,
+    State(push): State<PushService>,
+    State(work): State<BackgroundTasks>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(session_id): Path<Uuid>,
+    Json(body): Json<SendChatMessage>,
+) -> Result<Json<LiveSessionChatMessage>, CadenzaError> {
+    let message: LiveSessionChatMessage =
+        live_session_chat::send_message(&db, claims.user_id, session_id, &body.body)
+            .await?
+            .into();
+    let data = serde_json::to_value(&message).unwrap_or(serde_json::Value::Null);
+    bus.publish(
+        Event::new(
+            Topic::LiveSession(session_id),
+            message.message_id,
+            EventKind::Chat,
+        )
+        .with_data(data),
+    );
+    push.notify_session_chat(
+        db.clone(),
+        &work,
+        session_id,
+        claims.user_id,
+        message.message_id,
+        message.username.clone(),
+        message.body.clone(),
+    );
+    Ok(Json(message))
+}
+
+/// The session's chat, newest first, a page at a time. Anyone in the
+/// session reads all of it, including what was said before they joined.
+///
+/// ```json
+/// { "messages": [ { "message_id": 12, "user_id": "6f1c...", "username": "ada", "body": "this one!", "sent_at": "2026-11-20T18:00:00Z" } ], "next_before": null }
+/// ```
+async fn list_messages_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(session_id): Path<Uuid>,
+    Query(query): Query<ChatPageQuery>,
+) -> Result<Json<LiveSessionChatPage>, CadenzaError> {
+    let page = live_session_chat::list_messages(
+        &db,
+        claims.user_id,
+        session_id,
+        query.before,
+        query.limit,
+    )
+    .await?;
+    Ok(Json(LiveSessionChatPage {
+        messages: page.messages.into_iter().map(Into::into).collect(),
+        next_before: page.next_before,
+    }))
+}
+
 /// Makes an invite code. Host only.
 ///
 /// ```json
@@ -546,4 +617,8 @@ pub fn get_live_sessions_router() -> Router<AppState> {
         )
         .route("/{id}/playback", post(playback_handler))
         .route("/{id}/invites", post(invite_handler))
+        .route(
+            "/{id}/messages",
+            get(list_messages_handler).post(send_message_handler),
+        )
 }

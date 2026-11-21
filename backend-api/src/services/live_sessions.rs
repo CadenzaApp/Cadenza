@@ -106,20 +106,27 @@ pub fn timed_out(session: Liveness, now: DateTime<Utc>) -> bool {
 }
 
 /// A member whose app went quiet this long is taken out of the session. Longer
-/// than [`AWAY_TIMEOUT`], since a remote member's phone is frozen in the
-/// background between glances and comes back.
+/// than [`AWAY_TIMEOUT`], since a phone that is not playing the session is
+/// frozen in the background between glances and comes back.
 pub const MEMBER_QUIET_TIMEOUT: Duration = Duration::minutes(10);
 
 /// Whether a member, not the host, has left by their app at `now`: closed a
 /// minute ago (swiped away), or quiet for [`MEMBER_QUIET_TIMEOUT`].
+///
+/// `playing_along` is a synced member while the session plays. Their phone
+/// plays it in the background and keeps the socket open and pinging, so going
+/// quiet means the app is gone, the same as a host quiet while playing. A
+/// swipe does not always reach the server as a close: a killed app's socket
+/// can just stop. So that member leaves after [`AWAY_TIMEOUT`] too.
 /// `db::live_sessions::AWAY_MEMBER_SQL` is the same rule in SQL.
 pub fn member_gone(
     away_since: Option<DateTime<Utc>>,
     closed_app: bool,
+    playing_along: bool,
     now: DateTime<Utc>,
 ) -> bool {
     away_since.is_some_and(|away| {
-        let timeout = if closed_app {
+        let timeout = if closed_app || playing_along {
             AWAY_TIMEOUT
         } else {
             MEMBER_QUIET_TIMEOUT
@@ -200,11 +207,24 @@ mod tests {
     #[test]
     fn members_leave_a_minute_after_closing_or_ten_after_going_quiet() {
         let now = Utc::now();
-        assert!(!member_gone(None, false, now));
+        assert!(!member_gone(None, false, false, now));
         let away = now - Duration::seconds(90);
-        assert!(member_gone(Some(away), true, now));
-        assert!(!member_gone(Some(away), false, now));
-        assert!(member_gone(Some(now - Duration::minutes(11)), false, now));
+        assert!(member_gone(Some(away), true, false, now));
+        assert!(!member_gone(Some(away), false, false, now));
+        assert!(member_gone(
+            Some(now - Duration::minutes(11)),
+            false,
+            false,
+            now
+        ));
+        // quiet while playing along: the app is gone, not frozen
+        assert!(member_gone(Some(away), false, true, now));
+        assert!(!member_gone(
+            Some(now - Duration::seconds(30)),
+            false,
+            true,
+            now
+        ));
     }
 
     fn anchor(is_playing: bool, position_ms: i64) -> (Anchor, DateTime<Utc>) {

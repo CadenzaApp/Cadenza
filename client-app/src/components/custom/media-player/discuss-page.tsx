@@ -10,7 +10,7 @@ import {
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Toast, useToast } from "@/components/custom/toast";
+import { useToast } from "@/components/custom/toast";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
 import { CreatePostDialog } from "@/features/social/CreatePostDialog";
@@ -138,7 +138,7 @@ export function DiscussPage({
     }
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
-    const { toast, showToast } = useToast();
+    const { showToast } = useToast();
     const focusedSongIdRef = useRef(focusedSong.id);
     useEffect(() => {
         focusedSongIdRef.current = focusedSong.id;
@@ -182,7 +182,7 @@ export function DiscussPage({
                 console.error("Creating a post failed");
                 throw new Error("Creating a post failed");
             }
-            showToast("Post published");
+            showToast("Post published", undefined, "success");
             // The song changed while this was in flight, so leave it off this page.
             if (focusedSongIdRef.current !== songId) return;
             const post: SocialPost = {
@@ -366,8 +366,6 @@ export function DiscussPage({
                 onCreate={handleCreate}
                 lockedTopic={topic}
             />
-
-            <Toast toast={toast} />
         </View>
     );
 }

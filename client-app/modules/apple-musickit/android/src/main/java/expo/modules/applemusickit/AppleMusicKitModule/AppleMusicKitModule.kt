@@ -889,7 +889,7 @@ class AppleMusicKitModule : Module() {
         AsyncFunction("getArtist") { artistId: String ->
             val response = makeApiRequest(
                 "/v1/catalog/${currentStorefrontId()}/artists/${encode(artistId)}" +
-                    "?views=top-songs,full-albums"
+                    "?views=top-songs,full-albums,similar-artists"
             )
             val artist = objectList(response["data"]).firstOrNull()
                 ?: throw Exception("No Apple Music artist with ID $artistId.")
@@ -900,7 +900,8 @@ class AppleMusicKitModule : Module() {
                 "id" to (artist["id"]?.toString() ?: artistId),
                 "name" to (attributes?.get("name") ?: "Unknown Artist"),
                 "topSongs" to viewResources(views?.get("top-songs")),
-                "albums" to viewResources(views?.get("full-albums"))
+                "albums" to viewResources(views?.get("full-albums")),
+                "similarArtists" to viewArtists(views?.get("similar-artists"))
             )
             attributes?.get("genreNames")?.let { result["genres"] = it }
             editorialNote(attributes)?.let { result["editorialNote"] = it }
@@ -969,6 +970,12 @@ class AppleMusicKitModule : Module() {
     private fun viewResources(view: Any?): List<Map<String, Any>> {
         val data = (view as? Map<*, *>)?.get("data")
         return objectList(data).map { formatMediaItem(it) }
+    }
+
+    /** The artist counterpart to [viewResources], for a view like `similar-artists`. */
+    private fun viewArtists(view: Any?): List<Map<String, Any>> {
+        val data = (view as? Map<*, *>)?.get("data")
+        return objectList(data).map { formatArtist(it) }
     }
 
     private fun resolveCatalogSongId(id: String): String {

@@ -1449,3 +1449,155 @@ async fn social_listening_block_preserves_third_party_membership() {
     }
     txn.rollback().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_live_session_chat() {
+    use crate::db::live_session_chat::{list_messages, send_message};
+
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id = $1 AND ended_at IS NULL",
+        [host.into()],
+    ))
+    .await
+    .unwrap();
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Chat",
+            // listeners can chat too
+            default_role: SessionRole::Listener,
+            allow_join_without_code: false,
+            listen_along: false,
+            approve_joins: false,
+        },
+    )
+    .await
+    .unwrap();
+
+    // not in it yet
+    assert!(matches!(
+        send_message(&txn, guest, id, "hi").await,
+        Err(CadenzaError::NotFound)
+    ));
+    assert!(matches!(
+        list_messages(&txn, guest, id, None, None).await,
+        Err(CadenzaError::NotFound)
+    ));
+
+    let first = send_message(&txn, host, id, "  before you came  ")
+        .await
+        .unwrap();
+    assert_eq!(first.body, "before you came");
+    assert_eq!(first.user_id, Some(host));
+    assert!(matches!(
+        send_message(&txn, host, id, "   ").await,
+        Err(CadenzaError::InvalidRequestBody(_))
+    ));
+
+    sessions::join_session(&txn, guest, id, true).await.unwrap();
+    let second = send_message(&txn, guest, id, "hello").await.unwrap();
+    assert!(second.message_id > first.message_id);
+
+    // a late joiner reads the whole history, newest first, a page at a time
+    let page = list_messages(&txn, guest, id, None, Some(1)).await.unwrap();
+    assert_eq!(page.messages.len(), 1);
+    assert_eq!(page.messages[0].message_id, second.message_id);
+    assert_eq!(page.next_before, Some(second.message_id));
+    let older = list_messages(&txn, guest, id, page.next_before, Some(1))
+        .await
+        .unwrap();
+    assert_eq!(older.messages[0].message_id, first.message_id);
+    assert_eq!(older.next_before, None);
+
+    sessions::kick_member(&txn, host, id, guest).await.unwrap();
+    assert!(matches!(
+        send_message(&txn, guest, id, "still here?").await,
+        Err(CadenzaError::NotFound)
+    ));
+
+    sessions::end_session(&txn, host, id).await.unwrap();
+    assert!(matches!(
+        send_message(&txn, host, id, "bye").await,
+        Err(CadenzaError::SessionEnded)
+    ));
+
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_quiet_member_playing_along_leaves_in_a_minute() {
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id IN ($1, $2) AND ended_at IS NULL",
+        [host.into(), guest.into()],
+    ))
+    .await
+    .unwrap();
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Quiet",
+            default_role: SessionRole::Listener,
+            allow_join_without_code: true,
+            listen_along: false,
+            approve_joins: false,
+        },
+    )
+    .await
+    .unwrap();
+    sessions::join_session(&txn, guest, id, true).await.unwrap();
+    let went_quiet = |playing: bool| {
+        let txn = &txn;
+        async move {
+            sessions::set_app_link(txn, guest, sessions::AppLink::Quiet)
+                .await
+                .unwrap();
+            txn.execute_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "UPDATE live_session_members SET away_since = now() - interval '2 minutes'
+                 WHERE session_id = $1 AND user_id = $2",
+                [id.into(), guest.into()],
+            ))
+            .await
+            .unwrap();
+            txn.execute_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "UPDATE live_sessions SET is_playing = $2 WHERE session_id = $1",
+                [id.into(), playing.into()],
+            ))
+            .await
+            .unwrap();
+        }
+    };
+
+    // remote and quiet two minutes: frozen between glances, still in
+    went_quiet(true).await;
+    sessions::remove_away_members(&txn).await.unwrap();
+    assert!(sessions::is_participant(&txn, id, guest).await.unwrap());
+
+    // synced but the session is paused: the phone may be suspended, still in
+    sessions::set_listen_mode(&txn, guest, id, ListenMode::Synced)
+        .await
+        .unwrap();
+    went_quiet(false).await;
+    sessions::remove_away_members(&txn).await.unwrap();
+    assert!(sessions::is_participant(&txn, id, guest).await.unwrap());
+
+    // synced while it plays: the app is gone, out
+    went_quiet(true).await;
+    let gone = sessions::remove_away_members(&txn).await.unwrap();
+    let ours = gone.iter().find(|g| g.session_id == id).unwrap();
+    assert_eq!(ours.user_ids, vec![guest]);
+    assert!(!sessions::is_participant(&txn, id, guest).await.unwrap());
+
+    txn.rollback().await.unwrap();
+}
