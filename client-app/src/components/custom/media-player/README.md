@@ -124,7 +124,7 @@ Its Your Tags panel reserves one additional tag-row height. A pinned target with
 uses the shared MusicKit metadata read to resolve it.
 
 Only `PlayerPage` touches playback. `TagsPage` and `DiscussPage` take `focusedSong` and never read
-`usePlayback()`. Discuss lists posts whose topic is that song, most liked first, ten at a time. Its compose
+`usePlayback()`. Discuss lists posts whose topic is that song and that have an author, most liked first, ten at a time. Its compose
 dialog is the media tab's new-post dialog with the topic locked to that song. Tapping an author closes this sheet, or the standalone `/discuss/:songId` screen, and opens that person's profile on the Social tab. `DetailScreen` hands the sampled artwork color to the same mode-aware Oklch
 gradient hook as `TrackCollectionView`, then paints those stops once behind the header and the
 transparent pager, so there is no second gradient boundary below the title. The pager is the gesture surface;
@@ -170,6 +170,10 @@ The artist name opens the artist; artwork opens View artwork and Go to album act
 viewer supports close/native back. Opening an artist or album closes this sheet and pushes the page
 in the tab underneath, through `useOpenScreen`'s `closing: "player"`. The song menu shares these caches.
 
+Spotlight links pass a song to the sheet for immediate browsing without autoplay.
+Its Play button starts that song; seek, skip, and queue controls do not affect
+another song playing underneath. Once the selected song starts, the sheet follows playback.
+
 Queue positions are converted in exactly one place. `queue-view.tsx` works in upcoming-list
 positions, because the playing song is its heading rather than a row; `usePlayback()` works in
 whole-queue positions, because that is what native takes. `queuePositionOf` in `player-page.tsx`
@@ -191,8 +195,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 - `@/lib/playback::usePlayback` for all transport.
 - `@/features/live-session` for the LIVE line, `LiveButton`, and `LiveSessionBar`.
 - `@/features/social` (`PostCard`, `CreatePostDialog`) and `@/lib/routes/social`
-  (`useTopicPosts`, `useCreatePost`) for Discuss. A post there has `topic_mk_id` set to the
-  focused song.
+  (`useTopicPosts`, `useCreatePost`) for Discuss. A post there has an author and
+  `topic_mk_id` set to the focused song.
 - `@/lib/musickit-hooks::useSongFavoriteStatus` for the heading/queue heart.
 - `@/lib/screen-overlay` for the shared visibility rules and fallback clearance.
 - `@/components/custom/reorderable-list::ReorderableList` for the up-next list.

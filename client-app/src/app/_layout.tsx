@@ -5,11 +5,14 @@ import AccountProvider from "@/lib/account";
 import { AppleMusicProvider } from "@/lib/apple-music-auth";
 import { SongInitProvider } from "@/lib/song-init";
 import { ListeningEventProvider } from "@/lib/listening-events";
+import { ListeningProvider } from "@/lib/routes/listening-provider";
 import { LiveSessionRunner } from "@/features/live-session/live-session-runner";
 import { PlaybackProvider } from "@/lib/playback";
-import { TasksHost, TasksProvider } from "@/components/custom/tasks";
+import { ToastHost, ToastProvider } from "@/components/custom/toast";
 import { AppleMusicSessionGuard } from "@/features/account/apple-music-session-guard";
 import { SignOutHandler } from "@/features/onboarding/sign-out-handler";
+import { InboxToasts } from "@/features/social/inbox-toasts";
+import { PushNotifications } from "@/lib/push-notifications";
 import { LibraryCategoriesProvider } from "@/features/library/library-categories";
 import { BottomBarVisibilityProvider } from "@/lib/screen-overlay";
 import { PortalHost } from "@rn-primitives/portal";
@@ -27,30 +30,34 @@ export default function RootLayout() {
             <AccountProvider>
                 <UserSettingsProvider>
                     <AppleMusicProvider>
-                        <TasksProvider>
+                        <ToastProvider>
                             <SongInitProvider>
                                 <ListeningEventProvider>
-                                    <PlaybackProvider>
-                                        <LiveSessionRunner />
-                                        <AppThemeProvider>
-                                            <MusicListPreferencesProvider>
-                                                <BottomBarVisibilityProvider>
-                                                    <LibraryCategoriesProvider>
-                                                        <RootStack />
-                                                        <SignOutHandler />
-                                                        <AppleMusicSessionGuard />
-                                                        <InterestPlayTracker />
-                                                        <InterestDecay />
-                                                        <TasksHost />
-                                                        <PortalHost />
-                                                    </LibraryCategoriesProvider>
-                                                </BottomBarVisibilityProvider>
-                                            </MusicListPreferencesProvider>
-                                        </AppThemeProvider>
-                                    </PlaybackProvider>
+                                    <ListeningProvider>
+                                        <PlaybackProvider>
+                                            <LiveSessionRunner />
+                                            <AppThemeProvider>
+                                                <MusicListPreferencesProvider>
+                                                    <BottomBarVisibilityProvider>
+                                                        <LibraryCategoriesProvider>
+                                                            <RootStack />
+                                                            <SignOutHandler />
+                                                            <InboxToasts />
+                                                            <PushNotifications />
+                                                            <AppleMusicSessionGuard />
+                                                            <InterestPlayTracker />
+                                                            <InterestDecay />
+                                                            <ToastHost />
+                                                            <PortalHost />
+                                                        </LibraryCategoriesProvider>
+                                                    </BottomBarVisibilityProvider>
+                                                </MusicListPreferencesProvider>
+                                            </AppThemeProvider>
+                                        </PlaybackProvider>
+                                    </ListeningProvider>
                                 </ListeningEventProvider>
                             </SongInitProvider>
-                        </TasksProvider>
+                        </ToastProvider>
                     </AppleMusicProvider>
                 </UserSettingsProvider>
             </AccountProvider>

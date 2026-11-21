@@ -6,14 +6,12 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "invite_codes")]
 pub struct Model {
-    #[sea_orm(unique, column_type = "Text")]
+    #[sea_orm(column_type = "Text", unique)]
     pub code: String,
-    #[sea_orm(primary_key, auto_increment = false, column_type = "Text")]
-    pub target_id: String,
     #[sea_orm(primary_key, auto_increment = false)]
     pub target_kind: InviteTarget,
-    /// Playlist role (`viewer` or `editor`). Empty for a live session: the
-    /// column is in the primary key, so it cannot be null.
+    #[sea_orm(primary_key, auto_increment = false, column_type = "Text")]
+    pub target_id: String,
     #[sea_orm(primary_key, auto_increment = false, column_type = "Text")]
     pub grants_role: String,
     pub created_by: Uuid,

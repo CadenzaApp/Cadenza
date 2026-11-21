@@ -11,12 +11,15 @@
 module.exports = {
     expo: {
         name: "Cadenza",
-        slug: "client-app",
+        // the EAS project this belongs to; projectId under extra.eas is its id
+        owner: "trycadenza-app",
+        slug: "cadenza",
+
         version: "1.0.0",
         orientation: "portrait",
         icon: "./assets/images/icon.png",
         // cadenza:// is what invite links use (cadenza://join/CODE)
-        scheme: ["client-app", "cadenza"],
+        scheme: ["cadenza"],
         userInterfaceStyle: "automatic",
         ios: {
             supportsTablet: true,
@@ -39,6 +42,7 @@ module.exports = {
             },
             predictiveBackGestureEnabled: false,
             package: "com.cadenza.cs4000",
+            googleServicesFile: "./google-services.json",
         },
         web: {
             bundler: "metro",
@@ -65,6 +69,8 @@ module.exports = {
                     ios: {
                         deploymentTarget: "16.4",
                         usePrecompiledModules: false,
+                        // Compile the WebSocket lifecycle fix in our React Native patch.
+                        buildReactNativeFromSource: true,
                     },
                 },
             ],
@@ -83,10 +89,16 @@ module.exports = {
             "expo-secure-store",
             "@react-native-community/datetimepicker",
             "./plugins/with-ios-build-fixes",
+            "expo-notifications",
         ],
         experiments: {
             typedRoutes: true,
             reactCompiler: true,
+        },
+        extra: {
+            eas: {
+                projectId: "f76f3c1e-04de-4d04-9ac7-b931f96049be",
+            },
         },
     },
 };

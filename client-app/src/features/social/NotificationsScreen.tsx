@@ -21,6 +21,7 @@ import Animated from "react-native-reanimated";
 
 import { ListDivider } from "@/components/custom/list-divider";
 import { SwipeToDelete } from "@/components/custom/swipe-to-delete";
+import { useToast } from "@/components/custom/toast";
 import { Button } from "@/components/ui/button";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
@@ -123,25 +124,13 @@ export function NotificationsScreen() {
     const [openPostId, setOpenPostId] = useState<number | null>(null);
     const { post, postLoading, postErr } = usePost(openPostId);
     const reportedPostErr = useRef<number | null>(null);
-    const [toast, setToast] = useState<string | null>(null);
-    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const showToast = useCallback((message: string) => {
-        if (toastTimer.current) clearTimeout(toastTimer.current);
-        setToast(message);
-        toastTimer.current = setTimeout(() => setToast(null), 3000);
-    }, []);
-
-    useLayoutEffect(() => {
-        return () => {
-            if (toastTimer.current) clearTimeout(toastTimer.current);
-        };
-    }, []);
+    const { showToast } = useToast();
 
     useEffect(() => {
         if (openPostId == null || postLoading || !postErr) return;
         if (reportedPostErr.current === openPostId) return;
         reportedPostErr.current = openPostId;
-        showToast("Couldn't open that post.");
+        showToast("Couldn't open that post.", undefined, "error");
         setOpenPostId(null);
     }, [openPostId, postErr, postLoading, showToast]);
 
@@ -164,20 +153,34 @@ export function NotificationsScreen() {
                         resolution === "accepted"
                             ? `Let ${item.title} in`
                             : `Didn't let ${item.title} in`,
+                        undefined,
+                        "success",
                     );
                     await setNotificationResolution(item.notif_id, resolution);
                 } catch {
-                    showToast("Couldn't answer. The session may be over.");
+                    showToast(
+                        "Couldn't answer. The session may be over.",
+                        undefined,
+                        "error",
+                    );
                 }
                 return;
             }
             try {
                 if (resolution === "accepted") {
                     await acceptFriendRequest({ user_id: senderId });
-                    showToast(`Accepted ${item.title}'s friend request`);
+                    showToast(
+                        `Accepted ${item.title}'s friend request`,
+                        undefined,
+                        "success",
+                    );
                 } else {
                     await cancelFriendRequest({ user_id: senderId });
-                    showToast(`Ignored ${item.title}'s friend request`);
+                    showToast(
+                        `Ignored ${item.title}'s friend request`,
+                        undefined,
+                        "success",
+                    );
                 }
                 await setNotificationResolution(item.notif_id, resolution);
             } catch {
@@ -199,7 +202,7 @@ export function NotificationsScreen() {
             try {
                 await dismissNotifications(ids);
             } catch {
-                showToast("Couldn't dismiss. Try again.");
+                showToast("Couldn't dismiss. Try again.", undefined, "error");
             }
         },
         [dismissNotifications, showToast],
@@ -403,17 +406,6 @@ export function NotificationsScreen() {
                     showsVerticalScrollIndicator={false}
                 />
             </ScreenScrollMarker>
-            {toast ? (
-                <View
-                    pointerEvents="none"
-                    accessibilityRole="alert"
-                    className="absolute left-5 right-5 top-3 rounded-2xl bg-foreground px-4 py-3"
-                >
-                    <Text className="text-center text-sm text-background">
-                        {toast}
-                    </Text>
-                </View>
-            ) : null}
             <GlassConfirmDialog
                 open={confirmClear}
                 title="Clear all notifications?"

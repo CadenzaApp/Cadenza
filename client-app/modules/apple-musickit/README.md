@@ -15,6 +15,7 @@ Import `Auth`, `MusicKit`, `Playback`, and their public types from
   `MusicUserTokenProvider` with cache bypass after the user grants access. The old
   `SKCloudServiceController.requestUserToken` path is deprecated and could return an opaque
   StoreKit client-invalid error after a developer-token change.
+- `MusicKit.getRecommendations()` reads `/v1/me/recommendations` and returns songs and artists. An album or playlist becomes one random song from its first track page, or, one time in three, that song's artist. A later call can pick a different song. Stations are skipped. The list holds at most five, and it stops at five, so later rows cost no catalog reads.
 - `MusicKit` searches the catalog, reads library pages and playlist tracks,
   reads or changes favorite state for songs, albums, and playlists, writes to
   library playlists, and reads catalog and library artists.
@@ -119,6 +120,9 @@ always resolves `unknown`, since a token there needs the Apple Music app's own
 screen.
 
 iOS throws `MusicKitException(name:reason:)`, never `Exception(name:description:)`.
+It returns the `ERR_*` name directly as its `code`. Expo's default code conversion
+expects a class name and mangles an existing `ERR_*` name, breaking JS error
+classification, retries, and credential recovery.
 ExpoModulesCore renders a thrown exception to JavaScript as `"<name>: <reason>"`,
 and the base initializer sets only `description`, leaving `reason` at its
 `"undefined reason"` default. Using it swallows the message: every Apple Music
@@ -126,6 +130,11 @@ failure arrived in JS as `ERR_APPLE_MUSIC_API: undefined reason` with the status
 code and Apple's response body dropped. Android throws its own `MusicKitException(code, message)`,
 a `CodedException`, with the same `ERR_` names as iOS. Android `authorize` resolves `failed` with
 a reason (for example, no Apple Music app installed) instead of rejecting.
+
+Android catalog and library reads share one OkHttp client and run on their own
+IO pool. Expo's default async queue is a single thread, and closing the
+connection after every call forced a new handshake, so one Apple Music read
+used to hold up the next. Playback commands are unchanged.
 
 ## Validation
 
@@ -293,13 +302,13 @@ album/playlist equivalent needed elsewhere in this module.
 
 ## Artists
 
-| call                                        | returns                                                      |
-| ------------------------------------------- | ------------------------------------------------------------ |
-| `getSongArtists(songId)`                    | Catalog artist ids credited on a song, most prominent first. |
-| `getArtist(artistId)`                       | An `ArtistDetail`: name, artwork, genres, top songs, albums. |
-| `getLibraryArtists(options)`                | A page of `ArtistItem`s from the user's library.             |
-| `searchLibraryArtists(term, options)`       | Library artists matching a term.                             |
-| `catalogSearch(term, ["artists"], options)` | Catalog artists, on `SearchResult.artists`.                  |
+| call                                        | returns                                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `getSongArtists(songId)`                    | Catalog artist ids credited on a song, most prominent first.                                                             |
+| `getArtist(artistId)`                       | An `ArtistDetail`: name, artwork, genres, a short editorial note when Apple has one, top songs, albums, similar artists. |
+| `getLibraryArtists(options)`                | A page of `ArtistItem`s from the user's library.                                                                         |
+| `searchLibraryArtists(term, options)`       | Library artists matching a term.                                                                                         |
+| `catalogSearch(term, ["artists"], options)` | Catalog artists, on `SearchResult.artists`.                                                                              |
 
 An artist in a list is an `ArtistItem`, not a `MusicItem`. `MusicResourceKind`
 still has no `"artist"` and `PlaybackQueueType` still has no artist case,
@@ -314,6 +323,11 @@ so the hero is never a blank rectangle with the tint already painted around it.
 List artwork URLs request 200x200 on iOS and Android to reduce bandwidth and decoded
 image memory. Player-sized variants remain 1200x1200. Music list rendering also normalizes
 cached Apple artwork URLs to 200x200; backend metadata still stores its original URL.
+
+`getArtist` fetches Apple's `top-songs`, `full-albums`, and `similar-artists`
+views in the one request. Similar artists come back as `ArtistItem`s, formatted
+like any other catalog artist. A native binary built before that view was asked
+for omits the field, and the JS wrapper defaults it to an empty list.
 
 `getSongArtists` and `getArtist` are catalog only. A library song with no
 catalog equivalent resolves to no artists at all, and `MusicItem.artistId` is

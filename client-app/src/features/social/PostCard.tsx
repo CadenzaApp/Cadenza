@@ -15,7 +15,6 @@ import {
 } from "@/lib/routes/social";
 import { useAppTheme } from "@/lib/theme";
 import { withAlpha } from "@/lib/artwork-color";
-import { cn } from "@/lib/utils";
 import type { FriendListening } from "@/lib/routes/listening";
 import { RemoteArtwork } from "@/components/ui/remote-artwork";
 
@@ -24,10 +23,18 @@ import { formatRelativeTime, initialsFromUsername } from "./format";
 import { ListeningStoryDialog } from "./ListeningNow";
 import { PostCommentsDialog } from "./PostCommentsDialog";
 import { PostOptionsMenu } from "./PostOptionsMenu";
+import { SpotlightPost } from "./SpotlightPost";
+import {
+    draftTagsFromPost,
+    PostTagRow,
+    postTagPatch,
+    type DraftPostTag,
+} from "./PostTags";
 import { PostTopicCard } from "./PostTopicCard";
 import { SharedPlaylistPostCard } from "./SharedPlaylistPostCard";
 import { activityLabel, topicCreateFields, useResolvedTopic } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
+import type { SocialPostTag } from "@/lib/types";
 
 type Props = {
     post: SocialPost;
@@ -50,6 +57,8 @@ type Props = {
     onDeleted?: (postId: number) => void;
     /** The delete request failed. The caller can show the post again. */
     onDeleteFailed?: (postId: number) => void;
+    /** Removes a spotlight whose catalog topic cannot be resolved. */
+    onUnavailable?: (postId: number) => void;
     /**
      * The text changed on a copy the cache does not own, such as one just
      * written. `editedAt` is null when an edit is reverted.
@@ -58,18 +67,22 @@ type Props = {
         postId: number,
         content: string,
         editedAt: string | null,
+        tags?: SocialPostTag[],
     ) => void;
     /** The author's visible now-playing state, for the story-style avatar. */
     authorListening?: FriendListening;
     /** Shows a small unread indicator on feed items the caller has not seen. */
     unseen?: boolean;
+    /** Draws the line under the post. Off above a spotlight, which has none. */
+    divider?: boolean;
 };
 
 const MAX_POST_LENGTH = 500;
 
 /**
  * One feed row: author, attached topic, body, likes, and comments. Memoized,
- * so a feed re-render only redraws the posts whose props changed.
+ * so a feed re-render only redraws the posts whose props changed. A post with
+ * no author is a spotlight, and the cover is the whole post.
  */
 export const PostCard = memo(PostCardBase);
 
@@ -81,9 +94,11 @@ function PostCardBase({
     onAuthorPress,
     onDeleted,
     onDeleteFailed,
+    onUnavailable,
     onEdited,
     authorListening,
     unseen = false,
+    divider = true,
 }: Props) {
     const { foreground, like, mutedForeground } = useAppTheme().colors;
     const { account } = useAccount();
@@ -93,10 +108,18 @@ function PostCardBase({
     const updateCachedPostLike = useUpdateCachedPostLike();
     const { updatePost } = useUpdatePost();
     const updateCachedPostContent = useUpdateCachedPostContent();
-    const isOwnPost = account?.id === post.author.user_id;
+    const author = post.author;
+    const spotlight = author == null;
+    const isOwnPost = account?.id != null && account.id === author?.user_id;
     // Resolved even when the card hides the topic, so an edit can send the
     // same title and artist the create request uses for the embedding.
-    const topic = useResolvedTopic(post.topic_mk_id, topicHint);
+    const { topic, topicLoading, topicError, retryTopic } = useResolvedTopic(
+        post.topic_mk_id,
+        topicHint,
+    );
+    useEffect(() => {
+        if (spotlight && !topic && !topicLoading) onUnavailable?.(post.post_id);
+    }, [spotlight, topic, topicLoading, onUnavailable, post.post_id]);
     const [liked, setLiked] = useState(post.liked);
     const likedRef = useRef(liked);
     const [commentsOpen, setCommentsOpen] = useState(false);
@@ -107,7 +130,9 @@ function PostCardBase({
     const [savedEdit, setSavedEdit] = useState<{
         content: string;
         edited_at: string | null;
+        tags: SocialPostTag[];
     } | null>(null);
+    const [tagDraft, setTagDraft] = useState<DraftPostTag[]>([]);
     // The card remounts from the cached post after a navigation. Follow that
     // post, or an unlike that already saved still paints as liked.
     useEffect(() => {
@@ -117,8 +142,17 @@ function PostCardBase({
 
     useEffect(() => {
         if (!savedEdit) return;
-        if (post.content === savedEdit.content) setSavedEdit(null);
-    }, [post.content, savedEdit]);
+        const propTags = post.tags ?? [];
+        const sameTags =
+            propTags.length === savedEdit.tags.length &&
+            propTags.every(
+                (tag, index) =>
+                    tag.tag_id === savedEdit.tags[index]?.tag_id &&
+                    tag.text === savedEdit.tags[index]?.text &&
+                    tag.color === savedEdit.tags[index]?.color,
+            );
+        if (post.content === savedEdit.content && sameTags) setSavedEdit(null);
+    }, [post.content, post.tags, savedEdit]);
 
     const propCommentCount = post.comment_count ?? 0;
     // Posts the user just created sit outside SWR, so the cache write never
@@ -178,42 +212,67 @@ function PostCardBase({
               ...post,
               content: savedEdit.content,
               edited_at: savedEdit.edited_at,
+              tags: savedEdit.tags,
           }
-        : post;
+        : { ...post, tags: post.tags ?? [] };
+
+    function beginEdit() {
+        setTagDraft(draftTagsFromPost(displayPost.tags));
+        setEditing(true);
+    }
 
     async function saveEdit(content: string) {
         const previous = {
             content: displayPost.content,
             edited_at: displayPost.edited_at ?? null,
+            tags: displayPost.tags ?? [],
         };
         const editedAtMs = Date.now();
         const editedAt = new Date(editedAtMs).toISOString();
-        setSavedEdit({ content, edited_at: editedAt });
+        const optimisticTags: SocialPostTag[] = tagDraft.map((tag, index) => ({
+            tag_id: tag.tag_id ?? -(index + 1),
+            text: tag.text,
+            color: tag.color,
+        }));
+        setSavedEdit({ content, edited_at: editedAt, tags: optimisticTags });
         setEditing(false);
-        onEdited?.(post.post_id, content, editedAt);
-        void updateCachedPostContent(post.post_id, content, editedAt);
+        onEdited?.(post.post_id, content, editedAt, optimisticTags);
+        void updateCachedPostContent(
+            post.post_id,
+            content,
+            editedAt,
+            optimisticTags,
+        );
         try {
             const names =
                 post.topic_mk_id && topic ? topicCreateFields(topic) : null;
-            await updatePost(
-                post.post_id,
-                content,
-                editedAtMs,
-                names
+            const saved = await updatePost(post.post_id, content, editedAtMs, {
+                ...(names
                     ? {
                           topic_song_title: names.topic_song_title,
                           topic_artist_name: names.topic_artist_name,
                       }
-                    : undefined,
-            );
+                    : {}),
+                ...postTagPatch(previous.tags, tagDraft),
+            });
+            const tags = saved?.tags ?? optimisticTags;
+            setSavedEdit({ content, edited_at: editedAt, tags });
+            onEdited?.(post.post_id, content, editedAt, tags);
+            void updateCachedPostContent(post.post_id, content, editedAt, tags);
         } catch (error) {
             console.error("Editing a post failed", error);
             setSavedEdit(previous);
-            onEdited?.(post.post_id, previous.content, previous.edited_at);
+            onEdited?.(
+                post.post_id,
+                previous.content,
+                previous.edited_at,
+                previous.tags,
+            );
             void updateCachedPostContent(
                 post.post_id,
                 previous.content,
                 previous.edited_at,
+                previous.tags,
             );
         }
     }
@@ -242,23 +301,36 @@ function PostCardBase({
     }
 
     function openAuthor(userId?: string) {
-        const id = userId || post.author.user_id;
+        const id = userId || author?.user_id;
         if (!id) return;
         if (onAuthorPress) onAuthorPress(id);
         else router.push(`/social/user/${id}`);
     }
 
+    // A spotlight with no resolved topic has nothing to show. Keep ordinary
+    // posts visible even if their optional song or artist cannot be read.
+    if (spotlight && !topic && !topicLoading) return null;
+
+    const authorName = author?.username ?? "";
+    const authorSubtitle = `${formatRelativeTime(post.created_at)}${
+        topic
+            ? ` · ${activityLabel(topic)}`
+            : post.shared_playlist
+              ? " · Shared a playlist"
+              : ""
+    }`;
+
     const authorRow = (
         <View className="min-w-0 flex-1 flex-row items-center gap-3">
             <PostAuthorAvatar
-                username={post.author.username}
+                username={authorName}
                 listening={authorListening}
                 unseen={unseen}
                 onProfilePress={() => openAuthor()}
             />
             <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`View ${post.author.username}'s profile`}
+                accessibilityLabel={`View ${authorName}'s profile`}
                 onPress={(event) => {
                     event.stopPropagation();
                     openAuthor();
@@ -269,127 +341,155 @@ function PostCardBase({
                     className="font-semibold text-foreground"
                     numberOfLines={1}
                 >
-                    {post.author.username}
+                    {authorName}
                 </Text>
-                <Text className="text-xs text-muted-foreground">
-                    {formatRelativeTime(post.created_at)}
-                    {topic
-                        ? ` · ${activityLabel(topic)}`
-                        : post.shared_playlist
-                          ? " · Shared a playlist"
-                          : ""}
-                </Text>
+                {authorSubtitle ? (
+                    <Text className="text-xs text-muted-foreground">
+                        {authorSubtitle}
+                    </Text>
+                ) : null}
             </Pressable>
         </View>
     );
 
     return (
         <>
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="View post comments"
-                onPress={openComments}
-                className="gap-3 border-b px-1 py-5"
-                style={{ borderBottomColor: withAlpha(mutedForeground, 0.55) }}
-            >
-                <View className="flex-row items-center">
-                    {authorRow}
-                    {isOwnPost ? (
-                        <Button
-                            size="icon"
-                            variant="ghost"
-                            className="-mr-2 h-10 w-10 shrink-0 rounded-full"
+            {spotlight ? (
+                <SpotlightPost
+                    postId={post.post_id}
+                    topic={topic}
+                    topicLoading={topicLoading}
+                    topicError={topicError}
+                    onRetryTopic={retryTopic}
+                    cardId={String(post.post_id)}
+                    liked={liked}
+                    likes={likes}
+                    commentCount={commentCount}
+                    tags={displayPost.tags}
+                    onToggleLike={toggleLike}
+                    onOpenComments={openComments}
+                />
+            ) : (
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="View post comments"
+                    onPress={openComments}
+                    className={
+                        divider ? "gap-3 border-b px-1 py-5" : "gap-3 px-1 py-5"
+                    }
+                    style={
+                        divider
+                            ? {
+                                  borderBottomColor: withAlpha(
+                                      mutedForeground,
+                                      0.55,
+                                  ),
+                              }
+                            : undefined
+                    }
+                >
+                    <View className="flex-row items-center">
+                        {authorRow}
+                        {isOwnPost ? (
+                            <Button
+                                size="icon"
+                                variant="ghost"
+                                className="-mr-2 h-10 w-10 shrink-0 rounded-full"
+                                onPress={(event) => {
+                                    event.stopPropagation();
+                                    setMenuOpen(true);
+                                }}
+                                accessibilityLabel="Post options"
+                            >
+                                <Ionicons
+                                    name="ellipsis-horizontal"
+                                    size={24}
+                                    color={foreground}
+                                />
+                            </Button>
+                        ) : null}
+                    </View>
+
+                    {showTopic && topic ? (
+                        <PostTopicCard
+                            topic={topic}
+                            cardId={String(post.post_id)}
+                        />
+                    ) : null}
+                    {post.shared_playlist ? (
+                        <SharedPlaylistPostCard
+                            playlist={post.shared_playlist}
+                        />
+                    ) : null}
+
+                    <Text className="text-base leading-6 text-foreground">
+                        {displayPost.content}
+                    </Text>
+                    <PostTagRow tags={displayPost.tags} />
+
+                    <View className="flex-row items-center gap-4 self-start">
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                                liked ? "Unlike post" : "Like post"
+                            }
+                            accessibilityState={{ selected: liked }}
                             onPress={(event) => {
                                 event.stopPropagation();
-                                setMenuOpen(true);
+                                toggleLike();
                             }}
-                            accessibilityLabel="Post options"
+                            hitSlop={8}
+                            className="flex-row items-center gap-1.5 active:opacity-60"
                         >
                             <Ionicons
-                                name="ellipsis-horizontal"
-                                size={24}
-                                color={foreground}
+                                name={liked ? "heart" : "heart-outline"}
+                                size={18}
+                                color={like}
                             />
-                        </Button>
-                    ) : null}
-                </View>
+                            <Text
+                                className="text-sm"
+                                style={{
+                                    color: liked ? like : mutedForeground,
+                                }}
+                            >
+                                {likes}
+                            </Text>
+                        </Pressable>
 
-                {showTopic && topic ? (
-                    <PostTopicCard
-                        topic={topic}
-                        cardId={String(post.post_id)}
-                    />
-                ) : null}
-                {post.shared_playlist ? (
-                    <SharedPlaylistPostCard playlist={post.shared_playlist} />
-                ) : null}
-
-                <Text className="text-base leading-6 text-foreground">
-                    {displayPost.content}
-                </Text>
-
-                <View className="flex-row items-center gap-4 self-start">
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={liked ? "Unlike post" : "Like post"}
-                        accessibilityState={{ selected: liked }}
-                        onPress={(event) => {
-                            event.stopPropagation();
-                            toggleLike();
-                        }}
-                        hitSlop={8}
-                        className="flex-row items-center gap-1.5 active:opacity-60"
-                    >
-                        <Ionicons
-                            name={liked ? "heart" : "heart-outline"}
-                            size={18}
-                            color={like}
-                        />
-                        <Text
-                            className={cn(
-                                "text-sm",
-                                liked
-                                    ? "text-rose-600"
-                                    : "text-muted-foreground",
-                            )}
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="View comments"
+                            onPress={(event) => {
+                                event.stopPropagation();
+                                openComments();
+                            }}
+                            hitSlop={8}
+                            className="flex-row items-center gap-1.5 active:opacity-60"
                         >
-                            {likes}
-                        </Text>
-                    </Pressable>
-
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="View comments"
-                        onPress={(event) => {
-                            event.stopPropagation();
-                            openComments();
-                        }}
-                        hitSlop={8}
-                        className="flex-row items-center gap-1.5 active:opacity-60"
-                    >
-                        <Ionicons
-                            name="chatbubble-outline"
-                            size={18}
-                            color={mutedForeground}
-                        />
-                        <Text className="text-sm text-muted-foreground">
-                            {commentCount}
-                        </Text>
-                    </Pressable>
-                    {displayPost.edited_at ? (
-                        <Text className="text-sm text-muted-foreground">
-                            (edited)
-                        </Text>
-                    ) : null}
-                </View>
-            </Pressable>
+                            <Ionicons
+                                name="chatbubble-outline"
+                                size={18}
+                                color={mutedForeground}
+                            />
+                            <Text className="text-sm text-muted-foreground">
+                                {commentCount}
+                            </Text>
+                        </Pressable>
+                        {displayPost.edited_at ? (
+                            <Text className="text-sm text-muted-foreground">
+                                (edited)
+                            </Text>
+                        ) : null}
+                    </View>
+                </Pressable>
+            )}
 
             <PostOptionsMenu
                 post={menuOpen ? displayPost : null}
                 onClose={() => setMenuOpen(false)}
                 onDeleted={onDeleted}
                 onDeleteFailed={onDeleteFailed}
-                onEdit={() => setEditing(true)}
+                onEdit={beginEdit}
             />
 
             <EditContentDialog
@@ -398,6 +498,8 @@ function PostCardBase({
                 initial={displayPost.content}
                 maxLength={MAX_POST_LENGTH}
                 saving={false}
+                tags={tagDraft}
+                onTagsChange={setTagDraft}
                 onSubmit={(content) => void saveEdit(content)}
                 onCancel={() => setEditing(false)}
             />
@@ -408,6 +510,7 @@ function PostCardBase({
                 post={displayPost}
                 topicHint={topicHint}
                 showTopic={showTopic}
+                commentCount={commentCount}
                 onLikedChange={onLikedChange}
                 onAuthorPress={openAuthor}
                 onCommentCreated={noteCommentCreated}
@@ -448,7 +551,7 @@ function PostAuthorAvatar({
                     if (listening) setOpen(true);
                     else onProfilePress();
                 }}
-                className="h-10 w-10 overflow-visible rounded-full"
+                className="h-10 w-10 overflow-visible rounded-full bg-muted"
                 style={{
                     shadowColor: "#000",
                     shadowOpacity: 0.22,

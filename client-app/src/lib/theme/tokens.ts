@@ -35,7 +35,7 @@ export type Palette = {
     brand: string;
     brandForeground: string;
     success: string;
-    /** Like and heart icons. */
+    /** Like and heart icons. The default accent, not the user's. */
     like: string;
     /** What nested glass washes with. Read only from JS. */
     glassNestedFill: string;
@@ -96,7 +96,7 @@ export const PALETTE: Record<ColorScheme, Palette> = {
         brand: DEFAULT_BRAND,
         brandForeground: "#ffffff",
         success: "#22c55e",
-        like: "#e11d48",
+        like: DEFAULT_BRAND,
         glassNestedFill: "#000000",
     },
     dark: {
@@ -122,7 +122,7 @@ export const PALETTE: Record<ColorScheme, Palette> = {
         brand: DEFAULT_BRAND,
         brandForeground: "#ffffff",
         success: "#4ade80",
-        like: "#e11d48",
+        like: DEFAULT_BRAND,
         glassNestedFill: "#ffffff",
     },
 };

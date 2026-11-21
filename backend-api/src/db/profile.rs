@@ -3,7 +3,7 @@
 use sea_orm::{
     ActiveModelTrait,
     ActiveValue::{NotSet, Set},
-    DatabaseConnection, EntityTrait,
+    ConnectionTrait, DatabaseConnection, EntityTrait,
     prelude::Uuid,
 };
 
@@ -25,6 +25,19 @@ pub async fn get_profile(
         .one(db)
         .await?
         .ok_or(CadenzaError::NotFound)
+}
+
+/// `user_id`'s username, or `unknown` when they have no profile or a blank
+/// one. For text other people read, like a notification title.
+pub async fn username_or_unknown(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+) -> Result<String, CadenzaError> {
+    let row = profile::Entity::find_by_id(user_id).one(db).await?;
+    Ok(match row {
+        Some(row) if !row.username.trim().is_empty() => row.username,
+        _ => "unknown".to_owned(),
+    })
 }
 
 /// Creates the user's profile. `username` defaults to the email local part when

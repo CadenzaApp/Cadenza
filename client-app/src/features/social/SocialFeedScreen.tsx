@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
-import { useTheme } from "expo-router/react-navigation";
+import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import {
     useCallback,
     useEffect,
@@ -13,6 +13,7 @@ import {
 } from "react";
 import {
     ActivityIndicator,
+    AppState,
     FlatList,
     RefreshControl,
     ScrollView,
@@ -30,7 +31,7 @@ import Animated, {
     type SharedValue,
 } from "react-native-reanimated";
 
-import { Toast, useToast } from "@/components/custom/toast";
+import { useToast } from "@/components/custom/toast";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import { Text } from "@/components/ui/text";
@@ -39,16 +40,15 @@ import { useKeyboardScroll } from "@/lib/keyboard-scroll";
 import { SlidingTabStrip } from "@/components/ui/sliding-tab-pager";
 import { useProfile } from "@/lib/routes/profile";
 import type { SharedPlaylistSummary } from "@/lib/routes/shared-playlists";
-import {
-    useFriendsListening,
-    type FriendListening,
-} from "@/lib/routes/listening";
+import { type FriendListening } from "@/lib/routes/listening";
+import { useFriendsListeningShared } from "@/lib/routes/listening-provider";
 import {
     useCreatePost,
     useFeed,
     useFriendsFeed,
     useMarkPostsViewed,
     useNotifications,
+    useHiddenSpotlights,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
@@ -73,9 +73,11 @@ const MARK_VIEWED_FLUSH_MS = 3000;
 
 /**
  * The Social tab. Loads the ranked feed with full post payloads.
- * A post you just wrote stays at the top until the feed includes it.
- * Posts that are at least half-visible are queued and marked viewed in
- * batches every few seconds.
+ * A post you just wrote stays at the top until a reload clears it.
+ * Posts at least half on screen are queued only while this tab is focused
+ * and the app is in the foreground, then marked viewed in batches. Posts
+ * under Previously viewed are left alone. Discuss, a profile, and a topic
+ * page leave view status alone too.
  */
 export function SocialFeedScreen() {
     const pager = useRef<ScrollView>(null);
@@ -99,11 +101,13 @@ export function SocialFeedScreen() {
     const [layoutWidth, setLayoutWidth] = useState(0);
     const pageWidth = layoutWidth || windowWidth;
     const navigation = useNavigation();
+    const isFocused = useIsFocused();
     const { colors } = useTheme();
     const { brand } = useAppTheme().colors;
     const {
         posts,
         unseenCount,
+        showingSeen,
         hasNextPage,
         isLoadingNextPage,
         loadNextPage,
@@ -112,6 +116,16 @@ export function SocialFeedScreen() {
         feedErr,
     } = useFeed();
     const [filter, setFilter] = useState<FeedFilter>("for-you");
+    const { hiddenSpotlightIds } = useHiddenSpotlights();
+    const [unavailableSpotlights, setUnavailableSpotlights] = useState<
+        Set<number>
+    >(() => new Set());
+    const hideUnavailableSpotlight = useCallback((postId: number) => {
+        setUnavailableSpotlights((current) => {
+            if (current.has(postId)) return current;
+            return new Set([...current, postId]);
+        });
+    }, []);
     const tabProgress = useSharedValue(0);
     const filterRef = useRef(filter);
     const onPageScroll = useAnimatedScrollHandler((event) => {
@@ -124,7 +138,7 @@ export function SocialFeedScreen() {
         });
     }, [pageWidth]);
     const friendsFeed = useFriendsFeed(!feedLoading || filter === "friends");
-    const { friendsListening } = useFriendsListening();
+    const { friendsListening } = useFriendsListeningShared();
     const { createPost } = useCreatePost();
     const { markPostsViewed } = useMarkPostsViewed();
     const { notifications, invalidateNotifications } = useNotifications();
@@ -132,16 +146,53 @@ export function SocialFeedScreen() {
     const { profile } = useProfile();
     const router = useRouter();
     const markedViewedIds = useRef(new Set<number>());
-    const pendingViewedIds = useRef(new Set<number>());
+    const pendingViewedIds = useRef<number[]>([]);
+    const viewablePostIds = useRef(new Set<number>());
+    const feedPostIdsRef = useRef<number[]>([]);
+    const screenVisibleRef = useRef(false);
     const markPostsViewedRef = useRef(markPostsViewed);
     useEffect(() => {
         markPostsViewedRef.current = markPostsViewed;
     }, [markPostsViewed]);
 
+    const queueViewablePosts = useCallback(() => {
+        if (!screenVisibleRef.current || filterRef.current !== "for-you")
+            return;
+        for (const id of viewablePostIds.current) {
+            if (markedViewedIds.current.has(id)) continue;
+            markedViewedIds.current.add(id);
+            pendingViewedIds.current.push(id);
+        }
+    }, []);
+    const queueViewablePostsRef = useRef(queueViewablePosts);
+    useEffect(() => {
+        queueViewablePostsRef.current = queueViewablePosts;
+    }, [queueViewablePosts]);
+
+    useEffect(() => {
+        const sync = () => {
+            screenVisibleRef.current =
+                isFocused && AppState.currentState === "active";
+            if (screenVisibleRef.current) queueViewablePosts();
+        };
+        sync();
+        const subscription = AppState.addEventListener("change", sync);
+        return () => subscription.remove();
+    }, [isFocused, queueViewablePosts]);
+
     const flushPendingViewed = useCallback(() => {
-        if (pendingViewedIds.current.size === 0) return;
-        const ids = [...pendingViewedIds.current];
-        pendingViewedIds.current.clear();
+        if (pendingViewedIds.current.length === 0) return;
+        const pending = pendingViewedIds.current;
+        pendingViewedIds.current = [];
+        const order = feedPostIdsRef.current;
+        const ids = [...pending].sort((a, b) => {
+            const ai = order.indexOf(a);
+            const bi = order.indexOf(b);
+            return (
+                (ai === -1 ? order.length : ai) -
+                (bi === -1 ? order.length : bi)
+            );
+        });
         void markPostsViewedRef.current(ids).catch(() => {
             for (const id of ids) markedViewedIds.current.delete(id);
         });
@@ -196,7 +247,7 @@ export function SocialFeedScreen() {
         [pageWidth, syncFeedHeaders],
     );
     const socialNebula = useMemo(() => [brand, "#7b61ff", "#20a9a0"], [brand]);
-    const { toast, showToast } = useToast();
+    const { showToast } = useToast();
 
     const feed = useMemo((): FeedRow[] => {
         const loaded = new Set(posts.map((post) => post.post_id));
@@ -214,12 +265,16 @@ export function SocialFeedScreen() {
             if (hiddenIds.has(post.post_id)) continue;
             rows.push({ kind: "post", post, unseen: true });
         }
+        // Fresh pages ran dry: a heading, then previously viewed posts.
+        if (showingSeen && seenPosts.length > 0) {
+            rows.push({ kind: "history-heading" });
+        }
         for (const post of seenPosts) {
             if (hiddenIds.has(post.post_id)) continue;
-            rows.push({ kind: "post", post });
+            rows.push({ kind: "post", post, history: true });
         }
         return rows;
-    }, [created, hiddenIds, posts, unseenCount]);
+    }, [created, hiddenIds, posts, showingSeen, unseenCount]);
 
     useLayoutEffect(() => {
         navigation.setOptions({
@@ -263,26 +318,30 @@ export function SocialFeedScreen() {
             content: string,
             topic?: PostTopic | null,
             playlist?: SharedPlaylistSummary | null,
+            tags?: { text: string; color: string }[],
         ) => {
-            let postId: number | undefined;
+            let created:
+                | { post_id: number; tags: SocialPost["tags"] }
+                | undefined;
             try {
-                postId = await createPost({
+                created = await createPost({
                     content,
                     ...(playlist
                         ? { shared_playlist_id: playlist.playlist_id }
                         : topic
                           ? topicCreateFields(topic)
                           : {}),
+                    tags: tags?.map(({ text, color }) => ({ text, color })),
                 });
             } catch (error) {
                 console.error("Creating a post failed", error);
                 throw error;
             }
-            if (postId == null) {
+            if (created?.post_id == null) {
                 console.error("Creating a post failed");
                 throw new Error("Creating a post failed");
             }
-            const publishedId = postId;
+            const publishedId = created.post_id;
             const post: SocialPost = {
                 post_id: publishedId,
                 content,
@@ -306,6 +365,7 @@ export function SocialFeedScreen() {
                       }
                     : null,
                 comment_count: 0,
+                tags: created.tags ?? [],
             };
             setCreated((current) => [post, ...current]);
             if (topic && !playlist) {
@@ -314,17 +374,27 @@ export function SocialFeedScreen() {
                     [publishedId]: topic,
                 }));
             }
-            showToast("Post published");
+            showToast("Post published", undefined, "success");
         },
         [createPost, profile?.uid, profile?.username, showToast],
     );
 
     const handleEdited = useCallback(
-        (postId: number, content: string, editedAt: string | null) => {
+        (
+            postId: number,
+            content: string,
+            editedAt: string | null,
+            tags?: SocialPost["tags"],
+        ) => {
             setCreated((current) =>
                 current.map((item) =>
                     item.post_id === postId
-                        ? { ...item, content, edited_at: editedAt }
+                        ? {
+                              ...item,
+                              content,
+                              edited_at: editedAt,
+                              ...(tags !== undefined ? { tags } : {}),
+                          }
                         : item,
                 ),
             );
@@ -335,6 +405,8 @@ export function SocialFeedScreen() {
     const reload = useCallback(
         async (page: FeedFilter) => {
             setRefreshing((current) => new Set([...current, page]));
+            setCreated([]);
+            setUnavailableSpotlights(new Set());
             try {
                 // the cards and the listening row above the posts refresh with them
                 await Promise.all([
@@ -361,20 +433,24 @@ export function SocialFeedScreen() {
     const onViewableItemsChanged = useCallback(
         ({ viewableItems }: { viewableItems: ViewToken[] }) => {
             if (filterRef.current !== "for-you") return;
+            const next = new Set<number>();
             for (const token of viewableItems) {
                 const row = token.item as FeedRow | undefined;
-                if (!token.isViewable || row?.kind !== "post") continue;
-                const id = row.post.post_id;
-                if (markedViewedIds.current.has(id)) continue;
-                markedViewedIds.current.add(id);
-                pendingViewedIds.current.add(id);
+                if (!token.isViewable || row?.kind !== "post" || row.history)
+                    continue;
+                next.add(row.post.post_id);
             }
+            viewablePostIds.current = next;
+            queueViewablePostsRef.current();
         },
         [],
     );
 
     const keyExtractor = useCallback(
-        (item: FeedRow) => String(item.post.post_id),
+        (item: FeedRow) =>
+            item.kind === "history-heading"
+                ? "history-heading"
+                : String(item.post.post_id),
         [],
     );
 
@@ -429,7 +505,7 @@ export function SocialFeedScreen() {
                     }));
                 }
             }
-            showToast("Couldn't delete your post.", true);
+            showToast("Couldn't delete your post.", undefined, "error");
         },
         [showToast],
     );
@@ -447,22 +523,30 @@ export function SocialFeedScreen() {
 
     const renderItem = useCallback<ListRenderItem<FeedRow>>(
         ({ item }) => {
+            if (item.kind === "history-heading") {
+                return <PreviouslyViewedHeading />;
+            }
             return (
                 <PostCard
                     post={item.post}
-                    authorListening={listeningByUser.get(
-                        item.post.author.user_id,
-                    )}
+                    authorListening={
+                        item.post.author
+                            ? listeningByUser.get(item.post.author.user_id)
+                            : undefined
+                    }
                     unseen={item.unseen}
+                    divider={item.divider}
                     topicHint={localTopics[item.post.post_id]}
                     onDeleted={handleDeleted}
                     onDeleteFailed={handleDeleteFailed}
+                    onUnavailable={hideUnavailableSpotlight}
                     onEdited={handleEdited}
                 />
             );
         },
         [
             handleDeleteFailed,
+            hideUnavailableSpotlight,
             handleDeleted,
             handleEdited,
             listeningByUser,
@@ -477,6 +561,23 @@ export function SocialFeedScreen() {
                 .map((post) => ({ kind: "post", post })),
         [friendsFeed.friendsPosts, hiddenIds],
     );
+    const pageRows = useMemo(() => {
+        const visible = (items: FeedRow[]) =>
+            withoutLinesAroundSpotlights(
+                items.filter(
+                    (row) =>
+                        row.kind !== "post" ||
+                        (!unavailableSpotlights.has(row.post.post_id) &&
+                            !hiddenSpotlightIds.has(row.post.post_id)),
+                ),
+            );
+        return { "for-you": visible(feed), friends: visible(friendRows) };
+    }, [feed, friendRows, unavailableSpotlights, hiddenSpotlightIds]);
+    useEffect(() => {
+        feedPostIdsRef.current = pageRows["for-you"].flatMap((row) =>
+            row.kind === "post" && !row.history ? [row.post.post_id] : [],
+        );
+    }, [pageRows]);
 
     const onEndReached = useCallback(
         (page: FeedFilter) => {
@@ -528,7 +629,7 @@ export function SocialFeedScreen() {
                         <FeedPage
                             page={page}
                             active={filter === page}
-                            rows={page === "friends" ? friendRows : feed}
+                            rows={pageRows[page]}
                             loading={
                                 page === "friends"
                                     ? friendsFeed.friendsFeedLoading
@@ -596,7 +697,6 @@ export function SocialFeedScreen() {
                 open={socialMenuOpen}
                 onClose={() => setSocialMenuOpen(false)}
             />
-            <Toast toast={toast} />
         </View>
     );
 }
@@ -751,7 +851,24 @@ function FeedPage({
     );
 }
 
-type FeedRow = { kind: "post"; post: SocialPost; unseen?: boolean };
+type FeedRow =
+    | {
+          kind: "post";
+          post: SocialPost;
+          history?: boolean;
+          unseen?: boolean;
+          /** False for the post just above a spotlight. */
+          divider?: boolean;
+      }
+    | { kind: "history-heading" };
+
+function PreviouslyViewedHeading() {
+    return (
+        <Text className="px-1 pt-1 text-sm font-semibold text-foreground">
+            Previously viewed
+        </Text>
+    );
+}
 
 function PostSeparator() {
     return null;
@@ -785,4 +902,15 @@ function SocialFeedHeader({
             </View>
         </View>
     );
+}
+function withoutLinesAroundSpotlights(rows: FeedRow[]): FeedRow[] {
+    return rows.map((row, index) => {
+        const next = rows[index + 1];
+        return row.kind === "post"
+            ? {
+                  ...row,
+                  divider: next?.kind !== "post" || next.post.author != null,
+              }
+            : row;
+    });
 }

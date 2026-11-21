@@ -195,7 +195,7 @@ async fn lock_for(
     if !allowed(role, action) {
         return Err(CadenzaError::Forbidden(format!(
             "a playlist {} cannot do that",
-            role.to_value()
+            role.to_value().value.into_owned()
         )));
     }
     if let Some(expected) = expected_version
@@ -813,7 +813,8 @@ pub async fn invite_for_role(
     check_can_invite(&txn, user_id, playlist_id).await?;
     let target = InviteTargetRef::SharedPlaylist(playlist_id);
     if !options.regenerate
-        && let Some(existing) = find_live_invite(&txn, &target, Some(role.to_value())).await?
+        && let Some(existing) =
+            find_live_invite(&txn, &target, Some(role.to_value().value.into_owned())).await?
     {
         txn.commit().await?;
         return Ok(existing);

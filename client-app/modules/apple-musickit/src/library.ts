@@ -9,6 +9,7 @@ import type {
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
+    MusicRecommendation,
     MusicKitOptions,
     SearchResult,
     SongFavoriteStatus,
@@ -31,6 +32,17 @@ const SONG_INFO_CONCURRENCY = 6;
 export const MusicKit = {
     /** Returns whether the native Apple Music bridge is installed. */
     isAvailable: (): boolean => native !== null,
+
+    /**
+     * Songs and artists from the user's Apple Music recommendations.
+     * Albums and playlists become one random song from their first track page,
+     * or, one time in three, that song's artist.
+     * At most five, and it stops reading Apple once it has them. Stations are
+     * left out.
+     */
+    getRecommendations: async (): Promise<MusicRecommendation[]> => {
+        return requireNative().getRecommendations();
+    },
 
     /**
      * Retrieves full metadata for catalog or library song IDs in the requested
@@ -300,11 +312,16 @@ export const MusicKit = {
         );
     },
 
-    /** Returns a catalog artist with their top songs and albums. */
+    /**
+     * Returns a catalog artist with their top songs, albums, and similar
+     * artists. A native binary built before `similarArtists` existed leaves it
+     * out, so it defaults to empty.
+     */
     getArtist: async (artistId: string): Promise<ArtistDetail> => {
-        return requireNative().getArtist(
+        const artist = await requireNative().getArtist(
             requireIdentifier(artistId, "artist ID"),
         );
+        return { ...artist, similarArtists: artist.similarArtists ?? [] };
     },
 
     /**
@@ -456,6 +473,7 @@ interface LibraryNativeModule {
         kind: CollectionFavoriteKind | "artists",
         ids: string[],
     ): Promise<MusicItem[]>;
+    getRecommendations(): Promise<MusicRecommendation[]>;
 }
 
 let native: LibraryNativeModule | null = null;

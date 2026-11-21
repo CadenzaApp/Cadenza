@@ -1,14 +1,22 @@
 import { useMemo } from "react";
 
 import { useAPIData, useAPIMutation } from "../api-actions";
-import { useRealtimeTopic, useRealtimeTopics } from "../realtime";
+import {
+    useRealtimeConnected,
+    useRealtimeTopic,
+    useRealtimeTopics,
+} from "../realtime";
 import type { RealtimeTopic } from "../realtime-protocol";
 import { useFriendships } from "./social";
 import type { UpNextSong } from "../now-playing-change";
 
 export type { UpNextSong };
 
-/** How often a listening read refetches while it is on screen. */
+/**
+ * How often a listening read refetches while the realtime socket is down. While
+ * it is up, these reads poll not at all and refetch on pushed events instead, so
+ * this interval only runs as an offline fallback.
+ */
 const LISTENING_REFRESH_MS = 10_000;
 
 /**
@@ -78,15 +86,16 @@ export type NowPlayingUpdate = {
 
 /**
  * Friends playing something now. Refetches the moment any friend's now
- * playing changes, through the realtime socket, and every 10 s as a fallback.
- * Every friend is watched, not only the ones playing, so one who starts shows
- * up at once.
+ * playing changes, through the realtime socket, and every 10 s only while the
+ * socket is down. Every friend is watched, not only the ones playing, so one
+ * who starts shows up at once. Mount it once, through `ListeningProvider`.
  */
 export function useFriendsListening() {
+    const connected = useRealtimeConnected();
     const x = useAPIData<{ listening: FriendListening[] }>(
         "/listening/friends",
         undefined,
-        { refreshInterval: LISTENING_REFRESH_MS },
+        { refreshInterval: connected ? 0 : LISTENING_REFRESH_MS },
     );
     const { friends } = useFriendships();
     const topics = useMemo<RealtimeTopic[]>(
@@ -103,13 +112,18 @@ export function useFriendsListening() {
 
 /**
  * One user's now playing and recent plays, each as their settings allow.
- * Refetches on their changes through the realtime socket, and every 10 s.
+ * Refetches on their changes through the realtime socket, and every 10 s only
+ * while the socket is down.
  */
 export function useUserListening(userId: string | null) {
+    const connected = useRealtimeConnected();
     const x = useAPIData<UserListening>(
         `/listening/users/${userId}`,
         undefined,
-        { enabled: userId !== null, refreshInterval: LISTENING_REFRESH_MS },
+        {
+            enabled: userId !== null,
+            refreshInterval: connected ? 0 : LISTENING_REFRESH_MS,
+        },
     );
     useRealtimeTopic(
         userId ? { kind: "user", id: userId } : null,

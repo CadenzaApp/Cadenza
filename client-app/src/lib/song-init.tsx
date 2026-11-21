@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 
-import { useTasks } from "@/components/custom/tasks";
+import { useToast } from "@/components/custom/toast";
 
 import { useAccount } from "./account";
 import { invalidateAPIData } from "./api-actions";
@@ -85,13 +85,13 @@ type SyncRun = {
  * time something reads them.
  *
  * It is mounted at the root, under the account and Apple Music providers the
- * job needs and under `TasksProvider`.
+ * job needs and under `ToastProvider`.
  */
 export function SongInitProvider({ children }: { children: ReactNode }) {
     const { account } = useAccount();
     const { sessionRevision, refreshLibrary } = useAppleMusic();
     const { editUserSongs } = useEditUserSongs();
-    const { addTask, endTaskSuccess, endTaskFail } = useTasks();
+    const { startTask, endTaskSuccess, endTaskFail } = useToast();
     const accountId = account?.id;
 
     const [isSyncing, setIsSyncing] = useState(false);
@@ -135,7 +135,7 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
         }
         if (!accountId || !canSync) return null;
 
-        let taskId: number | null = addTask(SYNC_LABEL);
+        let taskId: number | null = startTask(SYNC_LABEL);
         const endTask = (failure?: string) => {
             if (taskId === null) return;
             if (failure === undefined) endTaskSuccess(taskId);
@@ -211,7 +211,7 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
         canSync,
         owner,
         editUserSongs,
-        addTask,
+        startTask,
         endTaskSuccess,
         endTaskFail,
     ]);

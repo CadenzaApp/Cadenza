@@ -7,7 +7,7 @@ import { GlassPanel } from "@/components/ui/glass-panel";
 import type { IoniconName } from "@/components/ui/ionicon-name";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
-import { useFriendsListening } from "@/lib/routes/listening";
+import { useFriendsListeningShared } from "@/lib/routes/listening-provider";
 import { useProfile } from "@/lib/routes/profile";
 import { useFriendshipsWithPresence } from "@/lib/routes/social";
 import { useAppTheme } from "@/lib/theme";
@@ -57,7 +57,7 @@ function FriendsCard() {
     const router = useRouter();
     const { friends, incoming, friendshipsLoading, friendshipsErr } =
         useFriendshipsWithPresence();
-    const { friendsListening } = useFriendsListening();
+    const { friendsListening } = useFriendsListeningShared();
 
     const listeningIds = new Set(
         (friendsListening ?? []).map((friend) => friend.user_id),

@@ -1,6 +1,6 @@
 import type { MusicItem } from "@apple-musickit";
 import { useCallback, useState } from "react";
-import { Alert, useWindowDimensions, View } from "react-native";
+import { useWindowDimensions, View } from "react-native";
 
 import type {
     MusicListArrangement,
@@ -26,6 +26,7 @@ import { usePlayFromList } from "@/lib/play-from-list";
 import { usePlaybackTrackState } from "@/lib/playback";
 
 import { matchCountLabel } from "./QueryUtils";
+import { useToast } from "@/components/custom/toast";
 
 type Props = {
     /**
@@ -102,6 +103,7 @@ export default function QueryResults({
     actions,
 }: Props) {
     const { width: screenWidth } = useWindowDimensions();
+    const { showToast } = useToast();
     const [menuOpen, setMenuOpen] = useState(false);
     const [saveOpen, setSaveOpen] = useState(false);
     // favorite on an unsaved query saves it first, favorited
@@ -190,7 +192,7 @@ export default function QueryResults({
             await actions.setFavorite(!actions.saved.favorite);
         } catch (favoriteErr) {
             console.error("Unable to update the query favorite.", favoriteErr);
-            Alert.alert("Couldn't Update Favorite", "Please try again.");
+            showToast("Please try again.", "Couldn't Update Favorite", "error");
         } finally {
             setFavoriteBusy(false);
         }
@@ -203,7 +205,7 @@ export default function QueryResults({
             await actions.setShared(!actions.saved.shared);
         } catch (sharedErr) {
             console.error("Unable to share the query.", sharedErr);
-            Alert.alert("Couldn't Update Profile", "Please try again.");
+            showToast("Please try again.", "Couldn't Update Profile", "error");
         } finally {
             setSharedBusy(false);
         }
@@ -216,7 +218,7 @@ export default function QueryResults({
             await actions.rerun();
         } catch (rerunErr) {
             console.error("Unable to rerun the query.", rerunErr);
-            Alert.alert("Couldn't Rerun Query", "Please try again.");
+            showToast("Please try again.", "Couldn't Rerun Query", "error");
         } finally {
             setRerunning(false);
         }

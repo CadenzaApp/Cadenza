@@ -3,7 +3,14 @@ import type { MusicItem } from "@apple-musickit";
 import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import type { ComponentProps, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { View, type StyleProp, type ViewStyle } from "react-native";
+import {
+    Platform,
+    StyleSheet,
+    View,
+    type ColorValue,
+    type StyleProp,
+    type ViewStyle,
+} from "react-native";
 import Animated, {
     Extrapolation,
     interpolate,
@@ -30,6 +37,7 @@ import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
+import { RemoteArtwork } from "@/components/ui/remote-artwork";
 import { Text } from "@/components/ui/text";
 import { useArtworkNebulaColors } from "@/lib/artwork-color";
 import { usePlaybackCommands } from "@/lib/playback";
@@ -262,6 +270,38 @@ export function TrackCollectionView({
               }
             : {},
     );
+    // Android starts the fade only after this screen's first frame is laid
+    // out. The list, the masked cover, and the nebula are that frame, so a
+    const cornerArrangement = useMemo(
+        () =>
+            arrangement && backControl
+                ? { ...arrangement, placement: "top-right" as const }
+                : arrangement,
+        [arrangement, backControl],
+    );
+
+    // pushed open draws the tint, the small cover, and the title until the
+    // transition ends. iOS keeps the full hero: the zoom needs its target.
+    if (Platform.OS === "android" && !settled) {
+        return (
+            <OpeningFrame
+                title={title}
+                titleIcon={titleIcon}
+                titleContent={titleContent}
+                subtitle={subtitle}
+                coverUrl={artworkPlaceholderUrl || singleCover}
+                backgroundColor={backgroundColor}
+                backControl={backControl}
+                paddingTop={
+                    32 +
+                    (respectTopSafeArea ? insets.top : 0) +
+                    (singleCover ? COVER_BLEED / 2 : 0)
+                }
+                iconColor={colors.text}
+                containerStyle={containerStyle}
+            />
+        );
+    }
 
     function playAll() {
         const command = onPlay ? onPlay() : playQueue({ tracks });
@@ -449,13 +489,6 @@ export function TrackCollectionView({
     );
     const listHeader = header ?? defaultHeader;
     // with a back button floating top left, Sort and group sits opposite it
-    const cornerArrangement = useMemo(
-        () =>
-            arrangement && backControl
-                ? { ...arrangement, placement: "top-right" as const }
-                : arrangement,
-        [arrangement, backControl],
-    );
 
     return (
         <View className="flex-1 bg-background" style={containerStyle}>
@@ -524,3 +557,78 @@ export function TrackCollectionView({
 
 /** Stable, so the held-back list does not get a new array each render. */
 const NO_TRACKS: MusicItem[] = [];
+
+/**
+ * What a pushed Android screen shows while its open animation runs. The real
+ * hero replaces it once the fade has finished.
+ */
+function OpeningFrame({
+    title,
+    titleIcon,
+    titleContent,
+    subtitle,
+    coverUrl,
+    backgroundColor,
+    backControl,
+    paddingTop,
+    iconColor,
+    containerStyle,
+}: {
+    title: string;
+    titleIcon?: ComponentProps<typeof Ionicons>["name"];
+    titleContent?: ReactNode;
+    subtitle?: string;
+    coverUrl?: string | null;
+    backgroundColor?: string | null;
+    backControl?: ReactNode;
+    paddingTop: number;
+    iconColor: ColorValue;
+    containerStyle?: StyleProp<ViewStyle>;
+}) {
+    return (
+        <View className="flex-1 bg-background" style={containerStyle}>
+            {backgroundColor ? (
+                <View
+                    pointerEvents="none"
+                    style={[StyleSheet.absoluteFill, { backgroundColor }]}
+                />
+            ) : null}
+            <View className="items-center px-4" style={{ paddingTop }}>
+                {coverUrl ? (
+                    <RemoteArtwork url={coverUrl} style={OPENING_COVER} />
+                ) : null}
+                {titleContent ? (
+                    <View className="mt-4">{titleContent}</View>
+                ) : (
+                    <View className="mt-4 flex-row items-center justify-center gap-2">
+                        {titleIcon ? (
+                            <Ionicons
+                                name={titleIcon}
+                                size={24}
+                                color={iconColor}
+                                accessibilityElementsHidden
+                                importantForAccessibility="no"
+                            />
+                        ) : null}
+                        <Text className="text-center text-2xl font-bold">
+                            {title}
+                        </Text>
+                    </View>
+                )}
+                {subtitle ? (
+                    <Text className="mt-1 text-center text-base text-muted-foreground">
+                        {subtitle}
+                    </Text>
+                ) : null}
+            </View>
+            {backControl}
+        </View>
+    );
+}
+
+const OPENING_COVER = {
+    width: ARTWORK_SIZE,
+    height: ARTWORK_SIZE,
+    borderRadius: ARTWORK_SIZE * 0.14,
+    borderCurve: "continuous",
+} as const;

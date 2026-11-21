@@ -1,0 +1,29 @@
+{
+    "project_info": {
+        "project_number": "293277046330",
+        "project_id": "cadenza-e387b",
+        "storage_bucket": "cadenza-e387b.firebasestorage.app"
+    },
+    "client": [
+        {
+            "client_info": {
+                "mobilesdk_app_id": "1:293277046330:android:e2a7073f983e59322f0703",
+                "android_client_info": {
+                    "package_name": "com.cadenza.cs4000"
+                }
+            },
+            "oauth_client": [],
+            "api_key": [
+                {
+                    "current_key": "AIzaSyDulFFosKDn8cIcgIV8YKtjzafPtCsffWw"
+                }
+            ],
+            "services": {
+                "appinvite_service": {
+                    "other_platform_oauth_client": []
+                }
+            }
+        }
+    ],
+    "configuration_version": "1"
+}

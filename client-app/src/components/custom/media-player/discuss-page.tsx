@@ -10,7 +10,7 @@ import {
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Toast, useToast } from "@/components/custom/toast";
+import { useToast } from "@/components/custom/toast";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
 import { CreatePostDialog } from "@/features/social/CreatePostDialog";
@@ -138,7 +138,7 @@ export function DiscussPage({
     }
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
-    const { toast, showToast } = useToast();
+    const { showToast } = useToast();
     const focusedSongIdRef = useRef(focusedSong.id);
     useEffect(() => {
         focusedSongIdRef.current = focusedSong.id;
@@ -157,28 +157,36 @@ export function DiscussPage({
     }, [created, posts]);
 
     const handleCreate = useCallback(
-        async (content: string, attached?: PostTopic | null) => {
+        async (
+            content: string,
+            attached?: PostTopic | null,
+            _playlist?: unknown,
+            tags?: { text: string; color: string }[],
+        ) => {
             const postedTopic = attached ?? topic;
             const songId = focusedSong.id;
-            let postId: number | undefined;
+            let created:
+                | { post_id: number; tags: SocialPost["tags"] }
+                | undefined;
             try {
-                postId = await createPost({
+                created = await createPost({
                     content,
                     ...topicCreateFields(postedTopic),
+                    tags: tags?.map(({ text, color }) => ({ text, color })),
                 });
             } catch (error) {
                 console.error("Creating a post failed", error);
                 throw error;
             }
-            if (postId == null) {
+            if (created?.post_id == null) {
                 console.error("Creating a post failed");
                 throw new Error("Creating a post failed");
             }
-            showToast("Post published");
+            showToast("Post published", undefined, "success");
             // The song changed while this was in flight, so leave it off this page.
             if (focusedSongIdRef.current !== songId) return;
             const post: SocialPost = {
-                post_id: postId,
+                post_id: created.post_id,
                 content,
                 likes: 0,
                 liked: false,
@@ -191,6 +199,7 @@ export function DiscussPage({
                 topic_mk_id: topicMkId(postedTopic),
                 shared_playlist: null,
                 comment_count: 0,
+                tags: created.tags ?? [],
             };
             setCreated((current) => [...current, post]);
             void refreshTopicPosts();
@@ -207,11 +216,21 @@ export function DiscussPage({
     );
 
     const handleEdited = useCallback(
-        (postId: number, content: string, editedAt: string | null) => {
+        (
+            postId: number,
+            content: string,
+            editedAt: string | null,
+            tags?: SocialPost["tags"],
+        ) => {
             setCreated((current) =>
                 current.map((item) =>
                     item.post_id === postId
-                        ? { ...item, content, edited_at: editedAt }
+                        ? {
+                              ...item,
+                              content,
+                              edited_at: editedAt,
+                              ...(tags !== undefined ? { tags } : {}),
+                          }
                         : item,
                 ),
             );
@@ -347,8 +366,6 @@ export function DiscussPage({
                 onCreate={handleCreate}
                 lockedTopic={topic}
             />
-
-            <Toast toast={toast} />
         </View>
     );
 }

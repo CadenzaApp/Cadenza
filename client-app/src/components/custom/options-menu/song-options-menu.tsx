@@ -1,7 +1,6 @@
 import type { MusicItem } from "@apple-musickit";
 import type { Href } from "expo-router";
 import { memo, useState } from "react";
-import { Alert } from "react-native";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
@@ -24,6 +23,7 @@ import { logHandledError } from "@/lib/log";
 import { useMusicAccess } from "@/lib/use-music-access";
 
 import { FavoriteShareRow } from "./favorite-share-row";
+import { useToast } from "@/components/custom/toast";
 
 type NavigateFn = (href: Href) => void;
 
@@ -65,6 +65,7 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
     const [editingTags, setEditingTags] = useState(false);
     const { addToQueue, playNext } = usePlaybackCommands();
     const canFavorite = useMusicAccess().can("favorites");
+    const { showToast } = useToast();
 
     const artistId = artistIds?.[0] ?? track?.artistId;
     useArtistPreview(artistId);
@@ -81,9 +82,10 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
             await setSongFavoriteStatus(!favoriteStatus.isFavorite);
         } catch (error) {
             logHandledError("Unable to update Apple Music favorite", error);
-            Alert.alert(
-                "Couldn’t Update Favorite",
+            showToast(
                 "Please check your Apple Music connection and try again.",
+                "Couldn't Update Favorite",
+                "error",
             );
         } finally {
             setIsUpdatingFavorite(false);
@@ -244,7 +246,11 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
                                     error,
                                 );
                                 const appError = classifyError(error);
-                                Alert.alert(appError.title, appError.detail);
+                                showToast(
+                                    appError.detail,
+                                    appError.title,
+                                    "error",
+                                );
                             });
                         }}
                     />

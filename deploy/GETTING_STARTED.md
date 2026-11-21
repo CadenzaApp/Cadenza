@@ -30,6 +30,12 @@ aws login --profile cadenza-project --region us-east-2
 aws sts get-caller-identity --profile cadenza-project --region us-west-1
 ```
 
+Team developers select the `CadenzaBackendDeveloper` role when AWS offers a role
+choice. Access is assigned through the `CadenzaBackendDevelopers` Identity Center
+group after accepting the team invitation. This role can deploy and open the
+Grafana tunnel; it includes root command access to the backend and permission
+to update the runtime role, so assign it only to trusted backend developers.
+
 The account must be `175220118767`. Login uses **us-east-2**; the servers run in
 **us-west-1**. These are intentionally different. Repeat login when it expires.
 An account name change can take time to appear in an existing browser session.

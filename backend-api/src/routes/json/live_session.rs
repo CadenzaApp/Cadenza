@@ -3,6 +3,7 @@ use sea_orm::{ActiveEnum, prelude::Uuid};
 use serde::{Deserialize, Serialize};
 
 use crate::db::entity::sea_orm_active_enums::ListenMode;
+use crate::db::live_session_chat::ChatMessage;
 use crate::db::live_sessions::{
     NewQueueSong, PlaybackNow, ProjectedPlayback, QueueEntry, SessionMember, SessionRow,
     SessionSnapshot,
@@ -208,7 +209,7 @@ impl From<SessionSnapshot> for LiveSessionSnapshot {
             can: snapshot.me.into(),
             my_role: match snapshot.me {
                 Actor::Host => "host".to_owned(),
-                Actor::Member(role) => role.to_value(),
+                Actor::Member(role) => role.to_value().value.into_owned(),
             },
             my_listen_mode: snapshot.my_listen_mode,
             members,
@@ -395,4 +396,51 @@ pub struct SessionVersion {
     /// event carries the same.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub playback: Option<LiveSessionPlayback>,
+}
+
+/// `POST /live-sessions/{id}/messages`.
+#[derive(Deserialize)]
+pub struct SendChatMessage {
+    /// Trimmed. 1 to 1000 characters.
+    pub body: String,
+}
+
+/// `GET /live-sessions/{id}/messages` query.
+#[derive(Deserialize)]
+pub struct ChatPageQuery {
+    /// Only messages older than this id. Missing starts at the newest.
+    pub before: Option<i64>,
+    /// Default 50, at most 100.
+    pub limit: Option<u64>,
+}
+
+/// One chat message. The `chat` realtime event carries the same.
+#[derive(Serialize)]
+pub struct LiveSessionChatMessage {
+    pub message_id: i64,
+    /// Null once the sender's account is gone.
+    pub user_id: Option<Uuid>,
+    pub username: String,
+    pub body: String,
+    pub sent_at: DateTime<Utc>,
+}
+
+impl From<ChatMessage> for LiveSessionChatMessage {
+    fn from(message: ChatMessage) -> Self {
+        Self {
+            message_id: message.message_id,
+            user_id: message.user_id,
+            username: message.username,
+            body: message.body,
+            sent_at: message.sent_at.with_timezone(&Utc),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct LiveSessionChatPage {
+    /// Newest first.
+    pub messages: Vec<LiveSessionChatMessage>,
+    /// Pass as `before` for the next older page. Null when there is none.
+    pub next_before: Option<i64>,
 }

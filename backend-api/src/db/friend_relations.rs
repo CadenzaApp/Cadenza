@@ -9,7 +9,9 @@ use sea_orm::{
     PaginatorTrait, QueryFilter, QuerySelect, prelude::Uuid, sea_query::OnConflict,
 };
 
-use crate::db::entity::{friend_favorites, friendships, user_blocks};
+use crate::db::entity::{
+    friend_favorites, friendships, sea_orm_active_enums::FriendshipStatus, user_blocks,
+};
 use crate::db::social::{FriendPerson, is_friend};
 use crate::db::{Db, stmt};
 use crate::err::CadenzaError;
@@ -21,6 +23,33 @@ pub const NOT_BLOCKED_AUTHOR: &str = "NOT EXISTS (
     WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
        OR (b.blocker_id = p.user_id AND b.blocked_id = $1)
 )";
+
+/// Everyone `user_id` has a completed friendship with, in no order. A block
+/// ends the friendship, so nobody blocked either way is in it.
+pub async fn friend_ids(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+) -> Result<Vec<Uuid>, CadenzaError> {
+    let rows = friendships::Entity::find()
+        .filter(friendships::Column::Status.eq(FriendshipStatus::Complete))
+        .filter(
+            Condition::any()
+                .add(friendships::Column::User1.eq(user_id))
+                .add(friendships::Column::User2.eq(user_id)),
+        )
+        .all(db)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            if row.user1 == user_id {
+                row.user2
+            } else {
+                row.user1
+            }
+        })
+        .collect())
+}
 
 #[derive(FromQueryResult)]
 struct PersonRow {
