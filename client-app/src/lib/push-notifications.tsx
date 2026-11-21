@@ -9,7 +9,7 @@ import { useToast, type ToastIcon } from "@/components/custom/toast";
 import { useAccount } from "./account";
 import { logHandledError } from "./log";
 import { registerPushToken } from "./push-token";
-import { visibleSessionChat } from "./visible-session-chat";
+import { visibleSessionChat } from "./session-chat";
 
 /**
  * The Android channel push notifications land in. A sender that names no

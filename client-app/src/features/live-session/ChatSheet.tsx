@@ -21,7 +21,7 @@ import {
 import { useAppTheme } from "@/lib/theme";
 import { useKeyboardOverlap } from "@/lib/use-keyboard-overlap";
 import { cn } from "@/lib/utils";
-import { visibleSessionChat } from "@/lib/visible-session-chat";
+import { visibleSessionChat } from "@/lib/session-chat";
 
 /** The most a message can hold. The backend checks the same. */
 const MAX_MESSAGE_LENGTH = 1000;
