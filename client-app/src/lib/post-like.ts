@@ -70,7 +70,13 @@ export function applyPostContent(
     if (Array.isArray(data)) {
         let changed = false;
         const pages = data.map((page) => {
-            const next = applyPostContent(page, postId, content, editedAt, tags);
+            const next = applyPostContent(
+                page,
+                postId,
+                content,
+                editedAt,
+                tags,
+            );
             if (next !== page) changed = true;
             return next;
         });

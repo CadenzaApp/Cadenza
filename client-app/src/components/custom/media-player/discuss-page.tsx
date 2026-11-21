@@ -165,7 +165,9 @@ export function DiscussPage({
         ) => {
             const postedTopic = attached ?? topic;
             const songId = focusedSong.id;
-            let created: { post_id: number; tags: SocialPost["tags"] } | undefined;
+            let created:
+                | { post_id: number; tags: SocialPost["tags"] }
+                | undefined;
             try {
                 created = await createPost({
                     content,

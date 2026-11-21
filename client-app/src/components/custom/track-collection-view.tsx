@@ -575,10 +575,7 @@ function OpeningFrame({
             ) : null}
             <View className="items-center px-4" style={{ paddingTop }}>
                 {coverUrl ? (
-                    <RemoteArtwork
-                        url={coverUrl}
-                        style={OPENING_COVER}
-                    />
+                    <RemoteArtwork url={coverUrl} style={OPENING_COVER} />
                 ) : null}
                 {titleContent ? (
                     <View className="mt-4">{titleContent}</View>
