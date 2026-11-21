@@ -237,7 +237,7 @@ function MessageBubble({
             <View
                 className={cn(
                     "rounded-2xl px-3 py-2",
-                    mine ? "bg-brand" : "bg-muted",
+                    mine ? "self-end bg-brand" : "self-start bg-muted",
                 )}
             >
                 <Text
@@ -279,7 +279,7 @@ function OutgoingBubble({
                 accessibilityLabel={
                     item.failed ? `Send again: ${item.body}` : undefined
                 }
-                className="rounded-2xl bg-brand px-3 py-2"
+                className="self-end rounded-2xl bg-brand px-3 py-2"
                 style={{ opacity: item.failed ? 0.5 : 0.7 }}
             >
                 <Text className="text-[15px] text-brand-foreground">
