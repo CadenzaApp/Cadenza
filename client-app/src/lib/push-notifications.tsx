@@ -1,10 +1,14 @@
+import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { AndroidImportance } from "expo-notifications";
 import { useEffect } from "react";
 import { Platform } from "react-native";
 
+import { useToast, type ToastIcon } from "@/components/custom/toast";
+
 import { useAccount } from "./account";
 import { logHandledError } from "./log";
+import { registerPushToken } from "./push-token";
 
 /**
  * The Android channel push notifications land in. A sender that names no
@@ -15,42 +19,64 @@ import { logHandledError } from "./log";
 export const DEFAULT_NOTIFICATION_CHANNEL = "default";
 
 /**
- * Shows a push notification that arrives while the app is open as a system
- * banner, the same as one that arrives while it is closed. Without a handler,
- * expo-notifications drops notifications in the foreground. Closed or in the
- * background, the OS shows FCM notification messages by itself.
+ * A push that arrives while the app is open draws no system banner, sound, or
+ * list entry. {@link PushNotifications} shows it as a toast instead. Closed or
+ * in the background, the OS shows it by itself and this is not asked.
  */
-const SHOW_IN_FOREGROUND: Notifications.NotificationHandler = {
+const HIDE_IN_FOREGROUND: Notifications.NotificationHandler = {
     handleNotification: async () => ({
-        shouldShowBanner: true,
-        shouldShowList: true,
-        shouldPlaySound: true,
+        shouldShowBanner: false,
+        shouldShowList: false,
+        shouldPlaySound: false,
         shouldSetBadge: false,
     }),
 };
 
 /**
  * Sets up push notifications. Renders nothing. Mounted at the root under
- * `AccountProvider`.
+ * `AccountProvider` and `ToastProvider`.
  *
- * The foreground handler is on for as long as it is mounted. Once someone is
+ * While it is mounted, a push that arrives with the app open becomes a toast
+ * with the push's title and body, not a system notification. Once someone is
  * signed in, it makes the Android channel and asks for permission, so a fresh
  * install is not prompted before login. Android 13 and up only shows the
  * prompt once a channel exists, which is why the channel comes first.
  *
- * The device token is not sent to the backend yet, since nothing there sends
- * pushes. In a dev build it is logged, to paste into the Firebase console's
- * test message.
+ * Pushes go through Expo's push service, which takes an Expo push token
+ * (`ExponentPushToken[...]`) and delivers through FCM and APNs. Getting one
+ * needs the EAS project id in `extra.eas.projectId` (`eas init`). On Android
+ * it also needs Firebase in the native project, so a build from before
+ * `googleServicesFile` was set fails here. With permission, the token is
+ * registered with the backend on every sign in and app start (`POST
+ * /push-tokens`), and sign out removes it (see `push-token.ts`). In a dev
+ * build it is also logged, to paste into Expo's push notification tool.
  */
 export function PushNotifications() {
     const { account } = useAccount();
     const accountId = account?.id;
+    const { showToast } = useToast();
 
     useEffect(() => {
         if (Platform.OS === "web") return;
-        Notifications.setNotificationHandler(SHOW_IN_FOREGROUND);
-        return () => Notifications.setNotificationHandler(null);
-    }, []);
+        Notifications.setNotificationHandler(HIDE_IN_FOREGROUND);
+        const received = Notifications.addNotificationReceivedListener(
+            (notification) => {
+                const { title, body, data } = notification.request.content;
+                // a like on a post with no text has an empty body
+                const message = body || title;
+                if (!message) return;
+                showToast(
+                    message,
+                    body ? (title ?? undefined) : undefined,
+                    pushIcon(data?.type),
+                );
+            },
+        );
+        return () => {
+            received.remove();
+            Notifications.setNotificationHandler(null);
+        };
+    }, [showToast]);
 
     useEffect(() => {
         if (!accountId || Platform.OS === "web") return;
@@ -70,12 +96,21 @@ export function PushNotifications() {
                 const granted = current.granted
                     ? true
                     : (await Notifications.requestPermissionsAsync()).granted;
-                if (!granted || !live || !__DEV__) return;
-                const token = await Notifications.getDevicePushTokenAsync();
-                console.log(
-                    `[push] ${token.type} device token:`,
-                    String(token.data),
-                );
+                if (!granted || !live) return;
+                const projectId = easProjectId();
+                if (!projectId) {
+                    console.warn(
+                        "[push] No EAS project id, so no Expo push token. Run `eas init` and set extra.eas.projectId in app.config.js.",
+                    );
+                    return;
+                }
+                const token = await Notifications.getExpoPushTokenAsync({
+                    projectId,
+                });
+                // signed out or switched account while the token was coming
+                if (!live) return;
+                if (__DEV__) console.log("[push] Expo push token:", token.data);
+                await registerPushToken(token.data);
             } catch (error) {
                 logHandledError("Setting up push notifications failed", error);
             }
@@ -86,4 +121,33 @@ export function PushNotifications() {
     }, [accountId]);
 
     return null;
+}
+
+/**
+ * The toast icon for a push, by the `type` the backend put in its data. See
+ * `backend-api/src/services/push_triggers.rs`.
+ */
+function pushIcon(type: unknown): ToastIcon {
+    switch (type) {
+        case "comment":
+            return "chatbubble";
+        case "post_like":
+            return "heart";
+        case "friend_post":
+            return "create";
+        case "live_session":
+            return "radio";
+        default:
+            return "notifications";
+    }
+}
+
+/** The EAS project id the Expo push token is issued for, or undefined. */
+function easProjectId(): string | undefined {
+    const fromConfig = (
+        Constants.expoConfig?.extra as
+            | { eas?: { projectId?: string } }
+            | undefined
+    )?.eas?.projectId;
+    return fromConfig ?? Constants.easConfig?.projectId ?? undefined;
 }

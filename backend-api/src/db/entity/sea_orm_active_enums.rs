@@ -14,7 +14,7 @@ use sea_orm::entity::prelude::*;
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "audience")]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "audience")]
 #[serde(rename_all = "snake_case")]
 pub enum Audience {
     #[sea_orm(string_value = "everyone")]
@@ -36,7 +36,7 @@ pub enum Audience {
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "friendship_status")]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "friendship_status")]
 #[serde(rename_all = "snake_case")]
 pub enum FriendshipStatus {
     #[sea_orm(string_value = "to_user1")]
@@ -58,7 +58,7 @@ pub enum FriendshipStatus {
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "interest")]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "interest")]
 #[serde(rename_all = "snake_case")]
 pub enum Interest {
     #[sea_orm(string_value = "genre")]
@@ -78,7 +78,7 @@ pub enum Interest {
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "invite_target")]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "invite_target")]
 #[serde(rename_all = "snake_case")]
 pub enum InviteTarget {
     #[sea_orm(string_value = "shared_playlist")]
@@ -98,11 +98,7 @@ pub enum InviteTarget {
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(
-    rs_type = "String",
-    db_type = "Enum",
-    enum_name = "join_request_status"
-)]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "join_request_status")]
 #[serde(rename_all = "snake_case")]
 pub enum JoinRequestStatus {
     #[sea_orm(string_value = "pending")]
@@ -124,7 +120,7 @@ pub enum JoinRequestStatus {
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "listen_mode")]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "listen_mode")]
 #[serde(rename_all = "snake_case")]
 pub enum ListenMode {
     #[sea_orm(string_value = "remote")]
@@ -145,7 +141,7 @@ pub enum ListenMode {
     serde :: Deserialize,
 )]
 #[sea_orm(
-    rs_type = "String",
+    rs_type = "Enum",
     db_type = "Enum",
     enum_name = "metadata_crawl_status"
 )]
@@ -172,7 +168,7 @@ pub enum MetadataCrawlStatus {
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "notification_type")]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "notification_type")]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationType {
     #[sea_orm(string_value = "friend_req_received")]
@@ -198,7 +194,7 @@ pub enum NotificationType {
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "playlist_role")]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "playlist_role")]
 #[serde(rename_all = "snake_case")]
 pub enum PlaylistRole {
     #[sea_orm(string_value = "owner")]
@@ -221,7 +217,7 @@ pub enum PlaylistRole {
     serde :: Deserialize,
 )]
 #[sea_orm(
-    rs_type = "String",
+    rs_type = "Enum",
     db_type = "Enum",
     enum_name = "post_view_status_kind"
 )]
@@ -244,7 +240,7 @@ pub enum PostViewStatusKind {
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "repeat_mode")]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "repeat_mode")]
 #[serde(rename_all = "snake_case")]
 pub enum RepeatMode {
     #[sea_orm(string_value = "off")]
@@ -266,11 +262,7 @@ pub enum RepeatMode {
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(
-    rs_type = "String",
-    db_type = "Enum",
-    enum_name = "session_entry_status"
-)]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "session_entry_status")]
 #[serde(rename_all = "snake_case")]
 pub enum SessionEntryStatus {
     #[sea_orm(string_value = "suggested")]
@@ -294,7 +286,7 @@ pub enum SessionEntryStatus {
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "session_role")]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "session_role")]
 #[serde(rename_all = "snake_case")]
 pub enum SessionRole {
     #[sea_orm(string_value = "listener")]
@@ -318,7 +310,7 @@ pub enum SessionRole {
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "tag_gen_status")]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "tag_gen_status")]
 #[serde(rename_all = "snake_case")]
 pub enum TagGenStatus {
     #[sea_orm(string_value = "in_flight")]
@@ -338,7 +330,7 @@ pub enum TagGenStatus {
     serde :: Serialize,
     serde :: Deserialize,
 )]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "tag_type")]
+#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "tag_type")]
 #[serde(rename_all = "snake_case")]
 pub enum TagType {
     #[sea_orm(string_value = "basic")]

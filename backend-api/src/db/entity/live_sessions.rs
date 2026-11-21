@@ -9,7 +9,6 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub session_id: Uuid,
-    #[sea_orm(unique)]
     pub host_id: Uuid,
     #[sea_orm(column_type = "Text")]
     pub name: String,

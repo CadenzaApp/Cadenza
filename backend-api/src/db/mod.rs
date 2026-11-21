@@ -15,6 +15,7 @@ pub mod now_playing;
 pub mod pool;
 pub mod privacy;
 pub mod profile;
+pub mod push_tokens;
 pub mod queries;
 pub mod saved_queries;
 pub mod settings;

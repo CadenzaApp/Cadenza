@@ -209,7 +209,7 @@ impl From<SessionSnapshot> for LiveSessionSnapshot {
             can: snapshot.me.into(),
             my_role: match snapshot.me {
                 Actor::Host => "host".to_owned(),
-                Actor::Member(role) => role.to_value(),
+                Actor::Member(role) => role.to_value().value.into_owned(),
             },
             my_listen_mode: snapshot.my_listen_mode,
             members,

@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, Share, View } from "react-native";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
@@ -29,17 +29,20 @@ function readable(code: string) {
  * Shows an invite code big, with Share. The code is selectable, and the share
  * sheet has Copy. For a playlist, `withRole` adds a "Joins as" picker. Each
  * role keeps the code it already loaded, so switching back does not ask again.
+ * `children` go below Share, like the live session's friend search.
  */
 export function InviteCodePopup({
     title,
     withRole = false,
     createInvite,
     onClose,
+    children,
 }: {
     title: string;
     withRole?: boolean;
     createInvite: (body: CreateInviteBody) => Promise<Invite>;
     onClose: () => void;
+    children?: ReactNode;
 }) {
     const { colors } = useAppTheme();
     const [role, setRole] = useState<Role>("viewer");
@@ -132,27 +135,9 @@ export function InviteCodePopup({
         <>
             <ModalPopup
                 visible
+                keyboardAware={children != null}
                 onClose={onClose}
                 title={`Invite to ${title}`}
-                headerRight={
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Regenerate code"
-                        disabled={state.kind !== "ready"}
-                        hitSlop={8}
-                        onPress={() => {
-                            setRegenFailed(false);
-                            setConfirmRegen(true);
-                        }}
-                        className="h-8 w-8 items-center justify-center rounded-full active:opacity-60 disabled:opacity-40"
-                    >
-                        <Ionicons
-                            name="reload"
-                            size={18}
-                            color={colors.foreground}
-                        />
-                    </Pressable>
-                }
             >
                 <View className="gap-4 px-2 pb-2">
                     <View className="h-14 items-center justify-center">
@@ -212,17 +197,37 @@ export function InviteCodePopup({
                             ).toLocaleDateString()}
                         </Text>
                     ) : null}
-                    <GlassButton
-                        disabled={state.kind !== "ready"}
-                        onPress={() => {
-                            if (state.kind === "ready")
-                                void share(state.invite);
-                        }}
-                    >
-                        <Text className="font-semibold text-foreground">
-                            Share
-                        </Text>
-                    </GlassButton>
+                    <View className="flex-row gap-2">
+                        <View className="flex-1">
+                            <GlassButton
+                                disabled={state.kind !== "ready"}
+                                onPress={() => {
+                                    if (state.kind === "ready")
+                                        void share(state.invite);
+                                }}
+                            >
+                                <Text className="font-semibold text-foreground">
+                                    Share
+                                </Text>
+                            </GlassButton>
+                        </View>
+                        <GlassButton
+                            accessibilityLabel="Regenerate code"
+                            disabled={state.kind !== "ready"}
+                            onPress={() => {
+                                setRegenFailed(false);
+                                setConfirmRegen(true);
+                            }}
+                            className="w-12 px-0"
+                        >
+                            <Ionicons
+                                name="reload"
+                                size={18}
+                                color={colors.foreground}
+                            />
+                        </GlassButton>
+                    </View>
+                    {children}
                 </View>
             </ModalPopup>
             <ModalPopup

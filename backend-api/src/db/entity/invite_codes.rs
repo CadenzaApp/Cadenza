@@ -12,8 +12,6 @@ pub struct Model {
     pub target_kind: InviteTarget,
     #[sea_orm(primary_key, auto_increment = false, column_type = "Text")]
     pub target_id: String,
-    /// Playlist role (`viewer` or `editor`). Empty for a live session: the
-    /// column is in the primary key, so it cannot be null.
     #[sea_orm(primary_key, auto_increment = false, column_type = "Text")]
     pub grants_role: String,
     pub created_by: Uuid,

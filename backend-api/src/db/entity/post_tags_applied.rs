@@ -7,6 +7,7 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub tag_id: i64,
+    #[sea_orm(unique)]
     pub post_id: i64,
     #[sea_orm(column_type = "Text")]
     pub text: String,

@@ -8,10 +8,15 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub post_id: i64,
-    #[sea_orm(primary_key, auto_increment = false)]
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        unique_key = "post_view_status_user_view_order_idx"
+    )]
     pub user_id: Uuid,
     pub date: DateTimeWithTimeZone,
     pub status: PostViewStatusKind,
+    #[sea_orm(unique_key = "post_view_status_user_view_order_idx")]
     pub view_order: Option<i32>,
 }
 

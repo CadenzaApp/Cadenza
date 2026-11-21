@@ -7,6 +7,7 @@ pub mod invites;
 pub mod listening;
 pub mod live_sessions;
 pub mod profile;
+pub mod push_tokens;
 pub mod queries;
 pub mod realtime;
 pub mod saved_queries;

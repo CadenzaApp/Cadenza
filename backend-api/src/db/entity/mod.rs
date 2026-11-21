@@ -2,6 +2,7 @@
 
 pub mod prelude;
 
+pub mod assistant_actions;
 pub mod comment_likes;
 pub mod comments;
 pub mod default_tag_activity;
@@ -30,6 +31,7 @@ pub mod post_view_status;
 pub mod posts;
 pub mod privacy_settings;
 pub mod profile;
+pub mod push_tokens;
 pub mod saved_queries;
 pub mod saved_query_songs;
 pub mod sea_orm_active_enums;

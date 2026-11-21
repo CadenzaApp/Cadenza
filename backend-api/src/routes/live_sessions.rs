@@ -19,6 +19,7 @@ use crate::{
         },
     },
     err::CadenzaError,
+    lifecycle::BackgroundTasks,
     routes::json::{
         invite::{CreateInvite, Invite},
         live_session::{
@@ -30,6 +31,7 @@ use crate::{
     },
     services::{
         live_sessions::SessionRole,
+        push::PushService,
         realtime::{Event, EventKind, SharedEventBus, Topic, publish_user, publish_version},
     },
 };
@@ -99,7 +101,9 @@ fn publish_presence(bus: &SharedEventBus, user_ids: &[Uuid]) {
 }
 
 /// Starts a session hosted by the caller, or returns the one they already
-/// have open.
+/// have open. A new session that is not listen along pushes "<username>
+/// started a live session" to the host's friends, unless their `now_playing`
+/// audience is `nobody`.
 ///
 /// ```json
 /// { "session_id": "6f1c..." }
@@ -107,11 +111,13 @@ fn publish_presence(bus: &SharedEventBus, user_ids: &[Uuid]) {
 async fn start_handler(
     State(db): State<DatabaseConnection>,
     State(bus): State<SharedEventBus>,
+    State(push): State<PushService>,
+    State(work): State<BackgroundTasks>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(body): Json<StartLiveSession>,
 ) -> Result<Json<LiveSessionId>, CadenzaError> {
     let default_role = body.default_role.unwrap_or(SessionRole::Suggester);
-    let session_id = sessions::start_session(
+    let started = sessions::start_or_reuse_session(
         &db,
         claims.user_id,
         NewSession {
@@ -124,8 +130,18 @@ async fn start_handler(
     )
     .await?;
     publish_presence(&bus, &[claims.user_id]);
+    // a listen along session is joining someone, not going live
+    if started.created && !body.listen_along {
+        push.notify_live_start(
+            db.clone(),
+            &work,
+            claims.user_id,
+            started.session_id,
+            body.name.trim().to_owned(),
+        );
+    }
     Ok(Json(LiveSessionId {
-        session_id: Some(session_id),
+        session_id: Some(started.session_id),
     }))
 }
 

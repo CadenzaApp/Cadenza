@@ -22,11 +22,12 @@ import {
 
 import { MemberRow, RoleMenu } from "../social/MemberRow";
 import { ChatSheet } from "./ChatSheet";
+import { InviteFriendsSection } from "./InviteFriendsSection";
 import { sessionSongs } from "./session-commands";
 import { RequestsSheet } from "./RequestsSheet";
 import { ROLE_CHOICES, useRunSessionWrite } from "./session-parts";
 
-type Open = "requests" | "people" | "chat" | "add" | "share" | null;
+type Open = "requests" | "people" | "chat" | "add" | "invite" | null;
 
 /** Lists in a popup scroll past this height. */
 const LIST_MAX_HEIGHT = 420;
@@ -34,7 +35,7 @@ const LIST_MAX_HEIGHT = 420;
 /**
  * The now playing sheet's bottom bar in a live session, in place of the page
  * tabs: Requests (the host, controllers, and queue editors), People, Chat
- * (everyone), Add songs, and Share (the host's), as the caller's role allows.
+ * (everyone), Add songs, and Invite (the host's), as the caller's role allows.
  * The bar is only as wide as the buttons it has. Requests and Chat open in a
  * bottom sheet; Chat badges messages from others since it was last open. The host can make anyone else host from
  * People, and stays in as a controller. The queue itself is the player's own.
@@ -119,11 +120,11 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                 ) : null}
                 {isHost ? (
                     <PlayerBarButton
-                        sf="square.and.arrow.up"
-                        icon="share-outline"
-                        label="Share"
+                        sf="person.badge.plus"
+                        icon="person-add-outline"
+                        label="Invite"
                         accessibilityLabel="Invite people"
-                        onPress={() => setOpen("share")}
+                        onPress={() => setOpen("invite")}
                     />
                 ) : null}
             </PlayerBarShell>
@@ -238,12 +239,16 @@ export function LiveSessionBar({ session }: { session: LiveSession }) {
                 />
             ) : null}
 
-            {open === "share" ? (
+            {open === "invite" ? (
                 <InviteCodePopup
                     title={session.name}
                     createInvite={writes.createInvite}
                     onClose={() => setOpen(null)}
-                />
+                >
+                    <InviteFriendsSection
+                        memberIds={session.members.map((m) => m.user_id)}
+                    />
+                </InviteCodePopup>
             ) : null}
         </>
     );

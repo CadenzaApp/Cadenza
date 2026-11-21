@@ -591,30 +591,32 @@ impl SocialFeedService {
     }
 
     /// Likes `post_id` unless `timestamp` is older than the last click this
-    /// process accepted for the pair.
+    /// process accepted for the pair. Returns whether a new like was stored.
     pub async fn like_post(
         &self,
         db: &DatabaseConnection,
         user_id: Uuid,
         post_id: i64,
         timestamp: i64,
-    ) -> Result<(), CadenzaError> {
+    ) -> Result<bool, CadenzaError> {
         if !self
             .likes
             .lock()
             .expect("like memory")
             .accept(user_id, post_id, timestamp)
         {
-            return Ok(());
+            return Ok(false);
         }
-        if let Err(err) = social::like_post(db, user_id, post_id).await {
-            self.likes
-                .lock()
-                .expect("like memory")
-                .forget(user_id, post_id, timestamp);
-            return Err(err);
+        match social::like_post(db, user_id, post_id).await {
+            Ok(inserted) => Ok(inserted),
+            Err(err) => {
+                self.likes
+                    .lock()
+                    .expect("like memory")
+                    .forget(user_id, post_id, timestamp);
+                Err(err)
+            }
         }
-        Ok(())
     }
 
     /// Removes a like. Same timestamp rule as [`Self::like_post`].

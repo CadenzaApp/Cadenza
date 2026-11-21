@@ -398,11 +398,12 @@ pub async fn update_post_text(
 }
 
 /// Records a like and bumps `likes` / `hot_score` only when the row is new.
+/// Returns whether it was new.
 pub async fn like_post(
     db: &DatabaseConnection,
     user_id: Uuid,
     post_id: i64,
-) -> Result<(), CadenzaError> {
+) -> Result<bool, CadenzaError> {
     let txn = db.begin().await?;
     let inserted = post_likes::Entity::insert(post_likes::ActiveModel {
         post_id: Set(post_id),
@@ -420,7 +421,7 @@ pub async fn like_post(
         Ok(_) => {}
         Err(DbErr::RecordNotInserted) => {
             txn.commit().await?;
-            return Ok(());
+            return Ok(false);
         }
         Err(err) => return Err(err.into()),
     }
@@ -434,7 +435,19 @@ pub async fn like_post(
     ))
     .await?;
     txn.commit().await?;
-    Ok(())
+    Ok(true)
+}
+
+/// The post's author and text, or `None` when the post is gone. The author is
+/// `None` for a spotlight post.
+pub async fn post_author_and_content(
+    db: &impl ConnectionTrait,
+    post_id: i64,
+) -> Result<Option<(Option<Uuid>, String)>, CadenzaError> {
+    Ok(posts::Entity::find_by_id(post_id)
+        .one(db)
+        .await?
+        .map(|post| (post.user_id, post.content)))
 }
 
 /// Removes a like and drops `likes` / `hot_score` only when a row was deleted.
@@ -469,11 +482,7 @@ pub async fn unlike_post(
 
 /// The other person's username, or `"unknown"` when they have no profile.
 async fn actor_username(db: &impl ConnectionTrait, user_id: Uuid) -> Result<String, CadenzaError> {
-    let row = profile::Entity::find_by_id(user_id).one(db).await?;
-    Ok(match row {
-        Some(row) if !row.username.trim().is_empty() => row.username,
-        _ => "unknown".to_owned(),
-    })
+    crate::db::profile::username_or_unknown(db, user_id).await
 }
 
 /// A comment stores `post_id`. A friend request stores the sender and an
@@ -541,6 +550,9 @@ pub struct InsertedComment {
     pub comment_id: i64,
     /// The post's author, when they got a notification for it.
     pub notified: Option<Uuid>,
+    /// The post's author, even when they wrote the comment. `None` for a
+    /// spotlight post, which has no author.
+    pub post_author: Option<Uuid>,
 }
 
 /// Inserts a comment and returns its id. `NotFound` when the post is gone.
@@ -627,6 +639,7 @@ pub async fn insert_comment(
     Ok(InsertedComment {
         comment_id,
         notified,
+        post_author: author_id,
     })
 }
 

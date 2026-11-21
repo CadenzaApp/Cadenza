@@ -27,7 +27,7 @@ pub struct Model {
         nullable
     )]
     pub embedding_w_bday: Option<String>,
-    #[sea_orm(column_type = "Text", nullable, unique)]
+    #[sea_orm(column_type = "Text", nullable)]
     pub topic_mk_id: Option<String>,
     pub comments: i64,
     pub edited_at: Option<DateTimeWithTimeZone>,
@@ -47,7 +47,7 @@ pub enum Relation {
     Comments,
     #[sea_orm(has_many = "super::post_likes::Entity")]
     PostLikes,
-    #[sea_orm(has_many = "super::post_tags_applied::Entity")]
+    #[sea_orm(has_one = "super::post_tags_applied::Entity")]
     PostTagsApplied,
     #[sea_orm(has_many = "super::post_view_status::Entity")]
     PostViewStatus,

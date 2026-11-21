@@ -866,6 +866,23 @@ pub async fn start_session(
     host_id: Uuid,
     new: NewSession<'_>,
 ) -> Result<Uuid, CadenzaError> {
+    Ok(start_or_reuse_session(db, host_id, new).await?.session_id)
+}
+
+/// What [`start_or_reuse_session`] did.
+pub struct StartedSession {
+    pub session_id: Uuid,
+    /// False when the host already had this session open.
+    pub created: bool,
+}
+
+/// [`start_session`], also saying whether the session is new, so a push for
+/// going live is not sent again for a session that was already open.
+pub async fn start_or_reuse_session(
+    db: &impl Db,
+    host_id: Uuid,
+    new: NewSession<'_>,
+) -> Result<StartedSession, CadenzaError> {
     let name = check_name(new.name, "session")?;
     let txn = db.begin().await?;
     // a session whose host went quiet has ended, even if nothing wrote that yet
@@ -878,7 +895,10 @@ pub async fn start_session(
         .await?
     {
         txn.commit().await?;
-        return Ok(row.try_get("", "session_id")?);
+        return Ok(StartedSession {
+            session_id: row.try_get("", "session_id")?,
+            created: false,
+        });
     }
     let row = txn
         .query_one_raw(stmt(
@@ -904,7 +924,10 @@ pub async fn start_session(
     ))
     .await?;
     txn.commit().await?;
-    Ok(session_id)
+    Ok(StartedSession {
+        session_id,
+        created: true,
+    })
 }
 
 async fn end_stale_sessions_of<C: ConnectionTrait>(
