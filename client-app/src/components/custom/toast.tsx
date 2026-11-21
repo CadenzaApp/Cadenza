@@ -8,8 +8,29 @@ import {
     useState,
 } from "react";
 import type { ComponentProps, ReactNode } from "react";
-import { AccessibilityInfo, Platform, StyleSheet, View } from "react-native";
+import {
+    AccessibilityInfo,
+    Platform,
+    StyleSheet,
+    useWindowDimensions,
+    View,
+} from "react-native";
+import {
+    Gesture,
+    GestureDetector,
+    GestureHandlerRootView,
+} from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, {
+    LinearTransition,
+    ReduceMotion,
+    runOnJS,
+    SlideInRight,
+    SlideOutRight,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
+} from "react-native-reanimated";
 import { FullWindowOverlay } from "react-native-screens";
 
 import {
@@ -31,10 +52,31 @@ type IconName = ComponentProps<typeof Ionicons>["name"];
 export type ToastIcon = "info" | "success" | "error" | IconName;
 
 /** How long a one-off message stays on screen. */
-const TOAST_MS = 3000;
+const TOAST_MS = 5000;
+
+/** How long a row takes to slide in or out from the right edge. */
+const SLIDE_MS = 250;
+
+const ENTERING = SlideInRight.duration(SLIDE_MS).reduceMotion(
+    ReduceMotion.System,
+);
+const EXITING = SlideOutRight.duration(SLIDE_MS).reduceMotion(
+    ReduceMotion.System,
+);
+/** The rows left behind close the gap instead of jumping into it. */
+const LAYOUT = LinearTransition.duration(SLIDE_MS).reduceMotion(
+    ReduceMotion.System,
+);
 
 /** How long an ended task keeps its icon on screen before its row goes. */
 const LINGER_MS = 1000;
+
+/** A drag right past this, or a flick, dismisses a row. */
+const DISMISS_DRAG = 60;
+const DISMISS_VELOCITY = 800;
+
+/** How long a dismissed row takes to fly off, or a short drag to settle back. */
+const SWIPE_SETTLE_MS = 150;
 
 /** At most this many rows that are not running tasks. The oldest goes first. */
 const MAX_MESSAGES = 3;
@@ -59,8 +101,8 @@ const PRESET_ICONS: Record<"info" | "success" | "error", IconName> = {
 };
 
 /**
- * Static rather than a spinner. The stack is a readout nothing can tap, so an
- * animation on it only pulled the eye away from what the user was doing.
+ * Static rather than a spinner. The stack is a readout, so an animation on it
+ * only pulled the eye away from what the user was doing.
  */
 const RUNNING_ICON: IconName = "hourglass";
 
@@ -77,7 +119,7 @@ type Toast = {
 
 type ToastActions = {
     /**
-     * Shows a message for 3 seconds, under a bold `title` when there is one,
+     * Shows a message for 5 seconds, under a bold `title` when there is one,
      * beside `icon` (`info` by default). Every call adds its own row, even
      * one the same as a row already up.
      */
@@ -94,6 +136,11 @@ type ToastActions = {
      * row draws both in red, so a failure reads as one even at a glance.
      */
     endTaskFail: (id: number, message: string) => void;
+    /**
+     * Takes a row off now. A swipe right does this. A dismissed task can
+     * still be ended, which then does nothing.
+     */
+    dismissToast: (id: number) => void;
 };
 
 const ToastActionsContext = createContext<ToastActions | null>(null);
@@ -193,6 +240,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 add({ message: label, icon: RUNNING_ICON, running: true }),
             endTaskSuccess: (id) => endTask(id, "success"),
             endTaskFail: (id, message) => endTask(id, "error", message),
+            dismissToast: remove,
         };
     }, []);
 
@@ -214,7 +262,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * The floating stack itself. Draws nothing while there is no row.
+ * The floating stack itself. Draws nothing while there is no row, once the
+ * last one has finished sliding out.
  *
  * Mounted beside `GlassBlurTarget` rather than inside `ToastProvider`,
  * because a row's glass only blurs on Android when it can read the blur
@@ -222,19 +271,46 @@ export function ToastProvider({ children }: { children: ReactNode }) {
  */
 export function ToastHost() {
     const toasts = useContext(ToastListContext);
+    const { dismissToast } = useToast();
     const insets = useSafeAreaInsets();
+    const hasRows = toasts.length > 0;
+    // stays true a moment past the last row, so its exit can play out
+    const [held, setHeld] = useState(false);
+    if (hasRows && !held) setHeld(true);
 
-    if (toasts.length === 0) return null;
+    useEffect(() => {
+        if (hasRows) return;
+        const timer = setTimeout(() => setHeld(false), SLIDE_MS + 50);
+        return () => clearTimeout(timer);
+    }, [hasRows]);
+
+    if (!hasRows && !held) return null;
 
     const rows = (
-        // a readout, so it never takes a tap from what is under it
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        // only a row takes a touch, for its swipe. The space around the rows
+        // passes every tap through to what is under it.
+        <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
             <View
+                pointerEvents="box-none"
                 className="absolute right-4 items-end gap-2"
                 style={{ top: insets.top + TOP_RAIL_HEIGHT + RAIL_GAP }}
             >
                 {toasts.map((toast) => (
-                    <ToastRow key={toast.id} toast={toast} />
+                    <Animated.View
+                        key={toast.id}
+                        entering={ENTERING}
+                        exiting={EXITING}
+                        layout={LAYOUT}
+                    >
+                        <SwipeToDismiss
+                            onDismiss={() => dismissToast(toast.id)}
+                        >
+                            <ToastRow
+                                toast={toast}
+                                onDismiss={() => dismissToast(toast.id)}
+                            />
+                        </SwipeToDismiss>
+                    </Animated.View>
                 ))}
             </View>
         </View>
@@ -244,15 +320,79 @@ export function ToastHost() {
     // rows go to the window layer. Same reason `BottomBarsOverlay` does it.
     if (Platform.OS !== "ios") return rows;
 
+    // the overlay is its own window, so gestures in it need their own root
     return (
         <FullWindowOverlay unstable_accessibilityContainerViewIsModal={false}>
-            {rows}
+            <GestureHandlerRootView
+                pointerEvents="box-none"
+                style={StyleSheet.absoluteFill}
+            >
+                {rows}
+            </GestureHandlerRootView>
         </FullWindowOverlay>
     );
 }
 
+/**
+ * Lets a row be dragged right and flung off. Its own view, inside the one
+ * that slides the row out, so the slide out plays off screen where the fling
+ * left it rather than snapping the row back first.
+ */
+function SwipeToDismiss({
+    onDismiss,
+    children,
+}: {
+    onDismiss: () => void;
+    children: ReactNode;
+}) {
+    const { width } = useWindowDimensions();
+    const offset = useSharedValue(0);
+
+    const swipe = Gesture.Pan()
+        .activeOffsetX(8)
+        .failOffsetY([-12, 12])
+        .onUpdate((event) => {
+            offset.set(Math.max(0, event.translationX));
+        })
+        .onEnd((event) => {
+            if (
+                event.translationX > DISMISS_DRAG ||
+                event.velocityX > DISMISS_VELOCITY
+            ) {
+                offset.set(
+                    withTiming(
+                        width,
+                        { duration: SWIPE_SETTLE_MS },
+                        (finished) => {
+                            // not when a new drag caught it on the way out
+                            if (finished) runOnJS(onDismiss)();
+                        },
+                    ),
+                );
+            } else {
+                offset.set(withTiming(0, { duration: SWIPE_SETTLE_MS }));
+            }
+        });
+
+    const style = useAnimatedStyle(() => ({
+        transform: [{ translateX: offset.get() }],
+    }));
+
+    return (
+        <GestureDetector gesture={swipe}>
+            <Animated.View style={style}>{children}</Animated.View>
+        </GestureDetector>
+    );
+}
+
 /** One row: its icon, then its title over its message. */
-function ToastRow({ toast }: { toast: Toast }) {
+function ToastRow({
+    toast,
+    onDismiss,
+}: {
+    toast: Toast;
+    onDismiss: () => void;
+}) {
     const { colors } = useAppTheme();
     const { icon, title } = toast;
     const outlined = shouldShowGlassOutline();
@@ -282,6 +422,11 @@ function ToastRow({ toast }: { toast: Toast }) {
                         ? `${text}, failed`
                         : text
             }
+            // a screen reader cannot swipe it, so it gets the same as an action
+            accessibilityActions={[{ name: "dismiss", label: "Dismiss" }]}
+            onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === "dismiss") onDismiss();
+            }}
             style={{ borderRadius: radius }}
             className={cn(
                 "max-w-[280px] flex-row items-center gap-2 px-3 py-1.5 shadow-sm",
@@ -308,7 +453,7 @@ function ToastRow({ toast }: { toast: Toast }) {
                 {title ? (
                     <Text
                         className={cn(
-                            "text-xs font-bold",
+                            "text-xs font-extrabold",
                             isError && "text-destructive",
                         )}
                         numberOfLines={1}
@@ -316,9 +461,11 @@ function ToastRow({ toast }: { toast: Toast }) {
                         {title}
                     </Text>
                 ) : null}
+                {/* lighter under a title, so the title reads as the bold line */}
                 <Text
                     className={cn(
-                        "text-xs font-medium",
+                        "text-xs",
+                        title ? "font-normal" : "font-medium",
                         isError && "text-destructive",
                     )}
                     numberOfLines={title ? 3 : 2}
