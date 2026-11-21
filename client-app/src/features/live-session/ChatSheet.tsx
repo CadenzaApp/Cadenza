@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     ActivityIndicator,
     FlatList,
@@ -21,6 +21,7 @@ import {
 import { useAppTheme } from "@/lib/theme";
 import { useKeyboardOverlap } from "@/lib/use-keyboard-overlap";
 import { cn } from "@/lib/utils";
+import { visibleSessionChat } from "@/lib/visible-session-chat";
 
 /** The most a message can hold. The backend checks the same. */
 const MAX_MESSAGE_LENGTH = 1000;
@@ -81,6 +82,15 @@ function ChatBody({
     const bodyRef = useRef<View>(null);
     const keyboardOverlap = useKeyboardOverlap(bodyRef);
     useMarkChatSeen(sessionId, chat.messages, visible);
+    useEffect(() => {
+        if (!visible) return;
+        visibleSessionChat.sessionId = sessionId;
+        return () => {
+            if (visibleSessionChat.sessionId === sessionId) {
+                visibleSessionChat.sessionId = null;
+            }
+        };
+    }, [sessionId, visible]);
 
     // newest first, for the inverted list: what is on its way, then the rest
     const rows: Row[] = [

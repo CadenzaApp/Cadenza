@@ -19,6 +19,7 @@ use crate::{
         },
     },
     err::CadenzaError,
+    lifecycle::BackgroundTasks,
     routes::json::{
         invite::{CreateInvite, Invite},
         live_session::{
@@ -30,6 +31,7 @@ use crate::{
     },
     services::{
         live_sessions::SessionRole,
+        push::PushService,
         realtime::{Event, EventKind, SharedEventBus, Topic, publish_user, publish_version},
     },
 };
@@ -497,6 +499,7 @@ async fn playback_handler(
 /// Posts a chat message. Anyone in the session, any role. Publishes a `chat`
 /// event whose `data` is this same message and whose `version` is its id, so
 /// members add it without a refetch. The session's own version does not move.
+/// Sends a push preview to the other current participants in the background.
 ///
 /// ```json
 /// { "message_id": 12, "user_id": "6f1c...", "username": "ada", "body": "this one!", "sent_at": "2026-11-20T18:00:00Z" }
@@ -504,6 +507,8 @@ async fn playback_handler(
 async fn send_message_handler(
     State(db): State<DatabaseConnection>,
     State(bus): State<SharedEventBus>,
+    State(push): State<PushService>,
+    State(work): State<BackgroundTasks>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Path(session_id): Path<Uuid>,
     Json(body): Json<SendChatMessage>,
@@ -520,6 +525,15 @@ async fn send_message_handler(
             EventKind::Chat,
         )
         .with_data(data),
+    );
+    push.notify_session_chat(
+        db.clone(),
+        &work,
+        session_id,
+        claims.user_id,
+        message.message_id,
+        message.username.clone(),
+        message.body.clone(),
     );
     Ok(Json(message))
 }

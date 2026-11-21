@@ -108,6 +108,9 @@ Gotchas:
 
 Chat:
 
+- Saved messages push to other current members. The foreground push toast is
+  suppressed while that session's chat is visible.
+
 - Anyone in the session, any role, sends with `POST /live-sessions/:id/messages`. The `chat`
   event carries the message, like `playback` carries the playback, and `useSessionChatFeed`
   (in the runner) adds it to the cache without a fetch. Its `version` is the message id, so

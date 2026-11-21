@@ -9,6 +9,7 @@ import { useToast, type ToastIcon } from "@/components/custom/toast";
 import { useAccount } from "./account";
 import { logHandledError } from "./log";
 import { registerPushToken } from "./push-token";
+import { visibleSessionChat } from "./visible-session-chat";
 
 /**
  * The Android channel push notifications land in. A sender that names no
@@ -62,6 +63,11 @@ export function PushNotifications() {
         const received = Notifications.addNotificationReceivedListener(
             (notification) => {
                 const { title, body, data } = notification.request.content;
+                if (
+                    data?.type === "session_chat" &&
+                    data.session_id === visibleSessionChat.sessionId
+                )
+                    return;
                 // a like on a post with no text has an empty body
                 const message = body || title;
                 if (!message) return;
@@ -130,6 +136,7 @@ export function PushNotifications() {
 function pushIcon(type: unknown): ToastIcon {
     switch (type) {
         case "comment":
+        case "session_chat":
             return "chatbubble";
         case "post_like":
             return "heart";

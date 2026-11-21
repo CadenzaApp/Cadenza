@@ -362,6 +362,9 @@ A kept call inserts one unread row and returns its `notif_id`. `created_at` is
 the database clock. The row waits until the app next reads the list.
 
 Phone pushes are separate, in `push.rs` and `push_triggers.rs`. A route calls
+`notify_session_chat` after saving chat messages, sending a preview to current
+session members except the sender. Payloads include `session_id` and `message_id`.
+A route calls
 one `PushService::notify_*` method after its write, and the method looks up
 names and recipients and sends on a background task, so the request does not
 wait on Expo. `send_to_users` sends one message to every token those users

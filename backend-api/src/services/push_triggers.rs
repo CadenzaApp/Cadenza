@@ -29,6 +29,32 @@ const PREVIEW_CHARS: usize = 100;
 const LIKE_REPEAT_WINDOW: Duration = Duration::from_secs(60 * 60);
 
 impl PushService {
+    /// Sends a saved chat message to the other current session participants.
+    pub fn notify_session_chat(
+        &self,
+        db: DatabaseConnection,
+        work: &BackgroundTasks,
+        session_id: Uuid,
+        sender: Uuid,
+        message_id: i64,
+        username: String,
+        content: String,
+    ) {
+        let push = self.clone();
+        spawn_trigger(work, "session chat", async move {
+            let mut recipients =
+                crate::db::live_sessions::present_member_ids(&db, session_id).await?;
+            recipients.retain(|id| *id != sender);
+            let message = PushMessage {
+                title: format!("{username} in live chat"),
+                body: preview(&content),
+                data: json!({ "type": "session_chat", "session_id": session_id, "message_id": message_id }),
+            };
+            push.send_to_users(&db, &recipients, &message).await;
+            Ok(())
+        });
+    }
+
     /// Tells the post's author about a new comment. For now that includes the
     /// author's own comments, for testing.
     // TODO: skip the author's own comments once push testing is done, the
