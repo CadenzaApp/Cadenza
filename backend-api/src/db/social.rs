@@ -1030,7 +1030,22 @@ pub async fn get_posts(
     if post_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows = PostRow::find_by_statement(Statement::from_sql_and_values(
+    let rows = PostRow::find_by_statement(posts_statement(viewer_id, post_ids))
+        .all(db)
+        .await?;
+
+    let mut by_id: HashMap<i64, PostRow> = rows.into_iter().map(|row| (row.post_id, row)).collect();
+    let ordered: Vec<PostRow> = post_ids
+        .iter()
+        .filter_map(|post_id| by_id.remove(post_id))
+        .collect();
+    to_posts(db, &ordered).await
+}
+
+// The mixer already chose these IDs, including null-author spotlights. Only
+// candidate selection excludes spotlights; hydration must keep both kinds.
+fn posts_statement(viewer_id: Uuid, post_ids: &[i64]) -> Statement {
+    Statement::from_sql_and_values(
         DbBackend::Postgres,
         format!(
             "SELECT
@@ -1052,20 +1067,10 @@ pub async fn get_posts(
          FROM posts p
          LEFT JOIN profile pr ON pr.uid = p.user_id
          WHERE p.post_id = ANY($2::bigint[])
-           AND p.user_id IS NOT NULL
            AND {NOT_BLOCKED_AUTHOR}"
         ),
         vec![viewer_id.into(), post_ids.to_vec().into()],
-    ))
-    .all(db)
-    .await?;
-
-    let mut by_id: HashMap<i64, PostRow> = rows.into_iter().map(|row| (row.post_id, row)).collect();
-    let ordered: Vec<PostRow> = post_ids
-        .iter()
-        .filter_map(|post_id| by_id.remove(post_id))
-        .collect();
-    to_posts(db, &ordered).await
+    )
 }
 
 /// The author's profile row, when they have one.
@@ -1901,7 +1906,7 @@ pub const HISTORY_DEFAULT_LIMIT: i64 = 10;
 pub const HISTORY_MAX_LIMIT: i64 = 50;
 
 /// How much one ranked post raises the chance the next slot is a spotlight.
-const SPOTLIGHT_STEP: f64 = 0.2;
+const SPOTLIGHT_STEP: f64 = 0.15;
 
 /// How much one recent non-spotlight raises the starting chance.
 const INITIAL_SPOTLIGHT_STEP: f64 = 0.2;
@@ -2417,7 +2422,7 @@ pub async fn feed_history(
 ///
 /// Chance starts at `start`. For each ranked id, a roll under the current
 /// chance places the next spotlight after that id and resets the chance to 0.
-/// The chance then rises by 0.2, capped at 1. `roll` returns a number in
+/// The chance then rises by 0.15, capped at 1. `roll` returns a number in
 /// `0..1`. Nothing is appended once the ranked ids end. The returned chance
 /// is the value after the last ranked post, so the next page can start there.
 pub fn mix_feed(
@@ -3222,18 +3227,18 @@ mod tests {
     #[test]
     fn mix_inserts_a_spotlight_behind_the_ranked_post() {
         // Chance starts at 0, so the first post never takes a spotlight.
-        // A roll of 0 hits as soon as the chance is 0.2.
+        // A roll of 0 hits as soon as the chance is 0.15.
         let (mixed, chance) = mix_feed(&[1, 2, 3], &[10], 0.0, || 0.0);
         assert_eq!(mixed, vec![1, 2, 10, 3]);
-        assert!((chance - 0.4).abs() < 1e-9);
+        assert!((chance - 0.3).abs() < 1e-9);
     }
 
     #[test]
-    fn mix_resets_chance_after_a_spotlight_then_steps_by_two_tenths() {
-        // post 1: 1.0 < 0, chance 0.2
-        // post 2: 0.0 < 0.2, spotlight behind 2, chance resets then steps to 0.2
-        // post 3: 0.25 < 0.2, chance 0.4
-        // post 4: 0.1 < 0.4, spotlight behind 4
+    fn mix_resets_chance_after_a_spotlight_then_steps_by_fifteen_percent() {
+        // post 1: 1.0 < 0, chance 0.15
+        // post 2: 0.0 < 0.15, spotlight behind 2, chance resets then steps to 0.15
+        // post 3: 0.25 < 0.15, chance 0.3
+        // post 4: 0.1 < 0.3, spotlight behind 4
         let mut rolls = [1.0, 0.0, 0.25, 0.1].into_iter();
         let (mixed, _) = mix_feed(&[1, 2, 3, 4], &[10, 11], 0.0, || rolls.next().unwrap());
         assert_eq!(mixed, vec![1, 2, 10, 3, 4, 11]);
@@ -3243,7 +3248,7 @@ mod tests {
     fn mix_uses_a_starting_chance_on_the_first_post() {
         let (mixed, chance) = mix_feed(&[1, 2], &[10], 0.5, || 0.0);
         assert_eq!(mixed, vec![1, 10, 2]);
-        assert!((chance - 0.4).abs() < 1e-9);
+        assert!((chance - 0.3).abs() < 1e-9);
     }
 
     #[test]
@@ -3420,6 +3425,26 @@ mod tests {
         assert!(next.contains(r#""comments"."likes" < 3"#), "{next}");
         assert!(next.contains(r#""comments"."likes" = 3"#), "{next}");
         assert!(next.contains(r#""comments"."comment_id" < 9"#), "{next}");
+    }
+
+    #[test]
+    fn post_hydration_keeps_mixed_spotlights_and_block_filter() {
+        let viewer = Uuid::nil();
+        let (mixed, _) = mix_feed(&[1, 2], &[3], 1.0, || 0.0);
+        assert_eq!(mixed, vec![1, 3, 2]);
+        let statement = posts_statement(viewer, &mixed);
+        assert!(statement.sql.contains("p.post_id = ANY($2::bigint[])"));
+        assert!(statement.sql.contains("LEFT JOIN profile"));
+        assert!(statement.sql.contains(NOT_BLOCKED_AUTHOR));
+        assert!(
+            statement
+                .sql
+                .contains("CASE WHEN p.user_id IS NULL THEN NULL")
+        );
+        assert!(!statement.sql.contains("p.user_id IS NOT NULL"));
+        let values = &statement.values.as_ref().unwrap().0;
+        assert_eq!(values[0], Value::from(viewer));
+        assert_eq!(values[1], Value::from(mixed));
     }
 
     #[test]

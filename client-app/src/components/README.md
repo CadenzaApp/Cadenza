@@ -12,6 +12,14 @@ importing `@/lib/routes/*` into a file under `ui/`, it belongs in `custom/`.
 
 ## Files
 
+Social spotlights use iOS glass and Android artwork with faded edges. Tapping a
+song's title, artist, or label opens its menu; holding either kind adds a haptic.
+Artists offer Hide; songs also open the full player (without autoplay) or artist.
+Dragging either way past 30 percent (at least 64 points) slides the card out and
+closes its gap. Dismissals persist per account on this device. Failed topic reads
+hide the card until refresh; failed artwork uses an icon. Dividers follow the
+visible posts after filtering.
+
 ### custom/
 
 `error-notice.tsx` exports `ErrorNotice`, the component a screen renders instead of an error's

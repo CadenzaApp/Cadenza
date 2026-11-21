@@ -120,6 +120,9 @@ always resolves `unknown`, since a token there needs the Apple Music app's own
 screen.
 
 iOS throws `MusicKitException(name:reason:)`, never `Exception(name:description:)`.
+It returns the `ERR_*` name directly as its `code`. Expo's default code conversion
+expects a class name and mangles an existing `ERR_*` name, breaking JS error
+classification, retries, and credential recovery.
 ExpoModulesCore renders a thrown exception to JavaScript as `"<name>: <reason>"`,
 and the base initializer sets only `description`, leaving `reason` at its
 `"undefined reason"` default. Using it swallows the message: every Apple Music

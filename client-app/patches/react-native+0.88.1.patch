@@ -1,0 +1,54 @@
+diff --git a/node_modules/react-native/React/CoreModules/RCTWebSocketModule.mm b/node_modules/react-native/React/CoreModules/RCTWebSocketModule.mm
+--- a/node_modules/react-native/React/CoreModules/RCTWebSocketModule.mm
++++ b/node_modules/react-native/React/CoreModules/RCTWebSocketModule.mm
+@@ -82,13 +82,15 @@
+ 
+ - (void)invalidate
+ {
+-  [super invalidate];
+-
+   _contentHandlers = nil;
+   for (SRWebSocket *socket in _sockets.allValues) {
+     socket.delegate = nil;
++    socket.reactTag = nil;
+     [socket close];
+   }
++  [_sockets removeAllObjects];
++
++  [super invalidate];
+ }
+ 
+ - (void)connect:(NSString *)urlString
+@@ -195,8 +197,9 @@
+ 
+ - (void)close:(double)code reason:(NSString *)reason socketID:(double)socketID
+ {
++  // Keep closing sockets tracked so invalidate can detach them during a reload.
++  // The terminal delegate callback removes the socket after delivering its event.
+   [_sockets[@(socketID)] closeWithCode:code reason:reason];
+-  [_sockets removeObjectForKey:@(socketID)];
+ }
+ 
+ - (void)setContentHandler:(id<RCTWebSocketContentHandler>)handler forSocketID:(NSString *)socketID
+@@ -251,6 +254,10 @@
+   if (!socketID) {
+     return;
+   }
++  // A terminal event removes JS listeners. Ignore callbacks already queued
++  // behind it, including a close callback following a failure.
++  webSocket.delegate = nil;
++  webSocket.reactTag = nil;
+   [RCTInspectorWebSocketReporter reportWebSocketClosed:webSocket.inspectorRequestId];
+   _contentHandlers[socketID] = nil;
+   _sockets[socketID] = nil;
+@@ -268,6 +275,10 @@
+   if (!socketID) {
+     return;
+   }
++  // A terminal event removes JS listeners. Ignore callbacks already queued
++  // behind it, including a close callback following a failure.
++  webSocket.delegate = nil;
++  webSocket.reactTag = nil;
+   [RCTInspectorWebSocketReporter reportWebSocketClosed:webSocket.inspectorRequestId];
+   _contentHandlers[socketID] = nil;
+   _sockets[socketID] = nil;

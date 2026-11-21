@@ -66,7 +66,7 @@ const TOPIC_NAME_MAX: usize = 200;
 /// this page, and the next page sends that number back. Up to 10 similar
 /// and hot posts. After each ranked post,
 /// a roll under the current chance inserts the next unviewed spotlight
-/// behind it and resets the chance to 0, then the chance rises by 0.2.
+/// behind it and resets the chance to 0, then the chance rises by 0.15.
 /// Spotlights are not appended once those posts run out. The posts returned
 /// are marked `loaded` and get no `view_order`.
 /// `author` is null for a spotlight. `not_enough_spotlights`

@@ -680,6 +680,14 @@ rule. They do not share a definition of a play. Worth unifying.
 
 ## Gotchas
 
+- Post topic reads use `useMusicTopic` and `spotlight-data.ts`: a missing
+  song (empty result or 404) or an opaque `MusicKit.MusicDataRequest.Error`
+  falls through to an artist lookup. Explicit authentication, network, and
+  server failures remain errors. Reads time out after 20 seconds and log failed
+  topic ids. The feed hides unresolved spotlights until its next refresh.
+- `useHiddenSpotlights` in `routes/social.ts` stores manually dismissed spotlight ids in AsyncStorage
+  per account and shares them through SWR. They remain hidden after a feed refresh
+  or app restart on this device; no shared post is deleted.
 - **`BACKEND_URL` comes from `EXPO_PUBLIC_BACKEND_API_URL`**, falling back to
   `http://localhost:3000`. On a physical device localhost is the phone, so that fallback only
   works in a simulator. Metro inlines `EXPO_PUBLIC_*` at bundle time, so editing `.env` needs a

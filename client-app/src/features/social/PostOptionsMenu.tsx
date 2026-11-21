@@ -1,7 +1,20 @@
+import { useRouter } from "expo-router";
+import { Alert } from "react-native";
+import { ErrorNotice } from "@/components/custom/error-notice";
+import { logHandledError } from "@/lib/log";
+import { useSongArtists } from "@/lib/musickit-hooks";
+import { useOpenScreen } from "@/lib/open-screen";
+import type { PostTopic } from "@/lib/types";
+import { musicItemFromSongTopic } from "./topic";
+
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
 import type { MusicListAction } from "@/components/custom/music-list/types";
-import { useDeletePost, useRemoveCachedPost } from "@/lib/routes/social";
+import {
+    useHiddenSpotlights,
+    useDeletePost,
+    useRemoveCachedPost,
+} from "@/lib/routes/social";
 
 import type { SocialPost } from "./types";
 
@@ -61,6 +74,89 @@ export function PostOptionsMenu({
         <ModalPopup visible onClose={onClose}>
             <MusicListActionButton action={editAction} target={post} />
             <MusicListActionButton action={deleteAction} target={post} />
+        </ModalPopup>
+    );
+}
+
+export function SpotlightOptionsMenu({
+    topic,
+    postId,
+    onClose,
+}: {
+    topic: PostTopic;
+    postId: number;
+    onClose: () => void;
+}) {
+    const router = useRouter();
+    const openScreen = useOpenScreen();
+    const { hideSpotlight } = useHiddenSpotlights();
+    const song = topic.kind === "song" ? topic : null;
+    const id = topic.catalogId ?? topic.id;
+    const { artistIds, artistIdsLoading, artistIdsErr } = useSongArtists(
+        song ? id : undefined,
+    );
+    const artistId = artistIds?.[0];
+    const actions: MusicListAction<PostTopic>[] = [
+        {
+            id: "hide-spotlight",
+            label: "Hide this post",
+            icon: "eye-off-outline",
+            onPress: async () => {
+                try {
+                    await hideSpotlight(postId);
+                    onClose();
+                } catch (error) {
+                    logHandledError("Hide spotlight", error);
+                    Alert.alert("Couldn't hide post", "Please try again.");
+                }
+            },
+        },
+    ];
+    if (song)
+        actions.push(
+            {
+                id: "spotlight-song",
+                label: "Go to song",
+                icon: "musical-notes-outline",
+                onPress: () => {
+                    onClose();
+                    router.push({
+                        pathname: "/player",
+                        params: {
+                            song: JSON.stringify(musicItemFromSongTopic(song)),
+                        },
+                    });
+                },
+            },
+            {
+                id: "spotlight-artist",
+                label: "Go to artist",
+                icon: "person-outline",
+                onPress: () => {
+                    if (!artistId) return;
+                    onClose();
+                    openScreen({
+                        pathname: "/artist/[id]",
+                        params: {
+                            id: artistId,
+                            name: song.artistName ?? "Artist",
+                        },
+                    });
+                },
+            },
+        );
+    return (
+        <ModalPopup visible onClose={onClose}>
+            {actions.map((action) => (
+                <MusicListActionButton
+                    key={action.id}
+                    action={action}
+                    target={topic}
+                    busy={action.id === "spotlight-artist" && artistIdsLoading}
+                    disabled={action.id === "spotlight-artist" && !artistId}
+                />
+            ))}
+            {artistIdsErr ? <ErrorNotice error={artistIdsErr} /> : null}
         </ModalPopup>
     );
 }
