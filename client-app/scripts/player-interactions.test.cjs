@@ -28,6 +28,8 @@ function fixture() {
         instances = new Map(),
         modules = {};
     let slots, cursor;
+    let selectedTab = "player";
+    const effects = [];
     const slot = (create) => {
         const index = cursor++;
         return (slots[index] ??= create());
@@ -49,7 +51,16 @@ function fixture() {
         useRef: (value) => slot(() => ({ current: value })),
         useMemo: (fn) => fn(),
         useCallback: (fn) => fn(),
-        useEffect() {},
+        useEffect(effect, deps) {
+            const state = slot(() => ({}));
+            if (
+                !state.deps ||
+                deps.some((v, i) => !Object.is(v, state.deps[i]))
+            ) {
+                state.deps = deps;
+                effects.push(effect);
+            }
+        },
     };
     const native = {
         Platform: { OS: "ios" },
@@ -114,6 +125,8 @@ function fixture() {
         const context = {
             exports: {},
             global: { Error },
+            requestAnimationFrame: () => 0,
+            cancelAnimationFrame: () => {},
             require: requireModule,
         };
         vm.runInNewContext(compiled.get(file), context);
@@ -178,8 +191,11 @@ function fixture() {
             return {
                 PLAYER_TABS: ["discuss", "player", "tags"],
                 usePlayerTabs: () => ({
-                    selectedTab: "player",
-                    selectTab: (tab) => selections.push(tab),
+                    selectedTab,
+                    selectTab: (tab) => {
+                        selectedTab = tab;
+                        selections.push(tab);
+                    },
                 }),
             };
         if (name.endsWith("/use-current-session"))
@@ -217,6 +233,9 @@ function fixture() {
         commands,
         options,
         selections,
+        flushEffects() {
+            for (const effect of effects.splice(0)) effect();
+        },
     };
 }
 function find(node, predicate) {
@@ -245,57 +264,16 @@ function barFixture() {
         f.render(PlayerPager),
         (n) => n.type?.name === "PlayerBarShell",
     );
-    return { ...f, shell, gesture: shell.props.gesture };
+    const icons = find(shell, (n) => n.type?.name === "PlayerTabIcons");
+    return {
+        ...f,
+        shell,
+        icons,
+        gesture: shell.props.gesture,
+        rerender: () => f.render(PlayerPager),
+    };
 }
 
-test("the player drag detector attaches directly to the non-flattened native bar", () => {
-    const f = barFixture();
-    const detector = find(
-        f.render(f.shell.type, f.shell.props),
-        (n) => n.type === "GestureDetector",
-    );
-    assert.ok(detector, "attach the detector to the bar itself");
-    assert.equal(detector.props.children.type, "AnimatedView");
-    assert.equal(detector.props.children.props.collapsable, false);
-});
-test("bar drag callbacks move pages without screen measurement and release the sheet", () => {
-    const f = barFixture(),
-        g = f.gesture;
-    assert.equal(g.enabled, true);
-    g.onTouchesDown({ changedTouches: [{ x: 2 }] });
-    assert.equal(
-        f.commands.at(-1).x,
-        0,
-        "touching left targets the nearest tab",
-    );
-    assert.equal(
-        f.commands.at(-1).animated,
-        true,
-        "press-down animates instead of jumping",
-    );
-    g.onActivate({});
-    g.onUpdate({ x: 300 });
-    assert.ok(f.commands.at(-1).x > 600);
-    assert.equal(f.commands.at(-1).animated, false);
-    g.onDeactivate({ canceled: false, velocityX: 0 });
-    g.onFinalize({ canceled: false });
-    assert.equal(f.commands.at(-1).x, 800);
-    assert.deepEqual(f.selections, ["tags"]);
-    assert.equal(f.options[0].gestureEnabled, false);
-    assert.equal(f.options.at(-1).gestureEnabled, true);
-});
-test("canceled bar drags snap back without selecting another tab", () => {
-    const f = barFixture(),
-        g = f.gesture;
-    g.onTouchesDown({ changedTouches: [{ x: 180 }] });
-    g.onActivate({});
-    g.onUpdate({ x: 60 });
-    g.onDeactivate({ canceled: true, velocityX: -500 });
-    g.onFinalize({ canceled: true });
-    assert.equal(f.commands.at(-1).x, 400);
-    assert.equal(f.selections.length, 0);
-    assert.equal(f.options.at(-1).gestureEnabled, true);
-});
 test("only titles needing more than two lines open the full-title popup", () => {
     const f = fixture();
     const { PlayerTrackTitle } = f.load(
@@ -377,30 +355,6 @@ test("the pill masks switch partial glyphs between outline and filled accent lay
     );
 });
 
-test("a press and release without pan activation selects the touched tab", () => {
-    const f = barFixture(),
-        g = f.gesture;
-    g.onTouchesDown({ changedTouches: [{ x: 2 }] });
-    assert.equal(f.commands.at(-1).x, 0);
-    g.onTouchesUp();
-    g.onFinalize({ canceled: true });
-    assert.equal(f.commands.at(-1).x, 0);
-    assert.deepEqual(f.selections, ["discuss"]);
-    assert.equal(f.options.at(-1).gestureEnabled, true);
-});
-
-test("press-down animates to the nearest tab center even away from its center", () => {
-    const f = barFixture(),
-        g = f.gesture;
-    g.onTouchesDown({ changedTouches: [{ x: 100 }] });
-    assert.equal(f.commands.at(-1).x, 0);
-    g.onTouchesDown({ changedTouches: [{ x: 200 }] });
-    assert.equal(f.commands.at(-1).x, 400);
-    g.onTouchesDown({ changedTouches: [{ x: 260 }] });
-    assert.equal(f.commands.at(-1).x, 800);
-    assert.equal(f.commands.at(-1).animated, true);
-});
-
 test("the glass toggle has a sized touch target and decorative children cannot intercept taps", () => {
     const f = fixture();
     const { GlassToggle } = f.load("src/components/ui/glass-toggle.tsx");
@@ -414,4 +368,109 @@ test("the glass toggle has a sized touch target and decorative children cannot i
     assert.equal(node.props.children.props.pointerEvents, "none");
     node.props.onPress();
     assert.deepEqual(changes, [false]);
+});
+
+test("player bar uses compatible directional activation and failure thresholds", () => {
+    const { gesture } = barFixture();
+    assert.equal(gesture.minDistance, undefined);
+    assert.deepEqual(Array.from(gesture.activeOffsetX), [-1, 1]);
+    assert.deepEqual(Array.from(gesture.failOffsetY), [-12, 12]);
+});
+
+test("tab buttons animate to their respective pages without requiring a swipe", () => {
+    for (const [label, tab, x] of [
+        ["Discuss", "discuss", 0],
+        ["Player", "player", 400],
+        ["Tags", "tags", 800],
+    ]) {
+        const f = barFixture();
+        const icons = f.render(f.icons.type, f.icons.props);
+        const button = find(
+            icons,
+            (n) =>
+                n.type === "Pressable" && n.props.accessibilityLabel === label,
+        );
+        button.props.onPress();
+        assert.deepEqual(f.selections, [tab]);
+        f.rerender();
+        f.flushEffects();
+        assert.equal(f.commands.at(-1).x, x);
+        assert.equal(f.commands.at(-1).animated, true);
+    }
+});
+
+test("pill drag follows the finger and settles on release", () => {
+    const f = barFixture();
+    f.gesture.onTouchesDown({ changedTouches: [{ x: 180 }] });
+    assert.equal(
+        f.commands.length,
+        0,
+        "touching the selected pill does not navigate",
+    );
+    f.gesture.onUpdate({ x: 300 });
+    assert.ok(f.commands.at(-1).x > 600);
+    assert.equal(f.commands.at(-1).animated, false);
+    f.gesture.onDeactivate({ canceled: false, velocityX: 0 });
+    f.gesture.onFinalize({ canceled: false });
+    assert.equal(f.commands.at(-1).x, 800);
+    assert.deepEqual(f.selections, ["tags"]);
+    assert.equal(f.options.at(-1).gestureEnabled, true);
+});
+
+test("a stationary pill touch leaves the selected tab unchanged", () => {
+    const f = barFixture();
+    f.gesture.onTouchesDown({ changedTouches: [{ x: 180 }] });
+    f.gesture.onFinalize({ canceled: true });
+    assert.deepEqual(f.selections, []);
+    assert.equal(f.commands.at(-1).x, 400);
+});
+
+test("an interrupted native animation cannot undo a tapped tab", () => {
+    const f = barFixture();
+    f.flushEffects();
+    f.commands.length = 0;
+    f.icons.props.onSelect("tags");
+    const tree = f.rerender();
+    f.flushEffects();
+    assert.equal(f.commands.length, 1, "one animation owner per tap");
+    assert.equal(f.commands[0].x, 800);
+    const pages = find(tree, (n) => n.type === "AnimatedScrollView");
+    pages.props.onMomentumScrollEnd({
+        nativeEvent: { contentOffset: { x: 420 } },
+    });
+    pages.props.onMomentumScrollEnd({
+        nativeEvent: { contentOffset: { x: 400 } },
+    });
+    assert.deepEqual(
+        f.selections,
+        ["tags"],
+        "old animation completion cannot reselect Player",
+    );
+    f.rerender();
+    f.flushEffects();
+    assert.equal(f.commands.length, 1, "no reverse animation is scheduled");
+    pages.props.onScrollBeginDrag();
+    pages.props.onMomentumScrollEnd({
+        nativeEvent: { contentOffset: { x: 0 } },
+    });
+    assert.deepEqual(
+        f.selections,
+        ["tags", "discuss"],
+        "real page swipes still select tabs",
+    );
+});
+
+test("a swipe starting outside the pill animates toward the finger, then tracks absolute x", () => {
+    const f = barFixture();
+    f.gesture.onTouchesDown({ changedTouches: [{ x: 20 }] });
+    assert.equal(f.commands.length, 0, "press-down leaves ordinary taps alone");
+    f.gesture.onUpdate({ x: 40 });
+    assert.equal(f.commands.at(-1).animated, true);
+    f.gesture.onUpdate({ x: 180 });
+    assert.equal(f.commands.at(-1).animated, false);
+    assert.equal(
+        f.commands.at(-1).x,
+        400,
+        "pill center follows the bar's center",
+    );
 });

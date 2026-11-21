@@ -1,5 +1,5 @@
 import { useNavigation } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
     Platform,
     ScrollView,
@@ -22,7 +22,11 @@ import { useShownLiveSession } from "@/features/live-session/use-current-session
 
 import { DiscussPage } from "./discuss-page";
 import { PLAYER_BAR_INSET, PlayerBarShell, PlayerTabIcons } from "./player-bar";
-import { pageOffsetAtBarX, releasedPageIndex } from "./player-bar-drag";
+import {
+    releasedPageIndex,
+    pageOffsetAtBarX,
+    playerPillMask,
+} from "./player-bar-drag";
 import { PlayerPage } from "./player-page";
 import { usePlayerScope } from "./player-scope";
 import { TagsPage } from "./tags-page";
@@ -48,9 +52,9 @@ export function PlayerPager() {
     const { selectedTab, selectTab } = usePlayerTabs();
     const { width } = useWindowDimensions();
     const scrollRef = useAnimatedRef<ScrollView>();
+    const pageSwipe = useRef(false);
     const barDragging = useSharedValue(false);
-    const barPanActive = useSharedValue(false);
-    const barPressTarget = useSharedValue(-1);
+    const animateFirstMove = useSharedValue(false);
     const scrollX = useSharedValue(PLAYER_TABS.indexOf(selectedTab) * width);
     const [tabBarWidth, setTabBarWidth] = useState(0);
     // the Player page's queue is a scroll view too, so it needs the region
@@ -94,58 +98,24 @@ export function PlayerPager() {
     });
     const barDrag = usePanGesture({
         enabled: !liveSession && tabBarWidth > 0,
-        minDistance: 0,
+        activeOffsetX: [-1, 1],
         failOffsetY: [-12, 12],
         maxPointers: 1,
         onTouchesDown: (event) => {
             "worklet";
-            const touch = event.changedTouches[0];
-            if (!touch) return;
-            barDragging.set(true);
-            barPanActive.set(false);
-            runOnJS(holdSheetForBar)(true);
-            const itemWidth =
-                (tabBarWidth - PLAYER_BAR_INSET * 2) / PLAYER_TABS.length;
-            const offset = pageOffsetAtBarX(
-                touch.x,
-                itemWidth,
-                width,
+            const x = event.changedTouches[0]?.x ?? 0;
+            const pill = playerPillMask(
+                scrollX.get() / width,
+                tabBarWidth - PLAYER_BAR_INSET * 2,
+                58,
                 PLAYER_TABS.length,
-                PLAYER_BAR_INSET,
             );
-            const nearest =
-                releasedPageIndex(
-                    offset,
-                    0,
-                    itemWidth,
-                    width,
-                    PLAYER_TABS.length,
-                ) * width;
-            barPressTarget.set(Math.round(nearest / width));
-            // Native scroll events drive the pill throughout the initial animation.
-            // A drag update interrupts this animation at the absolute finger position.
-            scrollTo(scrollRef, nearest, 0, true);
-        },
-        onActivate: () => {
-            "worklet";
-            barPanActive.set(true);
-        },
-        onTouchesUp: () => {
-            "worklet";
-            // A stationary tap can end before the pan recognizer activates.
-            if (!barDragging.get() || barPanActive.get()) return;
-            const index = Math.max(
-                0,
-                Math.min(
-                    PLAYER_TABS.length - 1,
-                    barPressTarget.get() >= 0
-                        ? barPressTarget.get()
-                        : Math.round(scrollX.get() / width),
-                ),
+            animateFirstMove.set(
+                x < pill.left + PLAYER_BAR_INSET ||
+                    x > pill.left + PLAYER_BAR_INSET + pill.width,
             );
-            barDragging.set(false);
-            scrollTo(scrollRef, index * width, 0, true);
-            runOnJS(activateTab)(PLAYER_TABS[index]);
+            barDragging.set(true);
+            runOnJS(holdSheetForBar)(true);
         },
         onUpdate: (event) => {
             "worklet";
@@ -158,9 +128,10 @@ export function PlayerPager() {
                 PLAYER_TABS.length,
                 PLAYER_BAR_INSET,
             );
-            barPressTarget.set(-1);
-            scrollX.set(offset);
-            scrollTo(scrollRef, offset, 0, false);
+            const animated = animateFirstMove.get();
+            animateFirstMove.set(false);
+            if (!animated) scrollX.set(offset);
+            scrollTo(scrollRef, offset, 0, animated);
         },
         onDeactivate: (event) => {
             "worklet";
@@ -168,19 +139,17 @@ export function PlayerPager() {
                 (tabBarWidth - PLAYER_BAR_INSET * 2) / PLAYER_TABS.length;
             const index = event.canceled
                 ? selectedIndex
-                : barPressTarget.get() >= 0
-                  ? barPressTarget.get()
-                  : releasedPageIndex(
-                        scrollX.get(),
-                        event.velocityX,
-                        itemWidth,
-                        width,
-                        PLAYER_TABS.length,
-                    );
+                : releasedPageIndex(
+                      scrollX.get(),
+                      event.velocityX,
+                      itemWidth,
+                      width,
+                      PLAYER_TABS.length,
+                  );
             barDragging.set(false);
             // Scroll explicitly even when returning to the already-selected tab.
             scrollTo(scrollRef, index * width, 0, true);
-            if (!event.canceled) runOnJS(activateTab)(PLAYER_TABS[index]);
+            runOnJS(activateTab)(PLAYER_TABS[index]);
         },
         onFinalize: (event) => {
             "worklet";
@@ -209,8 +178,14 @@ export function PlayerPager() {
                     scrollEventThrottle={16}
                     contentOffset={initialOffset}
                     onScroll={scrollHandler}
+                    onScrollBeginDrag={() => {
+                        pageSwipe.current = true;
+                    }}
                     onMomentumScrollEnd={(event) => {
-                        if (barDragging.get()) return;
+                        // Only a user's page swipe can derive selection from native
+                        // momentum. Interrupted tab animations can end at the old page.
+                        if (barDragging.get() || !pageSwipe.current) return;
+                        pageSwipe.current = false;
                         const index = Math.max(
                             0,
                             Math.min(
@@ -266,7 +241,10 @@ export function PlayerPager() {
                         pageWidth={width}
                         scrollX={scrollX}
                         selectedTab={selectedTab}
-                        onSelect={activateTab}
+                        onSelect={(tab) => {
+                            pageSwipe.current = false;
+                            activateTab(tab);
+                        }}
                     />
                 </PlayerBarShell>
             )}

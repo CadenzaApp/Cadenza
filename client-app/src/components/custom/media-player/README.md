@@ -80,14 +80,13 @@ needs device verification; no test harness simulates UIKit's material or hit tes
 side inside one horizontal paging `ScrollView`. The route selects Player, Discuss, or Tags.
 Swipes expose the adjacent live page under the finger. The app-owned glass tab bar in
 `player-bar.tsx` uses the same symbols and proportions as the primary native navigation.
-Its selection pill follows page swipes. Touching the bar starts an animation toward the nearest tab center
-on the raw touch-down event, before pan recognition; further movement tracks the bar-local coordinate rather than a drag
-delta. A release without pan activation still selects the touched tab instead of snapping back.
-The pager follows on the UI thread and snaps on release with a short velocity projection.
+Its selection pill follows page swipes. Icon taps animate to their tab. A horizontal swipe
+anywhere on the bar centers the pill on the finger's absolute x position, clamped at the ends.
+Swipes starting outside the pill animate their initial catch-up. Press-down alone does not
+move or select anything, so ordinary icon taps retain their button behavior.
 `PlayerTabIcons` in `player-bar.tsx` uses complementary animated alpha masks: filled accent glyphs inside
 the pill and neutral outline glyphs outside it, even when an icon is only partly covered. Canceled drags return
-to the selected tab. The detector wraps the bar's actual non-flattened native view, using
-absolute local touch positions rather than comparing sheet and screen coordinates. It holds the
+to the selected tab. The detector wraps a non-flattened hit surface matching the animated selection pill. It holds the
 iOS sheet still until the touch ends. Taps and accessibility actions still select tabs normally. Live sessions
 replace the tabs with the session's controls.
 
