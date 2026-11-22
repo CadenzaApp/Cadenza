@@ -251,8 +251,9 @@ layout, a `BlendedCover`, with Play/Pause, Shuffle, and a caller-supplied action
 title, supplies its tag color as the nebula's fallback, and offers rename, recolor, and delete
 actions. Query results use the standard weighted mosaic. Every `TrackCollectionView` sits on a full
 `NebulaBackdrop` fixed to the screen, colored from random spots on its artwork.
-Under the last row it prints the song count and running time, but only once every page is in,
-since a count off a half-loaded list is a wrong number. Either way the hero is the `MusicList` header inside
+Album and playlist headers show the song count and running time below their metadata once
+every page is in. Albums show genre and release year; playlists show the creator supplied by
+Apple Music rather than metadata borrowed from their first song. Either way the hero is the `MusicList` header inside
 `TrackCollectionView`, because that list owns the scroll.
 
 `/artist/:id` is reached from the Search tab's Artists section, the library's Artists category,

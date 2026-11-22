@@ -340,6 +340,11 @@ copy of the library. That walk is a request per 100 songs plus one each to fill 
 never revalidates on mount, focus, or reconnect; only a new Apple Music session refetches it.
 `useTracksForSongIds` is what turns backend song ids into tracks: it
 resolves what that cached library holds and sends the rest to `getSongInfo`.
+Library readers share one ID index per cached library snapshot. Old snapshots and their indexes
+can be collected after refresh. Query totals reuse complete stored duration metadata before
+asking Apple; visible rows retain independent paging. Small music-list artwork uses a 200x200
+Apple CDN variant while player artwork uses 1200x1200.
+
 `usePagedTracksForSongIds` does the same for a list too long to resolve at once, like a query
 result: one page of 50 ids at a time, only ever appending rows, and a `resolveTracks` for ids the
 list has not reached yet. `usePlaylistMutations` is the exception to the wrapper
@@ -444,6 +449,13 @@ selection props from feeding back through list layout subscriptions. Route avail
 separate from temporary keyboard suppression so native modal state stays mounted.
 
 ## Screen scrolling and the floating player
+
+`useScreenScroll(active)` defaults to active. Offscreen pager pages pass false so their
+scroll events and tab-press handlers cannot move the visible page's rail or scroll position.
+Activating a page restores the rail for that page's saved scroll offset.
+`ScreenPagerPageContext` also supplies this ownership implicitly for a `SlidingTabPager`.
+Its fixed selector pays the top inset once and keeps the rail visible. `useRailActions`
+ignores inactive pages, so mounted offscreen panels cannot replace the visible controls.
 
 `player-presentation.tsx` owns one shared motion controller. Only foreground hosts register
 bounds or send gestures; stale host and gesture tokens cannot affect the active player.

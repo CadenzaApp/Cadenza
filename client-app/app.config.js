@@ -10,10 +10,11 @@
 // resolve signing.
 module.exports = {
     expo: {
-        name: "cadenza",
+        name: "Cadenza",
         // the EAS project this belongs to; projectId under extra.eas is its id
         owner: "trycadenza-app",
         slug: "cadenza",
+
         version: "1.0.0",
         orientation: "portrait",
         icon: "./assets/images/icon.png",
@@ -35,9 +36,8 @@ module.exports = {
         },
         android: {
             adaptiveIcon: {
-                backgroundColor: "#E6F4FE",
+                backgroundColor: "#0a0a0a",
                 foregroundImage: "./assets/images/android-icon-foreground.png",
-                backgroundImage: "./assets/images/android-icon-background.png",
                 monochromeImage: "./assets/images/android-icon-monochrome.png",
             },
             predictiveBackGestureEnabled: false,

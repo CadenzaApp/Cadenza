@@ -1,5 +1,5 @@
-import type { SFSymbol } from "expo-symbols";
-import { useEffect, useRef, useState } from "react";
+import { useNavigation } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
     Platform,
     ScrollView,
@@ -7,63 +7,31 @@ import {
     useWindowDimensions,
     View,
 } from "react-native";
+import { usePanGesture } from "react-native-gesture-handler";
 import Animated, {
+    runOnJS,
+    scrollTo,
+    useAnimatedRef,
     useAnimatedScrollHandler,
-    useAnimatedStyle,
     useSharedValue,
 } from "react-native-reanimated";
 
-import type { IoniconName } from "@/components/ui/ionicon-name";
 import { Text } from "@/components/ui/text";
 import { LiveSessionBar } from "@/features/live-session/LiveSessionBar";
 import { useShownLiveSession } from "@/features/live-session/use-current-session";
-import { useAppTheme } from "@/lib/theme";
 
 import { DiscussPage } from "./discuss-page";
+import { PLAYER_BAR_INSET, PlayerBarShell, PlayerTabIcons } from "./player-bar";
 import {
-    PLAYER_BAR_INSET,
-    PLAYER_BAR_RADIUS,
-    PlayerBarButton,
-    PlayerBarShell,
-} from "./player-bar";
+    releasedPageIndex,
+    pageOffsetAtBarX,
+    playerPillMask,
+} from "./player-bar-drag";
 import { PlayerPage } from "./player-page";
 import { usePlayerScope } from "./player-scope";
 import { TagsPage } from "./tags-page";
 import { PLAYER_TABS, type PlayerTab, usePlayerTabs } from "./player-tabs";
 import { QueueOpenContext } from "./queue-open";
-
-const SELECTION_RADIUS = PLAYER_BAR_RADIUS - PLAYER_BAR_INSET;
-/** The pill sits darker than the glass, like the native tab bar's. */
-const SELECTION_FILL = {
-    light: "rgba(0, 0, 0, 0.08)",
-    dark: "rgba(0, 0, 0, 0.35)",
-} as const;
-/** How much wider the pill gets halfway between two tabs, like UIKit's. */
-const SELECTION_STRETCH = 0.12;
-const TAB_PRESENTATION = {
-    discuss: {
-        label: "Discuss",
-        sf: { active: "bubble.left.fill", inactive: "bubble.left" },
-        icon: { active: "chatbubble", inactive: "chatbubble-outline" },
-    },
-    player: {
-        label: "Player",
-        sf: { active: "music.note", inactive: "music.note" },
-        icon: { active: "musical-note", inactive: "musical-note-outline" },
-    },
-    tags: {
-        label: "Tags",
-        sf: { active: "tag.fill", inactive: "tag" },
-        icon: { active: "pricetag", inactive: "pricetag-outline" },
-    },
-} as const satisfies Record<
-    PlayerTab,
-    {
-        label: string;
-        sf: Record<"active" | "inactive", SFSymbol>;
-        icon: Record<"active" | "inactive", IoniconName>;
-    }
->;
 
 /**
  * Three always-mounted pages in one native horizontal scroll surface. In a
@@ -71,10 +39,22 @@ const TAB_PRESENTATION = {
  */
 export function PlayerPager() {
     const { focusedSong } = usePlayerScope();
+    const navigation = useNavigation();
+    const holdSheetForBar = useCallback(
+        (touching: boolean) => {
+            if (Platform.OS === "ios")
+                navigation.setOptions({ gestureEnabled: !touching });
+        },
+        [navigation],
+    );
+    useEffect(() => () => holdSheetForBar(false), [holdSheetForBar]);
     const liveSession = useShownLiveSession();
     const { selectedTab, selectTab } = usePlayerTabs();
     const { width } = useWindowDimensions();
-    const scrollRef = useRef<ScrollView>(null);
+    const scrollRef = useAnimatedRef<ScrollView>();
+    const pageSwipe = useRef(false);
+    const barDragging = useSharedValue(false);
+    const animateFirstMove = useSharedValue(false);
     const scrollX = useSharedValue(PLAYER_TABS.indexOf(selectedTab) * width);
     const [tabBarWidth, setTabBarWidth] = useState(0);
     // the Player page's queue is a scroll view too, so it needs the region
@@ -95,7 +75,6 @@ export function PlayerPager() {
         x: selectedIndex * width,
         y: 0,
     }));
-    const { scheme } = useAppTheme();
 
     function activateTab(tab: PlayerTab) {
         setVisitedTabs((current) =>
@@ -110,24 +89,76 @@ export function PlayerPager() {
             y: 0,
             animated: true,
         });
-    }, [selectedIndex, width]);
+    }, [selectedIndex, width, scrollRef]);
 
     const scrollHandler = useAnimatedScrollHandler({
         onScroll: (event) => {
             scrollX.value = event.contentOffset.x;
         },
     });
-    const selectionStyle = useAnimatedStyle(() => {
-        const itemWidth =
-            (tabBarWidth - PLAYER_BAR_INSET * 2) / PLAYER_TABS.length;
-        const position = width > 0 ? scrollX.value / width : 0;
-        // 0 on a tab, 1 halfway to the next
-        const between = Math.sin(Math.PI * (position - Math.floor(position)));
-        const stretch = itemWidth * SELECTION_STRETCH * between;
-        return {
-            width: itemWidth + stretch,
-            transform: [{ translateX: position * itemWidth - stretch / 2 }],
-        };
+    const barDrag = usePanGesture({
+        enabled: !liveSession && tabBarWidth > 0,
+        activeOffsetX: [-1, 1],
+        failOffsetY: [-12, 12],
+        maxPointers: 1,
+        onTouchesDown: (event) => {
+            "worklet";
+            const x = event.changedTouches[0]?.x ?? 0;
+            const pill = playerPillMask(
+                scrollX.get() / width,
+                tabBarWidth - PLAYER_BAR_INSET * 2,
+                58,
+                PLAYER_TABS.length,
+            );
+            animateFirstMove.set(
+                x < pill.left + PLAYER_BAR_INSET ||
+                    x > pill.left + PLAYER_BAR_INSET + pill.width,
+            );
+            barDragging.set(true);
+            runOnJS(holdSheetForBar)(true);
+        },
+        onUpdate: (event) => {
+            "worklet";
+            const itemWidth =
+                (tabBarWidth - PLAYER_BAR_INSET * 2) / PLAYER_TABS.length;
+            const offset = pageOffsetAtBarX(
+                event.x,
+                itemWidth,
+                width,
+                PLAYER_TABS.length,
+                PLAYER_BAR_INSET,
+            );
+            const animated = animateFirstMove.get();
+            animateFirstMove.set(false);
+            if (!animated) scrollX.set(offset);
+            scrollTo(scrollRef, offset, 0, animated);
+        },
+        onDeactivate: (event) => {
+            "worklet";
+            const itemWidth =
+                (tabBarWidth - PLAYER_BAR_INSET * 2) / PLAYER_TABS.length;
+            const index = event.canceled
+                ? selectedIndex
+                : releasedPageIndex(
+                      scrollX.get(),
+                      event.velocityX,
+                      itemWidth,
+                      width,
+                      PLAYER_TABS.length,
+                  );
+            barDragging.set(false);
+            // Scroll explicitly even when returning to the already-selected tab.
+            scrollTo(scrollRef, index * width, 0, true);
+            runOnJS(activateTab)(PLAYER_TABS[index]);
+        },
+        onFinalize: (event) => {
+            "worklet";
+            runOnJS(holdSheetForBar)(false);
+            if (event.canceled && barDragging.get()) {
+                barDragging.set(false);
+                scrollTo(scrollRef, selectedIndex * width, 0, true);
+            }
+        },
     });
 
     return (
@@ -147,7 +178,14 @@ export function PlayerPager() {
                     scrollEventThrottle={16}
                     contentOffset={initialOffset}
                     onScroll={scrollHandler}
+                    onScrollBeginDrag={() => {
+                        pageSwipe.current = true;
+                    }}
                     onMomentumScrollEnd={(event) => {
+                        // Only a user's page swipe can derive selection from native
+                        // momentum. Interrupted tab animations can end at the old page.
+                        if (barDragging.get() || !pageSwipe.current) return;
+                        pageSwipe.current = false;
                         const index = Math.max(
                             0,
                             Math.min(
@@ -193,44 +231,21 @@ export function PlayerPager() {
                 <LiveSessionBar session={liveSession} />
             ) : (
                 <PlayerBarShell
+                    gesture={barDrag}
                     onLayout={(event) =>
                         setTabBarWidth(event.nativeEvent.layout.width)
                     }
                 >
-                    {tabBarWidth > 0 ? (
-                        <Animated.View
-                            pointerEvents="none"
-                            className="absolute"
-                            style={[
-                                {
-                                    top: PLAYER_BAR_INSET,
-                                    bottom: PLAYER_BAR_INSET,
-                                    left: PLAYER_BAR_INSET,
-                                    borderRadius: SELECTION_RADIUS,
-                                    borderCurve: "continuous",
-                                    backgroundColor: SELECTION_FILL[scheme],
-                                },
-                                selectionStyle,
-                            ]}
-                        />
-                    ) : null}
-                    {PLAYER_TABS.map((tab) => {
-                        const look = TAB_PRESENTATION[tab];
-                        const selected = selectedTab === tab;
-                        return (
-                            <PlayerBarButton
-                                key={tab}
-                                role="tab"
-                                selected={selected}
-                                sf={look.sf[selected ? "active" : "inactive"]}
-                                icon={
-                                    look.icon[selected ? "active" : "inactive"]
-                                }
-                                label={look.label}
-                                onPress={() => activateTab(tab)}
-                            />
-                        );
-                    })}
+                    <PlayerTabIcons
+                        barWidth={tabBarWidth}
+                        pageWidth={width}
+                        scrollX={scrollX}
+                        selectedTab={selectedTab}
+                        onSelect={(tab) => {
+                            pageSwipe.current = false;
+                            activateTab(tab);
+                        }}
+                    />
                 </PlayerBarShell>
             )}
         </View>

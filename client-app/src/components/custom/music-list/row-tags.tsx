@@ -1,4 +1,9 @@
-import { useLayoutEffect, useState, useSyncExternalStore } from "react";
+import {
+    useLayoutEffect,
+    useMemo,
+    useState,
+    useSyncExternalStore,
+} from "react";
 
 import {
     useActivityTagsOnSongs,
@@ -7,6 +12,8 @@ import {
 } from "@/lib/routes/songs";
 import { useUserTags } from "@/lib/routes/tags";
 import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
+
+import { createTagReadWindow, type TagReadWindow } from "./list-windows";
 
 import {
     MusicListSelectionToolbar,
@@ -152,7 +159,8 @@ export function useRowTags(store: RowTagStore, songId: string): RowTags {
  */
 export function RowTagSource({
     store,
-    songIds,
+    songIds: initialSongIds,
+    readWindow = EMPTY_READ_WINDOW,
     loadTags,
     loadSuggested,
     showTags,
@@ -162,8 +170,9 @@ export function RowTagSource({
     toolbar,
 }: {
     store: RowTagStore;
-    /** Every song in the list, by the id tags are applied under. */
+    /** Initial and selected song IDs; readWindow adds scrolling prefetch IDs. */
     songIds: readonly string[];
+    readWindow?: TagReadWindow;
     /** Read the user's tags and suggested tags, whether or not rows show them. */
     loadTags: boolean;
     loadSuggested: boolean;
@@ -184,6 +193,15 @@ export function RowTagSource({
         | "suggestedTagsLoading"
     > | null;
 }) {
+    const read = useSyncExternalStore(
+        readWindow.subscribe,
+        readWindow.snapshot,
+        readWindow.snapshot,
+    );
+    const songIds = useMemo(
+        () => [...new Set([...read.ids, ...initialSongIds])],
+        [read.ids, initialSongIds],
+    );
     const { tagsBySong, tagsBySongLoading } = useTagsOnSongs(
         loadTags ? songIds : NO_SONG_IDS,
     );
@@ -241,3 +259,5 @@ export function RowTagSource({
 
 const NO_SONG_IDS: readonly string[] = [];
 const NO_TAGS: Tag[] = [];
+
+const EMPTY_READ_WINDOW = createTagReadWindow();

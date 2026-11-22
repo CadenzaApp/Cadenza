@@ -320,7 +320,9 @@ convention as `MusicItem` otherwise.
 full bleed behind its header, and for 300x300 alongside it as
 `artworkUrlSmall`. The screen shows the small one while the big one downloads,
 so the hero is never a blank rectangle with the tint already painted around it.
-The artist lists ask for 200x200, which is tile size.
+List artwork URLs request 200x200 on iOS and Android to reduce bandwidth and decoded
+image memory. Player-sized variants remain 1200x1200. Music list rendering also normalizes
+cached Apple artwork URLs to 200x200; backend metadata still stores its original URL.
 
 `getArtist` fetches Apple's `top-songs`, `full-albums`, and `similar-artists`
 views in the one request. Similar artists come back as `ArtistItem`s, formatted

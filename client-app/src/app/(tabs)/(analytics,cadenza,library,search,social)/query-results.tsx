@@ -1,3 +1,4 @@
+import { collectionSummary } from "@/components/custom/track-collection-utils";
 import type { MusicItem } from "@apple-musickit";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -171,6 +172,31 @@ export default function QueryResultsScreen() {
         [arranged, loadedCount, resolveTracks, shownTracks, songs],
     );
 
+    const matchIds = openedSavedId !== null ? savedIds : list.songIds;
+    // The total covers every result, including unloaded pages and closed groups.
+    // This shares MusicKit's read cache while leaving row pagination independent.
+    const knownTotalTracks = useMemo(
+        () =>
+            new Map(
+                [...list.rowTracks].filter(
+                    ([, track]) => track.songDuration !== undefined,
+                ),
+            ),
+        [list.rowTracks],
+    );
+    const totalSongs = usePagedTracksForSongIds(matchIds, source !== null, {
+        resolveAll: true,
+        knownTracks: knownTotalTracks,
+    });
+    const trackSummary =
+        !view.loading &&
+        !totalSongs.tracksLoading &&
+        !totalSongs.isLoadingNextPage &&
+        totalSongs.loadedCount === matchIds.length &&
+        !totalSongs.tracksErr
+            ? collectionSummary(totalSongs.tracks, matchIds.length)
+            : undefined;
+
     const coverSongs = useHeldCover(view, source);
     const computedCover = useCollectionArtworkTint(coverSongs);
     // a saved query keeps the cover it was saved with
@@ -201,6 +227,7 @@ export default function QueryResultsScreen() {
             matchCount={
                 openedSavedId !== null ? savedSongs.length : list.songIds.length
             }
+            trackSummary={trackSummary}
             capped={openedSavedId === null && list.capped}
             libraryOrTagged={libraryOrTagged}
             pagination={view.pagination}

@@ -295,7 +295,7 @@ export function TagPalette({
                                         placeholder="Search"
                                         accessibilityLabel="Search tags"
                                         size="sm"
-                                        surface="outline"
+                                        surface="control"
                                         className="flex-1"
                                     />
                                 ) : null}

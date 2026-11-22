@@ -5,9 +5,12 @@ styling, SWR for data. Talks to Apple Music through a local native module and to
 over HTTP.
 
 The Social tab uses a full-screen nebula behind a transparent feed. Its compact Listening now
-story row includes temporary visual friends until presence styling is finalized; live, directly
-joinable sessions use the account accent ring. The bottom-row post action opens a keyboard-aware
-modal rather than changing the feed's layout.
+story row shows your listening and friends playing now; directly joinable live sessions use
+the account accent ring. Story labels wrap to two lines. For you and
+Friends post lists stay mounted in a horizontal pager. Only posts slide sideways; the stories,
+tab selector, and keyboard-aware inline composer are shared above both feeds. The header
+scrolls away vertically with the feed. Each feed keeps its own virtualized rows and scroll
+position.
 
 ## Files
 
@@ -79,6 +82,13 @@ npm test           # unit tests
 npm run lint       # expo lint
 npx tsc --noEmit   # typecheck
 ```
+
+The launcher icons, native splash image, and web favicon use PNGs derived from
+`assets/images/cadenza-logo.svg`. The iOS icon, Android adaptive foreground and monochrome
+layers, and native splash are configured in `app.config.js`.
+The display name and launcher icons are native build settings: after changing them, run
+`npx expo prebuild` and rebuild the app to see them on a device. A Metro reload does not
+replace the native splash screen in an already installed build.
 
 The Cadenza tab icons are PNGs, since native tabs take no SVG. After changing
 `assets/images/cadenza-logo.svg` or `cadenza-logo-outline.svg`, render them again (macOS):

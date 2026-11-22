@@ -7,6 +7,7 @@ import {
     Platform,
     StyleSheet,
     View,
+    type ColorValue,
     type StyleProp,
     type ViewStyle,
 } from "react-native";
@@ -47,6 +48,7 @@ import {
     formatTrackCollectionSummary,
 } from "./track-collection-utils";
 import { useAppTheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 
 const ARTWORK_SIZE = 240;
 const ARTWORK_SCROLL_SCALE_DISTANCE = 120;
@@ -119,6 +121,9 @@ type Props = {
      */
     artworkPlaceholderUrl?: string | null;
     subtitle?: string;
+    subtitleClassName?: string;
+    /** Complete count and running time, under the collection metadata. */
+    trackSummary?: string;
     summary?: string;
     header?: ReactNode;
     /**
@@ -181,6 +186,8 @@ export function TrackCollectionView({
     artworkUrls: artworkUrlsOverride,
     artworkPlaceholderUrl,
     subtitle,
+    subtitleClassName = "text-base",
+    trackSummary,
     summary: summaryOverride,
     header,
     belowActions,
@@ -265,6 +272,14 @@ export function TrackCollectionView({
     );
     // Android starts the fade only after this screen's first frame is laid
     // out. The list, the masked cover, and the nebula are that frame, so a
+    const cornerArrangement = useMemo(
+        () =>
+            arrangement && backControl
+                ? { ...arrangement, placement: "top-right" as const }
+                : arrangement,
+        [arrangement, backControl],
+    );
+
     // pushed open draws the tint, the small cover, and the title until the
     // transition ends. iOS keeps the full hero: the zoom needs its target.
     if (Platform.OS === "android" && !settled) {
@@ -348,13 +363,25 @@ export function TrackCollectionView({
                 </View>
             )}
             {subtitle ? (
-                <Text className="mt-1 text-center text-base text-muted-foreground">
+                <Text
+                    className={cn(
+                        "mt-1 text-center text-muted-foreground",
+                        subtitleClassName,
+                    )}
+                >
                     {subtitle}
                 </Text>
             ) : null}
-            <Text className="mt-1 text-sm text-muted-foreground">
-                {summary}
-            </Text>
+            {summary ? (
+                <Text className="mt-1 text-sm text-muted-foreground">
+                    {summary}
+                </Text>
+            ) : null}
+            {trackSummary ? (
+                <Text className="mt-1 text-center text-sm text-muted-foreground">
+                    {trackSummary}
+                </Text>
+            ) : null}
         </>
     );
     const actions = (
@@ -462,13 +489,6 @@ export function TrackCollectionView({
     );
     const listHeader = header ?? defaultHeader;
     // with a back button floating top left, Sort and group sits opposite it
-    const cornerArrangement = useMemo(
-        () =>
-            arrangement && backControl
-                ? { ...arrangement, placement: "top-right" as const }
-                : arrangement,
-        [arrangement, backControl],
-    );
 
     return (
         <View className="flex-1 bg-background" style={containerStyle}>
@@ -562,7 +582,7 @@ function OpeningFrame({
     backgroundColor?: string | null;
     backControl?: ReactNode;
     paddingTop: number;
-    iconColor: string;
+    iconColor: ColorValue;
     containerStyle?: StyleProp<ViewStyle>;
 }) {
     return (

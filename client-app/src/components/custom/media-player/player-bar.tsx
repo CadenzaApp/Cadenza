@@ -1,3 +1,5 @@
+import MaskedView from "@react-native-masked-view/masked-view";
+import Svg, { Path } from "react-native-svg";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import type { ReactNode } from "react";
@@ -9,7 +11,14 @@ import {
     View,
     type LayoutChangeEvent,
 } from "react-native";
-import Animated, { LinearTransition } from "react-native-reanimated";
+import Animated, {
+    LinearTransition,
+    useAnimatedProps,
+    useAnimatedStyle,
+    useDerivedValue,
+    type SharedValue,
+} from "react-native-reanimated";
+import { GestureDetector, type PanGesture } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { IoniconName } from "@/components/ui/ionicon-name";
@@ -17,6 +26,9 @@ import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+
+import { playerPillMask } from "./player-bar-drag";
+import { PLAYER_TABS, type PlayerTab } from "./player-tabs";
 
 // iOS 26's floating tab bar metrics, so this bar matches the app's native one.
 export const PLAYER_BAR_HEIGHT = 62;
@@ -48,10 +60,12 @@ export function PlayerBarShell({
     children,
     onLayout,
     itemCount,
+    gesture,
 }: {
     children: ReactNode;
     onLayout?: (event: LayoutChangeEvent) => void;
     itemCount?: number;
+    gesture?: PanGesture;
 }) {
     const insets = useSafeAreaInsets();
     const { width: screenWidth } = useWindowDimensions();
@@ -63,6 +77,40 @@ export function PlayerBarShell({
                   fullWidth,
                   itemCount * PLAYER_BAR_ITEM_WIDTH + PLAYER_BAR_INSET * 2,
               );
+    const bar = (
+        <Animated.View
+            collapsable={false}
+            layout={RESIZE}
+            className="relative flex-row overflow-hidden"
+            style={{
+                width,
+                height: PLAYER_BAR_HEIGHT,
+                padding: PLAYER_BAR_INSET,
+                borderRadius: PLAYER_BAR_RADIUS,
+                borderCurve: "continuous",
+            }}
+            onLayout={onLayout}
+        >
+            {/* The glass carries its own radius rather than leaning on
+                the parent's clip. Native glass shapes its lensing and its
+                specular edge from its own corners, so a clipped square reads
+                as a flat fill instead of glass. Keep it off the touch path;
+                the native view ignores `pointerEvents` and swallows the
+                presses. */}
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                <GlassSurface
+                    style={[
+                        StyleSheet.absoluteFill,
+                        {
+                            borderRadius: PLAYER_BAR_RADIUS,
+                            borderCurve: "continuous",
+                        },
+                    ]}
+                />
+            </View>
+            {children}
+        </Animated.View>
+    );
     return (
         <View
             className="items-center pt-2"
@@ -73,37 +121,11 @@ export function PlayerBarShell({
                         : Math.max(insets.bottom, 8),
             }}
         >
-            <Animated.View
-                layout={RESIZE}
-                className="relative flex-row overflow-hidden"
-                style={{
-                    width,
-                    height: PLAYER_BAR_HEIGHT,
-                    padding: PLAYER_BAR_INSET,
-                    borderRadius: PLAYER_BAR_RADIUS,
-                    borderCurve: "continuous",
-                }}
-                onLayout={onLayout}
-            >
-                {/* The glass carries its own radius rather than leaning on
-                the parent's clip. Native glass shapes its lensing and its
-                specular edge from its own corners, so a clipped square reads
-                as a flat fill instead of glass. Keep it off the touch path;
-                the native view ignores `pointerEvents` and swallows the
-                presses. */}
-                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                    <GlassSurface
-                        style={[
-                            StyleSheet.absoluteFill,
-                            {
-                                borderRadius: PLAYER_BAR_RADIUS,
-                                borderCurve: "continuous",
-                            },
-                        ]}
-                    />
-                </View>
-                {children}
-            </Animated.View>
+            {gesture ? (
+                <GestureDetector gesture={gesture}>{bar}</GestureDetector>
+            ) : (
+                bar
+            )}
         </View>
     );
 }
@@ -140,7 +162,6 @@ export function PlayerBarButton({
             : selected
               ? brand
               : mutedForeground;
-    const fallback = <Ionicons name={icon} size={22} color={color} />;
     return (
         <Pressable
             accessibilityRole={role}
@@ -154,6 +175,34 @@ export function PlayerBarButton({
                 role === "button" && "active:opacity-70",
             )}
         >
+            <PlayerBarGlyph
+                sf={sf}
+                icon={icon}
+                label={label}
+                color={color}
+                badge={badge}
+            />
+        </Pressable>
+    );
+}
+
+/** Shared glyph layout for the masked tab bar and ordinary session buttons. */
+function PlayerBarGlyph({
+    sf,
+    icon,
+    label,
+    color,
+    badge,
+}: {
+    sf: SFSymbol;
+    icon: IoniconName;
+    label: string;
+    color: string;
+    badge?: number;
+}) {
+    const fallback = <Ionicons name={icon} size={22} color={color} />;
+    return (
+        <>
             <View
                 className="items-center justify-center"
                 style={{ width: ICON_BOX * 2, height: ICON_BOX }}
@@ -191,6 +240,157 @@ export function PlayerBarButton({
             >
                 {label}
             </Text>
-        </Pressable>
+        </>
+    );
+}
+
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+const FILL = {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+} as const;
+const TAB_PRESENTATION = {
+    discuss: {
+        label: "Discuss",
+        sf: { active: "bubble.left.fill", inactive: "bubble.left" },
+        icon: { active: "chatbubble", inactive: "chatbubble-outline" },
+    },
+    player: {
+        label: "Player",
+        sf: { active: "music.note", inactive: "music.note" },
+        icon: { active: "musical-note", inactive: "musical-note-outline" },
+    },
+    tags: {
+        label: "Tags",
+        sf: { active: "tag.fill", inactive: "tag" },
+        icon: { active: "pricetag", inactive: "pricetag-outline" },
+    },
+} as const satisfies Record<
+    PlayerTab,
+    {
+        label: string;
+        sf: Record<"active" | "inactive", SFSymbol>;
+        icon: Record<"active" | "inactive", IoniconName>;
+    }
+>;
+
+/** Complementary masks switch glyph form and color at the pill's exact edge. */
+export function PlayerTabIcons({
+    barWidth,
+    pageWidth,
+    scrollX,
+    selectedTab,
+    onSelect,
+}: {
+    barWidth: number;
+    pageWidth: number;
+    scrollX: SharedValue<number>;
+    selectedTab: PlayerTab;
+    onSelect: (tab: PlayerTab) => void;
+}) {
+    const { colors, scheme } = useAppTheme();
+    const width = Math.max(0, barWidth - 2 * PLAYER_BAR_INSET);
+    const height = PLAYER_BAR_HEIGHT - 2 * PLAYER_BAR_INSET;
+    const geometry = useDerivedValue(() =>
+        playerPillMask(
+            pageWidth > 0 ? scrollX.get() / pageWidth : 0,
+            width,
+            height,
+            PLAYER_TABS.length,
+        ),
+    );
+    const insideProps = useAnimatedProps(() => ({ d: geometry.get().inside }));
+    const outsideProps = useAnimatedProps(() => ({
+        d: geometry.get().outside,
+    }));
+    const pillStyle = useAnimatedStyle(() => ({
+        width: geometry.get().width,
+        transform: [{ translateX: geometry.get().left }],
+    }));
+    return (
+        <View className="flex-1">
+            <Animated.View
+                pointerEvents="none"
+                className="absolute bottom-0 left-0 top-0"
+                style={[
+                    {
+                        borderRadius: PLAYER_BAR_RADIUS - PLAYER_BAR_INSET,
+                        backgroundColor:
+                            scheme === "dark"
+                                ? "rgba(0, 0, 0, 0.35)"
+                                : "rgba(0, 0, 0, 0.08)",
+                    },
+                    pillStyle,
+                ]}
+            />
+            {([false, true] as const).map((filled) => (
+                <MaskedView
+                    key={String(filled)}
+                    pointerEvents="none"
+                    accessible={false}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    androidRenderingMode="software"
+                    style={FILL}
+                    maskElement={
+                        <Svg width={width} height={height}>
+                            <AnimatedPath
+                                fill="black"
+                                fillRule="evenodd"
+                                animatedProps={
+                                    filled ? insideProps : outsideProps
+                                }
+                            />
+                        </Svg>
+                    }
+                >
+                    <View className="flex-1 flex-row">
+                        {PLAYER_TABS.map((tab) => {
+                            const look = TAB_PRESENTATION[tab];
+                            return (
+                                <View
+                                    key={tab}
+                                    className="flex-1 items-center justify-center"
+                                >
+                                    <PlayerBarGlyph
+                                        sf={
+                                            look.sf[
+                                                filled ? "active" : "inactive"
+                                            ]
+                                        }
+                                        icon={
+                                            look.icon[
+                                                filled ? "active" : "inactive"
+                                            ]
+                                        }
+                                        label={look.label}
+                                        color={
+                                            filled
+                                                ? colors.brand
+                                                : colors.mutedForeground
+                                        }
+                                    />
+                                </View>
+                            );
+                        })}
+                    </View>
+                </MaskedView>
+            ))}
+            <View className="flex-1 flex-row">
+                {PLAYER_TABS.map((tab) => (
+                    <Pressable
+                        key={tab}
+                        className="flex-1"
+                        accessibilityRole="tab"
+                        accessibilityLabel={TAB_PRESENTATION[tab].label}
+                        accessibilityState={{ selected: selectedTab === tab }}
+                        onPress={() => onSelect(tab)}
+                    />
+                ))}
+            </View>
+        </View>
     );
 }

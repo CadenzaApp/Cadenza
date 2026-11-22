@@ -16,6 +16,7 @@ import type { MusicItem } from "@apple-musickit";
 export type FocusedSong = {
     id: string;
     title: string;
+    artistName?: string;
     artworkUrl?: string;
     artworkColor?: string;
 };
@@ -44,6 +45,7 @@ export function PlayerScopeProvider({ children }: { children: ReactNode }) {
         song?: string;
         tagsSongId?: string;
         tagsSongTitle?: string;
+        tagsArtistName?: string;
         tagsArtworkUrl?: string;
         tagsArtworkColor?: string;
     }>();
@@ -70,6 +72,7 @@ export function PlayerScopeProvider({ children }: { children: ReactNode }) {
                   ? {
                         id: params.tagsSongId,
                         title: params.tagsSongTitle ?? "",
+                        artistName: params.tagsArtistName,
                         artworkUrl: params.tagsArtworkUrl || undefined,
                         artworkColor: params.tagsArtworkColor || undefined,
                     }
@@ -80,6 +83,7 @@ export function PlayerScopeProvider({ children }: { children: ReactNode }) {
             params.tagsArtworkUrl,
             params.tagsSongId,
             params.tagsSongTitle,
+            params.tagsArtistName,
         ],
     );
     const [pinnedSong] = useState<FocusedSong | null>(routeTarget);
@@ -89,6 +93,7 @@ export function PlayerScopeProvider({ children }: { children: ReactNode }) {
             ? {
                   id: activeTrack.catalogId ?? activeTrack.id,
                   title: activeTrack.title,
+                  artistName: activeTrack.artistName,
                   artworkUrl: activeTrack.artworkUrl,
                   artworkColor: activeTrack.artworkColor,
               }

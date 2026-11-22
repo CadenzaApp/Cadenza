@@ -14,6 +14,7 @@ import {
     InsideSheetContext,
     useScreenOverlayInsets,
 } from "@/lib/screen-overlay";
+import { useScreenPagerPage } from "@/lib/screen-pager";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { useVisibleItems } from "@/lib/use-visible-items";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
@@ -59,11 +60,13 @@ export function CollectionList({
     const { listBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll<FlatList<MusicItem>>();
     const insideSheet = useContext(InsideSheetContext);
+    const { active } = useScreenPagerPage();
 
     return (
         <ScreenScrollMarker>
             <Animated.FlatList
                 {...scroll}
+                scrollsToTop={active}
                 // in a sheet (Add to Playlist), so a drag down scrolls back
                 // up before it closes the sheet on Android
                 nestedScrollEnabled={insideSheet}
@@ -107,7 +110,8 @@ export function CollectionList({
                     ) : null
                 }
                 onEndReached={() => {
-                    if (hasNextPage && !isLoadingNextPage) onLoadNextPage();
+                    if (active && hasNextPage && !isLoadingNextPage)
+                        onLoadNextPage();
                 }}
                 onEndReachedThreshold={0.1}
                 showsVerticalScrollIndicator={false}
