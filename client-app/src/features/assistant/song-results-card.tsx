@@ -3,8 +3,10 @@ import { ShuffleMode, type MusicItem } from "@apple-musickit";
 import { Image } from "expo-image";
 import { useRouter, type Href } from "expo-router";
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 
+import { ArtworkMosaic } from "@/components/custom/artwork-mosaic";
+import { GlassPanel } from "@/components/ui/glass-panel";
 import { Text } from "@/components/ui/text";
 import { logHandledError } from "@/lib/log";
 import { useOpenScreen } from "@/lib/open-screen";
@@ -12,6 +14,7 @@ import { usePagedTracksForSongIds } from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
 import { useAppTheme } from "@/lib/theme";
 
+import { CardButton, Hairline, withAlpha } from "./assistant-ui";
 import { currentPlayback } from "./playback-snapshot";
 import { shuffledCopy } from "./phone-tools";
 import { useQueryHandoff } from "./use-query-handoff";
@@ -20,10 +23,14 @@ import type { AssistantSongs } from "./types";
 /** How many songs the card lists. Play still queues every one. */
 const SHOWN_SONGS = 5;
 
+/** How many covers the mosaic at the top of the card shows. */
+const MOSAIC_COVERS = 4;
+
 /**
- * The songs a tool found, under the answer: the first few rows, a button with
- * the total, and Play / Shuffle for all of them. Tapping a row plays just that
- * song. The total button closes the assistant. A card from `run_query` loads
+ * The songs a tool found, under the answer, on glass: a mosaic of the first
+ * covers beside the total, Play and Shuffle for all of them, the first few
+ * rows, and a button for the rest. Tapping a row plays just that
+ * song. The button at the bottom closes the assistant. A card from `run_query` loads
  * its query into the Cadenza builder and opens its results there (see
  * `useQueryHandoff`); any other card shows every song it holds on the song
  * list screen, titled with the card's name. Either way they can be sorted,
@@ -48,7 +55,8 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
     const { playQueue, setShuffleMode } = usePlaybackCommands();
     // a ref as well as state, so two taps in one frame cannot both start
     const running = useRef(false);
-    const [pending, setPending] = useState(false);
+    // which of Play or Shuffle is starting, for its spinner
+    const [pending, setPending] = useState<"play" | "shuffle" | null>(null);
 
     const openNowPlaying = useCallback(() => {
         router.replace("/player");
@@ -94,7 +102,7 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
         async (shuffled: boolean) => {
             if (running.current) return;
             running.current = true;
-            setPending(true);
+            setPending(shuffled ? "shuffle" : "play");
             try {
                 const resolved = await resolveTracks(songs.song_ids);
                 if (resolved.length === 0) return;
@@ -108,7 +116,7 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
                 logHandledError("Assistant could not play the songs", error);
             } finally {
                 running.current = false;
-                setPending(false);
+                setPending(null);
             }
         },
         [
@@ -167,150 +175,147 @@ export function SongResultsCard({ songs }: { songs: AssistantSongs }) {
 
     if (!stillLoading && shown.length === 0) return null;
 
-    return (
-        <View className="mt-2 overflow-hidden rounded-2xl border border-border bg-card">
-            {shown.map((track, index) => (
-                <Pressable
-                    key={track.id}
-                    onPress={() => void playOne(track)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Play ${track.title}`}
-                    className={
-                        index > 0
-                            ? "flex-row items-center gap-3 border-t border-border px-3 py-2 active:opacity-60"
-                            : "flex-row items-center gap-3 px-3 py-2 active:opacity-60"
-                    }
-                >
-                    <Image
-                        source={
-                            track.artworkUrl
-                                ? { uri: track.artworkUrl }
-                                : undefined
-                        }
-                        style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 6,
-                            backgroundColor: colors.muted,
-                        }}
-                    />
-                    <View className="flex-1">
-                        <Text className="text-[15px]" numberOfLines={1}>
-                            {track.title}
-                        </Text>
-                        {track.artistName ? (
-                            <Text
-                                className="text-[13px] text-muted-foreground"
-                                numberOfLines={1}
-                            >
-                                {track.artistName}
-                            </Text>
-                        ) : null}
-                    </View>
-                </Pressable>
-            ))}
-            {Array.from({ length: placeholderRows }).map((_, index) => (
-                <SongRowSkeleton
-                    key={`placeholder-${index}`}
-                    divided={shown.length + index > 0}
-                />
-            ))}
+    const countLabel = `${available.toLocaleString()}${songs.capped ? "+" : ""} ${available === 1 && !songs.capped ? "song" : "songs"}`;
+    // the rows still to come count as shown, so the button does not shrink
+    // its number as they fill in
+    const more = available - (stillLoading ? expectedRows : shown.length);
+    const moreLabel =
+        more > 0
+            ? `${more.toLocaleString()}${songs.capped ? "+" : ""} more`
+            : "Open list";
+    const covers = shown
+        .map((track) => track.artworkUrl)
+        .filter((url): url is string => Boolean(url))
+        .slice(0, MOSAIC_COVERS);
+    const rowFill = withAlpha(colors.foreground, 0.08);
 
-            <View className="flex-row items-center gap-2 border-t border-border px-3 py-2">
-                <SongsButton
-                    label={`${available.toLocaleString()}${songs.capped ? "+" : ""} ${available === 1 && !songs.capped ? "song" : "songs"}`}
-                    onPress={openList}
+    return (
+        <GlassPanel>
+            <View className="flex-row items-center gap-3 px-3.5 pb-3 pt-3.5">
+                <ArtworkMosaic
+                    artworkUrls={covers}
+                    size={56}
+                    placeholderColor={colors.mutedForeground}
+                    className="rounded-xl"
                 />
-                <View className="flex-1" />
-                {pending ? (
-                    <ActivityIndicator
-                        size="small"
-                        color={colors.mutedForeground}
-                    />
-                ) : null}
+                <View className="min-w-0 flex-1">
+                    <Text
+                        className="text-[17px] font-semibold tracking-tight"
+                        numberOfLines={1}
+                    >
+                        {countLabel}
+                    </Text>
+                    {songs.title ? (
+                        <Text
+                            className="text-[13px] text-muted-foreground"
+                            numberOfLines={1}
+                        >
+                            {songs.title}
+                        </Text>
+                    ) : null}
+                </View>
+            </View>
+            <View className="flex-row gap-2 px-3.5 pb-3.5">
                 <CardButton
+                    grow
+                    tone="brand"
                     icon="play"
                     label="Play"
+                    loading={pending === "play"}
+                    disabled={pending !== null}
                     onPress={() => void playAll(false)}
                 />
                 <CardButton
+                    grow
                     icon="shuffle"
                     label="Shuffle"
+                    loading={pending === "shuffle"}
+                    disabled={pending !== null}
                     onPress={() => void playAll(true)}
                 />
             </View>
-        </View>
-    );
-}
+            <Hairline className="mx-3.5" />
 
-/**
- * The total, as a button that opens the full list. Outlined in the accent
- * color, with a chevron, so it reads as a way in rather than another playback
- * control like Play and Shuffle beside it.
- */
-function SongsButton({
-    label,
-    onPress,
-}: {
-    label: string;
-    onPress: () => void;
-}) {
-    const { colors } = useAppTheme();
-    return (
-        <Pressable
-            onPress={onPress}
-            accessibilityRole="button"
-            accessibilityLabel={`Open the list of ${label}`}
-            className="flex-row items-center gap-1 rounded-full border border-primary px-3 py-1.5 active:opacity-60"
-        >
-            <Ionicons name="list" size={14} color={colors.primary} />
-            <Text
-                className="text-[13px] font-medium text-primary"
-                numberOfLines={1}
+            <View className="py-1">
+                {shown.map((track) => (
+                    <Pressable
+                        key={track.id}
+                        onPress={() => void playOne(track)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Play ${track.title}`}
+                        className="flex-row items-center gap-3 px-3.5 py-2 active:opacity-60"
+                    >
+                        <Image
+                            source={
+                                track.artworkUrl
+                                    ? { uri: track.artworkUrl }
+                                    : undefined
+                            }
+                            style={{
+                                width: 40,
+                                height: 40,
+                                borderRadius: 8,
+                                backgroundColor: rowFill,
+                            }}
+                        />
+                        <View className="flex-1">
+                            <Text className="text-[15px]" numberOfLines={1}>
+                                {track.title}
+                            </Text>
+                            {track.artistName ? (
+                                <Text
+                                    className="text-[13px] text-muted-foreground"
+                                    numberOfLines={1}
+                                >
+                                    {track.artistName}
+                                </Text>
+                            ) : null}
+                        </View>
+                    </Pressable>
+                ))}
+                {Array.from({ length: placeholderRows }).map((_, index) => (
+                    <SongRowSkeleton
+                        key={`placeholder-${index}`}
+                        fill={rowFill}
+                    />
+                ))}
+            </View>
+
+            <Hairline />
+            <Pressable
+                onPress={() => void openList()}
+                accessibilityRole="button"
+                accessibilityLabel={`Open the list of ${countLabel}`}
+                className="h-11 flex-row items-center justify-center gap-1 active:opacity-60"
             >
-                {label}
-            </Text>
-            <Ionicons name="chevron-forward" size={13} color={colors.primary} />
-        </Pressable>
+                <Text className="text-[14px] font-medium">{moreLabel}</Text>
+                <Ionicons
+                    name="chevron-forward"
+                    size={14}
+                    color={colors.foreground}
+                />
+            </Pressable>
+        </GlassPanel>
     );
 }
 
-function CardButton({
-    icon,
-    label,
-    onPress,
-}: {
-    icon: "play" | "shuffle";
-    label: string;
-    onPress: () => void;
-}) {
-    const { colors } = useAppTheme();
+/** A row still loading: a cover and two lines in a faint wash. */
+function SongRowSkeleton({ fill }: { fill: string }) {
     return (
-        <Pressable
-            onPress={onPress}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            className="flex-row items-center gap-1 rounded-full bg-muted px-3 py-1.5 active:opacity-60"
-        >
-            <Ionicons name={icon} size={14} color={colors.foreground} />
-            <Text className="text-[13px] font-medium">{label}</Text>
-        </Pressable>
-    );
-}
-
-function SongRowSkeleton({ divided }: { divided: boolean }) {
-    return (
-        <View
-            className={
-                divided
-                    ? "flex-row items-center gap-3 border-t border-border px-3 py-2"
-                    : "flex-row items-center gap-3 px-3 py-2"
-            }
-        >
-            <View className="h-10 w-10 rounded-md bg-muted" />
+        <View className="flex-row items-center gap-3 px-3.5 py-2">
+            <View
+                className="h-10 w-10 rounded-lg"
+                style={{ backgroundColor: fill }}
+            />
             <View className="flex-1 gap-1.5">
-                <View className="h-3 w-2/3 rounded bg-muted" />
-                <View className="h-3 w-1/3 rounded bg-muted" />
+                <View
+                    className="h-3 w-2/3 rounded"
+                    style={{ backgroundColor: fill }}
+                />
+                <View
+                    className="h-3 w-1/3 rounded"
+                    style={{ backgroundColor: fill }}
+                />
             </View>
         </View>
     );

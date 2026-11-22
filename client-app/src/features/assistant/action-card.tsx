@@ -1,14 +1,14 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { View } from "react-native";
 
+import { GlassPanel } from "@/components/ui/glass-panel";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { getErrorMessage } from "@/lib/error-utils";
 import { useUndoAssistantAction } from "@/lib/routes/assistant-actions";
-import { useAppTheme } from "@/lib/theme";
 
 import { updateConversation } from "./assistant-store";
+import { CardButton, IconTile } from "./assistant-ui";
 import type { AssistantAction } from "./types";
 
 /** The icon a change shows, by what it changed. */
@@ -73,11 +73,10 @@ export function useUndoAndRecord() {
 }
 
 /**
- * A change the assistant made in this answer: what it did, and Undo while it
- * can still be undone. After an undo it says what the undo did.
+ * A change the assistant made in this answer, on glass: what it did, and Undo
+ * while it can still be undone. After an undo it says what the undo did.
  */
 export function ActionCard({ action }: { action: AssistantAction }) {
-    const { colors } = useAppTheme();
     const { undo, undoing } = useUndoAndRecord();
     const [error, setError] = useState<string | null>(null);
     const canUndo = action.undoable && !action.undone;
@@ -92,51 +91,43 @@ export function ActionCard({ action }: { action: AssistantAction }) {
     };
 
     return (
-        <View className="mt-3 gap-1.5 self-stretch rounded-2xl border border-border bg-card px-4 py-3">
-            <View className="flex-row items-center gap-3">
-                <Ionicons
-                    name={actionIcon(action)}
-                    size={20}
-                    color={colors.mutedForeground}
-                />
-                <View className="min-w-0 flex-1">
-                    <Text
-                        className={
-                            action.undone
-                                ? "text-[14px] font-medium text-muted-foreground"
-                                : "text-[14px] font-medium"
-                        }
-                        numberOfLines={2}
-                    >
-                        {action.undone ? "Undone" : action.summary}
-                    </Text>
-                    <Text className="text-[13px] text-muted-foreground">
-                        {action.undone
-                            ? (action.undo_result ?? action.summary)
-                            : actionStatus(action)}
-                    </Text>
+        <GlassPanel className="self-stretch">
+            <View className="gap-1.5 py-3 pl-3.5 pr-3">
+                <View className="flex-row items-center gap-3">
+                    <IconTile icon={actionIcon(action)} muted={action.undone} />
+                    <View className="min-w-0 flex-1">
+                        <Text
+                            className={
+                                action.undone
+                                    ? "text-[14px] font-medium text-muted-foreground"
+                                    : "text-[14px] font-medium"
+                            }
+                            numberOfLines={2}
+                        >
+                            {action.undone ? "Undone" : action.summary}
+                        </Text>
+                        <Text className="text-[13px] text-muted-foreground">
+                            {action.undone
+                                ? (action.undo_result ?? action.summary)
+                                : actionStatus(action)}
+                        </Text>
+                    </View>
+                    {canUndo ? (
+                        <CardButton
+                            label="Undo"
+                            icon="arrow-undo"
+                            loading={undoing}
+                            accessibilityLabel={`Undo: ${action.summary}`}
+                            onPress={() => void onUndo()}
+                        />
+                    ) : null}
                 </View>
-                {canUndo ? (
-                    <Pressable
-                        onPress={() => void onUndo()}
-                        disabled={undoing}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Undo: ${action.summary}`}
-                        className="min-w-[64px] items-center rounded-full bg-muted px-3.5 py-1.5 active:opacity-60"
-                    >
-                        {undoing ? (
-                            <ActivityIndicator size="small" />
-                        ) : (
-                            <Text className="text-[13px] font-medium">
-                                Undo
-                            </Text>
-                        )}
-                    </Pressable>
+                {error ? (
+                    <Text className="text-[13px] text-destructive">
+                        {error}
+                    </Text>
                 ) : null}
             </View>
-            {error ? (
-                <Text className="text-[13px] text-destructive">{error}</Text>
-            ) : null}
-        </View>
+        </GlassPanel>
     );
 }

@@ -1,37 +1,90 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useEffect } from "react";
-import { Pressable, View } from "react-native";
+import MaskedView from "@react-native-masked-view/masked-view";
+import { LinearGradient } from "expo-linear-gradient";
+import { useEffect, useState } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import Animated, {
+    cancelAnimation,
+    Easing,
+    interpolate,
     useAnimatedStyle,
+    useReducedMotion,
     useSharedValue,
-    withDelay,
     withRepeat,
-    withSequence,
     withTiming,
 } from "react-native-reanimated";
 
+import { GlassPanel } from "@/components/ui/glass-panel";
+import {
+    GlassSurface,
+    shouldShowGlassOutline,
+} from "@/components/ui/glass-surface";
+import type { IoniconName } from "@/components/ui/ionicon-name";
+import { usePressedFill } from "@/components/ui/pressed-fill";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 
 import { ActionCard } from "./action-card";
+import {
+    CardButton,
+    Glow,
+    IconTile,
+    SparkleAvatar,
+    useBreathing,
+    withAlpha,
+} from "./assistant-ui";
 import { SongResultsCard } from "./song-results-card";
 import type { AssistantStep, ChatEntry, PendingConfirmation } from "./types";
 
-/** One message: the user's in a bubble on the right, the assistant's as plain text. */
+/**
+ * One message: the user's in a bubble of their accent on the right, the
+ * assistant's as plain text under its sparkle, with any song card and done
+ * cards below it.
+ */
 export function MessageRow({ entry }: { entry: ChatEntry }) {
+    const { colors } = useAppTheme();
     if (entry.role === "user") {
+        // a little translucent, so the nebula glows through. Not glass: a
+        // long scroll of liquid glass views is costly, and the color is the
+        // point here
         return (
-            <View className="max-w-[85%] self-end rounded-3xl rounded-br-md bg-brand px-4 py-2.5">
-                <Text className="text-[16px] text-brand-foreground">
+            <View
+                className="max-w-[82%] self-end rounded-3xl rounded-br-md px-4 py-2.5"
+                style={{ backgroundColor: withAlpha(colors.brand, 0.85) }}
+            >
+                <Text
+                    className="text-[16px] leading-[22px]"
+                    style={{ color: colors.brandForeground }}
+                    selectable
+                >
                     {entry.text}
                 </Text>
             </View>
         );
     }
+    return <AssistantMessage entry={entry} />;
+}
 
+function AssistantMessage({
+    entry,
+}: {
+    entry: Extract<ChatEntry, { role: "assistant" }>;
+}) {
+    const [stepsOpen, setStepsOpen] = useState(false);
     return (
-        <View className="self-stretch">
-            <StepRows steps={entry.steps} />
+        <View className="gap-2.5 self-stretch">
+            <View className="flex-row items-center gap-2">
+                <SparkleAvatar />
+                {entry.steps.length > 0 ? (
+                    <StepsPill
+                        steps={entry.steps}
+                        open={stepsOpen}
+                        onToggle={() => setStepsOpen((open) => !open)}
+                    />
+                ) : null}
+            </View>
+            {stepsOpen ? <StepList steps={entry.steps} /> : null}
             <Text className="text-[16px] leading-6" selectable>
                 {entry.text}
             </Text>
@@ -43,12 +96,71 @@ export function MessageRow({ entry }: { entry: ChatEntry }) {
     );
 }
 
-/** What the assistant did on the way, one muted line each. */
-function StepRows({ steps }: { steps: AssistantStep[] }) {
+/**
+ * What the assistant did on the way, folded into one small glass pill: the
+ * step itself when there was one, a count when there were more. Tapping it
+ * lists them under it.
+ */
+function StepsPill({
+    steps,
+    open,
+    onToggle,
+}: {
+    steps: AssistantStep[];
+    open: boolean;
+    onToggle: () => void;
+}) {
     const { colors } = useAppTheme();
-    if (steps.length === 0) return null;
+    const outlined = shouldShowGlassOutline();
+    const summary =
+        steps.length === 1 ? steps[0].label : `${steps.length} steps`;
     return (
-        <View className="mb-1.5 gap-0.5">
+        <Pressable
+            onPress={onToggle}
+            accessibilityRole="button"
+            accessibilityLabel={`${open ? "Hide" : "Show"} what the assistant did`}
+            accessibilityState={{ expanded: open }}
+            hitSlop={6}
+            className="active:opacity-60"
+        >
+            <View
+                className={cn(
+                    "h-7 flex-row items-center gap-1 overflow-hidden rounded-full pl-2.5 pr-2",
+                    outlined && "border border-border",
+                )}
+            >
+                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                    <GlassSurface
+                        variant="clear"
+                        style={[StyleSheet.absoluteFill, { borderRadius: 14 }]}
+                    />
+                </View>
+                <Ionicons
+                    name="checkmark"
+                    size={13}
+                    color={colors.mutedForeground}
+                />
+                <Text
+                    className="text-[13px] text-muted-foreground"
+                    numberOfLines={1}
+                >
+                    {summary}
+                </Text>
+                <Ionicons
+                    name={open ? "chevron-up" : "chevron-down"}
+                    size={12}
+                    color={colors.mutedForeground}
+                />
+            </View>
+        </Pressable>
+    );
+}
+
+/** The steps, one muted line each, once the pill is open. */
+function StepList({ steps }: { steps: AssistantStep[] }) {
+    const { colors } = useAppTheme();
+    return (
+        <View className="ml-[34px] gap-1">
             {steps.map((step, index) => (
                 <View
                     key={`${step.tool}-${index}`}
@@ -81,75 +193,121 @@ export function ConfirmCard({
     onAnswer: (confirmed: boolean) => void;
 }) {
     return (
-        <View className="gap-3 self-stretch rounded-2xl border border-border bg-card p-4">
-            <View className="gap-1">
-                <Text className="text-[16px] font-semibold">
-                    {confirmation.title}
-                </Text>
-                <Text className="text-[14px] text-muted-foreground">
-                    {confirmation.detail}
-                </Text>
-            </View>
-            <View className="flex-row justify-end gap-2">
-                <Pressable
-                    onPress={() => onAnswer(false)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Cancel"
-                    className="rounded-full bg-muted px-4 py-2 active:opacity-60"
-                >
-                    <Text className="text-[14px] font-medium">Cancel</Text>
-                </Pressable>
-                <Pressable
-                    onPress={() => onAnswer(true)}
-                    accessibilityRole="button"
-                    accessibilityLabel={confirmation.confirmLabel}
-                    className="rounded-full bg-brand px-4 py-2 active:opacity-70"
-                >
-                    <Text className="text-[14px] font-medium text-brand-foreground">
-                        {confirmation.confirmLabel}
+        <GlassPanel className="self-stretch">
+            <View className="gap-4 p-4">
+                <View className="gap-1">
+                    <Text className="text-[16px] font-semibold">
+                        {confirmation.title}
                     </Text>
-                </Pressable>
+                    <Text className="text-[14px] leading-5 text-muted-foreground">
+                        {confirmation.detail}
+                    </Text>
+                </View>
+                <View className="flex-row gap-2">
+                    <CardButton
+                        grow
+                        label="Cancel"
+                        onPress={() => onAnswer(false)}
+                    />
+                    <CardButton
+                        grow
+                        tone="brand"
+                        label={confirmation.confirmLabel}
+                        onPress={() => onAnswer(true)}
+                    />
+                </View>
             </View>
-        </View>
+        </GlassPanel>
     );
 }
 
-/** Three pulsing dots while the assistant works. */
-export function TypingIndicator() {
+/** The sparkle glowing, and "Thinking…" with light sweeping across it. */
+export function ThinkingIndicator() {
     return (
         <View
-            className="flex-row items-center gap-1.5 self-start py-2"
+            className="flex-row items-center gap-2.5 self-start py-1"
+            accessible
             accessibilityLabel="The assistant is thinking"
         >
-            <Dot delay={0} />
-            <Dot delay={150} />
-            <Dot delay={300} />
+            <SparkleAvatar glowing />
+            <ShimmerText text="Thinking…" />
         </View>
     );
 }
 
-function Dot({ delay }: { delay: number }) {
-    const opacity = useSharedValue(0.3);
+/** How long one sweep of light takes to cross the text. */
+const SHIMMER_MS = 1600;
+
+/**
+ * Muted text with a band of the foreground color sweeping across it, left to
+ * right, over and over. Plain muted text under reduced motion.
+ */
+function ShimmerText({ text }: { text: string }) {
+    const { colors } = useAppTheme();
+    const reduceMotion = useReducedMotion();
+    const [width, setWidth] = useState(0);
+    const progress = useSharedValue(0);
+
     useEffect(() => {
-        opacity.set(
-            withDelay(
-                delay,
-                withRepeat(
-                    withSequence(
-                        withTiming(1, { duration: 400 }),
-                        withTiming(0.3, { duration: 400 }),
-                    ),
-                    -1,
-                ),
+        if (reduceMotion || width === 0) return;
+        progress.set(0);
+        progress.set(
+            withRepeat(
+                withTiming(1, { duration: SHIMMER_MS, easing: Easing.linear }),
+                -1,
+                false,
             ),
         );
-    }, [delay, opacity]);
-    const style = useAnimatedStyle(() => ({ opacity: opacity.get() }));
+        return () => cancelAnimation(progress);
+    }, [progress, reduceMotion, width]);
+
+    const sweep = useAnimatedStyle(() => ({
+        transform: [
+            {
+                translateX: interpolate(
+                    progress.get(),
+                    [0, 1],
+                    [-width, width],
+                ),
+            },
+        ],
+    }));
+
+    const className = "text-[15px] font-medium";
+    if (reduceMotion) {
+        return (
+            <Text className={cn(className, "text-muted-foreground")}>
+                {text}
+            </Text>
+        );
+    }
     return (
-        <Animated.View
-            className="h-2 w-2 rounded-full bg-muted-foreground"
-            style={style}
-        />
+        <MaskedView
+            onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+            maskElement={<Text className={className}>{text}</Text>}
+        >
+            <View style={{ backgroundColor: colors.mutedForeground }}>
+                {/* sizes the mask; the color comes from the views around it */}
+                <Text className={className} style={{ opacity: 0 }}>
+                    {text}
+                </Text>
+                <Animated.View
+                    pointerEvents="none"
+                    style={[StyleSheet.absoluteFill, sweep]}
+                >
+                    <LinearGradient
+                        colors={[
+                            withAlpha(colors.foreground, 0),
+                            colors.foreground,
+                            withAlpha(colors.foreground, 0),
+                        ]}
+                        start={{ x: 0, y: 0.5 }}
+                        end={{ x: 1, y: 0.5 }}
+                        style={StyleSheet.absoluteFill}
+                    />
+                </Animated.View>
+            </View>
+        </MaskedView>
     );
 }
 
@@ -163,55 +321,178 @@ export function ErrorRow({
 }) {
     const { colors } = useAppTheme();
     return (
-        <View className="flex-row items-center gap-3 self-stretch rounded-2xl border border-border px-4 py-3">
-            <Ionicons
-                name="alert-circle-outline"
-                size={18}
-                color={colors.destructive}
-            />
-            <Text className="flex-1 text-[14px]">{message}</Text>
-            <Pressable
-                onPress={onRetry}
-                accessibilityRole="button"
-                className="rounded-full bg-muted px-3 py-1.5 active:opacity-60"
-            >
-                <Text className="text-[13px] font-medium">Retry</Text>
-            </Pressable>
-        </View>
+        <GlassPanel className="self-stretch">
+            <View className="flex-row items-center gap-3 py-3 pl-4 pr-3">
+                <Ionicons
+                    name="alert-circle-outline"
+                    size={20}
+                    color={colors.destructive}
+                />
+                <Text className="flex-1 text-[14px]">{message}</Text>
+                <CardButton label="Retry" icon="refresh" onPress={onRetry} />
+            </View>
+        </GlassPanel>
     );
 }
 
-const SUGGESTIONS = [
-    "How many tags do I have?",
-    "Who were my top artists this month?",
-    "How much did I listen this week?",
-    "What were my most played songs last week?",
+const SUGGESTIONS: { text: string; icon: IoniconName }[] = [
+    { text: "How many tags do I have?", icon: "pricetags-outline" },
+    { text: "Who were my top artists this month?", icon: "person-outline" },
+    { text: "How much did I listen this week?", icon: "time-outline" },
+    {
+        text: "What were my most played songs last week?",
+        icon: "musical-notes-outline",
+    },
 ];
 
-/** The empty chat: what the assistant is for, and a few things to try. */
+/**
+ * The empty chat: a glowing sparkle, what the assistant is for, and a grid of
+ * glass tiles with things to try. A tile sends its text as the first message.
+ */
 export function EmptyChat({ onPick }: { onPick: (text: string) => void }) {
-    const { colors } = useAppTheme();
+    const rows = [SUGGESTIONS.slice(0, 2), SUGGESTIONS.slice(2)];
     return (
-        <View className="flex-1 justify-end gap-4 pb-2">
-            <View className="items-center gap-2 px-6">
-                <Ionicons name="sparkles" size={28} color={colors.brand} />
-                <Text className="text-center text-[15px] text-muted-foreground">
+        <View className="flex-1 justify-between gap-8 pb-1">
+            <View className="flex-1 items-center justify-center gap-4 px-4">
+                <HeroOrb />
+                <Text className="text-center text-[26px] font-bold leading-8 tracking-tight">
+                    What do you want to know about your music?
+                </Text>
+                <Text className="max-w-[300px] text-center text-[15px] leading-5 text-muted-foreground">
                     Ask about your tags, your songs, or what you have been
                     listening to.
                 </Text>
             </View>
-            <View className="flex-row flex-wrap justify-center gap-2">
-                {SUGGESTIONS.map((suggestion) => (
-                    <Pressable
-                        key={suggestion}
-                        onPress={() => onPick(suggestion)}
-                        accessibilityRole="button"
-                        className="rounded-full border border-border px-3.5 py-2 active:opacity-60"
-                    >
-                        <Text className="text-[14px]">{suggestion}</Text>
-                    </Pressable>
+            <View className="gap-2.5">
+                {rows.map((row, index) => (
+                    <View key={index} className="flex-row gap-2.5">
+                        {row.map((suggestion) => (
+                            <SuggestionTile
+                                key={suggestion.text}
+                                suggestion={suggestion}
+                                onPick={onPick}
+                            />
+                        ))}
+                    </View>
                 ))}
             </View>
         </View>
+    );
+}
+
+const ORB_SIZE = 88;
+const ORB_GLOW = 200;
+
+/** A glass disc holding the sparkle, with the accent breathing behind it. */
+function HeroOrb() {
+    const { colors } = useAppTheme();
+    const outlined = shouldShowGlassOutline();
+    const breath = useBreathing(true, 2000);
+    const glowStyle = useAnimatedStyle(() => ({
+        opacity: 0.7 + breath.get() * 0.3,
+        transform: [{ scale: 0.92 + breath.get() * 0.16 }],
+    }));
+
+    return (
+        <View
+            style={{ width: ORB_SIZE, height: ORB_SIZE }}
+            importantForAccessibility="no-hide-descendants"
+            accessibilityElementsHidden
+        >
+            <Animated.View
+                pointerEvents="none"
+                style={[
+                    {
+                        position: "absolute",
+                        left: (ORB_SIZE - ORB_GLOW) / 2,
+                        top: (ORB_SIZE - ORB_GLOW) / 2,
+                    },
+                    glowStyle,
+                ]}
+            >
+                <Glow size={ORB_GLOW} color={colors.brand} strength={0.55} />
+            </Animated.View>
+            <View
+                className={cn(
+                    "flex-1 items-center justify-center overflow-hidden rounded-full",
+                    outlined && "border border-border",
+                )}
+            >
+                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                    <GlassSurface
+                        variant="regular"
+                        style={[
+                            StyleSheet.absoluteFill,
+                            { borderRadius: ORB_SIZE / 2 },
+                        ]}
+                    />
+                </View>
+                <Ionicons name="sparkles" size={40} color={colors.brand} />
+            </View>
+        </View>
+    );
+}
+
+const TILE_RADIUS = 22;
+
+/** One thing to try: an icon and the question, on glass. */
+function SuggestionTile({
+    suggestion,
+    onPick,
+}: {
+    suggestion: (typeof SUGGESTIONS)[number];
+    onPick: (text: string) => void;
+}) {
+    const outlined = shouldShowGlassOutline();
+    const pressedFill = usePressedFill();
+    return (
+        <Pressable
+            onPress={() => onPick(suggestion.text)}
+            accessibilityRole="button"
+            accessibilityLabel={suggestion.text}
+            style={{ flex: 1 }}
+        >
+            {({ pressed }) => (
+                <View
+                    collapsable={false}
+                    className={cn(
+                        "min-h-[104px] flex-1 justify-between gap-3 overflow-hidden p-3.5",
+                        outlined && "border border-border",
+                    )}
+                    style={{
+                        borderRadius: TILE_RADIUS,
+                        transform: [{ scale: pressed ? 0.97 : 1 }],
+                    }}
+                >
+                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                        <GlassSurface
+                            variant="regular"
+                            style={[
+                                StyleSheet.absoluteFill,
+                                { borderRadius: TILE_RADIUS },
+                            ]}
+                        />
+                    </View>
+                    {pressed ? (
+                        <View
+                            pointerEvents="none"
+                            style={[
+                                StyleSheet.absoluteFill,
+                                {
+                                    backgroundColor: withAlpha(
+                                        pressedFill,
+                                        0.1,
+                                    ),
+                                },
+                            ]}
+                        />
+                    ) : null}
+                    <IconTile icon={suggestion.icon} />
+                    <Text className="text-[14px] font-medium leading-[19px]">
+                        {suggestion.text}
+                    </Text>
+                </View>
+            )}
+        </Pressable>
     );
 }
