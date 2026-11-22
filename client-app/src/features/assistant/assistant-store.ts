@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
 
+import { refreshAfterStoppedAnswer } from "@/lib/routes/assistant-actions";
+
 import type { ChatEntry, PendingConfirmation } from "./types";
 
 /**
@@ -64,11 +66,87 @@ export function updateConversationIfCurrent(
     updateConversation(accountId, change);
 }
 
-/** Clears the conversation of `accountId`. A waiting confirmation counts as cancelled. */
+/**
+ * Clears the conversation of `accountId`. An answer still coming is stopped
+ * first, and a waiting confirmation counts as cancelled.
+ */
 export function resetConversation(accountId: string | null) {
+    const run = endRun();
     answerConfirmation(false);
     state = { ...EMPTY, accountId };
     listeners.forEach((listener) => listener());
+    if (run?.confirmedChange) refreshAfterStoppedAnswer();
+}
+
+/**
+ * The answer being worked on: its request can be called off, and the loop
+ * that runs it checks `active` after every wait so a stopped answer does
+ * nothing more. One at a time, since the chat sends one message at a time.
+ */
+export type AnswerRun = {
+    readonly signal: AbortSignal;
+    /** False once the answer is stopped, cleared, or done. */
+    readonly active: boolean;
+    /** Set once the user said yes to a change in this answer. */
+    confirmedChange: boolean;
+};
+
+type Run = {
+    accountId: string | null;
+    controller: AbortController;
+    run: AnswerRun;
+};
+
+let current: Run | null = null;
+
+/** Starts `accountId`'s next answer, stopping one still running. */
+export function beginAnswer(accountId: string | null): AnswerRun {
+    endRun();
+    const controller = new AbortController();
+    const run: AnswerRun = {
+        signal: controller.signal,
+        get active() {
+            return current?.run === run;
+        },
+        confirmedChange: false,
+    };
+    current = { accountId, controller, run };
+    return run;
+}
+
+/** Marks `run` done, when it still is the current one. */
+export function finishAnswer(run: AnswerRun) {
+    if (current?.run === run) current = null;
+}
+
+/** Calls off the current answer's request, and returns it. */
+function endRun(): AnswerRun | null {
+    const ending = current;
+    current = null;
+    ending?.controller.abort();
+    return ending?.run ?? null;
+}
+
+/**
+ * Stops the answer `accountId`'s chat is waiting for: calls off its request,
+ * cancels a confirm card on screen, and marks the message stopped, so the
+ * composer is free. A change the user already confirmed may still go through
+ * on the server, so the message says so and the reads it can move refresh.
+ */
+export function stopAnswer(accountId: string | null) {
+    if (current?.accountId !== accountId) return;
+    const run = endRun();
+    answerConfirmation(false);
+    const stopped = run?.confirmedChange ? "stopped_after_change" : "stopped";
+    updateConversationIfCurrent(accountId, (conversation) => {
+        const entries = [...conversation.entries];
+        const last = entries.at(-1);
+        if (last?.role === "user") {
+            entries[entries.length - 1] = { ...last, stopped };
+        }
+        return { entries, sending: false, error: null };
+    });
+    if (run?.confirmedChange) refreshAfterStoppedAnswer();
 }
 
 let confirmationAnswer: ((confirmed: boolean) => void) | null = null;

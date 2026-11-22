@@ -124,8 +124,20 @@ export type PendingConfirmation = {
 };
 
 /** One message in the chat as the screen shows it. */
+/**
+ * Why a user message has no answer: the user stopped it, after confirming a
+ * change or not.
+ */
+export type StoppedAnswer = "stopped" | "stopped_after_change";
+
 export type ChatEntry =
-    | { id: string; role: "user"; text: string }
+    | {
+          id: string;
+          role: "user";
+          text: string;
+          /** Set when the user stopped the answer to this message. */
+          stopped?: StoppedAnswer;
+      }
     | {
           id: string;
           role: "assistant";

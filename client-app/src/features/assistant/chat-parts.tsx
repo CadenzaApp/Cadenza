@@ -19,8 +19,6 @@ import {
     GlassSurface,
     shouldShowGlassOutline,
 } from "@/components/ui/glass-surface";
-import type { IoniconName } from "@/components/ui/ionicon-name";
-import { usePressedFill } from "@/components/ui/pressed-fill";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -29,12 +27,12 @@ import { ActionCard } from "./action-card";
 import {
     CardButton,
     Glow,
-    IconTile,
     SparkleAvatar,
     useBreathing,
     withAlpha,
 } from "./assistant-ui";
 import { SongResultsCard } from "./song-results-card";
+import { SuggestionWheel } from "./suggestion-wheel";
 import type { AssistantStep, ChatEntry, PendingConfirmation } from "./types";
 
 /**
@@ -49,17 +47,26 @@ export function MessageRow({ entry }: { entry: ChatEntry }) {
         // long scroll of liquid glass views is costly, and the color is the
         // point here
         return (
-            <View
-                className="max-w-[82%] self-end rounded-3xl rounded-br-md px-4 py-2.5"
-                style={{ backgroundColor: withAlpha(colors.brand, 0.85) }}
-            >
-                <Text
-                    className="text-[16px] leading-[22px]"
-                    style={{ color: colors.brandForeground }}
-                    selectable
+            <View className="max-w-[82%] gap-1 self-end">
+                <View
+                    className="rounded-3xl rounded-br-md px-4 py-2.5"
+                    style={{ backgroundColor: withAlpha(colors.brand, 0.85) }}
                 >
-                    {entry.text}
-                </Text>
+                    <Text
+                        className="text-[16px] leading-[22px]"
+                        style={{ color: colors.brandForeground }}
+                        selectable
+                    >
+                        {entry.text}
+                    </Text>
+                </View>
+                {entry.stopped ? (
+                    <Text className="self-end text-right text-[13px] text-muted-foreground">
+                        {entry.stopped === "stopped_after_change"
+                            ? "Stopped. A change you confirmed may still have gone through; check the activity log."
+                            : "Stopped"}
+                    </Text>
+                ) : null}
             </View>
         );
     }
@@ -335,46 +342,29 @@ export function ErrorRow({
     );
 }
 
-const SUGGESTIONS: { text: string; icon: IoniconName }[] = [
-    { text: "How many tags do I have?", icon: "pricetags-outline" },
-    { text: "Who were my top artists this month?", icon: "person-outline" },
-    { text: "How much did I listen this week?", icon: "time-outline" },
-    {
-        text: "What were my most played songs last week?",
-        icon: "musical-notes-outline",
-    },
-];
-
 /**
- * The empty chat: a glowing sparkle, what the assistant is for, and a grid of
- * glass tiles with things to try. A tile sends its text as the first message.
+ * The empty chat: a glowing sparkle, what the assistant is for, and a wheel of
+ * things to try. A tap on one hands it to `onPick`, which puts it in the
+ * composer to send or edit.
  */
 export function EmptyChat({ onPick }: { onPick: (text: string) => void }) {
-    const rows = [SUGGESTIONS.slice(0, 2), SUGGESTIONS.slice(2)];
     return (
-        <View className="flex-1 justify-between gap-8 pb-1">
+        <View className="flex-1 justify-between gap-6 pb-1">
             <View className="flex-1 items-center justify-center gap-4 px-4">
                 <HeroOrb />
                 <Text className="text-center text-[26px] font-bold leading-8 tracking-tight">
-                    What do you want to know about your music?
+                    What can I do for your music?
                 </Text>
-                <Text className="max-w-[300px] text-center text-[15px] leading-5 text-muted-foreground">
-                    Ask about your tags, your songs, or what you have been
-                    listening to.
+                <Text className="max-w-[310px] text-center text-[15px] leading-5 text-muted-foreground">
+                    Ask about your listening, find and play songs, or have me
+                    tag, save, and organize your library.
                 </Text>
             </View>
-            <View className="gap-2.5">
-                {rows.map((row, index) => (
-                    <View key={index} className="flex-row gap-2.5">
-                        {row.map((suggestion) => (
-                            <SuggestionTile
-                                key={suggestion.text}
-                                suggestion={suggestion}
-                                onPick={onPick}
-                            />
-                        ))}
-                    </View>
-                ))}
+            <View className="gap-1">
+                <Text className="text-center text-[12px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    Try asking
+                </Text>
+                <SuggestionWheel onPick={onPick} />
             </View>
         </View>
     );
@@ -430,69 +420,5 @@ function HeroOrb() {
                 <Ionicons name="sparkles" size={40} color={colors.brand} />
             </View>
         </View>
-    );
-}
-
-const TILE_RADIUS = 22;
-
-/** One thing to try: an icon and the question, on glass. */
-function SuggestionTile({
-    suggestion,
-    onPick,
-}: {
-    suggestion: (typeof SUGGESTIONS)[number];
-    onPick: (text: string) => void;
-}) {
-    const outlined = shouldShowGlassOutline();
-    const pressedFill = usePressedFill();
-    return (
-        <Pressable
-            onPress={() => onPick(suggestion.text)}
-            accessibilityRole="button"
-            accessibilityLabel={suggestion.text}
-            style={{ flex: 1 }}
-        >
-            {({ pressed }) => (
-                <View
-                    collapsable={false}
-                    className={cn(
-                        "min-h-[104px] flex-1 justify-between gap-3 overflow-hidden p-3.5",
-                        outlined && "border border-border",
-                    )}
-                    style={{
-                        borderRadius: TILE_RADIUS,
-                        transform: [{ scale: pressed ? 0.97 : 1 }],
-                    }}
-                >
-                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                        <GlassSurface
-                            variant="regular"
-                            style={[
-                                StyleSheet.absoluteFill,
-                                { borderRadius: TILE_RADIUS },
-                            ]}
-                        />
-                    </View>
-                    {pressed ? (
-                        <View
-                            pointerEvents="none"
-                            style={[
-                                StyleSheet.absoluteFill,
-                                {
-                                    backgroundColor: withAlpha(
-                                        pressedFill,
-                                        0.1,
-                                    ),
-                                },
-                            ]}
-                        />
-                    ) : null}
-                    <IconTile icon={suggestion.icon} />
-                    <Text className="text-[14px] font-medium leading-[19px]">
-                        {suggestion.text}
-                    </Text>
-                </View>
-            )}
-        </Pressable>
     );
 }

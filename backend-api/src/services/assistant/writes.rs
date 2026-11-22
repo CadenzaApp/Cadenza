@@ -283,15 +283,85 @@ fn type_word(tag_type: TagType) -> &'static str {
     }
 }
 
-/// A color for a new tag: the one asked for when it is one of the app's, otherwise one
-/// picked from the name, so the same name always gets the same color.
+/// Color names the model or the user may ask for, each as the app's color closest to it.
+const TAG_COLOR_NAMES: &[(&str, &str)] = &[
+    ("crimson", "#b01843"),
+    ("maroon", "#b01843"),
+    ("darkred", "#b01843"),
+    ("red", "#f22933"),
+    ("orange", "#ee5300"),
+    ("yellow", "#dc8f00"),
+    ("gold", "#dc8f00"),
+    ("amber", "#dc8f00"),
+    ("lime", "#6f9808"),
+    ("olive", "#6f9808"),
+    ("green", "#00a446"),
+    ("teal", "#00907f"),
+    ("cyan", "#0092b4"),
+    ("turquoise", "#0092b4"),
+    ("lightblue", "#0092b4"),
+    ("blue", "#2061f1"),
+    ("navy", "#2061f1"),
+    ("purple", "#6d35d5"),
+    ("violet", "#6d35d5"),
+    ("lavender", "#ae6ff1"),
+    ("lilac", "#ae6ff1"),
+    ("lightpurple", "#ae6ff1"),
+    ("magenta", "#dd34e5"),
+    ("fuchsia", "#dd34e5"),
+    ("pink", "#f83ca0"),
+    ("hotpink", "#f83ca0"),
+    ("brown", "#8c5939"),
+    ("gray", "#6b7281"),
+    ("grey", "#6b7281"),
+    ("black", "#6b7281"),
+    ("white", "#6b7281"),
+    ("silver", "#6b7281"),
+];
+
+/// `#rgb` or `#rrggbb` as its red, green, and blue.
+fn parse_hex(color: &str) -> Option<(i64, i64, i64)> {
+    let hex = color.trim().strip_prefix('#').unwrap_or(color.trim());
+    let hex: String = match hex.len() {
+        3 => hex.chars().flat_map(|c| [c, c]).collect(),
+        6 => hex.to_owned(),
+        _ => return None,
+    };
+    let channel = |at: usize| i64::from_str_radix(&hex[at..at + 2], 16).ok();
+    Some((channel(0)?, channel(2)?, channel(4)?))
+}
+
+/// The app's color closest to `(r, g, b)`, by a distance weighted the way the eye weighs
+/// red, green, and blue (the "redmean" approximation).
+fn nearest_tag_color((r, g, b): (i64, i64, i64)) -> &'static str {
+    TAG_COLORS
+        .iter()
+        .min_by_key(|color| {
+            let (cr, cg, cb) = parse_hex(color).unwrap_or_default();
+            let mean = (r + cr) / 2;
+            let (dr, dg, db) = (r - cr, g - cg, b - cb);
+            (((512 + mean) * dr * dr) >> 8) + 4 * dg * dg + (((767 - mean) * db * db) >> 8)
+        })
+        .copied()
+        .unwrap_or(TAG_COLORS[0])
+}
+
+/// A color for a new or recolored tag: the app's color for what was asked (one of its
+/// own, a name like "red", or the closest to any hex), otherwise one picked from the
+/// name, so the same name always gets the same color.
 fn color_for(name: &str, asked: Option<&str>) -> String {
-    if let Some(asked) = asked
-        && let Some(color) = TAG_COLORS
-            .iter()
-            .find(|color| color.eq_ignore_ascii_case(asked.trim()))
-    {
-        return (*color).to_owned();
+    if let Some(asked) = asked.map(str::trim).filter(|asked| !asked.is_empty()) {
+        let named: String = asked
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect();
+        if let Some((_, color)) = TAG_COLOR_NAMES.iter().find(|(name, _)| *name == named) {
+            return (*color).to_owned();
+        }
+        if let Some(rgb) = parse_hex(asked) {
+            return nearest_tag_color(rgb).to_owned();
+        }
     }
     let hash = name.to_lowercase().bytes().fold(0usize, |acc, b| {
         acc.wrapping_mul(31).wrapping_add(b as usize)
@@ -1392,7 +1462,7 @@ pub fn definitions() -> Vec<Value> {
         "description": "Instead of tag_id, a tag to make first, when the user names one they do not have.",
         "properties": {
             "name": { "type": "string" },
-            "color": { "type": "string", "description": "Optional hex color from the app's palette. Leave out to pick one." },
+            "color": { "type": "string", "description": "Optional. A color name (red, crimson, orange, yellow, lime, green, teal, cyan, blue, purple, lavender, magenta, pink, brown, gray) or a hex; it becomes the closest of the app's tag colors. Leave out to pick one." },
             "type": { "type": "string", "enum": ["basic", "text", "number", "date", "datetime", "duration", "checkbox"], "description": "basic (default) unless the user wants the tag to hold a value." }
         },
         "required": ["name"]
@@ -1452,7 +1522,7 @@ pub fn definitions() -> Vec<Value> {
                 "properties": {
                     "tag_id": { "type": "integer" },
                     "name": { "type": "string" },
-                    "color": { "type": "string", "description": "A hex color from the app's palette." }
+                    "color": { "type": "string", "description": "A color name (red, crimson, orange, yellow, lime, green, teal, cyan, blue, purple, lavender, magenta, pink, brown, gray) or a hex; it becomes the closest of the app's tag colors." }
                 },
                 "required": ["tag_id"]
             }
@@ -1517,7 +1587,14 @@ mod tests {
     #[test]
     fn a_new_tag_gets_an_app_color() {
         assert_eq!(color_for("chill", Some("#2061F1")), "#2061f1");
-        let picked = color_for("chill", Some("#123456"));
+        // the closest of the app's colors to what was asked
+        assert_eq!(color_for("Holy", Some("#FF0000")), "#f22933");
+        assert_eq!(color_for("Holy", Some("red")), "#f22933");
+        assert_eq!(color_for("Holy", Some("Dark Red")), "#b01843");
+        assert_eq!(color_for("Holy", Some("#00f")), "#2061f1");
+        assert_eq!(color_for("Holy", Some("purple")), "#6d35d5");
+        assert_eq!(color_for("Holy", Some("#00FF00")), "#00a446");
+        let picked = color_for("chill", Some("not a color"));
         assert!(TAG_COLORS.contains(&picked.as_str()));
         assert_eq!(picked, color_for("Chill", None));
     }

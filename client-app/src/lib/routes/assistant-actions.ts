@@ -51,6 +51,17 @@ export function refreshAfterAssistantChanges(
     );
 }
 
+/**
+ * Refreshes everything an assistant change can move, for an answer the user
+ * stopped after confirming a change: it may have gone through, and there is no
+ * reply to say which.
+ */
+export function refreshAfterStoppedAnswer() {
+    void invalidateAPIData(assistantChangeReads()).catch((error) =>
+        console.error("Could not refresh after a stopped answer", error),
+    );
+}
+
 /** The activity log: the changes the user confirmed in the assistant, newest first. */
 export function useAssistantActions() {
     const x = useAPIData<{ actions: AssistantAction[] }>(ACTIONS_PATH);

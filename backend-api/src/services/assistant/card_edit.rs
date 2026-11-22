@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tools::{MAX_CARD_SONGS, card_title};
+use super::tools::{MAX_CARD_SONGS, song_list_title};
 use crate::routes::json::assistant::SongsCard;
 
 pub const NAME: &str = "edit_card";
@@ -160,7 +160,8 @@ pub fn edit(
         output["note"] = json!("the card is empty now, so no card shows");
         return Edited { card: None, output };
     }
-    let title = card_title(args.title).or_else(|| this_answer.and_then(|card| card.title.clone()));
+    let title =
+        song_list_title(args.title).or_else(|| this_answer.and_then(|card| card.title.clone()));
     Edited {
         card: Some(SongsCard {
             total: songs.len(),
@@ -203,7 +204,7 @@ pub fn definition() -> Value {
                 },
                 "title": {
                     "type": "string",
-                    "description": "The list's new title when what it holds changed, Title Case, 2 to 4 words, like \"Chill Songs Plus Sonic\". Leave out to keep it."
+                    "description": "The list's new title when what it holds changed, Title Case, 2 to 4 words, like \"Chill Songs Plus Sonic\". Never a count (the card shows how many). Leave out to keep it."
                 }
             }
         }

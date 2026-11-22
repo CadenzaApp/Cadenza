@@ -9,10 +9,13 @@
 //! nothing left to search is refused. Everything is read back from the answer's own calls
 //! and outputs, so it holds across a phone tool's round trip without extra state.
 //!
-//! When the answer's card is built on the last `find_songs` result and holds fewer songs
-//! than the user asked for, the reply must say why: Apple Music had fewer, or one card holds
-//! at most 25. The tool output asks the model to say so; [`explain_shortfall`] adds the
-//! sentence when the reply did not.
+//! A card made only of songs this answer searched for holds at most 25 ([`cap_card`]), the
+//! same as `find_songs` itself, however the model put it together.
+//!
+//! When the answer's card is made of searched songs and holds fewer than the user asked
+//! for, the reply must say why: Apple Music had fewer, or one card holds at most 25. The
+//! tool output asks the model to say so; [`explain_shortfall`] adds the sentence when the
+//! reply did not.
 
 use std::collections::HashSet;
 
@@ -41,6 +44,8 @@ pub struct FindHistory {
     suggested: HashSet<String>,
     /// Every name searched.
     tried: HashSet<String>,
+    /// The ids `find_songs` found and `browse_apple_music` listed.
+    searched_ids: HashSet<String>,
     /// The last `find_songs` call's count, for the reply.
     pub last: Option<FindResult>,
 }
@@ -86,6 +91,15 @@ pub fn history(items: &[Value]) -> FindHistory {
             continue;
         };
         history.calls += 1;
+        for list in ["songs", "candidates"] {
+            if let Some(songs) = output[list].as_array() {
+                history.searched_ids.extend(
+                    songs
+                        .iter()
+                        .filter_map(|song| song["song_id"].as_str().map(str::to_owned)),
+                );
+            }
+        }
         if call["name"] == BROWSE {
             continue;
         }
@@ -202,6 +216,25 @@ pub fn prepare(name: &str, arguments: &str, history: &FindHistory) -> Prepared {
     }
 }
 
+impl FindHistory {
+    /// Whether every song on `card` came from this answer's searches.
+    pub fn searched(&self, card: &[String]) -> bool {
+        !card.is_empty() && card.iter().all(|id| self.searched_ids.contains(id))
+    }
+}
+
+/// `card` cut to [`MAX_FIND_COUNT`] songs, keeping the first, when it is made only of songs
+/// this answer searched for, with how many were cut. A card that builds on other songs
+/// (a query, a saved query, the card the user was looking at) keeps its size.
+pub fn cap_card(card: &mut Vec<String>, history: &FindHistory) -> usize {
+    if card.len() <= MAX_FIND_COUNT || !history.searched(card) {
+        return 0;
+    }
+    let cut = card.len() - MAX_FIND_COUNT;
+    card.truncate(MAX_FIND_COUNT);
+    cut
+}
+
 /// How many songs one card can show of `asked_for`.
 pub fn wanted_on_card(asked_for: usize) -> usize {
     asked_for.min(MAX_FIND_COUNT)
@@ -263,17 +296,22 @@ fn mentions_number(text: &str, n: usize) -> bool {
         .any(|token| token == digits || Some(token) == word)
 }
 
-/// `text` with the shortfall sentence added when the answer's card is built on the last
-/// `find_songs` result (every song it found is on the card, with or without browsed songs
-/// added), holds fewer songs than the user asked for, and the reply does not already say
-/// how many it found of how many asked.
+/// `text` with the shortfall sentence added when `find_songs` in this answer had a count,
+/// the answer's card is made of songs it searched for (or there is none, since nothing was
+/// found), it holds fewer than the user asked for, and the reply does not already say how
+/// many it found of how many asked.
 pub fn explain_shortfall(text: &str, history: &FindHistory, card: Option<&[String]>) -> String {
     let Some(result) = &history.last else {
         return text.to_owned();
     };
     let card = card.unwrap_or_default();
-    if !result.song_ids.iter().all(|id| card.contains(id)) {
-        // the answer moved on from that card, like an edit that took songs off
+    let from_searching = if card.is_empty() {
+        result.song_ids.is_empty()
+    } else {
+        history.searched(card)
+    };
+    if !from_searching {
+        // the card is something else, like the user's own query
         return text.to_owned();
     }
     let shown = card.len();
@@ -452,6 +490,8 @@ mod tests {
                 asked_for,
                 song_ids: ids(found),
             }),
+            // what find_songs found plus what a browse listed
+            searched_ids: ids(60).into_iter().collect(),
             ..FindHistory::default()
         }
     }
@@ -492,10 +532,29 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_added_when_the_answer_moved_on_from_the_card() {
+    fn nothing_is_added_to_a_card_that_is_not_searched_songs() {
         let history = found(10, 3);
-        let other = vec!["9".to_owned(), "8".to_owned()];
-        assert_eq!(explain_shortfall("Here.", &history, Some(&other)), "Here.");
+        let query = vec!["2".to_owned(), "q1".to_owned()];
+        assert_eq!(explain_shortfall("Here.", &history, Some(&query)), "Here.");
+    }
+
+    #[test]
+    fn a_card_swapping_a_found_song_for_a_browsed_one_still_explains() {
+        let history = found(10, 5);
+        let card: Vec<String> = ["0", "1", "2", "3", "40", "41"].map(str::to_owned).to_vec();
+        assert!(explain_shortfall("", &history, Some(&card)).contains("6 of the 10"));
+    }
+
+    #[test]
+    fn a_searched_card_holds_25_and_others_keep_their_size() {
+        let history = found(100, 20);
+        let mut card = ids(26);
+        assert_eq!(cap_card(&mut card, &history), 1);
+        assert_eq!(card, ids(25));
+        let mut grown_query: Vec<String> = ids(26);
+        grown_query.push("q1".to_owned());
+        assert_eq!(cap_card(&mut grown_query, &history), 0);
+        assert_eq!(grown_query.len(), 27);
     }
 
     #[test]

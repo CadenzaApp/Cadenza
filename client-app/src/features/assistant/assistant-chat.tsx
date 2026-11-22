@@ -4,7 +4,14 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, type Href } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type RefObject,
+} from "react";
 import {
     Dimensions,
     Keyboard,
@@ -80,9 +87,16 @@ export function AssistantChat() {
     const { colors } = useAppTheme();
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { entries, sending, error, confirmation, send, retry, reset } =
+    const { entries, sending, error, confirmation, send, retry, stop, reset } =
         useAssistantChat();
     const [draft, setDraft] = useState("");
+    const inputRef = useRef<TextInput>(null);
+    // a suggestion goes in the composer, to send as it is or edit first
+    const pickSuggestion = (text: string) => {
+        void Haptics.selectionAsync();
+        setDraft(text);
+        inputRef.current?.focus();
+    };
     const scrollRef = useAnimatedRef<Animated.ScrollView>();
     const [composerHeight, setComposerHeight] = useState(COMPOSER_MIN_HEIGHT);
     const nebula = useMemo(
@@ -176,14 +190,15 @@ export function AssistantChat() {
                             color={colors.foreground}
                         />
                     </GlassIconButton>
-                    {entries.length > 0 ? (
+                    {entries.length > 0 || sending ? (
                         <GlassIconButton
                             bordered={false}
-                            accessibilityLabel="New chat"
+                            accessibilityLabel="Clear chat"
+                            // stops an answer still coming, then starts over
                             onPress={reset}
                         >
                             <Ionicons
-                                name="create-outline"
+                                name="trash-outline"
                                 size={21}
                                 color={colors.foreground}
                             />
@@ -215,7 +230,7 @@ export function AssistantChat() {
                     onContentSizeChange={onContentSizeChange}
                 >
                     {entries.length === 0 && !sending ? (
-                        <EmptyChat onPick={submit} />
+                        <EmptyChat onPick={pickSuggestion} />
                     ) : (
                         entries.map((entry) => (
                             <Animated.View
@@ -261,10 +276,17 @@ export function AssistantChat() {
                     }
                 >
                     <Composer
+                        inputRef={inputRef}
                         draft={draft}
                         onChangeDraft={setDraft}
                         onFocus={onFocus}
                         onSubmit={() => submit(draft)}
+                        onStop={() => {
+                            void Haptics.impactAsync(
+                                Haptics.ImpactFeedbackStyle.Light,
+                            );
+                            stop();
+                        }}
                         canSend={canSend}
                         sending={sending}
                     />
@@ -278,20 +300,24 @@ const COMPOSER_RADIUS = COMPOSER_MIN_HEIGHT / 2;
 
 /**
  * The field and its button on one capsule of glass. The button sends, in the
- * accent, or while an answer is coming shows Stop.
+ * accent, or while an answer is coming stops it.
  */
 function Composer({
+    inputRef,
     draft,
     onChangeDraft,
     onFocus,
     onSubmit,
+    onStop,
     canSend,
     sending,
 }: {
+    inputRef: RefObject<TextInput | null>;
     draft: string;
     onChangeDraft: (text: string) => void;
     onFocus: () => void;
     onSubmit: () => void;
+    onStop: () => void;
     canSend: boolean;
     sending: boolean;
 }) {
@@ -319,6 +345,7 @@ function Composer({
                 />
             </View>
             <TextInput
+                ref={inputRef}
                 value={draft}
                 onChangeText={onChangeDraft}
                 onFocus={onFocus}
@@ -336,9 +363,7 @@ function Composer({
             <View className="p-1.5">
                 {sending ? (
                     <Pressable
-                        // TODO: stopping an answer is not built yet, so Stop
-                        // only shows while one is coming
-                        onPress={() => {}}
+                        onPress={onStop}
                         accessibilityRole="button"
                         accessibilityLabel="Stop"
                         className="h-10 w-10 items-center justify-center rounded-full active:opacity-70"

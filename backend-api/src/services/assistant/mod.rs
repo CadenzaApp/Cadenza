@@ -601,12 +601,30 @@ impl LoopState {
             &find_guard::history(&self.items),
             self.songs.as_ref().map(|card| card.song_ids.as_slice()),
         );
+        // never an empty reply: the model can end with only a card, and a short one
+        // already got its reason above
+        let text = if text.trim().is_empty() {
+            empty_reply(self.songs.as_ref(), !self.actions.is_empty())
+        } else {
+            text
+        };
         AssistantResponse::Reply {
             text,
             steps: self.steps,
             songs: self.songs,
             actions: self.actions,
         }
+    }
+}
+
+/// What an answer says when the model wrote nothing: what the card holds, or that the
+/// changes are done. With neither, that it could not answer.
+fn empty_reply(card: Option<&SongsCard>, made_changes: bool) -> String {
+    match card {
+        Some(card) if card.song_ids.len() == 1 => "Here you go, 1 song.".to_owned(),
+        Some(card) => format!("Here you go, {} songs.", card.song_ids.len()),
+        None if made_changes => "Done.".to_owned(),
+        None => "Sorry, I don't have an answer for that. Try asking another way.".to_owned(),
     }
 }
 
@@ -988,17 +1006,39 @@ pub async fn run_loop(
             }
 
             if call.name == card_edit::NAME {
-                let edited = card_edit::edit(
+                let mut edited = card_edit::edit(
                     &call.arguments,
                     &state.last_card,
                     state.songs.as_ref(),
                     &state.sourced_ids(),
                 );
                 let failed = edited.output.get("error").is_some();
-                let output = match &edited.card {
+                // a list of songs picked from memory or browsing holds 25, like find_songs
+                let mut cut = 0;
+                if let Some(card) = edited.card.as_mut() {
+                    cut = find_guard::cap_card(
+                        &mut card.song_ids,
+                        &find_guard::history(&state.items),
+                    );
+                    if cut > 0 {
+                        card.total = card.song_ids.len();
+                    }
+                }
+                let mut output = match &edited.card {
                     Some(card) => with_card_note(edited.output, card.total),
                     None => edited.output,
                 };
+                if cut > 0
+                    && let Some(object) = output.as_object_mut()
+                {
+                    object.insert(
+                        "left_off".to_owned(),
+                        Value::from(format!(
+                            "A list of songs you picked holds at most {}, so the last {cut} were left off.",
+                            tools::MAX_FIND_COUNT
+                        )),
+                    );
+                }
                 state.push_output(&call.call_id, &output);
                 state.add_step(card_edit::NAME, card_edit::LABEL);
                 // a failed edit leaves the card alone; one that took every song off clears it

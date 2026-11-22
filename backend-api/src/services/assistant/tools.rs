@@ -943,6 +943,86 @@ pub(super) fn card_title(title: Option<String>) -> Option<String> {
     (!title.is_empty()).then_some(title)
 }
 
+/// [`card_title`] for a list of songs the model picked (`find_songs`, `edit_card`), without
+/// a song count: the card already shows how many, and a count in the title goes wrong
+/// when fewer were found or the list is edited later. Not for an album or a saved query,
+/// whose real name can start with a number.
+pub(super) fn song_list_title(title: Option<String>) -> Option<String> {
+    card_title(title).map(|title| {
+        let uncounted = without_count(&title);
+        if uncounted.is_empty() {
+            title
+        } else {
+            uncounted
+        }
+    })
+}
+
+/// Number words a title may open with as a count: "Ten Iconic Mario Songs".
+const COUNT_WORDS: &[&str] = &[
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+    "thirty",
+    "forty",
+    "fifty",
+    "sixty",
+    "seventy",
+    "eighty",
+    "ninety",
+    "hundred",
+    "dozen",
+];
+
+/// Whether `word` is a count of songs, like "100", "25+", or "Ten", and not a year like
+/// "2019" or a decade like "90s".
+fn is_count(word: &str) -> bool {
+    let bare = word.trim_end_matches(['+', ',', ':']).to_lowercase();
+    if bare.is_empty() {
+        return false;
+    }
+    if bare.chars().all(|c| c.is_ascii_digit()) {
+        return !bare
+            .parse::<u32>()
+            .is_ok_and(|year| (1900..=2099).contains(&year));
+    }
+    bare.split('-').all(|part| COUNT_WORDS.contains(&part))
+}
+
+/// `title` without a song count, which the card already shows and which goes wrong
+/// when fewer songs were found or the list is edited later: "100 Pokémon Songs" is
+/// "Pokémon Songs", and "Top 10 Sonic Songs" is "Top Sonic Songs". Empty when the title is
+/// only a count.
+fn without_count(title: &str) -> String {
+    let words: Vec<&str> = title.split_whitespace().collect();
+    let mut kept: Vec<&str> = Vec::with_capacity(words.len());
+    for (index, word) in words.iter().enumerate() {
+        let after_top = index > 0 && words[index - 1].eq_ignore_ascii_case("top");
+        if (index == 0 || after_top) && is_count(word) {
+            continue;
+        }
+        kept.push(word);
+    }
+    kept.join(" ")
+}
+
 /// `word` with its first letter capitalized when it is all lowercase and not a
 /// small word in the middle of the title.
 fn title_case_word(word: &str, first: bool) -> String {
@@ -1369,7 +1449,7 @@ impl DbTools<'_> {
                 total: song_ids.len(),
                 capped: false,
                 song_ids,
-                title: card_title(args.title),
+                title: song_list_title(args.title),
                 query: None,
             });
         }
@@ -2063,7 +2143,7 @@ pub fn definitions() -> Vec<Value> {
                     },
                     "title": {
                         "type": "string",
-                        "description": "The list's title. Title Case, 2 to 4 words, no period, like \"Iconic Video Game Songs\"."
+                        "description": "The list's title. Title Case, 2 to 4 words, no period, like \"Iconic Video Game Songs\". Never a count: not \"10 Iconic Video Game Songs\"."
                     }
                 },
                 "required": ["songs", "title"]
@@ -2269,6 +2349,36 @@ mod tests {
             Some("Late Night R&B on iPhone".into())
         );
         assert_eq!(title("'90s hip hop"), Some("'90s Hip Hop".into()));
+    }
+
+    #[test]
+    fn card_titles_leave_out_song_counts() {
+        let title = |text: &str| song_list_title(Some(text.into()));
+        assert_eq!(title("100 Pokémon Songs"), Some("Pokémon Songs".into()));
+        assert_eq!(
+            title("\"100 pokémon songs.\""),
+            Some("Pokémon Songs".into())
+        );
+        // an album keeps its real name
+        assert_eq!(
+            card_title(Some("1000 gecs".into())),
+            Some("1000 Gecs".into())
+        );
+        assert_eq!(
+            title("ten iconic mario songs"),
+            Some("Iconic Mario Songs".into())
+        );
+        assert_eq!(title("Top 10 Sonic Songs"), Some("Top Sonic Songs".into()));
+        assert_eq!(title("25+ anime openings"), Some("Anime Openings".into()));
+        // years and decades are not counts
+        assert_eq!(title("2019 Hits"), Some("2019 Hits".into()));
+        assert_eq!(
+            title("90s One-Hit Wonders"),
+            Some("90s One-Hit Wonders".into())
+        );
+        assert_eq!(title("Songs From 1999"), Some("Songs From 1999".into()));
+        // a title that is only a count stays
+        assert_eq!(title("100"), Some("100".into()));
     }
 
     #[test]
