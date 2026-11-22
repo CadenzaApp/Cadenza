@@ -17,9 +17,10 @@ export type SearchFieldSize = keyof typeof SIZES;
 /**
  * `glass` is a pill of clear glass, for a field on the page itself. `outline`
  * is a hairline ring with no fill, for a field already on a glass panel or a
- * popup, where more glass would stack.
+ * popup, where more glass would stack. `control` uses the neutral filled
+ * background and contrasting border of the query condition controls.
  */
-export type SearchFieldSurface = "glass" | "outline";
+export type SearchFieldSurface = "glass" | "outline" | "control";
 
 type Props = {
     value: string;
@@ -74,12 +75,16 @@ export const SearchField = forwardRef<TextInput, Props>(function SearchField(
     const { colors } = useAppTheme();
     const { height, fontSize, icon } = SIZES[size];
     const radius = height / 2;
+    const secondaryColor =
+        surface === "control" ? colors.foreground : colors.mutedForeground;
     const text = { fontSize, paddingVertical: 0, paddingHorizontal: 0 };
 
     return (
         <View
             className={cn(
                 "flex-row items-center gap-2 overflow-hidden px-4",
+                surface === "control" &&
+                    "border border-black/30 bg-black/5 dark:border-white/30 dark:bg-white/10",
                 editable === false && surface === "outline" && "opacity-50",
                 className,
             )}
@@ -105,11 +110,7 @@ export const SearchField = forwardRef<TextInput, Props>(function SearchField(
                 </View>
             ) : null}
 
-            <Ionicons
-                name="search"
-                size={icon}
-                color={colors.mutedForeground}
-            />
+            <Ionicons name="search" size={icon} color={secondaryColor} />
             <View className="h-full flex-1 justify-center">
                 {value.length === 0 ? (
                     <View
@@ -118,7 +119,7 @@ export const SearchField = forwardRef<TextInput, Props>(function SearchField(
                     >
                         <Text
                             numberOfLines={1}
-                            style={[text, { color: colors.mutedForeground }]}
+                            style={[text, { color: secondaryColor }]}
                         >
                             {placeholder}
                         </Text>
@@ -151,7 +152,7 @@ export const SearchField = forwardRef<TextInput, Props>(function SearchField(
                     <Ionicons
                         name="close-circle"
                         size={icon + 1}
-                        color={colors.mutedForeground}
+                        color={secondaryColor}
                     />
                 </Pressable>
             ) : null}

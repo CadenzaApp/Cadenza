@@ -9,7 +9,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { withAlpha } from "@/lib/artwork-color";
 
-import { Toast, useToast } from "@/components/custom/toast";
+import { useToast } from "@/components/custom/toast";
 import { Button } from "@/components/ui/button";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { type SegmentOption } from "@/components/ui/segmented-control";
@@ -111,7 +111,7 @@ export function UserProfileScreen({ userId }: Props) {
     const [confirmBlock, setConfirmBlock] = useState(false);
     const { setFavorite } = useFavoriteFriend();
     const { setBlocked, blockLoading } = useBlockUser();
-    const { toast, showToast } = useToast();
+    const { showToast } = useToast();
 
     useEffect(() => {
         if (
@@ -163,18 +163,18 @@ export function UserProfileScreen({ userId }: Props) {
             setSentTo(null);
             setAcceptedFor(null);
             setConfirmBlock(false);
-            showToast(`Blocked ${username ?? "them"}`);
+            showToast(`Blocked ${username ?? "them"}`, undefined, "success");
         } catch {
-            showToast("Couldn't block this account.", true);
+            showToast("Couldn't block this account.", undefined, "error");
         }
     };
 
     const unblock = async () => {
         try {
             await setBlocked(userId, false);
-            showToast(`Unblocked ${username ?? "them"}`);
+            showToast(`Unblocked ${username ?? "them"}`, undefined, "success");
         } catch {
-            showToast("Couldn't unblock this account.", true);
+            showToast("Couldn't unblock this account.", undefined, "error");
         }
     };
 
@@ -182,7 +182,7 @@ export function UserProfileScreen({ userId }: Props) {
         try {
             await setFavorite(userId, favorite);
         } catch {
-            showToast("Couldn't update favorites.", true);
+            showToast("Couldn't update favorites.", undefined, "error");
         }
     };
 
@@ -463,7 +463,6 @@ export function UserProfileScreen({ userId }: Props) {
                     }}
                 />
             ) : null}
-            <Toast toast={toast} />
         </View>
     );
 }
@@ -485,12 +484,12 @@ function ReplyCard({
     return (
         <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Reply to ${reply.post.author.username}: ${reply.content}`}
+            accessibilityLabel={`Reply to ${reply.post.author?.username ?? "For you"}: ${reply.content}`}
             onPress={() => onPress(reply.post_id)}
             className="gap-2 rounded-2xl border border-border p-4 active:opacity-60"
         >
             <Text className="text-xs text-muted-foreground">
-                Replying to {reply.post.author.username}
+                Replying to {reply.post.author?.username ?? "For you"}
                 {" \u00b7 "}
                 {formatRelativeTime(reply.created_at)}
             </Text>

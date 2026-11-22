@@ -32,9 +32,11 @@ import {
     catalogIdsToFetch,
     nextGroupedChunk,
     resolvedTracks,
+    trackIdentityKeys,
     uniqueBy,
 } from "./paged-tracks";
 import { logHandledError } from "./log";
+import { resolveMusicTopic } from "./spotlight-data";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
 /**
@@ -666,9 +668,11 @@ export function useAllTracksFromLibrary(enabled = true) {
         },
     );
     useLibraryRefresh(x.mutate);
+    const allLibraryTracks = x.data ?? EMPTY_SONGS;
 
     return {
-        allLibraryTracks: x.data ?? EMPTY_SONGS,
+        allLibraryTracks,
+        libraryTracksById: libraryTrackIndex(allLibraryTracks),
         allLibraryTracksLoading: x.isLoading || isInitializing,
         allLibraryTracksErr: x.error,
         isLibraryConnected: isConnected,
@@ -691,15 +695,11 @@ export function useAllTracksFromLibrary(enabled = true) {
  */
 export function useTracksForSongIds(songIds: readonly string[]) {
     const {
-        allLibraryTracks,
+        libraryTracksById,
         allLibraryTracksLoading,
         allLibraryTracksErr,
         isLibraryConnected,
     } = useAllTracksFromLibrary();
-    const libraryTracksById = useMemo(
-        () => indexTracksById(allLibraryTracks),
-        [allLibraryTracks],
-    );
     const unresolvedIds = useMemo(
         () => songIds.filter((id) => !libraryTracksById.has(id)),
         [libraryTracksById, songIds],
@@ -750,24 +750,27 @@ export function usePagedTracksForSongIds(
     songIds: readonly string[],
     /** False reads nothing, not even the library, for a caller with no list. */
     enabled = true,
+    options: {
+        /** Resolve a total independently of another caller's visible pages. */
+        resolveAll?: boolean;
+        /** Stored metadata can satisfy lookups without another Apple request. */
+        knownTracks?: ReadonlyMap<string, MusicItem>;
+    } = {},
 ) {
     const { isConnected, canReadCatalog } = useAppleMusic();
+    const { resolveAll = false, knownTracks } = options;
     const {
-        allLibraryTracks,
+        libraryTracksById,
         allLibraryTracksLoading,
         allLibraryTracksErr,
         isLibraryConnected,
     } = useAllTracksFromLibrary(enabled);
-    const libraryTracksById = useMemo(
-        () => indexTracksById(allLibraryTracks),
-        [allLibraryTracks],
-    );
     // the page count belongs to one id list, so a new list starts at one page
     const [paging, setPaging] = useState({ songIds, pageCount: 1 });
     const pageCount = paging.songIds === songIds ? paging.pageCount : 1;
     const requestedCount = Math.min(
-        songIds.length,
-        pageCount * SONG_ID_PAGE_SIZE,
+        enabled ? songIds.length : 0,
+        resolveAll ? songIds.length : pageCount * SONG_ID_PAGE_SIZE,
     );
     // asking before the library has loaded would send Apple ids the library
     // is about to resolve, and then the chunks would change under the list
@@ -778,10 +781,18 @@ export function usePagedTracksForSongIds(
                 : catalogIdsToFetch(
                       songIds,
                       requestedCount,
-                      (songId) => libraryTracksById.has(songId),
+                      (songId) =>
+                          libraryTracksById.has(songId) ||
+                          knownTracks?.has(songId) === true,
                       MUSIC_LIST_PAGE_SIZE,
                   ),
-        [allLibraryTracksLoading, libraryTracksById, requestedCount, songIds],
+        [
+            allLibraryTracksLoading,
+            libraryTracksById,
+            knownTracks,
+            requestedCount,
+            songIds,
+        ],
     );
     const { songInfo, songInfoLoading, songInfoErr } = useSongInfo(catalogIds);
     const fetchedTracksById = useMemo(
@@ -796,13 +807,15 @@ export function usePagedTracksForSongIds(
                 requestedCount,
                 (songId) =>
                     libraryTracksById.get(songId) ??
+                    knownTracks?.get(songId) ??
                     fetchedTracksById.get(songId),
-                (track) => track.id,
+                trackIdentityKeys,
                 pending,
             ),
         [
             fetchedTracksById,
             libraryTracksById,
+            knownTracks,
             pending,
             requestedCount,
             songIds,
@@ -818,7 +831,9 @@ export function usePagedTracksForSongIds(
     const resolveTracks = useCallback(
         async (ids: readonly string[]) => {
             const known = (songId: string) =>
-                libraryTracksById.get(songId) ?? fetchedTracksById.get(songId);
+                libraryTracksById.get(songId) ??
+                knownTracks?.get(songId) ??
+                fetchedTracksById.get(songId);
             const missing = ids.filter((songId) => !known(songId));
             let fetched = new Map<string, MusicItem>();
             if (missing.length > 0 && canReadCatalog) {
@@ -836,10 +851,16 @@ export function usePagedTracksForSongIds(
                     const track = known(songId) ?? fetched.get(songId);
                     return track ? [track] : [];
                 }),
-                (track) => track.id,
+                trackIdentityKeys,
             );
         },
-        [fetchedTracksById, isConnected, canReadCatalog, libraryTracksById],
+        [
+            fetchedTracksById,
+            isConnected,
+            canReadCatalog,
+            libraryTracksById,
+            knownTracks,
+        ],
     );
 
     return {
@@ -863,11 +884,7 @@ export function usePagedTracksForSongIds(
  */
 export function useTrackLookup(enabled = true) {
     const { isConnected, canReadCatalog } = useAppleMusic();
-    const { allLibraryTracks } = useAllTracksFromLibrary(enabled);
-    const libraryTracksById = useMemo(
-        () => indexTracksById(allLibraryTracks),
-        [allLibraryTracks],
-    );
+    const { libraryTracksById } = useAllTracksFromLibrary(enabled);
     return useCallback(
         async (songIds: readonly string[]) => {
             const found = new Map<string, MusicItem>();
@@ -948,12 +965,8 @@ export function useGroupedTrackLoader({
     known?: (songId: string) => boolean;
 }) {
     const { isConnected, canReadCatalog, sessionRevision } = useAppleMusic();
-    const { allLibraryTracks, allLibraryTracksLoading, allLibraryTracksErr } =
+    const { libraryTracksById, allLibraryTracksLoading, allLibraryTracksErr } =
         useAllTracksFromLibrary(enabled);
-    const libraryTracksById = useMemo(
-        () => indexTracksById(allLibraryTracks),
-        [allLibraryTracks],
-    );
     const [store, setStore] = useState<GroupedStore>(() => ({
         sessionRevision,
         found: new Map(),
@@ -1169,6 +1182,20 @@ export function useGroupedTrackLoader({
 const EMPTY_FOUND: ReadonlyMap<string, MusicItem> = new Map();
 const NO_PUMP = () => {};
 const EMPTY_SETTLED: ReadonlySet<string> = new Set();
+
+// Weak keys release old library snapshots after a refresh or account change.
+const libraryIndexes = new WeakMap<
+    readonly MusicItem[],
+    ReadonlyMap<string, MusicItem>
+>();
+function libraryTrackIndex(tracks: readonly MusicItem[]) {
+    let index = libraryIndexes.get(tracks);
+    if (!index) {
+        index = indexTracksById(tracks);
+        libraryIndexes.set(tracks, index);
+    }
+    return index;
+}
 
 /** Indexes tracks under every id they carry, so either keyspace finds them. */
 export function indexTracksById(tracks: readonly MusicItem[]) {
@@ -1758,6 +1785,36 @@ export function useSongArtists(songId?: string) {
         artistIds: x.data,
         artistIdsLoading: x.isLoading || isInitializing,
         artistIdsErr: x.error,
+    };
+}
+
+/** Resolves an untyped post topic with a bounded read and explicit error state. */
+export function useMusicTopic(id?: string, enabled = true) {
+    const { canReadCatalog, isInitializing, sessionRevision } = useAppleMusic();
+    const result = useSWR(
+        enabled && id && canReadCatalog
+            ? (["MusicKit.resolveTopic", sessionRevision, id] as const)
+            : null,
+        ([, , topicId]) =>
+            resolveMusicTopic(
+                topicId,
+                (ids) => read(() => MusicKit.getSongInfo(ids)),
+                (artistId) => read(() => MusicKit.getArtist(artistId)),
+            ),
+        {
+            errorRetryCount: 0,
+            onError: (error) =>
+                logHandledError(`MusicKit.resolveTopic ${id}`, error),
+        },
+    );
+    return {
+        resolvedTopic: result.data,
+        topicLoading:
+            enabled && Boolean(id) && (result.isLoading || isInitializing),
+        topicError: result.error,
+        retryTopic: () => {
+            void result.mutate();
+        },
     };
 }
 

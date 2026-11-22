@@ -1286,3 +1286,318 @@ async fn social_listening_profile_shows_what_privacy_allows() {
 
     txn.rollback().await.unwrap();
 }
+
+/// All writes roll back; no account/profile fixtures are created or deleted.
+#[tokio::test]
+#[ignore]
+async fn social_listening_block_overrides_audience_and_codes() {
+    use crate::db::{
+        audience::{PrivacyField, can_see_field},
+        friend_relations as relations,
+    };
+    use crate::services::{
+        invite_codes::{RedeemLimiter, accept_invite},
+        realtime::{InMemoryBus, SharedEventBus},
+    };
+    let txn = scratch().await;
+    let (a, b) = two_users(&txn).await;
+    relations::unblock_user(&txn, a, b).await.unwrap();
+    relations::unblock_user(&txn, b, a).await.unwrap();
+    txn.execute_raw(crate::db::stmt(
+        "INSERT INTO privacy_settings (user_id, now_playing, session_join, playlist_add)
+         VALUES ($1, 'everyone', 'everyone', 'everyone'), ($2, 'everyone', 'everyone', 'everyone')
+         ON CONFLICT (user_id) DO UPDATE SET now_playing = 'everyone', session_join = 'everyone', playlist_add = 'everyone'",
+        vec![a.into(), b.into()],
+    )).await.unwrap();
+    txn.execute_raw(crate::db::stmt(
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id IN ($1, $2) AND ended_at IS NULL",
+        vec![a.into(), b.into()],
+    ))
+    .await
+    .unwrap();
+    let playlist = playlists::create_playlist(&txn, a, "Block regression", "", &[])
+        .await
+        .unwrap();
+    playlists::join_by_code(&txn, b, playlist, PlaylistRole::Viewer)
+        .await
+        .unwrap();
+    let session = sessions::start_session(
+        &txn,
+        a,
+        sessions::NewSession {
+            name: "Block regression",
+            default_role: SessionRole::Listener,
+            allow_join_without_code: true,
+            listen_along: false,
+            approve_joins: false,
+        },
+    )
+    .await
+    .unwrap();
+    sessions::join_session(&txn, b, session, false)
+        .await
+        .unwrap();
+    let invite = create_invite(
+        &txn,
+        a,
+        &InviteTargetRef::SharedPlaylist(playlist),
+        NewInvite {
+            max_uses: Some(1),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    relations::block_user(&txn, a, b).await.unwrap();
+    assert!(
+        !can_see_field(&txn, b, a, PrivacyField::NowPlaying)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !can_see_field(&txn, a, b, PrivacyField::NowPlaying)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        playlists::member_role(&txn, playlist, b).await.unwrap(),
+        None
+    );
+    assert!(!sessions::is_participant(&txn, session, b).await.unwrap());
+    assert_ne!(
+        sessions::current_session_id(&txn, b).await.unwrap(),
+        Some(session)
+    );
+    assert!(matches!(
+        sessions::join_session(&txn, b, session, true).await,
+        Err(CadenzaError::UserBlocked)
+    ));
+    assert!(matches!(
+        sessions::join_session(&txn, b, session, false).await,
+        Err(CadenzaError::UserBlocked)
+    ));
+    assert!(matches!(
+        sessions::join_listening(&txn, b, a).await,
+        Err(CadenzaError::UserBlocked)
+    ));
+    assert!(
+        playlists::list_my_playlists(&txn, b)
+            .await
+            .unwrap()
+            .iter()
+            .all(|p| p.playlist_id != playlist)
+    );
+    let bus: SharedEventBus = std::sync::Arc::new(InMemoryBus::new());
+    let limiter = RedeemLimiter::new();
+    assert!(matches!(
+        accept_invite(&txn, &bus, &limiter, b, &invite.code).await,
+        Err(CadenzaError::UserBlocked)
+    ));
+    // The denied attempt did not consume the one allowed use.
+    relations::unblock_user(&txn, a, b).await.unwrap();
+    accept_invite(&txn, &bus, &limiter, b, &invite.code)
+        .await
+        .unwrap();
+    assert_eq!(
+        playlists::member_role(&txn, playlist, b).await.unwrap(),
+        Some(PlaylistRole::Viewer)
+    );
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_block_preserves_third_party_membership() {
+    use crate::db::friend_relations as relations;
+    let txn = scratch().await;
+    let (a, b) = two_users(&txn).await;
+    let third = txn
+        .query_one_raw(crate::db::stmt(
+            "SELECT uid FROM profile WHERE uid NOT IN ($1, $2) ORDER BY uid LIMIT 1",
+            vec![a.into(), b.into()],
+        ))
+        .await
+        .unwrap()
+        .expect("this regression needs three existing profiles");
+    let owner: Uuid = third.try_get("", "uid").unwrap();
+    for (x, y) in [
+        (a, b),
+        (b, a),
+        (owner, a),
+        (a, owner),
+        (owner, b),
+        (b, owner),
+    ] {
+        relations::unblock_user(&txn, x, y).await.unwrap();
+    }
+    let playlist = playlists::create_playlist(&txn, owner, "Third party regression", "", &[])
+        .await
+        .unwrap();
+    for id in [a, b] {
+        playlists::join_by_code(&txn, id, playlist, PlaylistRole::Viewer)
+            .await
+            .unwrap();
+    }
+    relations::block_user(&txn, a, b).await.unwrap();
+    for id in [a, b] {
+        assert_eq!(
+            playlists::member_role(&txn, playlist, id).await.unwrap(),
+            Some(PlaylistRole::Viewer)
+        );
+        playlists::get_playlist(&txn, id, playlist).await.unwrap();
+    }
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_live_session_chat() {
+    use crate::db::live_session_chat::{list_messages, send_message};
+
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id = $1 AND ended_at IS NULL",
+        [host.into()],
+    ))
+    .await
+    .unwrap();
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Chat",
+            // listeners can chat too
+            default_role: SessionRole::Listener,
+            allow_join_without_code: false,
+            listen_along: false,
+            approve_joins: false,
+        },
+    )
+    .await
+    .unwrap();
+
+    // not in it yet
+    assert!(matches!(
+        send_message(&txn, guest, id, "hi").await,
+        Err(CadenzaError::NotFound)
+    ));
+    assert!(matches!(
+        list_messages(&txn, guest, id, None, None).await,
+        Err(CadenzaError::NotFound)
+    ));
+
+    let first = send_message(&txn, host, id, "  before you came  ")
+        .await
+        .unwrap();
+    assert_eq!(first.body, "before you came");
+    assert_eq!(first.user_id, Some(host));
+    assert!(matches!(
+        send_message(&txn, host, id, "   ").await,
+        Err(CadenzaError::InvalidRequestBody(_))
+    ));
+
+    sessions::join_session(&txn, guest, id, true).await.unwrap();
+    let second = send_message(&txn, guest, id, "hello").await.unwrap();
+    assert!(second.message_id > first.message_id);
+
+    // a late joiner reads the whole history, newest first, a page at a time
+    let page = list_messages(&txn, guest, id, None, Some(1)).await.unwrap();
+    assert_eq!(page.messages.len(), 1);
+    assert_eq!(page.messages[0].message_id, second.message_id);
+    assert_eq!(page.next_before, Some(second.message_id));
+    let older = list_messages(&txn, guest, id, page.next_before, Some(1))
+        .await
+        .unwrap();
+    assert_eq!(older.messages[0].message_id, first.message_id);
+    assert_eq!(older.next_before, None);
+
+    sessions::kick_member(&txn, host, id, guest).await.unwrap();
+    assert!(matches!(
+        send_message(&txn, guest, id, "still here?").await,
+        Err(CadenzaError::NotFound)
+    ));
+
+    sessions::end_session(&txn, host, id).await.unwrap();
+    assert!(matches!(
+        send_message(&txn, host, id, "bye").await,
+        Err(CadenzaError::SessionEnded)
+    ));
+
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn social_listening_quiet_member_playing_along_leaves_in_a_minute() {
+    let txn = scratch().await;
+    let (host, guest) = two_users(&txn).await;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE live_sessions SET ended_at = now() WHERE host_id IN ($1, $2) AND ended_at IS NULL",
+        [host.into(), guest.into()],
+    ))
+    .await
+    .unwrap();
+    let id = sessions::start_session(
+        &txn,
+        host,
+        sessions::NewSession {
+            name: "Quiet",
+            default_role: SessionRole::Listener,
+            allow_join_without_code: true,
+            listen_along: false,
+            approve_joins: false,
+        },
+    )
+    .await
+    .unwrap();
+    sessions::join_session(&txn, guest, id, true).await.unwrap();
+    let went_quiet = |playing: bool| {
+        let txn = &txn;
+        async move {
+            sessions::set_app_link(txn, guest, sessions::AppLink::Quiet)
+                .await
+                .unwrap();
+            txn.execute_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "UPDATE live_session_members SET away_since = now() - interval '2 minutes'
+                 WHERE session_id = $1 AND user_id = $2",
+                [id.into(), guest.into()],
+            ))
+            .await
+            .unwrap();
+            txn.execute_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "UPDATE live_sessions SET is_playing = $2 WHERE session_id = $1",
+                [id.into(), playing.into()],
+            ))
+            .await
+            .unwrap();
+        }
+    };
+
+    // remote and quiet two minutes: frozen between glances, still in
+    went_quiet(true).await;
+    sessions::remove_away_members(&txn).await.unwrap();
+    assert!(sessions::is_participant(&txn, id, guest).await.unwrap());
+
+    // synced but the session is paused: the phone may be suspended, still in
+    sessions::set_listen_mode(&txn, guest, id, ListenMode::Synced)
+        .await
+        .unwrap();
+    went_quiet(false).await;
+    sessions::remove_away_members(&txn).await.unwrap();
+    assert!(sessions::is_participant(&txn, id, guest).await.unwrap());
+
+    // synced while it plays: the app is gone, out
+    went_quiet(true).await;
+    let gone = sessions::remove_away_members(&txn).await.unwrap();
+    let ours = gone.iter().find(|g| g.session_id == id).unwrap();
+    assert_eq!(ours.user_ids, vec![guest]);
+    assert!(!sessions::is_participant(&txn, id, guest).await.unwrap());
+
+    txn.rollback().await.unwrap();
+}

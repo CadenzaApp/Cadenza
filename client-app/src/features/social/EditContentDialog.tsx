@@ -8,6 +8,8 @@ import { DialogCloseButton } from "@/components/ui/dialog-close-button";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 
+import { PostTagFields, type DraftPostTag } from "./PostTags";
+
 const MAX_DIALOG_WIDTH = 400;
 const SCREEN_MARGIN = 20;
 const DIALOG_PADDING = 24;
@@ -19,6 +21,9 @@ type Props = {
     initial: string;
     maxLength: number;
     saving: boolean;
+    /** Post tags. Omitted for a comment, which has none. */
+    tags?: DraftPostTag[];
+    onTagsChange?: (tags: DraftPostTag[]) => void;
     onSubmit: (content: string) => void;
     onCancel: () => void;
 };
@@ -30,6 +35,8 @@ export function EditContentDialog({
     initial,
     maxLength,
     saving,
+    tags,
+    onTagsChange,
     onSubmit,
     onCancel,
 }: Props) {
@@ -96,6 +103,16 @@ export function EditContentDialog({
             <Text className="mt-1.5 text-right text-xs text-muted-foreground">
                 {draft.length}/{maxLength}
             </Text>
+
+            {tags && onTagsChange ? (
+                <View className="mt-4">
+                    <PostTagFields
+                        tags={tags}
+                        onChange={onTagsChange}
+                        disabled={saving}
+                    />
+                </View>
+            ) : null}
 
             <View className="mt-4 flex-row justify-end gap-2">
                 <Button

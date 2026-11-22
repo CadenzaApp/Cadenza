@@ -1,0 +1,37 @@
+# Allow only the files the backend build needs.
+**
+!backend-api/
+!backend-api/Cargo.toml
+!backend-api/Cargo.lock
+!backend-api/src/
+!backend-api/src/**
+!backend-api/ml-service/
+!backend-api/ml-service/pyproject.toml
+!backend-api/ml-service/uv.lock
+!backend-api/ml-service/main.py
+!backend-api/ml-service/model_queue.py
+!deploy/
+!deploy/monitoring/
+!deploy/monitoring/dashboards/
+!deploy/monitoring/dashboards/*.json
+!deploy/monitoring/images.json
+!deploy/monitoring/prometheus.yml
+!deploy/monitoring/datasources.yml
+!deploy/monitoring/dashboards.yml
+!deploy/monitoring/verify.py
+# Defense in depth, including files underneath the source tree.
+**/.env
+**/.env.*
+**/.venv
+**/target
+**/node_modules
+**/__pycache__
+**/*.pem
+**/*.p8
+**/*.key
+**/*.p12
+**/*.pfx
+
+# Local archives and Finder metadata are not Rust build inputs.
+**/.DS_Store
+**/*.zip

@@ -8,7 +8,7 @@ import {
     type LiveSession,
 } from "@/lib/routes/live-sessions";
 
-import { AnswerButtons, EntryRow, runSessionWrite } from "./session-parts";
+import { AnswerButtons, EntryRow, useRunSessionWrite } from "./session-parts";
 
 /**
  * A live session's Requests, in a sheet over the player, full width and flush
@@ -27,6 +27,7 @@ export function RequestsSheet({
     onClose: () => void;
 }) {
     const writes = useLiveSessionWrites(session.session_id);
+    const runSessionWrite = useRunSessionWrite();
     const suggestions = session.suggestions;
     const joins = session.join_requests;
 

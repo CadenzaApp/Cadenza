@@ -1,6 +1,10 @@
+mod admission;
 mod auth;
 mod db;
 mod err;
+mod lifecycle;
+mod metrics;
+mod operation_budget;
 mod request_log;
 mod routes;
 mod services;
@@ -21,10 +25,10 @@ use crate::{
         analytics::get_analytics_router, assistant::get_assistant_router,
         events::get_events_router, invites::get_invites_router, listening::get_listening_router,
         live_sessions::get_live_sessions_router, profile::get_profile_router,
-        queries::get_queries_router, realtime::get_realtime_router,
-        saved_queries::get_saved_queries_router, settings::get_settings_router,
-        shared_playlists::get_shared_playlists_router, social::get_social_router,
-        songs::get_songs_router, tags::get_tags_router,
+        push_tokens::get_push_tokens_router, queries::get_queries_router,
+        realtime::get_realtime_router, saved_queries::get_saved_queries_router,
+        settings::get_settings_router, shared_playlists::get_shared_playlists_router,
+        social::get_social_router, songs::get_songs_router, tags::get_tags_router,
     },
     services::{
         assistant::{AssistantService, model::OpenAiAssistantModel},
@@ -32,6 +36,7 @@ use crate::{
         invite_codes::RedeemLimiter,
         metadata_tags::{MetadataCrawlConfig, MetadataCrawler, spawn_metadata_crawl},
         notification::spawn_notification_cleanup,
+        push::{PushService, spawn_receipt_check},
         realtime::{InMemoryBus, InMemoryPresence, SharedEventBus, SharedPresence},
         social_feed::{self, SocialFeedService},
         song_metadata::SongMetadataService,
@@ -41,6 +46,7 @@ use crate::{
 
 #[derive(Clone, FromRef)]
 struct AppState {
+    background_tasks: lifecycle::BackgroundTasks,
     db: DatabaseConnection,
     jwt_decoder: Decoder<SupabaseClaims>,
     tag_gen_service: TagGenerationService,
@@ -53,12 +59,16 @@ struct AppState {
     /// Who has the app open. See services::realtime::presence.
     presence: SharedPresence,
     redeem_limiter: RedeemLimiter,
+    /// Sends Expo pushes to phones. See services::push.
+    push_service: PushService,
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // load environment variables from .env file, needed for db connections
     dotenv().ok();
+    admission::init();
+    let metrics_server = metrics::start().await?;
 
     // get a db connection
     let db_url = env::var("DATABASE_URL").expect("error getting DATABASE_URL env var");
@@ -70,14 +80,16 @@ async fn main() {
     let jwt_decoder = new_jwt_decoder().await;
 
     // init tag generation service
-    let tag_gen_service = TagGenerationService::new(OpenAiTagGenerator::new());
+    let background_tasks = lifecycle::BackgroundTasks::default();
+    let tag_gen_service = TagGenerationService::new(OpenAiTagGenerator::new())
+        .with_background_tasks(background_tasks.clone());
 
-    let song_meta_service = SongMetadataService::new();
+    let song_meta_service =
+        SongMetadataService::new().with_background_tasks(background_tasks.clone());
 
-    // the in-app assistant, on the same OPENAI_API_KEY as tag generation
+    // The assistant shares the configured OpenAI key with tag generation.
     let assistant_service = AssistantService::new(OpenAiAssistantModel::new());
-
-    let _ml_service = social_feed::spawn_ml_service();
+    let mut ml_service = social_feed::spawn_ml_service();
     let social_feed_service = SocialFeedService::new();
 
     // a claim a stopped server never settled would hide its song from generation forever
@@ -131,15 +143,26 @@ async fn main() {
 
     // drops notifications older than 30 days. the first pass runs at startup,
     // then once a day. notifications_created_at_idx is the index it walks
-    spawn_notification_cleanup(db.clone());
+    spawn_notification_cleanup(db.clone(), background_tasks.clone());
+
+    // reads Expo push receipts and deletes tokens Expo no longer delivers to
+    let push_service = PushService::new();
+    spawn_receipt_check(push_service.clone(), db.clone(), background_tasks.clone());
 
     // ends live sessions left paused, or whose host closed the app, and tells
     // their members
     let event_bus: services::realtime::SharedEventBus = std::sync::Arc::new(InMemoryBus::new());
-    services::session_sweep::spawn_session_sweep(db.clone(), event_bus.clone());
+    // Finish restart bookkeeping before a reconnect can mark a phone online.
+    db::live_sessions::mark_all_away(&db).await?;
+    services::session_sweep::spawn_session_sweep(
+        db.clone(),
+        event_bus.clone(),
+        background_tasks.clone(),
+    );
 
     let app_state = AppState {
-        db,
+        background_tasks: background_tasks.clone(),
+        db: db.clone(),
         jwt_decoder,
         tag_gen_service,
         song_meta_service,
@@ -149,6 +172,7 @@ async fn main() {
         event_bus,
         presence: std::sync::Arc::new(InMemoryPresence::new()),
         redeem_limiter: RedeemLimiter::new(),
+        push_service,
     };
 
     // route paths
@@ -158,6 +182,7 @@ async fn main() {
         .nest("/queries", get_queries_router())
         .nest("/saved-queries", get_saved_queries_router())
         .nest("/profile", get_profile_router())
+        .nest("/push-tokens", get_push_tokens_router())
         .nest("/settings", get_settings_router())
         .nest("/social", get_social_router())
         .nest("/events", get_events_router())
@@ -167,10 +192,29 @@ async fn main() {
         .nest("/invites", get_invites_router())
         .nest("/shared-playlists", get_shared_playlists_router())
         .nest("/live-sessions", get_live_sessions_router())
+        .route_layer(middleware::from_fn_with_state(
+            app_state.clone(),
+            admission::admit,
+        ))
+        // The socket verifies its JWT in its first message, not an HTTP header.
         .nest("/realtime", get_realtime_router())
         .route("/test", axum::routing::get(async || "server is reachable"))
         .with_state(app_state)
-        .layer(middleware::from_fn(request_log::log_request));
+        .layer(middleware::from_fn(admission::capacity))
+        .layer(middleware::from_fn(operation_budget::limit_request))
+        .layer(middleware::from_fn_with_state(
+            background_tasks.clone(),
+            lifecycle::reject_while_draining,
+        ))
+        .merge(lifecycle::health_router(
+            background_tasks.clone(),
+            "http://127.0.0.1:3001",
+        ))
+        .layer(middleware::from_fn(request_log::log_request))
+        .layer(middleware::from_fn_with_state(
+            metrics::global().clone(),
+            metrics::track,
+        ));
 
     // show time baby
     // Defaults to loopback. Set BIND_ADDR=0.0.0.0:3000 to accept connections
@@ -181,8 +225,37 @@ async fn main() {
         .expect("BIND_ADDR must look like 0.0.0.0:3000");
     println!("Running on http://{}", addr);
 
-    axum_server::bind(addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let result = {
+        let handle = axum_server::Handle::new();
+        let server = axum_server::bind(addr)
+            .handle(handle.clone())
+            .serve(app.into_make_service());
+        tokio::pin!(server);
+        tokio::select! {
+            result = &mut server => {
+                background_tasks.begin_shutdown();
+                background_tasks.finish(tokio::time::Instant::now() + lifecycle::SHUTDOWN_GRACE).await;
+                result
+            },
+            _ = lifecycle::shutdown_signal() => {
+                println!("[shutdown] draining HTTP and background work for up to 120 seconds");
+                lifecycle::drain_server(server.as_mut(), handle, &background_tasks, lifecycle::SHUTDOWN_GRACE).await
+            },
+        }
+    };
+    // Cleanup is bounded separately and fits within Docker's 150-second stop allowance.
+    let cleanup = tokio::time::timeout(lifecycle::SHUTDOWN_CLEANUP, async {
+        background_tasks.wait_for_cancelled_tasks().await;
+        ml_service.shutdown().await?;
+        db.close().await?;
+        Ok::<(), Box<dyn std::error::Error>>(())
+    })
+    .await;
+    if let Some(server) = metrics_server {
+        server.abort();
+    }
+    result?;
+    cleanup.map_err(|_| std::io::Error::other("shutdown cleanup deadline exceeded"))??;
+    println!("[shutdown] background work, model child, and database pool closed");
+    Ok(())
 }

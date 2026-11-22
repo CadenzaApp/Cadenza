@@ -1,16 +1,17 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
     Dimensions,
     Keyboard,
-    LayoutAnimation,
     Platform,
     Pressable,
     ScrollView,
     TextInput,
     View,
     type KeyboardEvent,
+    type LayoutChangeEvent,
 } from "react-native";
+
 import { useRouter, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -28,6 +29,7 @@ import {
 } from "./chat-parts";
 import { PlaybackSnapshotBridge } from "./playback-snapshot";
 import { useAssistantChat } from "./use-assistant-chat";
+import { keyboardOverlap } from "./keyboard-overlap";
 
 /** The most a user can type into one message. The backend cuts at 4000. */
 const MAX_MESSAGE_LENGTH = 2000;
@@ -47,8 +49,11 @@ export function AssistantChat() {
         useAssistantChat();
     const [draft, setDraft] = useState("");
     const scrollRef = useRef<ScrollView>(null);
-    const bodyRef = useRef<View>(null);
-    const keyboardOverlap = useKeyboardOverlap(bodyRef);
+    const {
+        overlap: keyboardOverlap,
+        onLayout: onBodyLayout,
+        onFocus,
+    } = useKeyboardOverlap();
 
     // keep the newest message in view as the keyboard pushes the field up
     useEffect(() => {
@@ -104,7 +109,7 @@ export function AssistantChat() {
             }
         >
             <PlaybackSnapshotBridge />
-            <View ref={bodyRef} className="flex-1" collapsable={false}>
+            <View className="flex-1" onLayout={onBodyLayout}>
                 <ScrollView
                     ref={scrollRef}
                     className="flex-1"
@@ -146,6 +151,7 @@ export function AssistantChat() {
                     <TextInput
                         value={draft}
                         onChangeText={setDraft}
+                        onFocus={onFocus}
                         placeholder="Ask about your music"
                         placeholderTextColor={colors.mutedForeground}
                         multiline
@@ -177,56 +183,80 @@ export function AssistantChat() {
     );
 }
 
-/**
- * How far the keyboard reaches up over the bottom of `bodyRef`, in points, or
- * 0 while it is down. Measured against the view's place in the window rather
- * than assumed, since neither platform moves a native sheet for the keyboard:
- * iOS leaves the sheet where it is and `KeyboardAvoidingView` does not see its
- * frame, and react-native-screens' Android sheet stays put at a single detent
- * even though the window resizes. A view the system already moved clear of the
- * keyboard measures 0, so nothing is padded twice.
- */
-function useKeyboardOverlap(bodyRef: RefObject<View | null>) {
+/** Keeps the bottom-aligned sheet's composer above the keyboard. */
+function useKeyboardOverlap() {
     const [overlap, setOverlap] = useState(0);
+    const restingHeight = useRef(0);
+    const bodyHeight = useRef(0);
+    const keyboardHeight = useRef(0);
+    const opening = useRef(false);
+
+    const updateOverlap = useCallback(() => {
+        setOverlap(
+            keyboardOverlap(
+                keyboardHeight.current,
+                restingHeight.current,
+                bodyHeight.current,
+            ),
+        );
+    }, []);
+
+    const onLayout = useCallback(
+        (event: LayoutChangeEvent) => {
+            bodyHeight.current = event.nativeEvent.layout.height;
+            if (keyboardHeight.current === 0 && !opening.current) {
+                restingHeight.current = bodyHeight.current;
+            }
+            updateOverlap();
+        },
+        [updateOverlap],
+    );
+
+    const onFocus = useCallback(() => {
+        if (keyboardHeight.current === 0) {
+            restingHeight.current = bodyHeight.current;
+            opening.current = true;
+        }
+    }, []);
 
     useEffect(() => {
         const ios = Platform.OS === "ios";
-        const animate = (event: KeyboardEvent) => {
-            // Android has no will-show event to animate alongside
-            if (!ios) return;
-            LayoutAnimation.configureNext({
-                duration: event.duration || 250,
-                update: { type: LayoutAnimation.Types.keyboard },
-            });
+        const change = (event: KeyboardEvent) => {
+            const { height, screenY } = event.endCoordinates;
+            // Both values here are screen measurements. A sheet's local
+            // measureInWindow origin need not match the keyboard's origin.
+            keyboardHeight.current = Math.max(
+                0,
+                Math.min(height, Dimensions.get("screen").height - screenY),
+            );
+            opening.current = keyboardHeight.current > 0;
+            if (ios) Keyboard.scheduleLayoutAnimation(event);
+            updateOverlap();
         };
-        const shown = Keyboard.addListener(
-            ios ? "keyboardWillShow" : "keyboardDidShow",
-            (event) => {
-                const { screenY, height } = event.endCoordinates;
-                const keyboardTop =
-                    screenY > 0
-                        ? screenY
-                        : Dimensions.get("screen").height - height;
-                bodyRef.current?.measureInWindow(
-                    (_x, y, _width, viewHeight) => {
-                        animate(event);
-                        setOverlap(Math.max(0, y + viewHeight - keyboardTop));
-                    },
-                );
-            },
+        const hide = (event: KeyboardEvent) => {
+            keyboardHeight.current = 0;
+            opening.current = false;
+            if (ios) Keyboard.scheduleLayoutAnimation(event);
+            updateOverlap();
+        };
+        const changed = Keyboard.addListener(
+            ios ? "keyboardWillChangeFrame" : "keyboardDidShow",
+            change,
         );
         const hidden = Keyboard.addListener(
             ios ? "keyboardWillHide" : "keyboardDidHide",
-            (event) => {
-                animate(event);
-                setOverlap(0);
-            },
+            hide,
         );
+        const metrics = Keyboard.metrics();
+        if (metrics) {
+            keyboardHeight.current = metrics.height;
+            updateOverlap();
+        }
         return () => {
-            shown.remove();
+            changed.remove();
             hidden.remove();
         };
-    }, [bodyRef]);
+    }, [updateOverlap]);
 
-    return overlap;
+    return { overlap, onLayout, onFocus };
 }

@@ -2,6 +2,7 @@ import { router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { Alert } from "react-native";
 
+import { useToast } from "@/components/custom/toast";
 import { useAccount } from "@/lib/account";
 import { useRealtimeTopic } from "@/lib/realtime";
 import type { LiveSession } from "@/lib/routes/live-sessions";
@@ -16,6 +17,7 @@ import { takeAskedToJoin } from "./asked-to-join";
  */
 export function useSessionNotices(session: LiveSession | null) {
     const { account } = useAccount();
+    const { showToast } = useToast();
     // the host before this snapshot, to tell a hand over from a refetch
     const lastHost = useRef<{
         sessionId: string;
@@ -56,8 +58,7 @@ export function useSessionNotices(session: LiveSession | null) {
             (member) => member.user_id === before.userId,
         );
         const isNewHost = session.my_role === "host";
-        Alert.alert(
-            "New host",
+        showToast(
             stayed
                 ? isNewHost
                     ? `${before.username} made you the host. The music plays from this phone now.`
@@ -65,8 +66,10 @@ export function useSessionNotices(session: LiveSession | null) {
                 : isNewHost
                   ? `${before.username} left and made you the host. The music plays from this phone now.`
                   : `${before.username} left. ${host.username} is the host now.`,
+            "New host",
+            "star",
         );
-    }, [account?.id, session]);
+    }, [account?.id, session, showToast]);
 
     // only a member still in it hears the end; leaving unsubscribes
     useRealtimeTopic(
@@ -76,13 +79,14 @@ export function useSessionNotices(session: LiveSession | null) {
             const host = session?.host.username ?? "The host";
             // the server ending it says why; the host ending it says nothing
             const reason = (event.data as { reason?: string } | null)?.reason;
-            Alert.alert(
-                "Session ended",
+            showToast(
                 reason === "host_gone"
                     ? `${host} closed the app, so the live session ended.`
                     : reason === "paused"
                       ? "The live session was paused for 10 minutes, so it ended."
                       : `${host} ended the live session.`,
+                "Session ended",
+                "radio",
             );
         },
     );

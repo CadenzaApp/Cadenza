@@ -904,6 +904,36 @@ pub async fn get_default_tags_on_songs(
     Ok(res)
 }
 
+/// The shared default tags on each of `song_ids`, as name and color, keyed by
+/// song id. A song with none is left out. A user's removal does not hide a
+/// tag. Activity tags are left out. Order within a song is whatever the
+/// database returns.
+pub async fn shared_default_tag_labels(
+    db: &impl ConnectionTrait,
+    song_ids: &[String],
+) -> Result<HashMap<String, Vec<(String, String)>>, CadenzaError> {
+    if song_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = default_tags_applied::Entity::find()
+        .filter(default_tags_applied::Column::SongId.is_in(song_ids.iter().cloned()))
+        .find_also_related(tags::Entity)
+        .filter(tags::Column::UserId.is_null())
+        .filter(tags::Column::IsActivity.eq(false))
+        .all(db)
+        .await?;
+    let mut labels: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for (applied, tag) in rows {
+        if let Some(tag) = tag {
+            labels
+                .entry(applied.song_id)
+                .or_default()
+                .push((tag.name, tag.color));
+        }
+    }
+    Ok(labels)
+}
+
 /// replaces the default tags on each given song with the given tags,
 /// creating tags that don't exist yet. returns the applied tags per song id.
 pub async fn set_default_tags_on_songs(

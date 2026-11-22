@@ -1,49 +1,54 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
-import { useTheme } from "expo-router/react-navigation";
+import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import {
     useCallback,
     useEffect,
     useLayoutEffect,
+    useImperativeHandle,
     useMemo,
     useRef,
     useState,
+    type Ref,
 } from "react";
 import {
     ActivityIndicator,
+    AppState,
     FlatList,
-    Pressable,
     RefreshControl,
+    ScrollView,
+    useWindowDimensions,
     View,
     type ListRenderItem,
     type ViewToken,
 } from "react-native";
 import Animated, {
+    useAnimatedScrollHandler,
+    useAnimatedReaction,
+    useComposedEventHandler,
     useAnimatedStyle,
     useSharedValue,
-    withTiming,
     type SharedValue,
 } from "react-native-reanimated";
 
-import { Toast, useToast } from "@/components/custom/toast";
+import { useToast } from "@/components/custom/toast";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import { Text } from "@/components/ui/text";
 import { invalidateAPIData } from "@/lib/api-actions";
 import { useKeyboardScroll } from "@/lib/keyboard-scroll";
-import { withAlpha } from "@/lib/artwork-color";
+import { SlidingTabStrip } from "@/components/ui/sliding-tab-pager";
 import { useProfile } from "@/lib/routes/profile";
 import type { SharedPlaylistSummary } from "@/lib/routes/shared-playlists";
-import {
-    useFriendsListening,
-    type FriendListening,
-} from "@/lib/routes/listening";
+import { type FriendListening } from "@/lib/routes/listening";
+import { useFriendsListeningShared } from "@/lib/routes/listening-provider";
 import {
     useCreatePost,
     useFeed,
     useFriendsFeed,
     useMarkPostsViewed,
     useNotifications,
+    useHiddenSpotlights,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
@@ -68,22 +73,41 @@ const MARK_VIEWED_FLUSH_MS = 3000;
 
 /**
  * The Social tab. Loads the ranked feed with full post payloads.
- * A post you just wrote stays at the top until the feed includes it.
- * Posts that are at least half-visible are queued and marked viewed in
- * batches every few seconds.
+ * A post you just wrote stays at the top until a reload clears it.
+ * Posts at least half on screen are queued only while this tab is focused
+ * and the app is in the foreground, then marked viewed in batches. Posts
+ * under Previously viewed are left alone. Discuss, a profile, and a topic
+ * page leave view status alone too.
  */
 export function SocialFeedScreen() {
-    const { listBottomInset } = useScreenOverlayInsets();
-    const railInset = useTopRailInset() ?? 0;
-    const scroll = useScreenScroll<FlatList<FeedRow>>();
-    // the strip and the tabs above the composer, for scrolling to it
+    const pager = useRef<ScrollView>(null);
+    const forYouPage = useRef<FeedPageHandle>(null);
+    const friendsPage = useRef<FeedPageHandle>(null);
+    const railInset = useTopRailInset() ?? 16;
     const [headerHeight, setHeaderHeight] = useState(0);
+    const [composerY, setComposerY] = useState(0);
+    const headerOffset = useSharedValue(0);
+    const headerStyle = useAnimatedStyle(() => ({
+        transform: [
+            {
+                translateY: -Math.min(
+                    headerHeight,
+                    Math.max(0, headerOffset.get()),
+                ),
+            },
+        ],
+    }));
+    const { width: windowWidth } = useWindowDimensions();
+    const [layoutWidth, setLayoutWidth] = useState(0);
+    const pageWidth = layoutWidth || windowWidth;
     const navigation = useNavigation();
+    const isFocused = useIsFocused();
     const { colors } = useTheme();
     const { brand } = useAppTheme().colors;
     const {
         posts,
         unseenCount,
+        showingSeen,
         hasNextPage,
         isLoadingNextPage,
         loadNextPage,
@@ -92,20 +116,29 @@ export function SocialFeedScreen() {
         feedErr,
     } = useFeed();
     const [filter, setFilter] = useState<FeedFilter>("for-you");
+    const { hiddenSpotlightIds } = useHiddenSpotlights();
+    const [unavailableSpotlights, setUnavailableSpotlights] = useState<
+        Set<number>
+    >(() => new Set());
+    const hideUnavailableSpotlight = useCallback((postId: number) => {
+        setUnavailableSpotlights((current) => {
+            if (current.has(postId)) return current;
+            return new Set([...current, postId]);
+        });
+    }, []);
     const tabProgress = useSharedValue(0);
-    useEffect(() => {
-        tabProgress.set(
-            withTiming(filter === "friends" ? 1 : 0, { duration: 200 }),
-        );
-    }, [filter, tabProgress]);
-    // viewability is read through a ref: FlatList does not allow swapping
-    // `onViewableItemsChanged` after mount
     const filterRef = useRef(filter);
+    const onPageScroll = useAnimatedScrollHandler((event) => {
+        tabProgress.set(event.contentOffset.x / pageWidth);
+    });
     useEffect(() => {
-        filterRef.current = filter;
-    }, [filter]);
+        pager.current?.scrollTo({
+            x: filterRef.current === "friends" ? pageWidth : 0,
+            animated: false,
+        });
+    }, [pageWidth]);
     const friendsFeed = useFriendsFeed(!feedLoading || filter === "friends");
-    const { friendsListening } = useFriendsListening();
+    const { friendsListening } = useFriendsListeningShared();
     const { createPost } = useCreatePost();
     const { markPostsViewed } = useMarkPostsViewed();
     const { notifications, invalidateNotifications } = useNotifications();
@@ -113,14 +146,53 @@ export function SocialFeedScreen() {
     const { profile } = useProfile();
     const router = useRouter();
     const markedViewedIds = useRef(new Set<number>());
-    const pendingViewedIds = useRef(new Set<number>());
+    const pendingViewedIds = useRef<number[]>([]);
+    const viewablePostIds = useRef(new Set<number>());
+    const feedPostIdsRef = useRef<number[]>([]);
+    const screenVisibleRef = useRef(false);
     const markPostsViewedRef = useRef(markPostsViewed);
-    markPostsViewedRef.current = markPostsViewed;
+    useEffect(() => {
+        markPostsViewedRef.current = markPostsViewed;
+    }, [markPostsViewed]);
+
+    const queueViewablePosts = useCallback(() => {
+        if (!screenVisibleRef.current || filterRef.current !== "for-you")
+            return;
+        for (const id of viewablePostIds.current) {
+            if (markedViewedIds.current.has(id)) continue;
+            markedViewedIds.current.add(id);
+            pendingViewedIds.current.push(id);
+        }
+    }, []);
+    const queueViewablePostsRef = useRef(queueViewablePosts);
+    useEffect(() => {
+        queueViewablePostsRef.current = queueViewablePosts;
+    }, [queueViewablePosts]);
+
+    useEffect(() => {
+        const sync = () => {
+            screenVisibleRef.current =
+                isFocused && AppState.currentState === "active";
+            if (screenVisibleRef.current) queueViewablePosts();
+        };
+        sync();
+        const subscription = AppState.addEventListener("change", sync);
+        return () => subscription.remove();
+    }, [isFocused, queueViewablePosts]);
 
     const flushPendingViewed = useCallback(() => {
-        if (pendingViewedIds.current.size === 0) return;
-        const ids = [...pendingViewedIds.current];
-        pendingViewedIds.current.clear();
+        if (pendingViewedIds.current.length === 0) return;
+        const pending = pendingViewedIds.current;
+        pendingViewedIds.current = [];
+        const order = feedPostIdsRef.current;
+        const ids = [...pending].sort((a, b) => {
+            const ai = order.indexOf(a);
+            const bi = order.indexOf(b);
+            return (
+                (ai === -1 ? order.length : ai) -
+                (bi === -1 ? order.length : bi)
+            );
+        });
         void markPostsViewedRef.current(ids).catch(() => {
             for (const id of ids) markedViewedIds.current.delete(id);
         });
@@ -150,19 +222,32 @@ export function SocialFeedScreen() {
     const [localTopics, setLocalTopics] = useState<Record<number, PostTopic>>(
         {},
     );
-    const [refreshing, setRefreshing] = useState(false);
+    const [refreshing, setRefreshing] = useState<ReadonlySet<FeedFilter>>(
+        () => new Set(),
+    );
     const [socialMenuOpen, setSocialMenuOpen] = useState(false);
-    const keyboardScroll = useKeyboardScroll(scroll.ref);
-    // the keyboard carries the composer up until its top is just under the
-    // top rail, the strip and tabs scrolled away above it
-    const scrollToComposer = useCallback(() => {
-        keyboardScroll(headerHeight);
-    }, [keyboardScroll, headerHeight]);
-    const changeFeed = useCallback((next: FeedFilter) => {
-        setFilter(next);
-    }, []);
+    const syncFeedHeaders = useCallback(() => {
+        const collapse = Math.min(
+            headerHeight,
+            Math.max(0, headerOffset.get()),
+        );
+        forYouPage.current?.syncHeader(collapse);
+        friendsPage.current?.syncHeader(collapse);
+    }, [headerHeight, headerOffset]);
+    const changeFeed = useCallback(
+        (next: FeedFilter) => {
+            filterRef.current = next;
+            syncFeedHeaders();
+            setFilter(next);
+            pager.current?.scrollTo({
+                x: next === "friends" ? pageWidth : 0,
+                animated: true,
+            });
+        },
+        [pageWidth, syncFeedHeaders],
+    );
     const socialNebula = useMemo(() => [brand, "#7b61ff", "#20a9a0"], [brand]);
-    const { toast, showToast } = useToast();
+    const { showToast } = useToast();
 
     const feed = useMemo((): FeedRow[] => {
         const loaded = new Set(posts.map((post) => post.post_id));
@@ -180,12 +265,16 @@ export function SocialFeedScreen() {
             if (hiddenIds.has(post.post_id)) continue;
             rows.push({ kind: "post", post, unseen: true });
         }
+        // Fresh pages ran dry: a heading, then previously viewed posts.
+        if (showingSeen && seenPosts.length > 0) {
+            rows.push({ kind: "history-heading" });
+        }
         for (const post of seenPosts) {
             if (hiddenIds.has(post.post_id)) continue;
-            rows.push({ kind: "post", post });
+            rows.push({ kind: "post", post, history: true });
         }
         return rows;
-    }, [created, hiddenIds, posts, unseenCount]);
+    }, [created, hiddenIds, posts, showingSeen, unseenCount]);
 
     useLayoutEffect(() => {
         navigation.setOptions({
@@ -229,26 +318,30 @@ export function SocialFeedScreen() {
             content: string,
             topic?: PostTopic | null,
             playlist?: SharedPlaylistSummary | null,
+            tags?: { text: string; color: string }[],
         ) => {
-            let postId: number | undefined;
+            let created:
+                | { post_id: number; tags: SocialPost["tags"] }
+                | undefined;
             try {
-                postId = await createPost({
+                created = await createPost({
                     content,
                     ...(playlist
                         ? { shared_playlist_id: playlist.playlist_id }
                         : topic
                           ? topicCreateFields(topic)
                           : {}),
+                    tags: tags?.map(({ text, color }) => ({ text, color })),
                 });
             } catch (error) {
                 console.error("Creating a post failed", error);
                 throw error;
             }
-            if (postId == null) {
+            if (created?.post_id == null) {
                 console.error("Creating a post failed");
                 throw new Error("Creating a post failed");
             }
-            const publishedId = postId;
+            const publishedId = created.post_id;
             const post: SocialPost = {
                 post_id: publishedId,
                 content,
@@ -272,6 +365,7 @@ export function SocialFeedScreen() {
                       }
                     : null,
                 comment_count: 0,
+                tags: created.tags ?? [],
             };
             setCreated((current) => [post, ...current]);
             if (topic && !playlist) {
@@ -280,17 +374,27 @@ export function SocialFeedScreen() {
                     [publishedId]: topic,
                 }));
             }
-            showToast("Post published");
+            showToast("Post published", undefined, "success");
         },
         [createPost, profile?.uid, profile?.username, showToast],
     );
 
     const handleEdited = useCallback(
-        (postId: number, content: string, editedAt: string | null) => {
+        (
+            postId: number,
+            content: string,
+            editedAt: string | null,
+            tags?: SocialPost["tags"],
+        ) => {
             setCreated((current) =>
                 current.map((item) =>
                     item.post_id === postId
-                        ? { ...item, content, edited_at: editedAt }
+                        ? {
+                              ...item,
+                              content,
+                              edited_at: editedAt,
+                              ...(tags !== undefined ? { tags } : {}),
+                          }
                         : item,
                 ),
             );
@@ -298,42 +402,57 @@ export function SocialFeedScreen() {
         [],
     );
 
-    const reload = useCallback(async () => {
-        setRefreshing(true);
-        try {
-            // the cards and the listening row above the posts refresh with them
-            await Promise.all([
-                filter === "friends"
-                    ? friendsFeed.refreshFriendsFeed()
-                    : refreshFeed(),
-                invalidateAPIData([
-                    { path: "/social/friends" },
-                    { path: "/listening/friends" },
-                    { path: "/live-sessions/current" },
-                ]),
-            ]);
-        } finally {
-            setRefreshing(false);
-        }
-    }, [filter, friendsFeed, refreshFeed]);
-
-    const onViewableItemsChanged = useRef(
-        ({ viewableItems }: { viewableItems: ViewToken[] }) => {
-            if (filterRef.current !== "for-you") return;
-            for (const token of viewableItems) {
-                const row = token.item as FeedRow | undefined;
-                if (!token.isViewable || row?.kind !== "post") continue;
-                const id = row.post.post_id;
-                if (markedViewedIds.current.has(id)) continue;
-                markedViewedIds.current.add(id);
-                pendingViewedIds.current.add(id);
+    const reload = useCallback(
+        async (page: FeedFilter) => {
+            setRefreshing((current) => new Set([...current, page]));
+            setCreated([]);
+            setUnavailableSpotlights(new Set());
+            try {
+                // the cards and the listening row above the posts refresh with them
+                await Promise.all([
+                    page === "friends"
+                        ? friendsFeed.refreshFriendsFeed()
+                        : refreshFeed(),
+                    invalidateAPIData([
+                        { path: "/social/friends" },
+                        { path: "/listening/friends" },
+                        { path: "/live-sessions/current" },
+                    ]),
+                ]);
+            } finally {
+                setRefreshing((current) => {
+                    const next = new Set(current);
+                    next.delete(page);
+                    return next;
+                });
             }
         },
-    ).current;
+        [friendsFeed, refreshFeed],
+    );
 
-    const keyExtractor = useCallback((item: FeedRow, index: number) => {
-        return `${item.post.post_id}-${index}`;
-    }, []);
+    const onViewableItemsChanged = useCallback(
+        ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+            if (filterRef.current !== "for-you") return;
+            const next = new Set<number>();
+            for (const token of viewableItems) {
+                const row = token.item as FeedRow | undefined;
+                if (!token.isViewable || row?.kind !== "post" || row.history)
+                    continue;
+                next.add(row.post.post_id);
+            }
+            viewablePostIds.current = next;
+            queueViewablePostsRef.current();
+        },
+        [],
+    );
+
+    const keyExtractor = useCallback(
+        (item: FeedRow) =>
+            item.kind === "history-heading"
+                ? "history-heading"
+                : String(item.post.post_id),
+        [],
+    );
 
     const removedCreated = useRef(
         new Map<number, { post: SocialPost; topic?: PostTopic }>(),
@@ -386,7 +505,7 @@ export function SocialFeedScreen() {
                     }));
                 }
             }
-            showToast("Couldn't delete your post.", true);
+            showToast("Couldn't delete your post.", undefined, "error");
         },
         [showToast],
     );
@@ -404,22 +523,30 @@ export function SocialFeedScreen() {
 
     const renderItem = useCallback<ListRenderItem<FeedRow>>(
         ({ item }) => {
+            if (item.kind === "history-heading") {
+                return <PreviouslyViewedHeading />;
+            }
             return (
                 <PostCard
                     post={item.post}
-                    authorListening={listeningByUser.get(
-                        item.post.author.user_id,
-                    )}
+                    authorListening={
+                        item.post.author
+                            ? listeningByUser.get(item.post.author.user_id)
+                            : undefined
+                    }
                     unseen={item.unseen}
+                    divider={item.divider}
                     topicHint={localTopics[item.post.post_id]}
                     onDeleted={handleDeleted}
                     onDeleteFailed={handleDeleteFailed}
+                    onUnavailable={hideUnavailableSpotlight}
                     onEdited={handleEdited}
                 />
             );
         },
         [
             handleDeleteFailed,
+            hideUnavailableSpotlight,
             handleDeleted,
             handleEdited,
             listeningByUser,
@@ -427,7 +554,6 @@ export function SocialFeedScreen() {
         ],
     );
 
-    const showingFriends = filter === "friends";
     const friendRows = useMemo(
         (): FeedRow[] =>
             friendsFeed.friendsPosts
@@ -435,136 +561,314 @@ export function SocialFeedScreen() {
                 .map((post) => ({ kind: "post", post })),
         [friendsFeed.friendsPosts, hiddenIds],
     );
+    const pageRows = useMemo(() => {
+        const visible = (items: FeedRow[]) =>
+            withoutLinesAroundSpotlights(
+                items.filter(
+                    (row) =>
+                        row.kind !== "post" ||
+                        (!unavailableSpotlights.has(row.post.post_id) &&
+                            !hiddenSpotlightIds.has(row.post.post_id)),
+                ),
+            );
+        return { "for-you": visible(feed), friends: visible(friendRows) };
+    }, [feed, friendRows, unavailableSpotlights, hiddenSpotlightIds]);
+    useEffect(() => {
+        feedPostIdsRef.current = pageRows["for-you"].flatMap((row) =>
+            row.kind === "post" && !row.history ? [row.post.post_id] : [],
+        );
+    }, [pageRows]);
 
-    const onEndReached = useCallback(() => {
-        if (showingFriends) {
-            if (
-                friendsFeed.hasNextFriendsPage &&
-                !friendsFeed.isLoadingNextFriendsPage
-            ) {
-                void friendsFeed.loadNextFriendsPage();
+    const onEndReached = useCallback(
+        (page: FeedFilter) => {
+            if (page === "friends") {
+                if (
+                    friendsFeed.hasNextFriendsPage &&
+                    !friendsFeed.isLoadingNextFriendsPage
+                ) {
+                    void friendsFeed.loadNextFriendsPage();
+                }
+            } else if (hasNextPage && !isLoadingNextPage) {
+                void loadNextPage();
             }
-            return;
-        }
-        if (hasNextPage && !isLoadingNextPage) {
-            void loadNextPage();
-        }
-    }, [
-        friendsFeed,
-        hasNextPage,
-        isLoadingNextPage,
-        loadNextPage,
-        showingFriends,
-    ]);
-
-    const rows = showingFriends ? friendRows : feed;
-    const loading =
-        rows.length === 0 &&
-        (showingFriends ? friendsFeed.friendsFeedLoading : feedLoading);
-    const failed = showingFriends ? friendsFeed.friendsFeedErr : feedErr;
-    const emptyLabel = loading
-        ? "Loading posts..."
-        : failed
-          ? "Couldn't load posts."
-          : showingFriends
-            ? "Your friends have not posted yet."
-            : "No posts yet.";
-    const pagingNext = showingFriends
-        ? friendsFeed.isLoadingNextFriendsPage
-        : isLoadingNextPage;
+        },
+        [friendsFeed, hasNextPage, isLoadingNextPage, loadNextPage],
+    );
 
     return (
-        <View className="flex-1 bg-background">
+        <View className="flex-1 overflow-hidden bg-background">
             {/* fixed to the screen, so the feed slides over it */}
             <NebulaBackdrop colors={socialNebula} layout="float" />
-            {/* the marker takes the list alone, like Analytics: the strip,
-                tabs, and composer scroll inside it as its header, so the
-                native top blur and the refresh spinner both follow the list */}
-            <ScreenScrollMarker>
-                <Animated.FlatList
-                    {...scroll}
-                    className="flex-1"
-                    data={rows}
-                    refreshControl={
-                        <RefreshControl
-                            refreshing={refreshing}
-                            onRefresh={reload}
-                            tintColor={colors.text}
-                            colors={[colors.text]}
-                            progressBackgroundColor={colors.card}
-                            progressViewOffset={railInset}
+            <Animated.ScrollView
+                ref={pager}
+                className="flex-1"
+                style={{ opacity: headerHeight > 0 ? 1 : 0 }}
+                horizontal
+                pagingEnabled
+                directionalLockEnabled
+                bounces={false}
+                removeClippedSubviews={false}
+                showsHorizontalScrollIndicator={false}
+                onLayout={(event) =>
+                    setLayoutWidth(event.nativeEvent.layout.width)
+                }
+                onScroll={onPageScroll}
+                onScrollBeginDrag={syncFeedHeaders}
+                scrollEventThrottle={16}
+                onMomentumScrollEnd={(event) => {
+                    const next =
+                        event.nativeEvent.contentOffset.x >= pageWidth / 2
+                            ? "friends"
+                            : "for-you";
+                    filterRef.current = next;
+                    setFilter(next);
+                }}
+            >
+                {FEED_TABS.map(({ value: page }) => (
+                    <View key={page} style={{ width: pageWidth }}>
+                        <FeedPage
+                            page={page}
+                            active={filter === page}
+                            rows={pageRows[page]}
+                            loading={
+                                page === "friends"
+                                    ? friendsFeed.friendsFeedLoading
+                                    : feedLoading
+                            }
+                            failed={Boolean(
+                                page === "friends"
+                                    ? friendsFeed.friendsFeedErr
+                                    : feedErr,
+                            )}
+                            pagingNext={
+                                page === "friends"
+                                    ? friendsFeed.isLoadingNextFriendsPage
+                                    : isLoadingNextPage
+                            }
+                            refreshing={refreshing.has(page)}
+                            onRefresh={() => void reload(page)}
+                            onEndReached={() => onEndReached(page)}
+                            renderItem={renderItem}
+                            keyExtractor={keyExtractor}
+                            onViewableItemsChanged={
+                                page === "for-you"
+                                    ? onViewableItemsChanged
+                                    : undefined
+                            }
+                            ref={page === "friends" ? friendsPage : forYouPage}
+                            headerHeight={headerHeight}
+                            headerOffset={headerOffset}
                         />
-                    }
-                    keyExtractor={keyExtractor}
-                    renderItem={renderItem}
-                    onViewableItemsChanged={onViewableItemsChanged}
-                    viewabilityConfig={VIEWABILITY_CONFIG}
-                    ItemSeparatorComponent={PostSeparator}
-                    // the posts slide as the composer above them opens
-                    itemLayoutAnimation={COMPOSER_LAYOUT}
-                    ListHeaderComponent={
-                        <View className="mb-3">
-                            <View
-                                onLayout={(event) =>
-                                    setHeaderHeight(
-                                        event.nativeEvent.layout.height,
-                                    )
-                                }
-                            >
-                                <SocialFeedHeader
-                                    filter={filter}
-                                    onFilterChange={changeFeed}
-                                    progress={tabProgress}
-                                />
-                            </View>
-                            <InlinePostComposer
-                                onOpen={scrollToComposer}
-                                onCreate={handleCreate}
-                            />
-                        </View>
-                    }
-                    keyboardShouldPersistTaps="handled"
-                    contentContainerStyle={[
-                        {
-                            paddingTop: 16,
-                            paddingHorizontal: 20,
-                            // listBottomInset clears the tab bar, player, and a
-                            // FAB-sized gap; add a little more so the last
-                            // card's footer isn't clipped under the chrome
-                            paddingBottom: listBottomInset + 48,
-                        },
-                        scroll.contentContainerStyle,
-                    ]}
-                    ListEmptyComponent={
-                        <Text className="py-10 text-center text-muted-foreground">
-                            {emptyLabel}
-                        </Text>
-                    }
-                    ListFooterComponent={
-                        pagingNext ? (
-                            <View className="items-center py-4">
-                                <ActivityIndicator color={colors.text} />
-                            </View>
-                        ) : (
-                            <View className="h-5" />
-                        )
-                    }
-                    onEndReached={onEndReached}
-                    onEndReachedThreshold={1}
-                    showsVerticalScrollIndicator={false}
+                    </View>
+                ))}
+            </Animated.ScrollView>
+
+            <Animated.View
+                className="absolute left-0 right-0 top-0 px-5 pb-3"
+                style={[{ paddingTop: railInset }, headerStyle]}
+                onLayout={(event) =>
+                    setHeaderHeight(event.nativeEvent.layout.height)
+                }
+            >
+                <SocialFeedHeader
+                    filter={filter}
+                    onFilterChange={changeFeed}
+                    progress={tabProgress}
                 />
-            </ScreenScrollMarker>
+                <View
+                    onLayout={(event) =>
+                        setComposerY(event.nativeEvent.layout.y)
+                    }
+                >
+                    <InlinePostComposer
+                        onCreate={handleCreate}
+                        onOpen={() => {
+                            const page =
+                                filter === "friends" ? friendsPage : forYouPage;
+                            page.current?.scrollToComposer(
+                                Math.max(0, composerY - railInset),
+                            );
+                        }}
+                    />
+                </View>
+            </Animated.View>
 
             <SocialOverflowMenu
                 open={socialMenuOpen}
                 onClose={() => setSocialMenuOpen(false)}
             />
-            <Toast toast={toast} />
         </View>
     );
 }
 
-type FeedRow = { kind: "post"; post: SocialPost; unseen?: boolean };
+const FEED_TABS = [
+    { value: "for-you", label: "For you" },
+    { value: "friends", label: "Friends" },
+] as const;
+
+type FeedPageHandle = {
+    scrollToComposer: (offset: number) => void;
+    syncHeader: (collapse: number) => void;
+};
+
+/** Only post lists live inside the horizontal pager. */
+function FeedPage({
+    page,
+    active,
+    rows,
+    loading,
+    failed,
+    pagingNext,
+    refreshing,
+    onRefresh,
+    onEndReached,
+    renderItem,
+    keyExtractor,
+    onViewableItemsChanged,
+    ref,
+    headerHeight,
+    headerOffset,
+}: {
+    page: FeedFilter;
+    active: boolean;
+    rows: FeedRow[];
+    loading: boolean;
+    failed: boolean;
+    pagingNext: boolean;
+    refreshing: boolean;
+    onRefresh: () => void;
+    onEndReached: () => void;
+    renderItem: ListRenderItem<FeedRow>;
+    keyExtractor: (item: FeedRow, index: number) => string;
+    onViewableItemsChanged?: (info: { viewableItems: ViewToken[] }) => void;
+    ref: Ref<FeedPageHandle>;
+    headerHeight: number;
+    headerOffset: SharedValue<number>;
+}) {
+    const { listBottomInset } = useScreenOverlayInsets();
+    const railInset = useTopRailInset() ?? 0;
+    const scroll = useScreenScroll<FlatList<FeedRow>>(active);
+    const { colors } = useTheme();
+    const keyboardScroll = useKeyboardScroll(scroll.ref);
+    const offset = useSharedValue(0);
+    const [viewportHeight, setViewportHeight] = useState(0);
+    useImperativeHandle(
+        ref,
+        () => ({
+            scrollToComposer: keyboardScroll,
+            syncHeader: (collapse: number) => {
+                // A deeply scrolled feed keeps its place while the header is
+                // collapsed. Otherwise both lists share the visible header offset.
+                if (offset.get() < headerHeight || collapse < headerHeight) {
+                    offset.set(collapse);
+                    scroll.ref.current?.scrollToOffset({
+                        offset: collapse,
+                        animated: false,
+                    });
+                }
+            },
+        }),
+        [keyboardScroll, headerHeight, offset, scroll.ref],
+    );
+    const trackHeader = useAnimatedScrollHandler((event) => {
+        offset.set(event.contentOffset.y);
+        if (active) headerOffset.set(event.contentOffset.y);
+    });
+    const onScroll = useComposedEventHandler([scroll.onScroll, trackHeader]);
+    useAnimatedReaction(
+        () => active,
+        (next) => {
+            if (next) headerOffset.set(offset.get());
+        },
+        [active],
+    );
+    const emptyLabel = loading
+        ? "Loading posts..."
+        : failed
+          ? "Couldn't load posts."
+          : page === "friends"
+            ? "Your friends have not posted yet."
+            : "No posts yet.";
+    return (
+        <ScreenScrollMarker>
+            <Animated.FlatList
+                {...scroll}
+                onScroll={onScroll}
+                scrollsToTop={active}
+                onLayout={(event) =>
+                    setViewportHeight(event.nativeEvent.layout.height)
+                }
+                className="flex-1"
+                data={rows}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={onRefresh}
+                        tintColor={colors.text}
+                        colors={[colors.text]}
+                        progressBackgroundColor={colors.card}
+                        progressViewOffset={railInset}
+                    />
+                }
+                keyExtractor={keyExtractor}
+                renderItem={renderItem}
+                onViewableItemsChanged={onViewableItemsChanged}
+                viewabilityConfig={VIEWABILITY_CONFIG}
+                ItemSeparatorComponent={PostSeparator}
+                // the posts slide as the composer above them opens
+                itemLayoutAnimation={COMPOSER_LAYOUT}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={[
+                    {
+                        paddingTop: headerHeight,
+                        minHeight: viewportHeight + headerHeight,
+                        paddingHorizontal: 20,
+                        // listBottomInset clears the tab bar, player, and a
+                        // FAB-sized gap; add a little more so the last
+                        // card's footer isn't clipped under the chrome
+                        paddingBottom: listBottomInset + 48,
+                    },
+                ]}
+                ListEmptyComponent={
+                    <Text className="py-10 text-center text-muted-foreground">
+                        {emptyLabel}
+                    </Text>
+                }
+                ListFooterComponent={
+                    pagingNext ? (
+                        <View className="items-center py-4">
+                            <ActivityIndicator color={colors.text} />
+                        </View>
+                    ) : (
+                        <View className="h-5" />
+                    )
+                }
+                onEndReached={active ? onEndReached : undefined}
+                onEndReachedThreshold={1}
+                showsVerticalScrollIndicator={false}
+            />
+        </ScreenScrollMarker>
+    );
+}
+
+type FeedRow =
+    | {
+          kind: "post";
+          post: SocialPost;
+          history?: boolean;
+          unseen?: boolean;
+          /** False for the post just above a spotlight. */
+          divider?: boolean;
+      }
+    | { kind: "history-heading" };
+
+function PreviouslyViewedHeading() {
+    return (
+        <Text className="px-1 pt-1 text-sm font-semibold text-foreground">
+            Previously viewed
+        </Text>
+    );
+}
 
 function PostSeparator() {
     return null;
@@ -585,72 +889,28 @@ function SocialFeedHeader({
     onFilterChange: (filter: FeedFilter) => void;
     progress: SharedValue<number>;
 }) {
-    const { mutedForeground } = useAppTheme().colors;
-    const [tabWidth, setTabWidth] = useState(0);
-    const indicatorStyle = useAnimatedStyle(() => ({
-        transform: [
-            {
-                translateX:
-                    (Math.max(0, Math.min(1, progress.get())) * tabWidth) / 2,
-            },
-        ],
-    }));
     return (
-        <View className="mb-1">
+        <View className="mb-5">
             <ListeningNowStrip />
-            <View
-                className="mt-1 flex-row border-b pb-1"
-                onLayout={(event) =>
-                    setTabWidth(event.nativeEvent.layout.width)
-                }
-                style={{ borderBottomColor: withAlpha(mutedForeground, 0.55) }}
-            >
-                <FeedTab
-                    label="For you"
-                    active={filter === "for-you"}
-                    onPress={() => onFilterChange("for-you")}
-                />
-                <Animated.View
-                    pointerEvents="none"
-                    className="absolute bottom-0 left-0 h-1 w-1/2 rounded-full bg-brand"
-                    style={indicatorStyle}
-                />
-                <FeedTab
-                    label="Friends"
-                    active={filter === "friends"}
-                    onPress={() => onFilterChange("friends")}
+            <View className="mt-1">
+                <SlidingTabStrip
+                    options={FEED_TABS}
+                    value={filter}
+                    onChange={onFilterChange}
+                    progress={progress}
                 />
             </View>
         </View>
     );
 }
-
-function FeedTab({
-    label,
-    active,
-    onPress,
-}: {
-    label: string;
-    active: boolean;
-    onPress: () => void;
-}) {
-    return (
-        <Pressable
-            className="flex-1"
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            onPress={onPress}
-        >
-            <Text
-                selectable={false}
-                className={
-                    active
-                        ? "py-3 text-center font-semibold text-foreground"
-                        : "py-3 text-center font-semibold text-muted-foreground"
-                }
-            >
-                {label}
-            </Text>
-        </Pressable>
-    );
+function withoutLinesAroundSpotlights(rows: FeedRow[]): FeedRow[] {
+    return rows.map((row, index) => {
+        const next = rows[index + 1];
+        return row.kind === "post"
+            ? {
+                  ...row,
+                  divider: next?.kind !== "post" || next.post.author != null,
+              }
+            : row;
+    });
 }

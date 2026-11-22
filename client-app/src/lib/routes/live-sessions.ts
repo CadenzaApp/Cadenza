@@ -275,6 +275,9 @@ export function useLiveSession(id: string | null) {
             );
             return;
         }
+        // chat is not in the snapshot and its version is the message id, not
+        // the session's; useSessionChatFeed takes it
+        if (event.kind === "chat") return;
         if (event.kind === "resync" || event.version !== x.data?.version) {
             void x.mutate();
         }

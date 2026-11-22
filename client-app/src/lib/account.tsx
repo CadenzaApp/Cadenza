@@ -2,6 +2,7 @@ import { supabase } from "./supabase";
 import { useState, useEffect, useRef, createContext, useContext } from "react";
 import { createProfile } from "./create-profile";
 import { clearSavedReads } from "./saved-reads-store";
+import { unregisterPushToken } from "./push-token";
 import { resetRealtime } from "./realtime";
 import { clearCache } from "./swr-utils";
 
@@ -132,6 +133,8 @@ export default function AccountProvider({ children }: Props) {
     }
 
     async function signOut() {
+        // needs the session that is about to end, so it goes first
+        await unregisterPushToken();
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
 

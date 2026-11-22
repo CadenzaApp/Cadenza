@@ -116,12 +116,13 @@ async fn list_actions_handler(
 /// }
 /// ```
 async fn undo_action_handler(
+    State(work): State<crate::lifecycle::BackgroundTasks>,
     State(db): State<DatabaseConnection>,
     State(bus): State<SharedEventBus>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Path(action_id): Path<i64>,
 ) -> Result<Json<UndoResult>, CadenzaError> {
-    let (row, message) = writes::undo(&db, Some(&bus), claims.user_id, action_id).await?;
+    let (row, message) = writes::undo(&db, &work, Some(&bus), claims.user_id, action_id).await?;
     Ok(Json(UndoResult {
         action: ActionSummary::from(&row),
         message,

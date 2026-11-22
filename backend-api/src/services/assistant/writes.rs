@@ -28,6 +28,7 @@ use crate::db::{
     saved_queries::{NewSavedQuery, SavedQueryPatch},
 };
 use crate::err::CadenzaError;
+use crate::lifecycle::BackgroundTasks;
 use crate::routes::json::{
     assistant::{BuilderSettings, CardQuery, WritePreview},
     query::Query,
@@ -112,6 +113,9 @@ pub struct Writer<'a> {
     pub bus: Option<&'a SharedEventBus>,
     /// For storing the titles of songs added to a shared playlist.
     pub song_meta: Option<&'a SongMetadataService>,
+    /// Where follow-up work (saved queries catching retagged songs) runs, so shutdown
+    /// waits for it.
+    pub work: BackgroundTasks,
 }
 
 /// A new tag a change makes.
@@ -727,12 +731,13 @@ impl Writer<'_> {
             }
             Plan::Playlist(plan) => playlist_writes::execute(self, plan).await?,
             Plan::Undo(row) => {
-                let (row, message) = undo(self.db, self.bus, self.user_id, row.action_id)
-                    .await
-                    .map_err(|err| match err {
-                        CadenzaError::CannotUndo(message) => message,
-                        other => db_error(other),
-                    })?;
+                let (row, message) =
+                    undo(self.db, &self.work, self.bus, self.user_id, row.action_id)
+                        .await
+                        .map_err(|err| match err {
+                            CadenzaError::CannotUndo(message) => message,
+                            other => db_error(other),
+                        })?;
                 return Ok((json!({ "undone": row.summary, "result": message }), None));
             }
         };
@@ -814,7 +819,13 @@ impl Writer<'_> {
                     .map(|(song_id, _)| song_id.clone()),
             )
             .collect();
-        spawn_add_retagged_songs(self.db.clone(), self.user_id, retagged, vec![tag.tag_id]);
+        spawn_add_retagged_songs(
+            self.work.clone(),
+            self.db.clone(),
+            self.user_id,
+            retagged,
+            vec![tag.tag_id],
+        );
         Ok(Some(row))
     }
 
@@ -865,7 +876,13 @@ impl Writer<'_> {
             .into_iter()
             .map(|(song_id, _)| song_id)
             .collect();
-        spawn_add_retagged_songs(self.db.clone(), self.user_id, songs, vec![tag.tag_id]);
+        spawn_add_retagged_songs(
+            self.work.clone(),
+            self.db.clone(),
+            self.user_id,
+            songs,
+            vec![tag.tag_id],
+        );
         Ok(Some(row))
     }
 
@@ -1127,6 +1144,7 @@ fn strings(value: &Value) -> Vec<String> {
 /// on songs.
 pub async fn undo(
     db: &DatabaseConnection,
+    work: &BackgroundTasks,
     bus: Option<&SharedEventBus>,
     user_id: Uuid,
     action_id: i64,
@@ -1333,7 +1351,7 @@ pub async fn undo(
     if let Some(tag_id) = tag_id
         && !retagged.is_empty()
     {
-        spawn_add_retagged_songs(db.clone(), user_id, retagged, vec![tag_id]);
+        spawn_add_retagged_songs(work.clone(), db.clone(), user_id, retagged, vec![tag_id]);
     }
     Ok((row, message))
 }

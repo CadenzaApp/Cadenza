@@ -2570,12 +2570,12 @@ mod tests {
         let query = parse(&format!(r#"{{ "where": {{ "or": [{}] }} }}"#, many));
         assert!(check_size(&query.root).is_err());
 
-        let deep = format!(
-            r#"{{ "where": {}{{ "and": [] }}{} }}"#,
-            r#"{ "not": "#.repeat(MAX_DEPTH),
-            " }".repeat(MAX_DEPTH)
-        );
-        assert!(check_size(&parse(&deep).root).is_err());
+        // Exercise the DB compiler guard directly. JSON input has its own,
+        // stricter depth guard and is rejected before reaching this layer.
+        let deep = (0..MAX_DEPTH).fold(QueryNode::And(vec![]), |node, _| {
+            QueryNode::Not(Box::new(node))
+        });
+        assert!(check_size(&deep).is_err());
     }
 
     /// Every song Cadenza knows is the row source, not just the tagged ones. An untagged

@@ -11,15 +11,18 @@ import {
 
 import { usePlaybackTrackState } from "@/lib/playback";
 import { useMyLiveSession } from "@/lib/routes/live-sessions";
+import type { MusicItem } from "@apple-musickit";
 
 export type FocusedSong = {
     id: string;
     title: string;
+    artistName?: string;
     artworkUrl?: string;
     artworkColor?: string;
 };
 
 type PlayerScopeValue = {
+    requestedTrack?: MusicItem;
     /** Null only in a live session with nothing playing. */
     focusedSong: FocusedSong | null;
 };
@@ -39,26 +42,48 @@ export function PlayerScopeProvider({ children }: { children: ReactNode }) {
     // sheet opened right after starting one does not close on the way
     const inSession = useMyLiveSession().mySessionId !== null;
     const params = useLocalSearchParams<{
+        song?: string;
         tagsSongId?: string;
         tagsSongTitle?: string;
+        tagsArtistName?: string;
         tagsArtworkUrl?: string;
         tagsArtworkColor?: string;
     }>();
+    const requestedTrack = useMemo<MusicItem | undefined>(() => {
+        try {
+            const track = JSON.parse(params.song ?? "null");
+            return track?.resourceKind === "song" &&
+                typeof track.id === "string" &&
+                typeof track.title === "string"
+                ? track
+                : undefined;
+        } catch {
+            return undefined;
+        }
+    }, [params.song]);
     const routeTarget = useMemo<FocusedSong | null>(
         () =>
-            params.tagsSongId
+            requestedTrack
                 ? {
-                      id: params.tagsSongId,
-                      title: params.tagsSongTitle ?? "",
-                      artworkUrl: params.tagsArtworkUrl || undefined,
-                      artworkColor: params.tagsArtworkColor || undefined,
+                      ...requestedTrack,
+                      id: requestedTrack.catalogId ?? requestedTrack.id,
                   }
-                : null,
+                : params.tagsSongId
+                  ? {
+                        id: params.tagsSongId,
+                        title: params.tagsSongTitle ?? "",
+                        artistName: params.tagsArtistName,
+                        artworkUrl: params.tagsArtworkUrl || undefined,
+                        artworkColor: params.tagsArtworkColor || undefined,
+                    }
+                  : null,
         [
+            requestedTrack,
             params.tagsArtworkColor,
             params.tagsArtworkUrl,
             params.tagsSongId,
             params.tagsSongTitle,
+            params.tagsArtistName,
         ],
     );
     const [pinnedSong] = useState<FocusedSong | null>(routeTarget);
@@ -68,6 +93,7 @@ export function PlayerScopeProvider({ children }: { children: ReactNode }) {
             ? {
                   id: activeTrack.catalogId ?? activeTrack.id,
                   title: activeTrack.title,
+                  artistName: activeTrack.artistName,
                   artworkUrl: activeTrack.artworkUrl,
                   artworkColor: activeTrack.artworkColor,
               }
@@ -87,7 +113,8 @@ export function PlayerScopeProvider({ children }: { children: ReactNode }) {
         }
     }, [activeTrack, pinnedSong, focused, inSession, router]);
 
-    const value = focusedSong || inSession ? { focusedSong } : null;
+    const value =
+        focusedSong || inSession ? { focusedSong, requestedTrack } : null;
 
     return value ? (
         <PlayerScopeContext.Provider value={value}>

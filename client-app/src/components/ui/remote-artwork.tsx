@@ -14,12 +14,18 @@ export function RemoteArtwork({
     className,
     style,
     fallback,
+    onLoad,
+    onError,
     animatesSize = false,
 }: {
     url?: string | null;
     className?: string;
     style?: StyleProp<ViewStyle>;
     fallback?: ReactNode;
+    /** The bitmap is decoded. A new url has not loaded yet. */
+    onLoad?: () => void;
+    /** The url cannot be drawn. */
+    onError?: () => void;
     /**
      * Set for a box whose size animates. The image then keeps its first decode
      * instead of reloading for every new size, which on Android blinks it out
@@ -46,12 +52,19 @@ export function RemoteArtwork({
                 <Image
                     source={{ uri }}
                     recyclingKey={uri}
-                    style={StyleSheet.absoluteFill}
+                    style={[
+                        StyleSheet.absoluteFill,
+                        { width: "100%", height: "100%" },
+                    ]}
                     contentFit="cover"
                     cachePolicy="memory-disk"
                     allowDownscaling={!animatesSize}
                     transition={120}
-                    onError={() => setFailedUrl(uri!)}
+                    onLoad={() => onLoad?.()}
+                    onError={() => {
+                        setFailedUrl(uri!);
+                        onError?.();
+                    }}
                 />
             ) : (
                 fallback

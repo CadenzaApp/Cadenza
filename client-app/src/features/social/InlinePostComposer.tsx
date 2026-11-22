@@ -94,7 +94,7 @@ export function InlinePostComposer({
                     <Text className="flex-1 text-base text-muted-foreground">
                         {open
                             ? "New post"
-                            : "Talk about you're listening to..."}
+                            : "Talk about what you're listening to..."}
                     </Text>
                 </Pressable>
                 {/* always mounted, hidden while shut, so opening is one layout

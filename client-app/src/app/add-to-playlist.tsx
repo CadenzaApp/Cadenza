@@ -2,13 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
-import {
-    ActivityIndicator,
-    Alert,
-    Pressable,
-    ScrollView,
-    View,
-} from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
 import { GatedFeature } from "@/features/account/gated-feature";
@@ -25,6 +19,7 @@ import {
 import { usePlaylistMutations, useUserPlaylists } from "@/lib/musickit-hooks";
 import type { MusicItem } from "@apple-musickit";
 import { logHandledError } from "@/lib/log";
+import { useToast } from "@/components/custom/toast";
 
 /**
  * Picks a library playlist to add the song to, or makes a new one. Shared
@@ -50,6 +45,7 @@ export default function AddToPlaylistScreen() {
     const { addSongsToPlaylist, createPlaylist } = usePlaylistMutations();
     const { sharedPlaylists } = useSharedPlaylists();
     const { addToSharedPlaylist } = useAddToSharedPlaylist();
+    const { showToast } = useToast();
     const editableShared = (sharedPlaylists ?? []).filter(
         (p) => p.can.edit_songs,
     );
@@ -73,7 +69,7 @@ export default function AddToPlaylistScreen() {
         } catch (error) {
             logHandledError("Failed to add the song to a playlist", error);
             const { title, detail } = classifyError(error);
-            Alert.alert(title, detail);
+            showToast(detail, title, "error");
         } finally {
             setPendingPlaylistId(null);
         }
@@ -94,7 +90,7 @@ export default function AddToPlaylistScreen() {
                 error,
             );
             const { title, detail } = classifyError(error);
-            Alert.alert(title, detail);
+            showToast(detail, title, "error");
         } finally {
             setPendingPlaylistId(null);
         }
@@ -111,7 +107,7 @@ export default function AddToPlaylistScreen() {
         } catch (error) {
             logHandledError("Failed to create the playlist", error);
             const { title, detail } = classifyError(error);
-            Alert.alert(title, detail);
+            showToast(detail, title, "error");
         } finally {
             setIsCreating(false);
         }

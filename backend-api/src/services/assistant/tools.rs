@@ -147,6 +147,7 @@ impl DbTools<'_> {
             builder_settings: self.builder_settings,
             bus: self.bus,
             song_meta: Some(self.song_meta),
+            work: self.song_meta.background_tasks(),
         }
     }
 }

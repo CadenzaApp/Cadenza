@@ -1,77 +1,25 @@
-//! The signed-in user's notifications. The table is not in the generated
-//! entities yet, so the SeaORM model lives here until the next codegen.
-//! [`list_notifications`] is the page read. [`insert_notification`] is the
+//! The signed-in user's notifications, over the generated `notifications`
+//! entity. [`list_notifications`] is the page read. [`insert_notification`] is the
 //! write, called by [`crate::services::notification::push_notification`].
 //! [`dismiss_notifications`] is the user clearing some or all.
 //! [`delete_notifications_before`] is the daily cleanup.
 
 use chrono::{DateTime, Utc};
-use sea_orm::entity::prelude::*;
 use sea_orm::{
-    ActiveModelTrait,
+    ActiveEnum, ActiveModelTrait,
     ActiveValue::{NotSet, Set},
-    Condition, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-    prelude::Expr,
+    ColumnTrait, Condition, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    prelude::{Expr, Uuid},
 };
 use serde_json::Value as JsonValue;
 
+use crate::db::entity::notifications::{ActiveModel, Column, Entity};
 use crate::err::CadenzaError;
+
+pub use crate::db::entity::sea_orm_active_enums::NotificationType;
 
 /// How many notifications one `GET /social/notifications` call returns.
 pub const NOTIFICATION_LIMIT: u64 = 20;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "notification_type")]
-pub enum NotificationType {
-    #[sea_orm(string_value = "friend_req_received")]
-    FriendReqReceived,
-    #[sea_orm(string_value = "friend_req_accepted")]
-    FriendReqAccepted,
-    #[sea_orm(string_value = "comment")]
-    Comment,
-    #[sea_orm(string_value = "session_join_request")]
-    SessionJoinRequest,
-    #[sea_orm(string_value = "session_join_accepted")]
-    SessionJoinAccepted,
-}
-
-impl NotificationType {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::FriendReqReceived => "friend_req_received",
-            Self::FriendReqAccepted => "friend_req_accepted",
-            Self::Comment => "comment",
-            Self::SessionJoinRequest => "session_join_request",
-            Self::SessionJoinAccepted => "session_join_accepted",
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "notifications")]
-pub struct Model {
-    #[sea_orm(primary_key)]
-    pub notif_id: i64,
-    pub user_id: Uuid,
-    #[sea_orm(column_type = "Text")]
-    pub title: String,
-    #[sea_orm(column_type = "Text")]
-    pub content: String,
-    #[sea_orm(column_name = "type")]
-    pub notif_type: NotificationType,
-    pub created_at: DateTimeWithTimeZone,
-    pub unread: bool,
-    /// `{"post_id"}` for a comment, `{"sender_id", "resolution"}` for a friend
-    /// request, `{"sender_id", "session_id", "resolution"}` for a session join
-    /// request, and `{"session_id"}` for being let into one.
-    #[sea_orm(column_type = "JsonBinary")]
-    pub metadata: Json,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
-
-impl ActiveModelBehavior for ActiveModel {}
 
 /// One notification for the signed-in user.
 #[derive(Clone, Debug)]
@@ -83,6 +31,9 @@ pub struct Notification {
     pub notif_type: String,
     pub created_at: DateTime<Utc>,
     pub unread: bool,
+    /// `{"post_id"}` for a comment, `{"sender_id", "resolution"}` for a friend
+    /// request, `{"sender_id", "session_id", "resolution"}` for a session join
+    /// request, and `{"session_id"}` for being let into one.
     pub metadata: JsonValue,
 }
 
@@ -117,7 +68,7 @@ pub async fn insert_notification(
         user_id: Set(user_id),
         title: Set(title.to_owned()),
         content: Set(content.to_owned()),
-        notif_type: Set(notif_type),
+        r#type: Set(notif_type),
         created_at: NotSet,
         unread: NotSet,
         metadata: Set(metadata),
@@ -181,7 +132,7 @@ pub async fn list_notifications(
             notif_id: row.notif_id,
             title: row.title,
             content: row.content,
-            notif_type: row.notif_type.as_str().to_owned(),
+            notif_type: row.r#type.to_value().value.into_owned(),
             created_at: row.created_at.with_timezone(&Utc),
             unread: row.unread,
             metadata: row.metadata,

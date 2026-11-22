@@ -23,11 +23,17 @@ import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 
 class AppleMusicKitModule : Module() {
 
@@ -52,6 +58,24 @@ class AppleMusicKitModule : Module() {
     // hides the item it keeps until a new queue is prepared
     private var stopped = false
     private var isNativeLoaded = false
+
+    // Expo's default async queue is one thread. A read that ran there held
+    // every other Apple Music read until the response was downloaded and
+    // parsed. These run on their own pool, so two callers proceed together.
+    private val apiScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO.limitedParallelism(8)
+    )
+
+    // One client keeps the connection to api.music.apple.com. Closing it
+    // after each call, which HttpURLConnection.disconnect did, paid for a
+    // new handshake every time. OkHttp returns the socket to this pool.
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .build()
+
+    private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     private fun getOrCreatePlayerController(): MediaPlayerController? {
         if (playerController != null) return playerController
@@ -509,11 +533,11 @@ class AppleMusicKitModule : Module() {
 
             // mapNotNull preserves order of `ids` and filters out nulls
             return@AsyncFunction ids.mapNotNull { resultsMap[it] }
-        }
+        }.runOnQueue(apiScope)
 
         AsyncFunction("getSongFavoriteStatus") { id: String ->
             return@AsyncFunction getSongFavoriteStatus(id)
-        }
+        }.runOnQueue(apiScope)
 
         AsyncFunction("setSongFavoriteStatus") { id: String, isFavorite: Boolean ->
             val catalogId = resolveCatalogSongId(id)
@@ -524,7 +548,7 @@ class AppleMusicKitModule : Module() {
                 if (isFavorite) favoriteRatingBody else null
             )
             return@AsyncFunction mapOf("isFavorite" to isFavorite)
-        }
+        }.runOnQueue(apiScope)
 
         AsyncFunction("getCollectionFavoriteStatus") { kind: String, id: String ->
             val catalogId = resolveCatalogId(id, kind)
@@ -533,7 +557,7 @@ class AppleMusicKitModule : Module() {
             val resource = (response["data"] as? List<*>)?.firstOrNull() as? Map<*, *>
             val attributes = resource?.get("attributes") as? Map<*, *>
             return@AsyncFunction mapOf("isFavorite" to (attributes?.get("inFavorites") as? Boolean ?: false))
-        }
+        }.runOnQueue(apiScope)
 
         AsyncFunction("setCollectionFavoriteStatus") { kind: String, id: String, isFavorite: Boolean ->
             val catalogId = resolveCatalogId(id, kind)
@@ -544,7 +568,7 @@ class AppleMusicKitModule : Module() {
                 if (isFavorite) favoriteRatingBody else null
             )
             return@AsyncFunction mapOf("isFavorite" to isFavorite)
-        }
+        }.runOnQueue(apiScope)
 
         AsyncFunction("getCollectionInfo") { kind: String, ids: List<String> ->
             if (ids.isEmpty()) return@AsyncFunction emptyList<Map<String, Any>>()
@@ -572,7 +596,7 @@ class AppleMusicKitModule : Module() {
                     .forEach { resultsMap[it] = result }
             }
             return@AsyncFunction ids.mapNotNull { resultsMap[it] }
-        }
+        }.runOnQueue(apiScope)
 
         AsyncFunction("catalogSearch") { query: String, types: List<String>, requestedLimit: Int, requestedOffset: Int ->
             val encodedQuery = encode(query)
@@ -600,13 +624,13 @@ class AppleMusicKitModule : Module() {
                 result["nextSongsOffset"] = it
             }
             return@AsyncFunction result
-        }
+        }.runOnQueue(apiScope)
 
         AsyncFunction("getUserPlaylists") { options: Map<String, Int> ->
             return@AsyncFunction collectionResult(
                 makeApiRequest("/v1/me/library/playlists?${pageQuery(options)}")
             )
-        }
+        }.runOnQueue(apiScope)
         AsyncFunction("getLibrarySongs") { options: Map<String, Any?> ->
             val pageOptions = mapOf(
                 "limit" to ((options["limit"] as? Number)?.toInt() ?: 50),
@@ -615,7 +639,7 @@ class AppleMusicKitModule : Module() {
             return@AsyncFunction collectionResult(
                 makeApiRequest("/v1/me/library/songs?${pageQuery(pageOptions)}&include=albums")
             )
-        }
+        }.runOnQueue(apiScope)
         // Same endpoint iOS uses, so both platforms page identically. The
         // payload nests one level deeper than the plain library reads.
         AsyncFunction("searchLibrarySongs") { term: String, options: Map<String, Any?> ->
@@ -629,7 +653,7 @@ class AppleMusicKitModule : Module() {
             return@AsyncFunction collectionResult(
                 librarySearchPage(response, "library-songs")
             )
-        }
+        }.runOnQueue(apiScope)
 
         // A playlist with no tracks answers 404, not an empty page, so it is
         // read as empty rather than reported as a failure.
@@ -640,12 +664,12 @@ class AppleMusicKitModule : Module() {
                     allowNotFound = true
                 )
             )
-        }
+        }.runOnQueue(apiScope)
         AsyncFunction("getLibraryAlbums") { options: Map<String, Int> ->
             return@AsyncFunction collectionResult(
                 makeApiRequest("/v1/me/library/albums?${pageQuery(options)}")
             )
-        }
+        }.runOnQueue(apiScope)
         // include=catalog so a library artist arrives already carrying the
         // catalog ID the artist screen needs, rather than costing a second
         // request per row before it can be opened.
@@ -653,7 +677,7 @@ class AppleMusicKitModule : Module() {
             return@AsyncFunction artistCollectionResult(
                 makeApiRequest("/v1/me/library/artists?include=catalog&${pageQuery(options)}")
             )
-        }
+        }.runOnQueue(apiScope)
         // The library search payload nests one level deeper than a plain
         // library read, the same way searchLibrarySongs has to unwrap it.
         AsyncFunction("searchLibraryArtists") { term: String, options: Map<String, Int> ->
@@ -664,7 +688,7 @@ class AppleMusicKitModule : Module() {
             return@AsyncFunction artistCollectionResult(
                 librarySearchPage(response, "library-artists")
             )
-        }
+        }.runOnQueue(apiScope)
         // Albums or playlists in the user's library matching a term. One
         // function for both, since only the library search type differs.
         AsyncFunction("searchLibraryCollections") {
@@ -678,14 +702,17 @@ class AppleMusicKitModule : Module() {
                 "/v1/me/library/search?term=${encode(term)}&types=$type&${pageQuery(options)}"
             )
             return@AsyncFunction collectionResult(librarySearchPage(response, type))
-        }
+        }.runOnQueue(apiScope)
         AsyncFunction("getRecentlyAdded") { options: Map<String, Int> ->
             // Apple's own recently added feed: albums, playlists, and loose
             // songs in one list, already grouped the way Music groups them.
             return@AsyncFunction collectionResult(
                 makeApiRequest("/v1/me/library/recently-added?${pageQuery(options)}")
             )
-        }
+        }.runOnQueue(apiScope)
+        AsyncFunction("getRecommendations") {
+            return@AsyncFunction recommendationSpotlights()
+        }.runOnQueue(apiScope)
         AsyncFunction("getAlbumSongs") { albumId: String, options: Map<String, Int> ->
             // Library album ids carry a prefix; a bare one came from the
             // catalog, which is what a song's albumID is, and lives elsewhere.
@@ -695,7 +722,7 @@ class AppleMusicKitModule : Module() {
                 "/v1/catalog/${currentStorefrontId()}/albums/${encode(albumId)}/tracks?${pageQuery(options)}&include=albums"
             }
             return@AsyncFunction collectionResult(makeApiRequest(path))
-        }
+        }.runOnQueue(apiScope)
 
         AsyncFunction("insertSongsNextInQueue") {
             ids: List<String>, _types: List<String>, promise: Promise ->
@@ -819,7 +846,7 @@ class AppleMusicKitModule : Module() {
                 )
             }
             return@AsyncFunction null
-        }
+        }.runOnQueue(apiScope)
 
         AsyncFunction("createPlaylist") { name: String, ids: List<String> ->
             val payload = JSONObject()
@@ -844,7 +871,7 @@ class AppleMusicKitModule : Module() {
             val playlist = objectList(response["data"]).firstOrNull()
                 ?: throw Exception("Apple Music did not return the new playlist.")
             return@AsyncFunction formatMediaItem(playlist)
-        }
+        }.runOnQueue(apiScope)
 
         AsyncFunction("getSongArtists") { songId: String ->
             val catalogId = resolveCatalogSongId(songId)
@@ -857,12 +884,12 @@ class AppleMusicKitModule : Module() {
             return@AsyncFunction objectList(artists?.get("data")).mapNotNull {
                 it["id"]?.toString()
             }
-        }
+        }.runOnQueue(apiScope)
 
         AsyncFunction("getArtist") { artistId: String ->
             val response = makeApiRequest(
                 "/v1/catalog/${currentStorefrontId()}/artists/${encode(artistId)}" +
-                    "?views=top-songs,full-albums"
+                    "?views=top-songs,full-albums,similar-artists"
             )
             val artist = objectList(response["data"]).firstOrNull()
                 ?: throw Exception("No Apple Music artist with ID $artistId.")
@@ -873,9 +900,11 @@ class AppleMusicKitModule : Module() {
                 "id" to (artist["id"]?.toString() ?: artistId),
                 "name" to (attributes?.get("name") ?: "Unknown Artist"),
                 "topSongs" to viewResources(views?.get("top-songs")),
-                "albums" to viewResources(views?.get("full-albums"))
+                "albums" to viewResources(views?.get("full-albums")),
+                "similarArtists" to viewArtists(views?.get("similar-artists"))
             )
             attributes?.get("genreNames")?.let { result["genres"] = it }
+            editorialNote(attributes)?.let { result["editorialNote"] = it }
             attributes?.get("url")?.toString()?.takeIf { it.isNotBlank() }?.let {
                 result["shareUrl"] = it
             }
@@ -889,7 +918,7 @@ class AppleMusicKitModule : Module() {
             }
             artworkColorHex(artwork)?.let { result["artworkColor"] = it }
             return@AsyncFunction result
-        }
+        }.runOnQueue(apiScope)
     }
 
     /**
@@ -920,9 +949,33 @@ class AppleMusicKitModule : Module() {
             JSONObject(mapOf("id" to resolveCatalogSongId(id), "type" to "songs"))
         }
 
+    /** Apple's short blurb, tags stripped. `short` when present, otherwise `standard`. */
+    private fun editorialNote(attributes: Map<*, *>?): String? {
+        val notes = attributes?.get("editorialNotes") as? Map<*, *> ?: return null
+        val raw = notes["short"]?.toString()?.takeIf { it.isNotBlank() }
+            ?: notes["standard"]?.toString()?.takeIf { it.isNotBlank() }
+            ?: return null
+        val text = raw
+            .replace(Regex("<[^>]+>"), " ")
+            .replace("&amp;", "&")
+            .replace("&nbsp;", " ")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return text.takeIf { it.isNotEmpty() }
+    }
+
     private fun viewResources(view: Any?): List<Map<String, Any>> {
         val data = (view as? Map<*, *>)?.get("data")
         return objectList(data).map { formatMediaItem(it) }
+    }
+
+    /** The artist counterpart to [viewResources], for a view like `similar-artists`. */
+    private fun viewArtists(view: Any?): List<Map<String, Any>> {
+        val data = (view as? Map<*, *>)?.get("data")
+        return objectList(data).map { formatArtist(it) }
     }
 
     private fun resolveCatalogSongId(id: String): String {
@@ -961,6 +1014,145 @@ class AppleMusicKitModule : Module() {
         val song = (response["data"] as? List<*>)?.firstOrNull() as? Map<*, *>
         val attributes = song?.get("attributes") as? Map<*, *>
         return mapOf("isFavorite" to (attributes?.get("inFavorites") as? Boolean ?: false))
+    }
+
+    /**
+     * Up to five songs and artists from `/v1/me/recommendations`. An album or
+     * playlist becomes one random song from its first track page, or, one
+     * time in three, that song's artist. Stations are skipped. It returns as
+     * soon as it has five, so later rows cost no catalog reads. Track fetches
+     * stop after a dozen so a long list does not stampede Apple.
+     */
+    private fun recommendationSpotlights(): List<Map<String, String>> {
+        val response = makeApiRequest("/v1/me/recommendations")
+        val out = mutableListOf<Map<String, String>>()
+        val seen = mutableSetOf<String>()
+        var fetches = 0
+        for (group in objectList(response["data"])) {
+            val relationships = group["relationships"] as? Map<*, *>
+            val contents = relationships?.get("contents") as? Map<*, *>
+            for (item in objectList(contents?.get("data"))) {
+                if (out.size >= MAX_RECOMMENDATIONS) return out
+                val id = item["id"]?.toString()?.takeIf { it.isNotBlank() } ?: continue
+                when (val type = item["type"]?.toString()) {
+                    "songs" -> appendRecommendation(
+                        out, seen, "song", id,
+                        resourceName(item) ?: catalogResourceName("songs", id),
+                    )
+                    "artists" -> appendRecommendation(
+                        out, seen, "artist", id,
+                        resourceName(item) ?: catalogResourceName("artists", id),
+                    )
+                    "albums", "playlists" -> {
+                        if (fetches >= 12 || type == null) continue
+                        fetches += 1
+                        randomCatalogTrack(type, id)?.let { track ->
+                            val artist = if (kotlin.random.Random.nextInt(3) == 0) {
+                                catalogArtist(track.first)
+                            } else {
+                                null
+                            }
+                            if (artist != null) {
+                                appendRecommendation(out, seen, "artist", artist.first, artist.second)
+                            } else {
+                                appendRecommendation(out, seen, "song", track.first, track.second)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    private fun appendRecommendation(
+        out: MutableList<Map<String, String>>,
+        seen: MutableSet<String>,
+        type: String,
+        id: String,
+        name: String?,
+    ) {
+        if (seen.add("$type:$id")) {
+            val row = mutableMapOf("type" to type, "id" to id)
+            if (!name.isNullOrBlank()) row["name"] = name
+            out.add(row)
+        }
+    }
+
+    /** "Title by Artist" for a song, or the name alone. Null without attributes. */
+    private fun resourceName(item: Map<String, Any>): String? {
+        val attributes = item["attributes"] as? Map<*, *> ?: return null
+        val name = attributes["name"]?.toString()?.takeIf { it.isNotBlank() } ?: return null
+        val artist = attributes["artistName"]?.toString()?.takeIf { it.isNotBlank() }
+        return if (artist != null) "$name by $artist" else name
+    }
+
+    /** One catalog read for a song or artist whose recommendation row had no name. */
+    private fun catalogResourceName(kind: String, id: String): String? {
+        val response = try {
+            makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/$kind/${encode(id)}",
+                allowNotFound = true,
+            )
+        } catch (_: Exception) {
+            return null
+        }
+        val item = objectList(response["data"]).firstOrNull() ?: return null
+        return resourceName(item)
+    }
+
+    /** One song from the first page of a catalog album or playlist. */
+    private fun randomCatalogTrack(resource: String, id: String): Pair<String, String?>? {
+        val response = try {
+            makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/$resource/${encode(id)}/tracks?limit=25",
+                allowNotFound = true,
+            )
+        } catch (_: Exception) {
+            return null
+        }
+        if (response.isEmpty()) return null
+        val songs = objectList(response["data"]).filter { track ->
+            val type = track["type"]?.toString()
+            type == null || type == "songs"
+        }
+        if (songs.isEmpty()) return null
+        val track = songs[kotlin.random.Random.nextInt(songs.size)]
+        val songId = track["id"]?.toString()?.takeIf { it.isNotBlank() } ?: return null
+        return songId to resourceName(track)
+    }
+
+    /** The first artist on a catalog song. Null when Apple does not name one. */
+    private fun catalogArtist(songId: String): Pair<String, String?>? {
+        val response = try {
+            makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/songs/${encode(songId)}?include=artists",
+                allowNotFound = true,
+            )
+        } catch (_: Exception) {
+            return null
+        }
+        val song = objectList(response["data"]).firstOrNull() ?: return null
+        val included = objectList(response["included"])
+        return artistOf(song, included)
+    }
+
+    /** The song's first artist. The name is inlined, or found in `included`. */
+    private fun artistOf(
+        song: Map<String, Any>,
+        included: List<Map<String, Any>>,
+    ): Pair<String, String?>? {
+        val relationships = song["relationships"] as? Map<*, *>
+        val artists = relationships?.get("artists") as? Map<*, *>
+        val data = (artists?.get("data") as? List<*>)?.firstOrNull() as? Map<*, *> ?: return null
+        val id = data["id"]?.toString()?.takeIf { it.isNotBlank() } ?: return null
+        val inlined = (data["attributes"] as? Map<*, *>)?.get("name")?.toString()
+            ?.takeIf { it.isNotBlank() }
+        if (inlined != null) return id to inlined
+        val match = included.firstOrNull {
+            it["id"]?.toString() == id && it["type"]?.toString() == "artists"
+        }
+        return id to match?.let { resourceName(it) }
     }
 
     /** The user's storefront, or with no user token, the device's region. */
@@ -1123,54 +1315,54 @@ class AppleMusicKitModule : Module() {
         if (musicUserToken == null && !isDeveloperTokenPath(path)) {
             throw MusicKitException("ERR_MISSING_USER_TOKEN", "Missing Apple Music user token.")
         }
-        val url = URL("https://api.music.apple.com$path")
-        val connection = url.openConnection() as HttpURLConnection
-        connection.requestMethod = method
-        connection.connectTimeout = 15_000
-        connection.readTimeout = 15_000
-        connection.setRequestProperty("Authorization", "Bearer $devToken")
-        if (musicUserToken != null) {
-            connection.setRequestProperty("Music-User-Token", musicUserToken)
-        }
-
-        try {
-            if (body != null) {
-                connection.setRequestProperty("Content-Type", "application/json")
-                connection.doOutput = true
-                connection.outputStream.bufferedWriter().use { it.write(body) }
+        val requestBody = body?.toRequestBody(jsonMediaType)
+        val request = Request.Builder()
+            .url("https://api.music.apple.com$path")
+            .header("Authorization", "Bearer $devToken")
+            .apply {
+                if (musicUserToken != null) header("Music-User-Token", musicUserToken)
             }
+            .method(
+                method,
+                when (method) {
+                    "GET", "HEAD" -> null
+                    else -> requestBody
+                }
+            )
+            .build()
 
-            val responseCode = connection.responseCode
-            if (responseCode in 200..299) {
-                val jsonString = connection.inputStream.bufferedReader().use { it.readText() }
-                if (jsonString.isBlank()) return emptyMap()
-                return jsonObjectToMap(JSONObject(jsonString))
-            } else {
-                // Apple answers 404 for a collection it holds no members for.
-                // For a caller that opted in, that is an empty collection
-                // rather than a failed read.
-                if (allowNotFound && responseCode == 404) return emptyMap()
-                val errorMsg = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown Error"
-                Log.e(TAG, "API Error: $responseCode - $errorMsg")
-                // 401 is a bad developer token, which only a new build fixes.
-                // 403 is a bad music-user token, which JS reads as "reconnect".
-                // same codes as iOS
-                if (responseCode == 401) {
-                    throw MusicKitException(
-                        "ERR_APPLE_MUSIC_DEVELOPER_TOKEN",
-                        "Apple Music rejected the developer token (401): $errorMsg"
-                    )
-                }
-                if (responseCode == 403) {
-                    throw MusicKitException(
-                        "ERR_APPLE_MUSIC_AUTH",
-                        "Apple Music rejected the credentials (403): $errorMsg"
-                    )
-                }
-                throw MusicKitException("ERR_APPLE_MUSIC_API", "Apple Music API error ($responseCode): $errorMsg")
+        // Closing the response returns the connection to httpClient's pool.
+        return httpClient.newCall(request).execute().use { response ->
+            val responseText = response.body?.string().orEmpty()
+            if (response.isSuccessful) {
+                if (responseText.isBlank()) return@use emptyMap()
+                return@use jsonObjectToMap(JSONObject(responseText))
             }
-        } finally {
-            connection.disconnect()
+            // Apple answers 404 for a collection it holds no members for.
+            // For a caller that opted in, that is an empty collection
+            // rather than a failed read.
+            if (allowNotFound && response.code == 404) return@use emptyMap()
+            val errorMsg = responseText.ifBlank { "Unknown Error" }
+            Log.e(TAG, "API Error: ${response.code} - $errorMsg")
+            // 401 is a bad developer token, which only a new build fixes.
+            // 403 is a bad music-user token, which JS reads as "reconnect".
+            // same codes as iOS
+            if (response.code == 401) {
+                throw MusicKitException(
+                    "ERR_APPLE_MUSIC_DEVELOPER_TOKEN",
+                    "Apple Music rejected the developer token (401): $errorMsg"
+                )
+            }
+            if (response.code == 403) {
+                throw MusicKitException(
+                    "ERR_APPLE_MUSIC_AUTH",
+                    "Apple Music rejected the credentials (403): $errorMsg"
+                )
+            }
+            throw MusicKitException(
+                "ERR_APPLE_MUSIC_API",
+                "Apple Music API error (${response.code}): $errorMsg"
+            )
         }
     }
 
@@ -1300,6 +1492,9 @@ class AppleMusicKitModule : Module() {
 
         /** The store used when the device region has none. */
         private const val FALLBACK_STOREFRONT = "us"
+
+        /** The most spotlights one recommendations read returns, same as iOS. */
+        private const val MAX_RECOMMENDATIONS = 5
 
         /** Paths that need only the developer token, same rule as iOS. */
         private fun isDeveloperTokenPath(path: String) =

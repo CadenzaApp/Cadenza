@@ -9,6 +9,7 @@ import { ErrorNotice } from "@/components/custom/error-notice";
 import { MusicListItemSkeleton } from "@/components/custom/music-list/music-list-item";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import { useScreenPagerPage } from "@/lib/screen-pager";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 
@@ -53,11 +54,13 @@ export function LibraryList<Item>({
 }) {
     const { listBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll<FlatList<Item>>();
+    const { active } = useScreenPagerPage();
 
     return (
         <ScreenScrollMarker>
             <Animated.FlatList
                 {...scroll}
+                scrollsToTop={active}
                 className="flex-1"
                 data={items}
                 keyExtractor={keyOf}

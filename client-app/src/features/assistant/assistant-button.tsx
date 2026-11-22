@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { PLAYER_CONTROL_SIZE } from "@/lib/screen-overlay-geometry";
-import { useAppTheme } from "@/lib/theme";
 
 /**
  * The round button that opens the assistant sheet. The media player host
@@ -13,7 +12,6 @@ import { useAppTheme } from "@/lib/theme";
  */
 export function AssistantRowButton({ disabled }: { disabled: boolean }) {
     const router = useRouter();
-    const { colors } = useAppTheme();
     return (
         <GlassIconButton
             size={PLAYER_CONTROL_SIZE}
@@ -23,7 +21,7 @@ export function AssistantRowButton({ disabled }: { disabled: boolean }) {
             onPress={() => router.push("/assistant")}
             accessibilityLabel="Open the assistant"
         >
-            <Ionicons name="sparkles" size={24} color={colors.brand} />
+            <Ionicons name="sparkles" size={24} color="white" />
         </GlassIconButton>
     );
 }

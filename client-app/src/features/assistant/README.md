@@ -65,7 +65,7 @@ Assistant section of [backend-api/src/services/README.md](../../../../backend-ap
 
 ## Gotchas
 
-- The button lives in the shared bottom row, drawn by `media-player-host.tsx`, so it is on every
+- The button uses white sparkles on glass, independent of the account accent. It lives in the shared bottom row, drawn by `media-player-host.tsx`, so it is on every
   screen inside the tabs while the bottom bars show, track or not. It is always the rightmost
   control: a row action (sort, the Tags plus) sits one slot to its left, and both share the
   same lift, scale, and dock (above expanded playback, beside the circle, centered over Search
@@ -74,9 +74,10 @@ Assistant section of [backend-api/src/services/README.md](../../../../backend-ap
 - Screens with their own bottom controls make room: the Cadenza tag palette pads its heading's
   right side while it is low, and the advanced builder lifts its results and history row one
   control higher.
-- The composer measures how far the keyboard covers the sheet and pads by that much, on both
-  platforms. Neither moves a native sheet for the keyboard: `KeyboardAvoidingView` does not see
-  an iOS sheet's frame, and react-native-screens leaves a one-detent Android sheet in place.
+- The local keyboard hook in `assistant-chat.tsx` lifts the composer by the keyboard's visible height, less any
+  height the native sheet already lost to resizing. It captures the resting body height
+  before focus and follows keyboard frame changes, including the predictive-text bar.
+  It does not compare the sheet's local window origin with keyboard screen coordinates.
 - The chat list has `nestedScrollEnabled`, so on Android the sheet lets it scroll first and
   only moves itself once the list is at its top or cannot scroll.
 - Shuffle on the song card shuffles the songs itself and starts at the first, with Apple's

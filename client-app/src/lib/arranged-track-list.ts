@@ -84,7 +84,7 @@ export function useArrangedTrackList({
     );
     const paged = usePagedTracksForSongIds(
         local || fromRows ? NO_IDS : arranged.songIds,
-        !local,
+        !local && !fromRows && source !== null,
     );
 
     // which groups are open, and which was opened last. kept per grouping, so
@@ -333,6 +333,8 @@ export function useArrangedTrackList({
         arranged: isArranged(arrangement),
         songs: arranged.songs,
         songIds: arranged.songIds,
+        /** Stored metadata for every result, including closed groups. */
+        rowTracks,
         /** Each song's value of the metadata tag the list is sorted by, by id. */
         sortValues: arranged.sortValues,
         capped: arranged.capped,

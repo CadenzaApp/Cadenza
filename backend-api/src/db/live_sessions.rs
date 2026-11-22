@@ -219,12 +219,14 @@ pub async fn mark_all_away(db: &impl ConnectionTrait) -> Result<(), CadenzaError
 }
 
 /// SQL for whether member row `m` of session `s` left by their app, the same
-/// rule as `services::live_sessions::member_gone`. Never the host, whose app
-/// going away ends the session instead.
+/// rule as `services::live_sessions::member_gone`: playing along is a synced
+/// member while the session plays. Never the host, whose app going away ends
+/// the session instead.
 pub static AWAY_MEMBER_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "m.user_id <> s.host_id AND m.left_at IS NULL AND NOT m.banned
-     AND m.away_since < now() - CASE WHEN m.closed_app
+     AND m.away_since < now() - CASE
+         WHEN m.closed_app OR (s.is_playing AND m.listen_mode = 'synced')
          THEN interval '{away} seconds' ELSE interval '{quiet} seconds' END",
         away = AWAY_TIMEOUT.num_seconds(),
         quiet = MEMBER_QUIET_TIMEOUT.num_seconds(),
@@ -564,6 +566,9 @@ async fn actor_for<C: ConnectionTrait>(
     if session.host_id == user_id {
         return Ok(Some(Actor::Host));
     }
+    if crate::db::friend_relations::blocked_either_way(db, user_id, session.host_id).await? {
+        return Ok(None);
+    }
     let row = db
         .query_one_raw(stmt(
             "SELECT role::text AS role FROM live_session_members
@@ -589,6 +594,38 @@ pub async fn is_participant(
     if session.ended_at.is_some() {
         return Ok(false);
     }
+    Ok(actor_for(db, &session, user_id).await?.is_some())
+}
+
+/// Checks `user_id` is in the open session, for reads and writes that are
+/// not part of the snapshot, like chat. `NotFound` when they are not in it,
+/// `SessionEnded` once it is over.
+pub async fn check_in_open_session(
+    db: &impl Db,
+    session_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), CadenzaError> {
+    let session = load_session(db, session_id, false)
+        .await?
+        .ok_or(CadenzaError::NotFound)?;
+    actor_for(db, &session, user_id)
+        .await?
+        .ok_or(CadenzaError::NotFound)?;
+    if !session.is_open(Utc::now()) {
+        return Err(CadenzaError::SessionEnded);
+    }
+    Ok(())
+}
+
+/// Final end notifications still go to members, after the session is closed.
+pub async fn can_receive_end(
+    db: &impl Db,
+    session_id: Uuid,
+    user_id: Uuid,
+) -> Result<bool, CadenzaError> {
+    let Some(session) = load_session(db, session_id, false).await? else {
+        return Ok(false);
+    };
     Ok(actor_for(db, &session, user_id).await?.is_some())
 }
 
@@ -911,6 +948,9 @@ pub async fn current_session_id(db: &impl Db, user_id: Uuid) -> Result<Option<Uu
                 "SELECT s.session_id FROM live_session_members m
                  JOIN live_sessions s ON s.session_id = m.session_id
                  WHERE m.user_id = $1 AND m.left_at IS NULL AND NOT m.banned
+                   AND NOT EXISTS (SELECT 1 FROM user_blocks b
+                       WHERE (b.blocker_id = $1 AND b.blocked_id = s.host_id)
+                          OR (b.blocker_id = s.host_id AND b.blocked_id = $1))
                    AND {open}
                  ORDER BY (s.host_id = $1) DESC, m.joined_at DESC
                  LIMIT 1",
@@ -1085,6 +1125,9 @@ pub async fn join_session(
         txn.commit().await?;
         return Ok(Joined::Member(session.version));
     }
+    if crate::db::friend_relations::blocked_either_way(&txn, user_id, session.host_id).await? {
+        return Err(CadenzaError::UserBlocked);
+    }
     let previous = txn
         .query_one_raw(stmt(
             "SELECT banned FROM live_session_members WHERE session_id = $1 AND user_id = $2",
@@ -1149,6 +1192,9 @@ pub async fn join_listening(
         return Err(CadenzaError::InvalidRequestBody(
             "that is your own listening".into(),
         ));
+    }
+    if crate::db::friend_relations::blocked_either_way(db, viewer, owner).await? {
+        return Err(CadenzaError::UserBlocked);
     }
     if let Some(session_id) = current_session_id(db, owner).await? {
         let joined = join_session(db, viewer, session_id, false).await?;

@@ -55,7 +55,8 @@ const RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(300);
 /// would outlive the attempt and the song would be skipped forever.
 ///
 /// `song_ids` must hold at most 300 entries, the cap `SongMetadataService` panics past.
-/// Both callers go through `routes::songs::check_batch_size` first, which caps at 200.
+/// The default tag routes go through `routes::songs::check_batch_size` first, which caps
+/// at 200. `POST /social/spotlights` passes at most `social::SPOTLIGHT_QUEUE` (5) song ids.
 pub async fn ensure_default_tags_generated(
     db: &DatabaseConnection,
     song_meta_service: &SongMetadataService,
@@ -89,23 +90,26 @@ pub async fn ensure_default_tags_generated(
 
     let db = db.clone();
     let tag_gen_service = tag_gen_service.clone();
-    tokio::spawn(async move {
-        let attempt = claim_and_generate(
-            db,
-            tag_gen_service,
-            ungenerated,
-            describable_song_ids,
-            descriptions,
-        )
-        .await;
-        // logged here because a caller that hung up never sees the error
-        if let Err(err) = &attempt {
-            eprintln!("[default-tags] generating default tags failed: {err}");
-        }
-        attempt
-    })
-    .await
-    .map_err(|err| CadenzaError::TagGenerationErr(format!("default tag task failed: {err}")))?
+    tag_gen_service
+        .background_tasks()
+        .spawn(async move {
+            let attempt = claim_and_generate(
+                db,
+                tag_gen_service,
+                ungenerated,
+                describable_song_ids,
+                descriptions,
+            )
+            .await;
+            // logged here because a caller that hung up never sees the error
+            if let Err(err) = &attempt {
+                eprintln!("[default-tags] generating default tags failed: {err}");
+            }
+            attempt
+        })
+        .await
+        .map_err(|err| CadenzaError::TagGenerationErr(format!("default tag task failed: {err}")))?
+        .ok_or(CadenzaError::ServiceUnavailable)?
 }
 
 /// Claims `ungenerated`, generates for the describable ones, and settles the claim. Owns
@@ -256,12 +260,20 @@ pub fn spawn_default_tag_backfill(
     tag_gen_service: TagGenerationService,
     config: BackfillConfig,
 ) {
-    tokio::spawn(async move {
+    let work = tag_gen_service.background_tasks();
+    work.clone().spawn(async move {
         let mut ticker = interval(config.interval);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         loop {
-            ticker.tick().await;
+            tokio::select! {
+                biased;
+                _ = work.cancelled() => break,
+                _ = ticker.tick() => {},
+            }
+            if work.is_stopping() {
+                break;
+            }
 
             let pass =
                 backfill_default_tags(&db, &song_meta_service, &tag_gen_service, config.batch_size)

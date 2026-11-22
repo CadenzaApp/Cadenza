@@ -297,6 +297,9 @@ function Cover({
 
     return (
         <Animated.View
+            // An opaque rounded host gives iOS a simple shadow path. Keep
+            // clipping on the inner cover so the shadow can extend outside.
+            className="rounded-2xl bg-black"
             style={[
                 {
                     position: "absolute",

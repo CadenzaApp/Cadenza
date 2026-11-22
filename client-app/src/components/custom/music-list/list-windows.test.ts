@@ -5,6 +5,7 @@ import type { MusicItem } from "@apple-musickit";
 
 import {
     GROUP_WINDOW,
+    createTagReadWindow,
     groupsToGrow,
     reuseSections,
     sectionRows,
@@ -133,4 +134,32 @@ test("a group leaves out explicit songs when they are hidden", () => {
         );
     assert.deepEqual(ids(true), ["a", "c"]);
     assert.deepEqual(ids(false), ["a", "b", "c"]);
+});
+
+test("scrolling through 500 songs only notifies tag-data subscribers for new IDs", () => {
+    const window = createTagReadWindow();
+    let notifications = 0;
+    const unsubscribe = window.subscribe(() => notifications++);
+    for (let start = 0; start < 500; start += 25) {
+        const ids = Array.from({ length: 75 }, (_, i) => String(start + i));
+        window.include(ids);
+        const snapshot = window.snapshot();
+        window.include(ids);
+        assert.equal(window.snapshot(), snapshot);
+    }
+    assert.equal(notifications, 20);
+    assert.equal(window.snapshot().ids.length, 550);
+    unsubscribe();
+    window.include(["new"]);
+    assert.equal(notifications, 20);
+});
+
+test("tag windows preserve read IDs, order, and snapshots without duplicate publications", () => {
+    const window = createTagReadWindow();
+    window.include(["a", "b", "a"]);
+    const first = window.snapshot();
+    window.include(["b", "c"]);
+    assert.deepEqual(window.snapshot().ids, ["a", "b", "c"]);
+    assert.deepEqual(first.ids, ["a", "b"]);
+    assert.equal(window.snapshot().set.size, 3);
 });

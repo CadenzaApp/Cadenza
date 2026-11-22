@@ -8,10 +8,11 @@ import {
     type AnimatedRef,
 } from "react-native-reanimated";
 import type Animated from "react-native-reanimated";
-import type { Component, ElementType } from "react";
+import { useEffect, useMemo, type Component, type ElementType } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
 
 import { useScreenFloatingRail, useTopRailInset } from "./top-rail";
+import { useScreenPagerPage } from "./screen-pager";
 import { nextRailShown } from "./top-rail-geometry";
 
 /** Short and eased out, so the rail settles in rather than snapping. */
@@ -36,7 +37,8 @@ type ScreenScrollProps<T extends Scroller> = {
 export type ScreenScrollBinding = ScreenScrollProps<Animated.ScrollView>;
 
 /**
- * Wiring for a tab screen's top-level scroller. Spread it onto an
+ * Wiring for a tab screen's top-level scroller. Pass false for an inactive
+ * pager page. Spread it onto an
  * `Animated.FlatList` or `Animated.ScrollView`:
  *
  * ```tsx
@@ -55,9 +57,11 @@ export type ScreenScrollBinding = ScreenScrollProps<Animated.ScrollView>;
  * stacks and virtualized lists register that native scroll view with UIKit for
  * native insets, scroll-to-top, and tab-bar/accessory minimization.
  */
-export function useScreenScroll<
-    T extends Scroller = Animated.ScrollView,
->(): ScreenScrollProps<T> {
+export function useScreenScroll<T extends Scroller = Animated.ScrollView>(
+    givenActive = true,
+): ScreenScrollProps<T> {
+    const page = useScreenPagerPage();
+    const active = givenActive && page.active;
     const ref = useAnimatedRef<T>();
     // a screen without a floating rail still gets one shape of handler
     const spareProgress = useSharedValue(1);
@@ -66,17 +70,26 @@ export function useScreenScroll<
     const railProgress = rail?.reveal.progress ?? spareProgress;
     const railTarget = rail?.reveal.target ?? spareTarget;
     const hasRail = rail != null;
-    const railInset = useTopRailInset();
+    const topRailInset = useTopRailInset();
+    const railInset = page.topInset ?? topRailInset;
     const lastOffset = useSharedValue(0);
 
     // `useScrollToTop` types itself against the navigation scrollables rather
     // than an animated ref. It only ever calls a scroll method on it.
-    useScrollToTop(ref as never);
+    const scrollToTopRef = useMemo(
+        () => ({
+            current: {
+                getScrollResponder: () => (active ? ref.current : null),
+            },
+        }),
+        [active, ref],
+    );
+    useScrollToTop(scrollToTopRef as never);
 
     const onScroll = useAnimatedScrollHandler(
         {
             onScroll: (event) => {
-                if (!hasRail) return;
+                if (!active || !hasRail || page.keepRailVisible) return;
                 const offset = event.contentOffset.y;
                 const shown = nextRailShown(
                     railTarget.get(),
@@ -90,8 +103,31 @@ export function useScreenScroll<
                 }
             },
         },
-        [hasRail, railProgress, railTarget, lastOffset],
+        [
+            active,
+            hasRail,
+            railProgress,
+            railTarget,
+            lastOffset,
+            page.keepRailVisible,
+        ],
     );
+
+    useEffect(() => {
+        if (!active || !hasRail) return;
+        const shown = page.keepRailVisible
+            ? 1
+            : nextRailShown(railTarget.get(), 0, lastOffset.get());
+        railTarget.set(shown);
+        railProgress.set(withTiming(shown, RAIL_TIMING));
+    }, [
+        active,
+        hasRail,
+        lastOffset,
+        railProgress,
+        railTarget,
+        page.keepRailVisible,
+    ]);
 
     return {
         ref,

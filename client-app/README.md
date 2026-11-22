@@ -5,9 +5,12 @@ styling, SWR for data. Talks to Apple Music through a local native module and to
 over HTTP.
 
 The Social tab uses a full-screen nebula behind a transparent feed. Its compact Listening now
-story row includes temporary visual friends until presence styling is finalized; live, directly
-joinable sessions use the account accent ring. The bottom-row post action opens a keyboard-aware
-modal rather than changing the feed's layout.
+story row shows your listening and friends playing now; directly joinable live sessions use
+the account accent ring. Story labels wrap to two lines. For you and
+Friends post lists stay mounted in a horizontal pager. Only posts slide sideways; the stories,
+tab selector, and keyboard-aware inline composer are shared above both feeds. The header
+scrolls away vertically with the feed. Each feed keeps its own virtualized rows and scroll
+position.
 
 ## Files
 
@@ -57,13 +60,13 @@ The rules, the cache key shape, and how to add an endpoint are in
 
 `client-app/.env`, gitignored. Expo inlines `EXPO_PUBLIC_*` at bundle time.
 
-| var                                    | notes                                                                                                               |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `EXPO_PUBLIC_BACKEND_API_URL`          | Backend base url, e.g. `http://192.168.1.25:3000`. Read only by `src/lib/tag-generation.ts`. See the gotcha below.  |
-| `EXPO_PUBLIC_MUSICKIT_DEVELOPER_TOKEN` | Apple Music developer token. Required for real playback.                                                            |
-| `EXPO_PUBLIC_MOCK_MUSICKIT`            | Set to `1` for fixture data and no audio, so you can work without an Apple Music subscription.                      |
-| `APPLE_BUNDLE_ID`                      | Overrides `ios.bundleIdentifier` in `app.config.js`. Defaults to `com.cadenza.cs4000`.                              |
-| `APPLE_TEAM_ID`                        | Overrides `ios.appleTeamId`. Leave unset and Xcode resolves the team from the signed-in account on first GUI build. |
+| var                                    | notes                                                                                                                    |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `EXPO_PUBLIC_BACKEND_API_URL`          | Backend base URL used by `src/lib/backend.ts`, including an HTTPS deployment URL. Falls back to `http://localhost:3000`. |
+| `EXPO_PUBLIC_MUSICKIT_DEVELOPER_TOKEN` | Apple Music developer token. Required for real playback.                                                                 |
+| `EXPO_PUBLIC_MOCK_MUSICKIT`            | Set to `1` for fixture data and no audio, so you can work without an Apple Music subscription.                           |
+| `APPLE_BUNDLE_ID`                      | Overrides `ios.bundleIdentifier` in `app.config.js`. Defaults to `com.cadenza.cs4000`.                                   |
+| `APPLE_TEAM_ID`                        | Overrides `ios.appleTeamId`. Leave unset and Xcode resolves the team from the signed-in account on first GUI build.      |
 
 Changing any `EXPO_PUBLIC_*` value needs a Metro restart with `--clear`. A hot reload will not
 pick up a new value, because they are inlined into the bundle. `APPLE_BUNDLE_ID` and
@@ -79,6 +82,13 @@ npm test           # unit tests
 npm run lint       # expo lint
 npx tsc --noEmit   # typecheck
 ```
+
+The launcher icons, native splash image, and web favicon use PNGs derived from
+`assets/images/cadenza-logo.svg`. The iOS icon, Android adaptive foreground and monochrome
+layers, and native splash are configured in `app.config.js`.
+The display name and launcher icons are native build settings: after changing them, run
+`npx expo prebuild` and rebuild the app to see them on a device. A Metro reload does not
+replace the native splash screen in an already installed build.
 
 The Cadenza tab icons are PNGs, since native tabs take no SVG. After changing
 `assets/images/cadenza-logo.svg` or `cadenza-logo-outline.svg`, render them again (macOS):
@@ -97,17 +107,24 @@ swift scripts/render-svg-png.swift assets/images/cadenza-logo-outline.svg assets
 
 ## Gotchas
 
+- Live chat sends pushes to other session members. An open chat suppresses its
+  matching foreground push toast; background notifications still appear.
+
 - Use Node 26 (`nvm use` reads `.nvmrc`). SDK 58 / React Native 0.88 do not support Node 25.
+- `patches/react-native+0.88.1.patch` detaches completed iOS WebSocket delegates
+  and keeps closing sockets tracked until completion. This prevents late events
+  after listener cleanup or a reload. `ios.buildReactNativeFromSource` is enabled
+  so the patch reaches the binary; the first build takes longer than a prebuilt
+  React Native build. Run `npx expo prebuild --platform ios`, then rebuild iOS
+  after installing the patch.
 - Expo SDK 58 uses `expo-glass-effect` 58.0.5+, including fixes for missing glass after
   opacity transitions and view recycling. Native dependency updates require a full dev-client
   rebuild. The upstream JSI package includes our former cache and Swift-interface fixes.
 - `tsconfig.json` explicitly selects React Native's legacy type API while existing component
   libraries migrate to the strict API. TypeScript 6 loads Node and React types explicitly.
-- **Two different base urls.** `src/lib/backend.ts` hardcodes `http://localhost:3000` and is what
-  every SWR hook and the query builder use. `src/lib/tag-generation.ts` has its own resolver that
-  reads `EXPO_PUBLIC_BACKEND_API_URL` and falls back to the Expo host. On a physical device
-  `localhost` is the phone, not your Mac, so the hardcoded one cannot work there. Details in
-  [src/lib/README.md](src/lib/README.md).
+- `src/lib/backend.ts` reads `EXPO_PUBLIC_BACKEND_API_URL` for the API hooks and query builder.
+  On a physical device the localhost fallback is the phone, so set a reachable LAN or HTTPS
+  deployment URL before bundling. See [src/lib/README.md](src/lib/README.md).
 - The backend defaults to binding loopback. To reach it from a phone, set `BIND_ADDR=0.0.0.0:3000`
   in `backend-api/.env`.
 - `ios/` is prebuild output. Native changes go in `app.config.js` plugins or `modules/`, then

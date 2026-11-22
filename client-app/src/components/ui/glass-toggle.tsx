@@ -11,8 +11,10 @@ export function GlassToggle({
     value,
     onValueChange,
     accessibilityLabel,
+    disabled = false,
 }: {
     value: boolean;
+    disabled?: boolean;
     onValueChange: (value: boolean) => void;
     accessibilityLabel: string;
 }) {
@@ -23,12 +25,14 @@ export function GlassToggle({
         <Pressable
             accessibilityRole="switch"
             accessibilityLabel={accessibilityLabel}
-            accessibilityState={{ checked: value }}
+            accessibilityState={{ checked: value, disabled }}
+            disabled={disabled}
             onPress={() => onValueChange(!value)}
             hitSlop={8}
-            style={({ pressed }) => pressed && styles.pressed}
+            className="h-8 w-[52px] rounded-full active:opacity-60"
         >
             <View
+                pointerEvents="none"
                 className={
                     outlined
                         ? "overflow-hidden border border-border"
@@ -51,7 +55,3 @@ export function GlassToggle({
         </Pressable>
     );
 }
-
-const styles = StyleSheet.create({
-    pressed: { opacity: 0.65 },
-});

@@ -42,7 +42,7 @@ export function MediaPlayerTransport({
     onTogglePlayback: () => void;
     onSkipToNext: () => void;
     onSkipToPrevious: () => void;
-    onToggleQueue: () => void;
+    onToggleQueue?: () => void;
 }) {
     return (
         <View className="flex-row items-center justify-between px-2">
@@ -97,8 +97,10 @@ export function MediaPlayerTransport({
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={queueOpen ? "Hide queue" : "Show queue"}
+                disabled={!onToggleQueue}
                 accessibilityState={{ selected: queueOpen }}
                 onPress={onToggleQueue}
+                style={{ opacity: onToggleQueue ? 1 : 0.3 }}
                 className="h-12 w-12 items-center justify-center active:opacity-60"
             >
                 <Ionicons

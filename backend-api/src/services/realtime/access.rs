@@ -1,6 +1,5 @@
-//! Who may subscribe to what. Checked once per subscribe; an event carries no
-//! private data, so a stale subscription leaks nothing the next HTTP read would
-//! not refuse anyway.
+//! Subscription and delivery checks. Membership, blocks and privacy are rechecked
+//! before delivery, including playback events and events queued before revocation.
 
 use sea_orm::{DatabaseConnection, prelude::Uuid};
 
@@ -23,5 +22,20 @@ pub async fn can_subscribe(
         Topic::SharedPlaylist(playlist_id) => {
             Ok(member_role(db, *playlist_id, user_id).await?.is_some())
         }
+        Topic::Inbox(owner) => Ok(*owner == user_id),
     }
+}
+
+pub async fn can_receive(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    topic: &Topic,
+    ended: bool,
+) -> Result<bool, CadenzaError> {
+    if let Topic::LiveSession(id) = topic {
+        if ended {
+            return crate::db::live_sessions::can_receive_end(db, *id, user_id).await;
+        }
+    }
+    can_subscribe(db, user_id, topic).await
 }

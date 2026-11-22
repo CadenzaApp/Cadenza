@@ -4,7 +4,7 @@ import { useTheme } from "expo-router/react-navigation";
 import { useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 
-import type { SegmentOption } from "@/components/ui/segmented-control";
+import type { SlidingTabOption } from "@/components/ui/sliding-tab-pager";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { useOpenScreen } from "@/lib/open-screen";
 import { describeQuery } from "@/lib/query-json";
@@ -21,7 +21,7 @@ import { useRailActions } from "@/lib/use-rail-actions";
 
 import { LibraryList, LibraryListRow } from "./library-list";
 import { useLibraryListSearch } from "./library-list-header";
-import { useLibraryViewSwitch } from "./library-view-switch";
+import { LibraryViewPager } from "./library-view-switch";
 import { usePlayLists } from "./use-play-lists";
 
 const NO_SAVED_QUERIES: SavedQuery[] = [];
@@ -37,7 +37,7 @@ const ownSongsFirst = (lists: readonly (readonly QueryResultSong[])[]) => [
 
 type QueriesView = "all" | "shared";
 
-const VIEWS: readonly SegmentOption<QueriesView>[] = [
+const VIEWS: readonly SlidingTabOption<QueriesView>[] = [
     { value: "all", label: "Your queries" },
     { value: "shared", label: "Shared queries" },
 ];
@@ -51,6 +51,15 @@ const VIEWS: readonly SegmentOption<QueriesView>[] = [
  * holds, the user's own songs first.
  */
 export function SavedQueriesView() {
+    return (
+        <LibraryViewPager
+            options={VIEWS}
+            renderPage={(view) => <SavedQueriesPage view={view} />}
+        />
+    );
+}
+
+function SavedQueriesPage({ view }: { view: QueriesView }) {
     const router = useRouter();
     const search = useLibraryListSearch();
     const railActions = useMemo(
@@ -64,7 +73,6 @@ export function SavedQueriesView() {
         [router],
     );
     useRailActions(railActions);
-    const { view, viewSwitch } = useLibraryViewSwitch(VIEWS);
     const { savedQueries, savedQueriesLoading, savedQueriesErr } =
         useSavedQueries();
     const shown = useMemo(() => {
@@ -126,7 +134,6 @@ export function SavedQueriesView() {
                               ? "No shared queries yet. Share one from its ... menu."
                               : "No saved queries yet. Save one from a query's results."
                     }
-                    above={viewSwitch}
                     search={search}
                     placeholder="Search Queries"
                     actions={{

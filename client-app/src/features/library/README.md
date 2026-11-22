@@ -14,10 +14,10 @@ the user's choice.
 | `library-category-screen.tsx` | Picks the body for a category and sets the title.                                                                                                                                                                                                              |
 | `library-list-header.tsx`     | `LibraryListHeader` (search field, Play and Shuffle, then an optional `below` slot) and `useLibraryListSearch`, the debounced term.                                                                                                                            |
 | `library-list.tsx`            | `LibraryList` and `LibraryListRow`: switch, search, Play and Shuffle, then rows. Shared playlists and Queries both use it, so they lay out the same.                                                                                                           |
-| `library-songs.tsx`           | Songs: Apple's paged library, the backend's sorted copy, or library search results.                                                                                                                                                                            |
+| `library-songs.tsx`           | Songs: library plus tagged songs by default, with a Songs settings menu to select the Apple Music library alone.                                                                                                                                               |
 | `library-collections.tsx`     | Albums or Playlists, or the ones matching search. Albums can be played whole.                                                                                                                                                                                  |
 | `library-playlists.tsx`       | Playlists: Your playlists or Shared playlists, over `LibraryCollections` or `SharedPlaylistsList`. The rail has + (a new Apple Music playlist) for yours, + and Enter code for shared.                                                                         |
-| `library-view-switch.tsx`     | `useLibraryViewSwitch`, a category's two-view switch, kept in the `view` param so a link opens on either. Playlists and Queries use it.                                                                                                                        |
+| `library-view-switch.tsx`     | `LibraryViewPager`, the sliding underline tabs for Playlists and Queries, with the selection kept in the `view` param for deep links.                                                                                                                          |
 | `library-artists.tsx`         | Artists, or the ones matching search.                                                                                                                                                                                                                          |
 | `saved-queries-view.tsx`      | Queries: the user's saved queries, or only the ones shared on their profile on `LibraryList` (+ in the rail goes to the Cadenza tab), favorites first, each with its saved cover. A row opens its stored songs on `/query-results`; the trash icon deletes it. |
 | `play-queue.ts`               | `mapInOrder` and `concatUnique`, for one queue built from several lists. Tested.                                                                                                                                                                               |
@@ -59,20 +59,29 @@ legacy shape was a bare array, and `LEGACY_KNOWN_CATEGORIES` is what it was choo
 component, so only the open one reads anything. Every list but Tags starts with
 `LibraryListHeader`, inside the list so it scrolls with the rows, the way Apple Music lays it out:
 
-| category  | search                | Play / Shuffle queue                                                                          |
-| --------- | --------------------- | --------------------------------------------------------------------------------------------- |
-| Songs     | Apple library search  | search results loaded, else what a sorted list shows, else the whole library in Apple's order |
-| Albums    | Apple library search  | every song of every album loaded or matched, in list order                                    |
-| Playlists | Apple library search  | none                                                                                          |
-| Artists   | Apple library search  | none                                                                                          |
-| Queries   | by name, on the phone | each query shown rerun, the user's own songs first, at most 500                               |
+| category  | search                                                                              | Play / Shuffle queue                                            |
+| --------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Songs     | title/artist/album when Include all with tags is on; Apple library search otherwise | search results loaded, else the current scope in list order     |
+| Albums    | Apple library search                                                                | every song of every album loaded or matched, in list order      |
+| Playlists | Apple library search                                                                | none                                                            |
+| Artists   | Apple library search                                                                | none                                                            |
+| Queries   | by name, on the phone                                                               | each query shown rerun, the user's own songs first, at most 500 |
 
-Songs render through `MusicList` (with Sort by / Group by and paging). Unarranged they page from
-Apple Music in its own order; sorted or grouped they are the backend's "every song in the library"
-query run library-only, so the whole library sorts at once on Android too. Sort by and Group by
-hide during a search, since Apple ranks those results. Each list fills a `ScreenScrollMarker`, so
-native scrolling can minimize the tab bar and move its player accessory inline. A list's loading
-skeleton is inside the list, so the search field never unmounts while a new page loads.
+Songs render through `MusicList` with sorting, grouping, and paging. Its top-rail settings
+menu has Include all with tags, on by default. `library-song-preferences.ts` saves the choice per
+account on this device with AsyncStorage. Like query builder settings, React state drives
+the open view immediately; failed writes restore the previous value. On, `library-song-source.ts` uses the
+backend's `libraryOrTagged` scope, never the unrestricted catalog. Search matches title,
+artist, or album within that scope. The unarranged list follows library-sync and tag
+invalidations; sorted lists retain their stable snapshot. Off, the plain list and search
+use Apple Music directly, and sorted/grouped queries use the backend's library-only scope.
+Sort by and Group by hide during search. List headers stay mounted while pages load.
+
+Playlists and Queries use `SlidingTabPager`, the underline-tab style used on Social and
+profiles. The selector stays above the sliding panels; the underline follows the drag.
+Both panels stay mounted, preserving search text and scroll position. The `view` route param
+still opens either panel directly. Only the active panel owns rail buttons, scroll-to-top,
+and playlist pagination; the top rail stays visible above the fixed selector.
 
 Queries come from `GET /saved-queries`, saved from the "..." menu on a results screen. A saved query
 holds the songs it matched when saved, not a live result. Rerun query in the same menu replaces
@@ -126,3 +135,6 @@ scrolling can minimize the native tab bar and move the player inline.
 
 Touching files in this directory? Update this README in the same change.
 See [../../../../AGENT_GUIDE.md](../../../../AGENT_GUIDE.md).
+
+Expanded Songs results deduplicate library and catalog aliases of the same recording,
+including sorted/grouped rows and playback queues. Different recordings keep separate IDs.

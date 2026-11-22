@@ -9,14 +9,18 @@
 export type RealtimeTopic =
     | { kind: "user"; id: string }
     | { kind: "live_session"; id: string }
-    | { kind: "shared_playlist"; id: number };
+    | { kind: "shared_playlist"; id: number }
+    /** The signed-in user's own notifications. Only they can subscribe. */
+    | { kind: "inbox"; id: string };
 
 /**
  * One change. `kind` is `now_playing`, `playlist`, `session`, `playback`,
- * or `ended` from the backend, or `resync` from this client after a reconnect
- * or a lag, when events may have been missed and the subscriber should
- * refetch. `data` is null except on `playback`, where it is the session's new
- * playback.
+ * `chat`, `notification`, or `ended` from the backend, or `resync` from this
+ * client after a reconnect or a lag, when events may have been missed and the
+ * subscriber should refetch. `data` is the session's new playback on
+ * `playback`, the new message on `chat`, whose `version` is the message id
+ * rather than the session's version, and `{type, content, metadata}` on an
+ * inbox's `notification`.
  */
 export type RealtimeEvent = {
     topic: RealtimeTopic;

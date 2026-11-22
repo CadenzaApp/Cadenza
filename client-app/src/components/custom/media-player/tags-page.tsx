@@ -23,6 +23,7 @@ import {
     useActivityTagsOnSong,
     useMetadataTagsOnSong,
 } from "@/lib/routes/songs";
+import { useSongInfo } from "@/lib/musickit-hooks";
 import { metadataTagPills } from "@/lib/song-metadata-tags";
 import { activityTagDisplayValue, formatTagValue } from "@/lib/tag-values";
 import type { Tag } from "@/lib/types";
@@ -40,6 +41,13 @@ export function TagsPage({
     enabled?: boolean;
 }) {
     const insets = useSafeAreaInsets();
+    const lookupIds = useMemo(
+        () => (enabled && !focusedSong.artistName ? [focusedSong.id] : []),
+        [enabled, focusedSong.artistName, focusedSong.id],
+    );
+    const { songInfo } = useSongInfo(lookupIds);
+    const artistName =
+        focusedSong.artistName || songInfo[0]?.artistName || "Unknown Artist";
     const [menuTag, setMenuTag] = useState<Tag | null>(null);
     const {
         songTags,
@@ -67,14 +75,18 @@ export function TagsPage({
                 showsVerticalScrollIndicator={false}
             >
                 <View>
-                    <Text className="text-2xl font-bold text-foreground">
-                        Tags
+                    <Text
+                        className="text-2xl font-bold text-foreground"
+                        numberOfLines={2}
+                        ellipsizeMode="tail"
+                    >
+                        {focusedSong.title || "Unknown Title"}
                     </Text>
                     <Text
                         className="mt-0.5 text-base text-muted-foreground"
                         numberOfLines={1}
                     >
-                        {focusedSong.title}
+                        {artistName}
                     </Text>
                 </View>
 
@@ -96,6 +108,7 @@ export function TagsPage({
                             onTagUpdated={onTagUpdated}
                             errorMessage={editorError}
                             scrollableGrid={false}
+                            extraTagRows={1}
                         />
                         <MetadataTagSection
                             key={focusedSong.id}

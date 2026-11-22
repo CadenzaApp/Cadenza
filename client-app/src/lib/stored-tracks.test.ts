@@ -10,7 +10,7 @@ test("a catalog song plays by its catalog id, with large artwork", () => {
         album_name: "Purple Rain",
         album_id: "1440857000",
         duration_ms: 521000,
-        artwork_url: "https://is1.example/image/thumb/a/512x512bb.jpg",
+        artwork_url: "https://is1-ssl.mzstatic.com/image/thumb/a/512x512bb.jpg",
     });
     assert.equal(track.id, "1440857781");
     assert.equal(track.catalogId, "1440857781");
@@ -21,7 +21,7 @@ test("a catalog song plays by its catalog id, with large artwork", () => {
     assert.equal(track.albumID, "1440857000");
     assert.equal(
         track.artworkUrlLarge,
-        "https://is1.example/image/thumb/a/1200x1200bb.jpg",
+        "https://is1-ssl.mzstatic.com/image/thumb/a/1200x1200bb.jpg",
     );
 });
 

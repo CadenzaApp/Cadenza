@@ -12,6 +12,14 @@ importing `@/lib/routes/*` into a file under `ui/`, it belongs in `custom/`.
 
 ## Files
 
+Social spotlights use iOS glass and Android artwork with faded edges. Tapping a
+song's title, artist, or label opens its menu; holding either kind adds a haptic.
+Artists offer Hide; songs also open the full player (without autoplay) or artist.
+Dragging either way past 30 percent (at least 64 points) slides the card out and
+closes its gap. Dismissals persist per account on this device. Failed topic reads
+hide the card until refresh; failed artwork uses an icon. Dividers follow the
+visible posts after filtering.
+
 ### custom/
 
 `error-notice.tsx` exports `ErrorNotice`, the component a screen renders instead of an error's
@@ -33,6 +41,15 @@ bottom, a set fraction of the screen tall, closed by the X, the backdrop, or a d
 top bar. Use it where a native sheet shorter than the screen would get iOS's inset card.
 
 ### ui/
+
+`setting-help-row.tsx` shares the query builder's label, toggle slot, and information popover
+with Songs settings. A one-row modal reserves the measured popover height while it is open,
+so help is not clipped by the card.
+
+`sliding-tab-pager.tsx` exports `SlidingTabPager`: a fixed row of text tabs with an accent
+underline and continuously swipeable, always-mounted pages. Library Playlists and Queries
+use it. Its page context assigns scroll and rail ownership to the active panel and prevents
+repeating the top-rail inset inside each list.
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
 `glass-icon-button`, `glass-input`, `glass-panel`, `glass-pill`, `glass-toggle`, `segmented-control`, `input`,
@@ -170,9 +187,9 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `top-rail.tsx`                 | Shared tab header with optional glass back button, page title, actions, and account initials.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `account-initials.ts`          | Pure email-to-initials helper, tested in `account-initials.test.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `coming-soon-screen.tsx`       | Data-driven preview surface used by stubbed product areas.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `tasks.tsx`                    | Root task provider and floating status rows used by default-tag generation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `toast.tsx`                    | The one toast system. `useToast().showToast(message, title?, icon?)` for a 5 second message, with an optional bold title line. `icon` is `info` (default), `success`, `error` (red text), or any Ionicons name. `startTask` / `endTaskSuccess` / `endTaskFail` for a running task such as the library sync. Rows stack at the top right, drawn by `ToastHost` at the root, slide in and out from the right, and a swipe right dismisses one (`dismissToast(id)` does the same). Do not hand roll a per-screen toast.                                                                                                                                                                                                                                                                                                        |
 | `artwork-mosaic.tsx`           | `ArtworkMosaic`, one cover or a 2x2 grid of up to four. Query results and saved query rows.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `search-field.tsx`             | `SearchField`, the one search bar: every search in the app uses it, with its own placeholder and handlers. `size` (`md`, `sm`) and `surface` (`glass` on a page, `outline` on a panel or popup). Draws its own placeholder so it centers like the typed text.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `search-field.tsx`             | `SearchField`, the one search bar: every search in the app uses it, with its own placeholder and handlers. `size` (`md`, `sm`) and `surface` (`glass` on a page, `outline` on a panel or popup, `control` for the neutral filled query palette search). Draws its own placeholder so it centers like the typed text.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `collection-list.tsx`          | Paged album or playlist rows. Owns screen scrolling. Rows open the collection with the zoom, or call `onSelect` when picking.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `artist-list.tsx`              | Paged artist rows and the sideways artist rail. Rows open the artist with the zoom.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `track-collection-view.tsx`    | Shared artwork, actions, metadata, and track-list surface for query results, collections, and artist top songs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -297,6 +314,11 @@ first frame and the header is never rebuilt when the rows land. `FlashList` wrap
 supplies its own scroller through `renderScrollComponent` with `ScreenScrollMarker` inside it: the
 marker needs the `ScrollView` as its only child and asserts otherwise.
 
+Tag-read window IDs live in `music-list/list-windows.ts`, a monotonic external store consumed only
+by `RowTagSource`. Advancing that window while scrolling does not update `MusicList` state
+or rebuild its FlashList children and viewability callbacks. Previously, each expansion of
+the read window caused a list-wide render.
+
 Tags never live on `MusicList` itself. `RowTagSource` runs the tag reads and pushes them into a
 per-list store, and each row subscribes to its own song (`useRowTags`). The reads cover the rows
 near the screen, a few dozen ahead, plus the selected songs, not every song on show: suggested
@@ -306,7 +328,10 @@ the rows whose tags changed, not the list. The selection toolbar renders inside 
 since it needs the same reads.
 
 `TrackCollectionView` owns the standard header, play/shuffle row,
-caller-supplied simple glass options, and the `MusicList`, over a full `NebulaBackdrop`. Routes can
+caller-supplied simple glass options, and the `MusicList`, over a full `NebulaBackdrop`.
+Collection routes pass a complete count/duration line into the hero after their last page
+loads. Album metadata and playlist creator lines are kept separate by
+`track-collection-utils.ts`. Routes can
 supply pagination, playback overrides, one fallback color for the nebula (or its colors outright),
 close controls, and opt the standard header into the device's top safe area. One cover gets a
 `BlendedCover`; several covers or none stay a centered mosaic tile. The nebula is colored from
@@ -324,10 +349,13 @@ stable. Artist uses its custom hero and albums
 rail through the header/footer inputs, while album and playlist details use the standard layout
 and open `CollectionOptionsMenu` from a supplied option.
 
-On a pushed screen `TrackCollectionView` holds its rows back until the open transition ends
-(`useOpenTransitionSettled`), showing the header and placeholder rows meanwhile. Rows built during
-the push run on the main thread the animation needs, and with a prefetched first page they used to
-arrive mid-animation and stutter it.
+On a pushed screen `TrackCollectionView` waits for the open transition
+(`useOpenTransitionSettled`) before drawing its rows. On Android the fade cannot start until the
+new screen's first frame is laid out, so that frame is the tint, a plain cover, and the title. The
+list, the blurred cover, and the nebula mount when the fade ends. iOS still shows the header and
+placeholder rows during the open, because the zoom transition needs the cover as its target. Rows
+built during the push run on the main thread the animation needs, and with a prefetched first page
+they used to arrive mid-animation and stutter it.
 
 `MusicList` takes a `header` for exactly that case, and a `footer` for the other end. It also
 reports its content size through `onContentSizeChange`, which is how the artist screen sizes a
@@ -418,7 +446,7 @@ Bulk tagging also prompts before selecting an attribute tag, then applies that v
 
 Holding an owned selector tag gives a medium haptic and opens a narrower menu with rename, color, and red delete actions, the library tag menu icons, and a centered tag pill. Selector outlines are 1.5 points. Suggested tags keep their existing behavior.
 
-`duration-input.tsx` provides the shared hours/minutes/seconds wheel using react-native-timer-picker on iOS and Android. Tag value dialogs and both query builders use it; the API receives milliseconds. Holding a song starts a drag selection. Each drag previews a span from its starting song; reversing shrinks that span while retaining selections from earlier gestures. Dragging and holding near the viewport edges scrolls the list. A list-level detector survives row recycling; measured layouts include group headers.
+`duration-input.tsx` provides the shared hours/minutes/seconds wheel using react-native-timer-picker on iOS and Android. Tag value dialogs and both query builders use it; the API receives milliseconds. Holding a song starts a drag selection. Each drag previews a span from its starting song; reversing shrinks that span while retaining selections from earlier gestures. Dragging and holding near the viewport edges scrolls the list, ramping linearly to 1500 points per second at either edge. A list-level detector survives row recycling; measured layouts include group headers.
 
 The duration wheel uses a transparent masked fade, centered in a compact glass popup.
 

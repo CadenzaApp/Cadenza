@@ -169,3 +169,31 @@ function sameSection(left: MusicListSection, right: MusicListSection) {
         left.tracks.every((track, index) => track === right.tracks[index])
     );
 }
+
+/** Monotonic tag-read IDs, subscribed to by the data source instead of the list. */
+export function createTagReadWindow() {
+    let snapshot: { ids: readonly string[]; set: ReadonlySet<string> } = {
+        ids: [],
+        set: new Set(),
+    };
+    const listeners = new Set<() => void>();
+    return {
+        snapshot: () => snapshot,
+        subscribe(listener: () => void) {
+            listeners.add(listener);
+            return () => {
+                listeners.delete(listener);
+            };
+        },
+        include(ids: readonly string[]) {
+            const added = new Set(ids.filter((id) => !snapshot.set.has(id)));
+            if (!added.size) return;
+            snapshot = {
+                ids: [...snapshot.ids, ...added],
+                set: new Set([...snapshot.set, ...added]),
+            };
+            for (const listener of listeners) listener();
+        },
+    };
+}
+export type TagReadWindow = ReturnType<typeof createTagReadWindow>;

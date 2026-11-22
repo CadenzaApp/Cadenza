@@ -17,8 +17,8 @@ together, and get a playlist back. Tags can also be suggested for you by an LLM.
                                                                    (tags, tags applied)
 ```
 
-Apple Music owns song metadata and playback. The backend only stores song ids and the tags on
-them, so it never sees a song title.
+Apple Music owns playback and catalog metadata. The backend stores song IDs, tags and
+a metadata copy for queries, analytics and the assistant.
 
 ## Layout
 
@@ -60,12 +60,12 @@ Install the repository pre-push hook once per clone. It checks Rust and client f
 every push, keeping the code tidy and merge conflicts smaller.
 
 ```sh
-./scripts/install-git-hooks.sh
+git config core.hooksPath .githooks
 ```
 
-On Windows, run `scripts\install-git-hooks.bat`. If the hook blocks a push, run
-`./scripts/format.sh` on macOS or Linux, or `scripts\format.bat` on Windows, then review and
-commit the generated formatting changes.
+The same Git command works on Windows. If the hook blocks a push, run
+`python3 scripts/format.py` on macOS or Linux, or `py -3 scripts/format.py` on Windows.
+Review and commit the generated formatting changes.
 
 ## Docs
 
@@ -73,3 +73,9 @@ Medium and large systems have short READMEs covering setup, contracts, or essent
 Start from [AGENT_GUIDE.md](AGENT_GUIDE.md), which lists them and the project's documentation
 policy. That file is also the shared brief for coding agents, which `CLAUDE.md` and `AGENTS.md`
 both point at.
+
+## AWS deployment and monitoring
+
+See [developer setup](deploy/GETTING_STARTED.md) for macOS/Windows deployment,
+AWS login and private Grafana access. The [runbook](deploy/README.md) covers
+operations and rollback.

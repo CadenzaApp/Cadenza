@@ -88,3 +88,55 @@ export function formatTrackCollectionSummary(tracks: readonly MusicItem[]) {
 
     return `${tracks.length} ${tracks.length === 1 ? "track" : "tracks"} (${durationParts.join(" ")})`;
 }
+
+/**
+ * Song count and running time, shown under the header metadata once all pages load. Reads
+ * whatever durations are there: a song missing one adds nothing to the total
+ * rather than voiding it.
+ */
+export function collectionSummary(
+    tracks: readonly MusicItem[],
+    count = tracks.length,
+) {
+    const songs = `${count} ${count === 1 ? "song" : "songs"}`;
+    const seconds = tracks.reduce(
+        (total, track) => total + (track.songDuration ?? 0),
+        0,
+    );
+    if (seconds <= 0) return songs;
+
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) {
+        return `${songs}, ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    const hourText = `${hours} ${hours === 1 ? "hour" : "hours"}`;
+    return rest === 0
+        ? `${songs}, ${hourText}`
+        : `${songs}, ${hourText} ${rest} ${rest === 1 ? "minute" : "minutes"}`;
+}
+
+/** A playlist describes its curator; a track can only supply album metadata. */
+export function collectionHeaderMetadata(
+    kind: "album" | "playlist",
+    creatorOrArtist?: string,
+    collection?: MusicItem,
+    firstTrack?: MusicItem,
+) {
+    if (kind === "playlist") {
+        return {
+            subtitle: creatorOrArtist || collection?.artistName,
+            summary: "",
+        };
+    }
+    const genre = firstTrack?.genres?.[0];
+    const year = firstTrack?.releaseDate
+        ? new Date(firstTrack.releaseDate).getUTCFullYear()
+        : undefined;
+    return {
+        subtitle: creatorOrArtist || firstTrack?.artistName,
+        summary: [genre, year].filter(Boolean).join(" · ") || undefined,
+    };
+}

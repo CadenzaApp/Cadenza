@@ -18,6 +18,9 @@ const MAX_IDS_PER_REQUEST: usize = 300;
 /// Apple caps the `ids` filter at 100 per catalog albums request.
 pub const MAX_ALBUM_IDS_PER_REQUEST: usize = 100;
 
+/// The most ids one catalog artists request is given. Apple documents 25.
+pub const MAX_ARTIST_IDS_PER_REQUEST: usize = 25;
+
 /// Pages of one album's tracks followed past the first, which already holds 300. No real
 /// album gets near this; it stops a `next` link that never ends from looping forever.
 const MAX_EXTRA_TRACK_PAGES: usize = 10;
@@ -261,6 +264,14 @@ fn to_album_track(album_id: &str, track: CatalogSong) -> Option<SongMetadata> {
     Some(song)
 }
 
+/// Genre names per artist id. An artist Apple returned without attributes is left out.
+fn artist_genres(resp: CatalogArtistsPage) -> HashMap<String, Vec<String>> {
+    resp.data
+        .into_iter()
+        .filter_map(|artist| Some((artist.id, artist.attributes?.genre_names)))
+        .collect()
+}
+
 /// Reads catalog song metadata from Apple Music with a developer token and no user token.
 ///
 /// Catalog endpoints authenticate with the developer token alone, so this needs no Apple Music
@@ -271,6 +282,7 @@ pub struct SongMetadataService {
     developer_token: String,
     storefront: String,
     http_client: Client,
+    background: crate::lifecycle::BackgroundTasks,
 }
 
 impl SongMetadataService {
@@ -282,6 +294,7 @@ impl SongMetadataService {
         dotenv().ok();
 
         Self {
+            background: Default::default(),
             developer_token: env::var("APPLE_MUSIC_DEVELOPER_TOKEN")
                 .expect("error getting APPLE_MUSIC_DEVELOPER_TOKEN env var"),
             storefront: env::var("APPLE_MUSIC_STOREFRONT")
@@ -291,6 +304,18 @@ impl SongMetadataService {
                 .build()
                 .expect("failed to build http client for SongMetadataService"),
         }
+    }
+
+    pub(crate) fn with_background_tasks(
+        mut self,
+        background: crate::lifecycle::BackgroundTasks,
+    ) -> Self {
+        self.background = background;
+        self
+    }
+
+    pub(crate) fn background_tasks(&self) -> crate::lifecycle::BackgroundTasks {
+        self.background.clone()
     }
 
     /// Looks up every id, keyed by the id it was found under.
@@ -397,6 +422,37 @@ impl SongMetadataService {
         }
 
         Ok(res)
+    }
+
+    /// Apple's genre names for each artist, keyed by artist id, in the order Apple lists
+    /// them. One request. An id Apple has no catalog artist for, a song id included, is
+    /// absent from the map. An empty input makes no request.
+    ///
+    /// # Panics
+    ///
+    /// If `artist_ids` is longer than [`MAX_ARTIST_IDS_PER_REQUEST`], for the same reason
+    /// [`Self::get_songs_metadata`] panics past its cap.
+    pub async fn get_artists_genres(
+        &self,
+        artist_ids: &[String],
+    ) -> Result<HashMap<String, Vec<String>>, CadenzaError> {
+        assert!(
+            artist_ids.len() <= MAX_ARTIST_IDS_PER_REQUEST,
+            "artist genres lookup takes at most {} ids, got {}",
+            MAX_ARTIST_IDS_PER_REQUEST,
+            artist_ids.len()
+        );
+
+        if artist_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut url = self.catalog_url("artists")?;
+        url.query_pairs_mut()
+            .append_pair("ids", &artist_ids.join(","));
+
+        let resp_body: CatalogArtistsPage = self.get_json(url).await?;
+        Ok(artist_genres(resp_body))
     }
 
     /// Searches the catalog for songs matching `term`, best match first, at most `limit`
@@ -606,6 +662,23 @@ mod tests {
     // ----- parsing apple's reply, no api calls -----
 
     #[test]
+    fn parses_the_catalog_artists_shape() {
+        let reply = r#"{
+            "data": [
+                { "id": "3996865", "type": "artists",
+                  "attributes": { "name": "Metallica", "genreNames": ["Metal"] } },
+                { "id": "1", "type": "artists" }
+            ]
+        }"#;
+
+        let parsed: CatalogArtistsPage = serde_json::from_str(reply).unwrap();
+        let genres = artist_genres(parsed);
+
+        assert_eq!(genres.len(), 1);
+        assert_eq!(genres["3996865"], ["Metal"]);
+    }
+
+    #[test]
     fn parses_the_catalog_songs_shape() {
         let reply = r#"{
             "data": [{
@@ -772,6 +845,7 @@ mod tests {
     /// a service that can be built without a token, for the checks that never reach the network
     fn offline_service() -> SongMetadataService {
         SongMetadataService {
+            background: Default::default(),
             developer_token: "test-token".into(),
             storefront: DEFAULT_STOREFRONT.into(),
             http_client: Client::new(),

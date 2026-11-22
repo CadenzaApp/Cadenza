@@ -19,6 +19,7 @@ import {
 import { serverNow } from "@/lib/realtime";
 import { playbackPositionMs } from "@/lib/session-playback";
 import { RESTART_THRESHOLD_SECONDS } from "@/lib/transport";
+import { useToast } from "@/components/custom/toast";
 
 import { clearLeavingForOwnMusic, markLeavingForOwnMusic } from "./own-music";
 import {
@@ -26,10 +27,6 @@ import {
     upcomingEntryAt,
     upcomingPosition,
 } from "./session-commands";
-
-function tell(title: string, message: string) {
-    Alert.alert(title, message);
-}
 
 /** The native mode as the session spells it. */
 function sessionRepeat(mode: RepeatMode) {
@@ -69,6 +66,7 @@ export function useSessionSink(
     const playback = usePlayback();
     const local = useLocalPlaybackCommands();
     const writes = useLiveSessionWrites(session?.session_id ?? "none");
+    const { showToast } = useToast();
 
     // the commands read these at call time, so the sink only changes with
     // the role
@@ -86,12 +84,23 @@ export function useSessionSink(
         if (role === null || !permissions) return null;
         const can = permissions;
 
+        /** Shows a toast titled for the session. */
+        function tell(
+            message: string,
+            icon: "info" | "success" | "error" = "error",
+        ) {
+            showToast(message, "Live session", icon);
+        }
+
+        /** Runs a write, saying so when it fails. True when it went through. */
         async function run(what: string, write: () => Promise<unknown>) {
             try {
                 await write();
+                return true;
             } catch (error) {
                 console.warn(`Could not ${what} in the live session:`, error);
-                tell("Live session", `Couldn't ${what}.`);
+                tell(`Couldn't ${what}.`);
+                return false;
             }
         }
 
@@ -105,24 +114,29 @@ export function useSessionSink(
             const trimmed = shareable.length > songs.length;
             if (songs.length === 0) {
                 tell(
-                    "Live session",
                     "Songs only in your library can't play in a live session.",
                 );
                 return;
             }
             if (!can.suggest) {
-                tell("Live session", "Listeners can't add songs.");
+                tell("Listeners can't add songs.");
                 return;
             }
             if (!can.edit_queue) {
-                await run("suggest that", () =>
+                const suggested = await run("suggest that", () =>
                     latest.current.writes.addSongs({ songs }),
                 );
-                tell("Suggested", "The host decides whether it plays.");
+                if (suggested) {
+                    showToast(
+                        "The host decides whether it plays.",
+                        "Suggested",
+                        "success",
+                    );
+                }
                 return;
             }
             const playNow = at === "now" && can.control;
-            await run("add those songs", () =>
+            const added = await run("add those songs", () =>
                 latest.current.writes.addSongs({
                     songs,
                     ...(playNow
@@ -132,10 +146,10 @@ export function useSessionSink(
                           : { position: 0 }),
                 }),
             );
-            if (trimmed) {
+            if (added && trimmed) {
                 tell(
-                    "Live session",
                     `Added the first ${MAX_SESSION_ADD} songs. One add takes at most ${MAX_SESSION_ADD}.`,
+                    "info",
                 );
             }
         }
@@ -177,7 +191,7 @@ export function useSessionSink(
         const canControl = can.control;
         async function control(what: string, write: () => Promise<unknown>) {
             if (!canControl) {
-                tell("Live session", "Only controllers can change playback.");
+                tell("Only controllers can change playback.");
                 return;
             }
             await run(what, write);
@@ -196,7 +210,7 @@ export function useSessionSink(
             } catch (error) {
                 clearLeavingForOwnMusic();
                 console.warn("Could not leave the live session:", error);
-                tell("Live session", "Couldn't leave the session.");
+                tell("Couldn't leave the session.");
                 return;
             }
             await playOwn();
@@ -343,7 +357,7 @@ export function useSessionSink(
         };
         // the commands read everything else from `latest` at call time
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hostSpeaker, local, role, session?.session_id]);
+    }, [hostSpeaker, local, role, session?.session_id, showToast]);
 
     usePlaybackSink(sink);
 }

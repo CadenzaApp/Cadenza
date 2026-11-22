@@ -59,6 +59,7 @@ import {
 import { MusicListArrangeButton } from "./music-list-arrange-sheet";
 import {
     GROUP_WINDOW,
+    createTagReadWindow,
     groupsToGrow,
     sectionRows,
     tagIdsToRead,
@@ -157,10 +158,6 @@ const WINDOW_VIEWABILITY = {
 const INITIAL_TAG_ROWS = 30;
 const NO_GROUP_LIMITS: ReadonlyMap<string, number> = new Map();
 const NO_SONG_IDS: readonly string[] = [];
-const NO_READ_TAG_IDS: {
-    ids: readonly string[];
-    set: ReadonlySet<string>;
-} = { ids: [], set: new Set() };
 
 function songIdOf(track: MusicItem) {
     return track.catalogId ?? track.id;
@@ -339,22 +336,19 @@ export function MusicList({
     // a long list or a big group never asks for hundreds at once (suggested
     // tags are written by an LLM the first time a song is asked about). what
     // has been read stays read, so scrolling back never drops a row's tags
-    const [readTagIds, setReadTagIds] = useState(NO_READ_TAG_IDS);
+    const [tagReadWindow] = useState(createTagReadWindow);
     const selectedTracks = selection.selectedTracks;
     const taggableIds = useMemo(() => {
         if (!tagsEnabled) return NO_SONG_IDS;
         // before the list reports what is on screen, the first rows
-        const base =
-            readTagIds.ids.length > 0
-                ? readTagIds.ids
-                : displayedTracks.slice(0, INITIAL_TAG_ROWS).map(songIdOf);
+        const base = displayedTracks.slice(0, INITIAL_TAG_ROWS).map(songIdOf);
         // the selection toolbar reads the selected songs' tags
         const known = new Set(base);
         const selected = selectedTracks
             .map(songIdOf)
             .filter((songId) => !known.has(songId));
         return selected.length > 0 ? [...base, ...selected] : base;
-    }, [displayedTracks, readTagIds, selectedTracks, tagsEnabled]);
+    }, [displayedTracks, selectedTracks, tagsEnabled]);
 
     // the rows on screen, from the list. a ref, since it is only read when
     // the windows below are moved
@@ -392,24 +386,15 @@ export function MusicList({
                     rows,
                     first,
                     last,
-                    readTagIds.set,
+                    tagReadWindow.snapshot().set,
                     songIdOf,
                 );
                 if (ids && ids.length > 0) {
-                    setReadTagIds((previous) => {
-                        const added = ids.filter(
-                            (songId) => !previous.set.has(songId),
-                        );
-                        if (added.length === 0) return previous;
-                        return {
-                            ids: [...previous.ids, ...added],
-                            set: new Set([...previous.set, ...added]),
-                        };
-                    });
+                    tagReadWindow.include(ids);
                 }
             }
         },
-        [limitOf, readTagIds.set, rows, sectionCounts, sections, tagsEnabled],
+        [limitOf, tagReadWindow, rows, sectionCounts, sections, tagsEnabled],
     );
     const onWindowItemsChanged = useCallback(
         ({ viewableItems }: { viewableItems: ViewToken[] }) => {
@@ -855,6 +840,7 @@ export function MusicList({
             <RowTagSource
                 store={rowTagStore}
                 songIds={taggableIds}
+                readWindow={tagReadWindow}
                 loadTags={localTagsEnabled}
                 loadSuggested={defaultTagsEnabled}
                 showTags={showTags}

@@ -13,6 +13,9 @@ nothing that comes back is persisted.
 | file | role |
 | --- | --- |
 | `src/main.rs` | Builds `AppState`, starts the python model process, spawns the background jobs, nests the routers, binds the listener. |
+| `src/operation_budget.rs` | HTTP response deadlines and shared async time-limit helper. |
+| `src/lifecycle.rs` | Local health probes, tracked background work, and bounded shutdown. |
+| `src/metrics.rs` | Private Prometheus listener, bounded operation labels, timings and admission metrics. |
 | `src/auth.rs` | `SupabaseClaims` and `new_jwt_decoder()`, which fetches Supabase's JWKS once at startup. |
 | `src/err.rs` | `CadenzaError` and its status code / JSON body mapping. |
 | `src/routes/` | HTTP handlers. See [src/routes/README.md](src/routes/README.md). |
@@ -22,13 +25,77 @@ nothing that comes back is persisted.
 | `sql/` | The DDL for tables added by hand, so a fresh database can be stood up. Not a migration runner; see Schema changes. |
 | `certs/readme.md` | Leftover self-signed cert steps. No longer needed, the server is plain HTTP. |
 
+## Public-access limits
+
+`admission.rs` bounds API work to 64 active requests before JWT verification.
+WebSocket upgrades use separate bounded admission and first-message JWT authentication;
+see the Realtime section in the services README. Health probes bypass admission. Authenticated users get 600 requests per minute;
+tag suggestions and default-tag fetches also consume a paid-request allowance.
+Fixed windows start with the first request, not midnight. All counters reset on
+restart/replacement. The user map expires inactive IDs after 24 hours and caps
+at 10,000 entries; it rejects new IDs rather than evicting active quotas.
+
+| Environment setting | Default |
+| --- | ---: |
+| `API_REQUESTS_PER_USER_MINUTE` | 600 |
+| `TAG_REQUESTS_PER_USER_MINUTE` | 30 |
+| `TAG_REQUESTS_PER_USER_DAY` | 1000 |
+| `TAG_PROVIDER_CALLS_PER_DAY` | 7000 |
+| `TAG_PROVIDER_CONCURRENCY` | 2 |
+
+Values must be positive integers no larger than 1,000,000. Change deployment
+values in `deploy/release.env.example` and restart through normal release tooling.
+The per-user paid allowance counts attempted endpoint requests, even on cache
+hits or validation failure. The global allowance counts actual attempted OpenAI
+calls, including chunks, failed calls and background jobs. Calls have a 4096
+output-token cap. These controls are not a durable dollar budget. Cancellation
+can release local HTTP concurrency before a remote provider finishes processing.
+Admission failures return 429 (quota) or 503 (capacity). Client error bodies and
+request-log reasons omit raw database/upstream messages. Invite paths are redacted.
+
+Interest updates allow at most 100 entries with nonblank names up to 200
+characters and finite deltas. Deserialized query trees allow 256 nodes and 16
+levels, including saved queries. Existing body, post and song-batch limits remain.
+See the ML README for inference admission. Signup remains unchanged; public
+exposure still requires account-isolation and Supabase permission review.
+
+## Operational metrics
+
+Set `METRICS_BIND_ADDR=127.0.0.1:9091` to serve Prometheus text at `/metrics`
+on a separate listener. It is disabled when unset. Deployment Compose uses
+`0.0.0.0:9091` inside Docker without publishing that port on the host. Never
+route the metrics listener through the public ALB or CloudFront. The public
+API router does not mount `/metrics`.
+
+HTTP counters and histograms use method, route template and status labels.
+Unknown paths share `unmatched`; unknown methods share `OTHER`. No IDs, IPs,
+query strings, credentials or bodies enter labels. Timings include auth,
+admission, queueing and handler work until response headers, not client network
+latency or streaming-body completion. Dropped request futures use status
+`cancelled` and release the in-flight gauge. Histograms can be aggregated across
+instances before calculating p50/p95/p99; do not average instance percentiles.
+The duration histogram has a constant `histogram_schema="3"` label so the current
+bucket layout is never combined with incompatible historical bucket sets.
+Dashboard latency queries select that schema; duration history begins at its
+rollout, while HTTP call counts retain their earlier history.
+
+Admission metrics report refusals, provider-call attempts (including background
+work/failures), held provider permits, current provider-window usage and effective
+limits. Scrapes do not consume or extend quotas. Provider windows start on first
+use, expire after 24 hours and reset on process restart. They are not calendar-day
+or dollar-spending counters. These metrics do not yet expose Python queue depth
+or individual database/provider spans.
+
+Portable scrape and dashboard configuration is in
+[../deploy/monitoring/](../deploy/monitoring/README.md).
+
 ## How it works
 
 `main.rs` loads `.env`, opens the db connection, builds the JWKS decoder, starts the python
 model process, constructs the tag generation service, and packs the request-facing pieces into
 `AppState`. It also spawns the background jobs, none of which is in `AppState` because
-nothing serving a request talks to them. The model child is held in `main` until the listener
-exits, then killed.
+nothing serving a request talks to them directly. A shared background-task tracker is in
+`AppState`. The model child stays alive through request draining and is then reaped.
 `AppState` derives `FromRef`, so a handler can extract just the piece it needs:
 
 ```rust
@@ -36,7 +103,7 @@ State(db): State<DatabaseConnection>
 State(tag_gen_service): State<TagGenerationService>
 ```
 
-Seven routers get nested, plus a health route:
+Resource routers get nested alongside health routes:
 
 ```
 /tags       get_tags_router()
@@ -46,12 +113,17 @@ Seven routers get nested, plus a health route:
 /social     get_social_router()
 /events     get_events_router()
 /analytics  get_analytics_router()
+/saved-queries get_saved_queries_router()
+/settings   get_settings_router()
+
 /listening  get_listening_router()
 /invites    get_invites_router()
 /shared-playlists  get_shared_playlists_router()
 /live-sessions     get_live_sessions_router()
 /realtime   get_realtime_router()    the WebSocket, see services/README.md
 /test       returns "server is reachable"
+/health/live  returns {"status":"alive"}
+/health/ready returns {"status":"ready"} or 503
 ```
 
 `AppState` also holds `event_bus` (the realtime hub, an `InMemoryBus`, one backend instance
@@ -99,6 +171,7 @@ that shape.
 | `OPENAI_API_KEY` | yes | Read by `OpenAiTagGenerator::new()` and `OpenAiAssistantModel::new()`, which panic at startup if missing, even if you never call tag suggestion or the assistant. |
 | `APPLE_MUSIC_DEVELOPER_TOKEN` | yes | A signed MusicKit developer token, used by `SongMetadataService` to read the song titles default tag generation runs on, and the metadata queries filter on. Read by `SongMetadataService::new()`, which panics at startup if missing. Apple caps the token at 6 months and nothing here refreshes it. |
 | `APPLE_MUSIC_STOREFRONT` | no | Two letter storefront for catalog lookups, e.g. `gb`. Defaults to `us`. A song not released in that storefront reads as missing. |
+| `METRICS_BIND_ADDR` | no | Separate private metrics listener, e.g. `127.0.0.1:9091`. Disabled when unset. Never publish it to the internet. |
 | `BIND_ADDR` | no | Defaults to `127.0.0.1:3000`, which is loopback only. Set `0.0.0.0:3000` to accept connections from a phone or another machine on the LAN. Panics if it does not parse as `host:port`. |
 | `DB_MAX_CONNECTIONS` | no | Connections this process may open. Defaults to 5, so three backends fit in the pooler's 15. Zero and unparseable values fall back to the default. |
 | `DB_QUEUE_TIMEOUT_SECS` | no | Longest a request waits for a free connection before a 503 `DatabaseBusy`. Defaults to 10. Zero and unparseable values fall back to the default. |
@@ -109,7 +182,60 @@ that shape.
 | `METADATA_CRAWL_ALBUM_BATCH_SIZE` | no | Albums one pass crawls, in one Apple request. Defaults to 20, clamped to 1..=100, Apple's cap on album ids per request. |
 | `METADATA_CRAWL_LIBRARY_BATCH_SIZE` | no | Library songs without metadata the library walk stores each interval, newest additions first. Defaults to 300, capped at 1500. `0` turns the library walk off and leaves only the album queue. |
 | `METADATA_CRAWL_INTERVAL_SECS` | no | Seconds between passes when nothing wakes the crawl. Defaults to 60. A queued album does not wait for it: opening a song wakes the crawl. Zero and unparseable values fall back to the default. A pass Apple rate limited waits a fixed 300 seconds instead. |
+| `EXPO_ACCESS_TOKEN` | no | Expo access token sent with every push, only needed once enhanced push security is on for the Expo project. Pushes go out without one otherwise. |
 | `SOCIAL_FEED_URL` | no | Base url of the python embedding service (`POST /embedding`, `POST /posts/similarities`). Defaults to `http://localhost:3001`. A trailing slash is trimmed. `main.rs` starts that process on `127.0.0.1:3001`. The service has no auth, so this must stay on a private address. |
+
+The Python child also requires `HF_TOKEN` and `MODEL_REVISION`. For local use,
+set them in `ml-service/.env`; see [ml-service/README.md](ml-service/README.md).
+`MODEL_REVISION` is the model's full Hugging Face commit SHA, not this repo's Git SHA.
+The backend's `.env` file is optional when credentials are already present in
+the process environment, as they are in the deployment container.
+
+### Deployment
+
+[../deploy/README.md](../deploy/README.md) contains the local build commands and
+verification status. The ARM64 image keeps Rust and its Python child together.
+Rust is compiled at `/app/backend-api`, and Python's venv is installed at
+`/app/backend-api/ml-service/.venv`, matching the launcher's compiled path.
+CloudFront provides HTTPS through a private internal ALB origin. The ALB targets
+one ASG-managed backend and checks local Rust/model readiness every 10 seconds.
+Docker maps host port 80 to Axum port 3000; EC2 ingress permits only the ALB.
+The combined health check uses `/health/ready`: Rust must respond and the local
+Python service must acknowledge its loaded model within two seconds. It excludes
+ongoing Supabase, OpenAI, and Apple availability. `/health/live` only checks Rust
+HTTP responsiveness; `/test` remains a reachability check. Verify real inference
+and database operations separately. A failed model child requires a
+whole-backend restart; health checks alone do not restart an unhealthy container.
+
+### Request budgets
+
+Business handlers have a 50-second response deadline, leaving margin below the
+current 60-second CloudFront origin timeout. Timeout returns generic JSON 504
+`OperationTimeout`. Health routes have their own short checks and bypass this
+business-request deadline. Tag generation has a separate 40-second limit across
+all sequential chunks, rather than 60 seconds per chunk accumulating indefinitely.
+
+A timeout does not undo completed writes or cancel work already sent to a provider.
+Tracked detached follow-up work can outlive the requesting HTTP response, as with
+a disconnected client. Do not automatically retry a timed-out mutation without
+checking its outcome. The single-instance deployment retains existing claim
+recovery; no claim-ownership schema change is planned.
+
+### Shutdown
+
+SIGTERM or Ctrl-C marks the application draining and stops periodic jobs from
+starting another pass. New operations on existing connections receive 503; accepted
+HTTP requests and tracked follow-up work share a 120-second deadline. Unfinished
+work is cancelled at that deadline. Model-child reaping and database-pool closure
+have another bounded 15 seconds; Docker allows 150 seconds before SIGKILL.
+Forced cancellation can leave claims for startup recovery. Run exactly one backend
+against this database; replacement must stop the old process before starting the new.
+
+Targeted lifecycle tests need no database or real model:
+
+```sh
+cargo test --locked lifecycle_
+```
 
 ### Database connections
 
@@ -187,6 +313,10 @@ sea-orm-cli generate entity -o ./src/db/entity --entity-format compact \
   --enum-extra-derives 'Copy,Hash,serde::Serialize,serde::Deserialize' \
   --enum-extra-attributes 'serde(rename_all = "snake_case")'
 ```
+
+Generate into a scratch folder first and diff it against `src/db/entity/`, so a hand edit or
+schema drift does not land unnoticed. Enums come out as `rs_type = "Enum"`, so `to_value()` on
+one is a `sea_query::Enum`, not a `String`; read the text with `.to_value().value`.
 
 Write the DDL so it can be run twice (`create table if not exists`, `create index if not exists`),
 and keep it additive. Supabase turns row level security **on** for every new table, and nothing

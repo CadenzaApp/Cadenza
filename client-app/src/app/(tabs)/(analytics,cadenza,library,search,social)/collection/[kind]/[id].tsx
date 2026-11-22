@@ -1,3 +1,7 @@
+import {
+    collectionSummary,
+    collectionHeaderMetadata,
+} from "@/components/custom/track-collection-utils";
 import { ShuffleMode, type MusicItem } from "@apple-musickit";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
@@ -15,6 +19,7 @@ import { Text } from "@/components/ui/text";
 import { useArtworkTint } from "@/lib/artwork-color";
 import {
     indexTracksById,
+    useCollectionInfo,
     useCollectionSongsOrFallback,
 } from "@/lib/musickit-hooks";
 import { isTrackInCollection } from "@/lib/playable-item";
@@ -76,6 +81,17 @@ export default function CollectionDetailScreen() {
         tracksErr,
     } = useCollectionSongsOrFallback(kind, routeId, fallbackId);
     const firstTrack = tracks[0];
+    const { collection } = useCollectionInfo(
+        kind,
+        kind === "playlist" && !artistName ? id : undefined,
+    );
+
+    const headerMetadata = collectionHeaderMetadata(
+        kind,
+        artistName,
+        collection,
+        firstTrack,
+    );
 
     // sorted or grouped, the backend orders the whole collection, so every page
     // has to be in before it can be asked. the pages load either way
@@ -140,10 +156,7 @@ export default function CollectionDetailScreen() {
     });
     // Only once every page is in. A count off a half-loaded list is a wrong
     // number, which is worse than no number.
-    const summary =
-        tracksLoading || hasNextCollectionPage
-            ? undefined
-            : collectionSummary(tracks);
+    const summary = everyPageIn ? collectionSummary(tracks) : undefined;
 
     /** Plays the collection from the top, replacing the queue. */
     async function play() {
@@ -210,8 +223,12 @@ export default function CollectionDetailScreen() {
                     ) : null
                 }
                 multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
-                subtitle={artistName ?? firstTrack?.artistName}
-                summary={collectionMeta(firstTrack)}
+                subtitle={headerMetadata.subtitle}
+                subtitleClassName={
+                    kind === "album" ? "text-xl text-foreground" : "text-lg"
+                }
+                summary={headerMetadata.summary ?? ""}
+                trackSummary={summary}
                 backgroundColor={tint}
                 artworkUrls={[
                     artworkUrlLarge ??
@@ -235,13 +252,6 @@ export default function CollectionDetailScreen() {
                     },
                 ]}
                 backControl={<FloatingBackButton size={HERO_BUTTON_SIZE} />}
-                footer={
-                    summary ? (
-                        <Text className="px-6 pb-2 pt-5 text-center text-sm text-muted-foreground">
-                            {summary}
-                        </Text>
-                    ) : null
-                }
             />
 
             {optionsOpen ? (
@@ -279,45 +289,4 @@ function WaitingToSort({ loadedCount }: { loadedCount: number }) {
             </Text>
         </View>
     );
-}
-
-/**
- * Genre and year, the line Music puts under the artist. Read off a track
- * because the collection itself is only ever fetched as its songs, and every
- * song on an album carries the album's genre and release date.
- */
-function collectionMeta(track?: MusicItem) {
-    const genre = track?.genres?.[0];
-    const year = track?.releaseDate
-        ? new Date(track.releaseDate).getFullYear()
-        : undefined;
-    return [genre, year].filter(Boolean).join(" · ") || undefined;
-}
-
-/**
- * Song count and running time, the line Music puts under the last row. Reads
- * whatever durations are there: a song missing one adds nothing to the total
- * rather than voiding it.
- */
-function collectionSummary(tracks: MusicItem[]) {
-    if (tracks.length === 0) return undefined;
-
-    const songs = `${tracks.length} ${tracks.length === 1 ? "song" : "songs"}`;
-    const seconds = tracks.reduce(
-        (total, track) => total + (track.songDuration ?? 0),
-        0,
-    );
-    if (seconds <= 0) return songs;
-
-    const minutes = Math.round(seconds / 60);
-    if (minutes < 60) {
-        return `${songs}, ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
-    }
-
-    const hours = Math.floor(minutes / 60);
-    const rest = minutes % 60;
-    const hourText = `${hours} ${hours === 1 ? "hour" : "hours"}`;
-    return rest === 0
-        ? `${songs}, ${hourText}`
-        : `${songs}, ${hourText} ${rest} ${rest === 1 ? "minute" : "minutes"}`;
 }

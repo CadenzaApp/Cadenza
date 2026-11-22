@@ -78,12 +78,24 @@ needs device verification; no test harness simulates UIKit's material or hit tes
 `app/player/_layout.tsx` presents the sheet and its route slot. `/player`, `/player/discuss`, and
 `/player/tags` each render the same `PlayerPager`, which mounts Discuss, Player, and Tags side by
 side inside one horizontal paging `ScrollView`. The route selects Player, Discuss, or Tags.
-Swipes expose the adjacent live page under the finger, and the selection pill follows the scroll
-position continuously, stretching between tabs. The bar copies iOS 26's native tab bar
-(`player-bar.tsx`): its size, margins, a pill darker than the glass, SF Symbols, and label type, with the
-accent on the selected tab. Icons are drawn at a set point size through a `pointSize` prop that
-`patches/expo-symbols+58.0.4.patch` adds; rebuild iOS after changing the patch. It cannot be the native bar: native tabs do not page by swipe, and in a live session the bar
-holds session buttons instead of tabs. The pager's `contentOffset` is set once. Changing it later
+Swipes expose the adjacent live page under the finger. The app-owned glass tab bar in
+`player-bar.tsx` uses the same symbols and proportions as the primary native navigation.
+Its selection pill follows page swipes. Icon taps animate to their tab. A horizontal swipe
+anywhere on the bar centers the pill on the finger's absolute x position, clamped at the ends.
+Swipes starting outside the pill animate their initial catch-up. Press-down alone does not
+move or select anything, so ordinary icon taps retain their button behavior.
+`PlayerTabIcons` in `player-bar.tsx` uses complementary animated alpha masks: filled accent glyphs inside
+the pill and neutral outline glyphs outside it, even when an icon is only partly covered. Canceled drags return
+to the selected tab. The detector wraps a non-flattened hit surface matching the animated selection pill. It holds the
+iOS sheet still until the touch ends. Taps and accessibility actions still select tabs normally. Live sessions
+replace the tabs with the session's controls.
+
+Song titles show two lines before a trailing ellipsis. `track-title.tsx` measures the full
+text at the displayed width; only an overflowing title opens a small full-title popup on tap.
+The heading resets this state when its track or title changes, including in the queue view.
+`player-interactions.test.cjs` exercises the actual compiled bar callbacks and title popup.
+
+The pager's `contentOffset` is set once. Changing it later
 jumps UIKit's scroll view without animating. The three page instances stay mounted for the sheet's lifetime. Tags and Discuss do not
 start their network reads merely because their page shells are mounted. The pager enables a page's
 reads the first time that page is selected, then leaves them enabled so revisiting it is instant.
@@ -103,11 +115,15 @@ Tags show a placeholder), since the session's controls live here. Outside one it
 playback stops.
 
 `PlayerScopeProvider` resolves a `focusedSong` (id, title, artwork) from `usePlayback()`'s
-`activeTrack` or the route's `tagsSongId` / `tagsSongTitle` / `tagsArtworkUrl` /
+`activeTrack` or the route's `tagsSongId` / `tagsSongTitle` / `tagsArtistName` / `tagsArtworkUrl` /
 `tagsArtworkColor` params and shares it across the three pages.
 
+The Tags page heads its editor with the song title (two lines, then ellipsis) and artist.
+Its Your Tags panel reserves one additional tag-row height. A pinned target without an artist
+uses the shared MusicKit metadata read to resolve it.
+
 Only `PlayerPage` touches playback. `TagsPage` and `DiscussPage` take `focusedSong` and never read
-`usePlayback()`. Discuss lists posts whose topic is that song, most liked first, ten at a time. Its compose
+`usePlayback()`. Discuss lists posts whose topic is that song and that have an author, most liked first, ten at a time. Its compose
 dialog is the media tab's new-post dialog with the topic locked to that song. Tapping an author closes this sheet, or the standalone `/discuss/:songId` screen, and opens that person's profile on the Social tab. `DetailScreen` hands the sampled artwork color to the same mode-aware Oklch
 gradient hook as `TrackCollectionView`, then paints those stops once behind the header and the
 transparent pager, so there is no second gradient boundary below the title. The pager is the gesture surface;
@@ -153,6 +169,10 @@ The artist name opens the artist; artwork opens View artwork and Go to album act
 viewer supports close/native back. Opening an artist or album closes this sheet and pushes the page
 in the tab underneath, through `useOpenScreen`'s `closing: "player"`. The song menu shares these caches.
 
+Spotlight links pass a song to the sheet for immediate browsing without autoplay.
+Its Play button starts that song; seek, skip, and queue controls do not affect
+another song playing underneath. Once the selected song starts, the sheet follows playback.
+
 Queue positions are converted in exactly one place. `queue-view.tsx` works in upcoming-list
 positions, because the playing song is its heading rather than a row; `usePlayback()` works in
 whole-queue positions, because that is what native takes. `queuePositionOf` in `player-page.tsx`
@@ -174,8 +194,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 - `@/lib/playback::usePlayback` for all transport.
 - `@/features/live-session` for the LIVE line, `LiveButton`, and `LiveSessionBar`.
 - `@/features/social` (`PostCard`, `CreatePostDialog`) and `@/lib/routes/social`
-  (`useTopicPosts`, `useCreatePost`) for Discuss. A post there has `topic_mk_id` set to the
-  focused song.
+  (`useTopicPosts`, `useCreatePost`) for Discuss. A post there has an author and
+  `topic_mk_id` set to the focused song.
 - `@/lib/musickit-hooks::useSongFavoriteStatus` for the heading/queue heart.
 - `@/lib/screen-overlay` for the shared visibility rules and fallback clearance.
 - `@/components/custom/reorderable-list::ReorderableList` for the up-next list.

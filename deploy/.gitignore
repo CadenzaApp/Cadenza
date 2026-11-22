@@ -1,0 +1,9 @@
+secrets/
+release.env
+build.env
+*-resources.jsonl
+
+
+# Optional local probe/security reports. Keep one consolidated current check.
+recovery/verification.*
+!recovery/verification.release.json

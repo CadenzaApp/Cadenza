@@ -1,7 +1,6 @@
 import { PlaybackQueueType, type MusicItem } from "@apple-musickit";
-import { useMemo } from "react";
 
-import { useArtist, useSongInfo } from "@/lib/musickit-hooks";
+import { useMusicTopic } from "@/lib/musickit-hooks";
 import type { PostTopic } from "@/lib/types";
 
 /** The title a topic card shows: song title, or the artist's name. */
@@ -48,6 +47,7 @@ export function topicFromSong(song: MusicItem): PostTopic {
         title: song.title,
         artistName: song.artistName,
         artworkUrl: song.artworkUrl,
+        artworkUrlLarge: song.artworkUrlLarge,
         artworkColor: song.artworkColor,
         catalogId: song.catalogId,
         playbackId: song.playbackId,
@@ -62,6 +62,7 @@ export function topicFromArtist(artist: {
     artworkUrl?: string;
     artworkColor?: string;
     catalogId?: string;
+    editorialNote?: string;
 }): PostTopic {
     return {
         kind: "artist",
@@ -70,6 +71,7 @@ export function topicFromArtist(artist: {
         artworkUrl: artist.artworkUrl,
         artworkColor: artist.artworkColor,
         catalogId: artist.catalogId ?? artist.id,
+        editorialNote: artist.editorialNote,
     };
 }
 
@@ -102,27 +104,18 @@ export function musicItemFromSongTopic(
 export function useResolvedTopic(
     topicMkId?: string | null,
     hint?: PostTopic | null,
-): PostTopic | null {
+) {
     const id = topicMkId?.trim() || null;
-    const { songInfo, songInfoLoading, songInfoErr } = useSongInfo(
-        id && !hint ? [id] : null,
-    );
-    const song = useMemo(() => {
-        if (!id) return undefined;
-        return songInfo.find((item) => item.id === id || item.catalogId === id);
-    }, [id, songInfo]);
-    const tryArtist =
-        Boolean(id) &&
-        !hint &&
-        !song &&
-        !songInfoLoading &&
-        songInfoErr == null;
-    const { artist } = useArtist(id && tryArtist ? id : undefined);
-
-    if (hint) return hint;
-    if (song) return topicFromSong(song);
-    if (artist) return topicFromArtist(artist);
-    return null;
+    const { resolvedTopic, ...state } = useMusicTopic(id ?? undefined, !hint);
+    const topic = resolvedTopic
+        ? resolvedTopic.kind === "song"
+            ? topicFromSong(resolvedTopic.item)
+            : topicFromArtist(resolvedTopic.item)
+        : null;
+    return {
+        ...state,
+        topic: hint ?? topic,
+    };
 }
 
 /** The activity line under a post's author: what it shared, or nothing. */
