@@ -447,9 +447,11 @@ append each call and its output, and repeat until the model answers with text. I
   comes from), a title-only match must name it in its album or artist, so an unrelated song
   that shares a title stays off the card. A failed search is `lookup_failed`, not
   `not_found`. With
-  `count` (how many the user asked for) the model names about half again as many, best first;
+  `count` (how many the user asked for) the model names about two and a half times as many (up to 64), best first;
   the search stops once it has `count` usable songs and keeps the first `count`, and
-  `short_by` says how many it could not find. The card note states exactly how many songs the
+  `short_by` says how many it could not find. `count` is what the user asked for, even past
+  25; a card keeps at most 25, and `outcome` (`all`, `card_limit`, `short`) tells the reply to
+  say either that 25 is the most one list holds or that it is the most Apple Music had. The card note states exactly how many songs the
   card holds, so the reply's count matches it. Every lookup is
   logged as `[assistant] find_songs "<term>"` with what it matched or what Apple returned. The found songs' metadata is stored in the background
   (`spawn_store_song_metadata`) so follow-up questions and queries know them.

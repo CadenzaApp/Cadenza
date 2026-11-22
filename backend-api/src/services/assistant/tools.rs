@@ -109,7 +109,7 @@ pub trait ToolRunner: Send + Sync {
 }
 
 /// The most songs `find_songs` looks up in one call.
-const MAX_FOUND_SONGS: usize = 40;
+const MAX_FOUND_SONGS: usize = 64;
 /// The most songs `find_songs` hands back: the card's share of a request, after extras
 /// named to make up for misses are trimmed off.
 const MAX_FIND_COUNT: usize = 25;
@@ -518,12 +518,26 @@ const MAX_ALBUMS: usize = 5;
 /// How many artists `find_artist` hands back.
 const MAX_ARTISTS: usize = 5;
 
+/// How a `find_songs` reply explains its count: `"all"` when it found every song asked for,
+/// `"card_limit"` when it filled a card but the user asked for more than one card holds,
+/// and `"short"` when Apple Music had fewer than the card could have held.
+fn find_outcome(asked_for: usize, found: usize) -> &'static str {
+    if found >= asked_for {
+        "all"
+    } else if found >= MAX_FIND_COUNT {
+        "card_limit"
+    } else {
+        "short"
+    }
+}
+
 #[derive(Deserialize)]
 struct FindSongsArgs {
     songs: Vec<WantedSong>,
-    /// How many songs the user asked for. The model names more than this, best first, so
-    /// misses can be made up; the search stops once it has this many and keeps the first
-    /// this many. Left out, every song found is kept.
+    /// How many songs the user asked for, even past [`MAX_FIND_COUNT`]. The model names
+    /// more than this, best first, so misses can be made up; the search stops once it has
+    /// this many (at most [`MAX_FIND_COUNT`]) and keeps the first this many. Left out,
+    /// every song found is kept.
     #[serde(default)]
     count: Option<usize>,
     /// The game, film, show, or artist the songs come from, when they all do, like
@@ -1209,7 +1223,8 @@ impl DbTools<'_> {
                 "songs needs at least one {title, artist}".to_owned(),
             ));
         }
-        let count = args.count.map(|count| count.clamp(1, MAX_FIND_COUNT));
+        let asked_for = args.count.map(|count| count.max(1));
+        let count = asked_for.map(|count| count.min(MAX_FIND_COUNT));
 
         // a few at a time, in order
         let mut lookups: Vec<Lookup> = Vec::with_capacity(wanted.len());
@@ -1312,8 +1327,12 @@ impl DbTools<'_> {
         let mut outcome = ToolOutcome::ok(
             json!({
                 "found": described.len(),
-                "asked_for": count,
-                // asked for more than Apple Music had: say so, with both numbers
+                "asked_for": asked_for,
+                "most_per_card": MAX_FIND_COUNT,
+                // how the reply explains the count: every song asked for, the most one card
+                // holds, or the most Apple Music had
+                "outcome": asked_for.map(|asked_for| find_outcome(asked_for, found.len())),
+                // short of what the card could hold: worth one more call with new songs
                 "short_by": short_by,
                 // found by title, but Apple credits these to another artist: often the only
                 // version Apple Music has, like covers of music its owner keeps off it
@@ -1868,11 +1887,11 @@ pub fn definitions() -> Vec<Value> {
                     },
                     "count": {
                         "type": "integer",
-                        "description": "How many songs the user asked for, 1 to 25. Leave out when they gave no number."
+                        "description": "How many songs the user asked for, as they said it, even past 25. One card holds at most 25, so find_songs keeps at most 25. Leave out when they gave no number."
                     },
                     "songs": {
                         "type": "array",
-                        "description": "Best first, in the order to show them, up to 40. When count is set, name about half again as many (15 for 10, 8 for 5, at least 3 extra), so misses are made up: the search stops once it has count songs and keeps the first count.",
+                        "description": "Best first, in the order to show them, up to 64. When count is set, name about two and a half times as many (25 for 10, 13 for 5, 63 for 25, at least 5 extra), so misses are made up: the search stops once it has count songs and keeps the first count.",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -1908,6 +1927,15 @@ pub fn definitions() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn find_songs_says_whether_the_card_or_apple_music_ran_out() {
+        assert_eq!(find_outcome(10, 10), "all");
+        assert_eq!(find_outcome(100, MAX_FIND_COUNT), "card_limit");
+        assert_eq!(find_outcome(100, 15), "short");
+        assert_eq!(find_outcome(10, 7), "short");
+        assert_eq!(find_outcome(MAX_FIND_COUNT, MAX_FIND_COUNT), "all");
+    }
 
     #[test]
     fn queries_search_everything_unless_asked_for_mine() {
