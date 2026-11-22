@@ -64,6 +64,8 @@ const COMPOSER_CLEARANCE = 18;
 const EDGE_BLUR_FADE = 36;
 /** How long a new message takes to rise into place. */
 const ENTER_MS = 280;
+/** How close to the end of the list still counts as reading the newest message. */
+const PINNED_SLOP = 24;
 
 /**
  * The assistant sheet: the conversation, newest at the bottom, and a field to
@@ -137,6 +139,20 @@ export function AssistantChat() {
         keyboardOverlap > 0
             ? keyboardOverlap + COMPOSER_BOTTOM_GAP
             : Math.max(insets.bottom, 12) + COMPOSER_BOTTOM_GAP;
+    // What the list shows, in a few fields. A change is something new at the
+    // end, which the list scrolls to wherever the user is.
+    const contentKey = `${entries.length}|${sending}|${confirmation ? 1 : 0}|${error ?? ""}`;
+    const scrolledFor = useRef<string | null>(null);
+    // Content that grows for any other reason (a card's rows loading, a steps
+    // list opening) keeps the list at its end only if it was already there,
+    // so a tap on an older message does not throw the user to the bottom.
+    // `hiddenBelow` is from the last scroll, before this growth.
+    const onContentSizeChange = () => {
+        const somethingNew = scrolledFor.current !== contentKey;
+        if (!somethingNew && hiddenBelow.get() > PINNED_SLOP) return;
+        scrolledFor.current = contentKey;
+        scrollRef.current?.scrollToEnd({ animated: true });
+    };
     const enter = (id: string) =>
         shownAtOpen.has(id) ? undefined : FadeInDown.duration(ENTER_MS);
 
@@ -196,9 +212,7 @@ export function AssistantChat() {
                     // drags to. It scrolls first, and once it is at the top
                     // (or too short to scroll) the drag moves the sheet.
                     nestedScrollEnabled
-                    onContentSizeChange={() =>
-                        scrollRef.current?.scrollToEnd({ animated: true })
-                    }
+                    onContentSizeChange={onContentSizeChange}
                 >
                     {entries.length === 0 && !sending ? (
                         <EmptyChat onPick={submit} />

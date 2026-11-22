@@ -75,7 +75,9 @@ Assistant section of [backend-api/src/services/README.md](../../../../backend-ap
 - While an answer is coming, the send button shows Stop, which does nothing yet.
 - The composer floats over the list, so the list pads its bottom by the composer's measured
   height. The blur under the composer (iOS only) shows only while some of the list is below the
-  bottom edge. Messages rise in only when they arrive with the sheet open, not on reopening.
+  bottom edge. Messages rise in only when they arrive with the sheet open, not on reopening. Anything new at
+  the end scrolls the list there; other growth (a card's rows loading, a steps list opening) keeps
+  it at the end only if it already was, so a tap on an older message leaves the list where it is.
 
 - The button uses white sparkles on glass, independent of the account accent. It lives in the shared bottom row, drawn by `media-player-host.tsx`, so it is on every
   screen inside the tabs while the bottom bars show, track or not. It is always the rightmost

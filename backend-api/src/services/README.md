@@ -27,6 +27,7 @@ in-app notification for a user, and the definitions the listening analytics are 
 | `assistant/mod.rs`                       | `AssistantService` (the model plus the per-user request limit), `answer`, and `run_loop` with its `LoopState`: the in-app assistant's tool loop, which stops at a phone tool and picks up again from a `resume`. Unit tested with a scripted model. |
 | `assistant/builder.rs` | `fits_simple` and `builder_for`: which query builder on the phone can hold a query, the simple one when it can and the advanced one otherwise. Tested against `assistant/builder_fixtures.json`, which the phone's `QueryImport.test.ts` reads too, so both agree. |
 | `assistant/card_edit.rs` | `edit_card`: adds and removes songs on the latest card (or this answer's) instead of replacing it, from ids tools returned. Run by the loop. Unit tested. |
+| `assistant/find_guard.rs` | Memory first, then browsing to fill: three searches an answer at most (`find_songs` and `browse_apple_music` together). A `find_songs` retry keeps only found songs, names corrected from `apple_music_has`, and failed lookups; names that missed and new guesses are left out, and a retry with nothing to search is refused. Adds the reason to a reply whose card (the last `find_songs` songs, plus any browsed) is short of what the user asked for. Reads it all from the answer's own calls and outputs. Unit tested. |
 | `assistant/writes.rs` | The write tools (`apply_tag`, `remove_tag`, `create_tag`, `update_tag`, `save_query`, `rename_saved_query`, `undo_action`): their schemas, `Writer::preview` (the confirm card) and `Writer::execute` (the change and its activity log row), both from one `plan`, and `undo`. Unit tested. |
 | `assistant/playlist_writes.rs` | The playlist write tools: `edit_shared_playlist` (add, remove, or move songs in a shared playlist the user edits) and `update_shared_playlist` (rename or redescribe one they own), their plans, confirm cards, logged changes, and undos with conflict checks, each published to the playlist's members. Also `record_apple_music`, which logs the phone's Apple Music playlist adds as not undoable. Unit tested. |
 | `assistant/phone_tools.rs`               | The tools only the phone runs (`now_playing`, `play`, `playback`, `queue_songs`, `set_shuffle`, `set_repeat`, `search_apple_music`, `apple_music_playlists`, `apple_music_playlist_songs`, `apple_music_library`, `favorite_song`, `favorite_collection`, `create_apple_music_playlist`, `add_to_apple_music_playlist`, `open_screen`): their schemas and labels, `songs: "card"` swapped for the card's ids, and a `card` in the phone's output taken out for the answer. The phone side is `client-app/src/features/assistant/phone-tools.ts`. Unit tested. |
@@ -479,7 +480,14 @@ append each call and its output, and repeat until the model answers with text. I
   the search stops once it has `count` usable songs and keeps the first `count`, and
   `short_by` says how many it could not find. `count` is what the user asked for, even past
   25; a card keeps at most 25, and `outcome` (`all`, `card_limit`, `short`) tells the reply to
-  say either that 25 is the most one list holds or that it is the most Apple Music had. The card note states exactly how many songs the
+  say either that 25 is the most one list holds or that it is the most Apple Music had. The
+  output carries that sentence as `tell_the_user`, and `find_guard::explain_shortfall` adds it
+  to the reply when the model left it out (`find_guard`).
+- `browse_apple_music` fills a `find_songs` card that came up short: up to 4 catalog searches
+  (25 results each, run at once), novelty versions and, under Hide explicit, explicit songs
+  left out, the same recording deduped, songs from `from` listed first, at most 60. It makes
+  no card: the model picks what fits and shows it with `edit_card` (`from: "empty"`, the
+  found songs first). Logged as `[assistant] browse_apple_music "<term>"`. The card note states exactly how many songs the
   card holds, so the reply's count matches it. Every lookup is
   logged as `[assistant] find_songs "<term>"` with what it matched or what Apple returned. The found songs' metadata is stored in the background
   (`spawn_store_song_metadata`) so follow-up questions and queries know them.

@@ -112,7 +112,13 @@ pub trait ToolRunner: Send + Sync {
 const MAX_FOUND_SONGS: usize = 64;
 /// The most songs `find_songs` hands back: the card's share of a request, after extras
 /// named to make up for misses are trimmed off.
-const MAX_FIND_COUNT: usize = 25;
+pub(super) const MAX_FIND_COUNT: usize = 25;
+/// The most search terms one `browse_apple_music` call runs.
+const MAX_BROWSE_TERMS: usize = 4;
+/// The catalog results `browse_apple_music` takes for each term, Apple's most per search.
+const BROWSE_PER_TERM: usize = 25;
+/// The most candidates `browse_apple_music` hands the model, to keep its context small.
+const MAX_BROWSE_CANDIDATES: usize = 60;
 /// How many catalog results `find_songs` weighs for each song it looks up.
 const FIND_CANDIDATES: usize = 8;
 /// How many `find_songs` catalog searches run at once. All at once can trip Apple's rate
@@ -177,6 +183,7 @@ impl ToolRunner for DbTools<'_> {
             "list_playlists" => self.list_playlists().await,
             "get_playlist_songs" => self.get_playlist_songs(args).await,
             "find_songs" => self.find_songs(args).await,
+            "browse_apple_music" => self.browse_apple_music(args).await,
             "find_artist" => self.find_artist(args).await,
             "find_album" => self.find_album(args).await,
             "get_album_songs" => self.get_album_songs(args).await,
@@ -272,7 +279,7 @@ fn parse_args<T: for<'de> Deserialize<'de>>(args: Value) -> Result<T, ToolError>
 }
 
 /// The status row for a tool, shown whether or not it worked.
-fn label_for(name: &str) -> &'static str {
+pub(super) fn label_for(name: &str) -> &'static str {
     match name {
         "list_tags" => "Looked up your tags",
         "run_query" => "Ran a query",
@@ -285,6 +292,7 @@ fn label_for(name: &str) -> &'static str {
         "list_playlists" => "Looked up your playlists",
         "get_playlist_songs" => "Looked up a playlist's songs",
         "find_songs" => "Looking for songs on Apple Music",
+        "browse_apple_music" => "Browsing Apple Music",
         "find_artist" => "Looked up an artist on Apple Music",
         "find_album" => "Looked up an album on Apple Music",
         "get_album_songs" => "Looked up an album's songs",
@@ -530,6 +538,15 @@ fn find_outcome(asked_for: usize, found: usize) -> &'static str {
     } else {
         "short"
     }
+}
+
+#[derive(Deserialize)]
+struct BrowseArgs {
+    terms: Vec<String>,
+    /// The game, film, show, or artist the songs should come from, like "Pokémon": its
+    /// songs are listed first.
+    #[serde(default)]
+    from: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1359,6 +1376,128 @@ impl DbTools<'_> {
         Ok(outcome)
     }
 
+    /// Searches the Apple Music catalog for a few terms and hands the model the songs it
+    /// finds, without a card, so it can pick the ones that fit and build the card with
+    /// `edit_card`. What fills a `find_songs` card that came up short: every candidate is
+    /// a song Apple Music has. Covers, karaoke, lofi and other novelty versions are left
+    /// out, and so are explicit songs under Hide explicit.
+    async fn browse_apple_music(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: BrowseArgs = parse_args(args)?;
+        let mut terms: Vec<String> = Vec::new();
+        for term in args.terms.iter().map(|term| term.trim()) {
+            if !term.is_empty() && !terms.iter().any(|seen| seen.eq_ignore_ascii_case(term)) {
+                terms.push(term.to_owned());
+            }
+        }
+        terms.truncate(MAX_BROWSE_TERMS);
+        if terms.is_empty() {
+            return Err(ToolError::Arguments(
+                "terms needs at least one search, like \"pokemon soundtrack\"".to_owned(),
+            ));
+        }
+
+        let mut searches = tokio::task::JoinSet::new();
+        for (index, term) in terms.iter().cloned().enumerate() {
+            let service = self.song_meta.clone();
+            searches.spawn(async move {
+                let found = service.search_songs(&term, BROWSE_PER_TERM).await;
+                let found = if matches!(found, Err(CadenzaError::SongMetadataRateLimited)) {
+                    tokio::time::sleep(FIND_RETRY_WAIT).await;
+                    service.search_songs(&term, BROWSE_PER_TERM).await
+                } else {
+                    found
+                };
+                (index, term, found)
+            });
+        }
+        let mut results: Vec<Option<Vec<SongMetadata>>> = vec![None; terms.len()];
+        let mut failure = None;
+        while let Some(joined) = searches.join_next().await {
+            let Ok((index, term, found)) = joined else {
+                continue;
+            };
+            match found {
+                Ok(songs) => {
+                    println!(
+                        "[assistant] browse_apple_music \"{term}\" -> {} results",
+                        songs.len()
+                    );
+                    results[index] = Some(songs);
+                }
+                Err(err) => {
+                    println!("[assistant] browse_apple_music \"{term}\" failed: {err}");
+                    failure = Some(err.to_string());
+                }
+            }
+        }
+        if results.iter().all(Option::is_none) {
+            let why = failure.unwrap_or_else(|| "the search stopped".to_owned());
+            return Err(ToolError::Arguments(
+                apple_music_down_message(&why).replace("find_songs", "browse_apple_music"),
+            ));
+        }
+
+        let mut seen_ids = std::collections::HashSet::new();
+        let mut seen_names = std::collections::HashSet::new();
+        let mut novelty = 0;
+        let mut explicit = 0;
+        let mut candidates: Vec<SongMetadata> = Vec::new();
+        for song in results.into_iter().flatten().flatten() {
+            if !seen_ids.insert(song.id.clone()) {
+                continue;
+            }
+            if is_novelty_version(&song.title) {
+                novelty += 1;
+                continue;
+            }
+            if self.hide_explicit && song.content_rating.as_deref() == Some("explicit") {
+                explicit += 1;
+                continue;
+            }
+            // the same recording on another album is one candidate
+            if !seen_names.insert((match_key(&song.title), match_key(&song.artist_name))) {
+                continue;
+            }
+            candidates.push(song);
+        }
+        let context = args.from.as_deref().map(context_words).unwrap_or_default();
+        if !context.is_empty() {
+            // a stable sort: the source's own songs first, each group in search order
+            candidates.sort_by_key(|song| !mentions_any(song, &context));
+        }
+        candidates.truncate(MAX_BROWSE_CANDIDATES);
+
+        let ids: Vec<String> = candidates.iter().map(|song| song.id.clone()).collect();
+        // stored for get_song_metadata and the card, off the answer's path
+        spawn_store_song_metadata(self.db.clone(), self.song_meta.clone(), ids);
+        let listed: Vec<Value> = candidates
+            .iter()
+            .map(|song| {
+                let mut listed = json!({
+                    "song_id": song.id,
+                    "title": song.title,
+                    "artist": song.artist_name,
+                    "album": song.album_name,
+                    "year": song.release_date.as_deref().and_then(|date| date.get(..4)),
+                });
+                if !context.is_empty() && mentions_any(song, &context) {
+                    listed["from_source"] = true.into();
+                }
+                listed
+            })
+            .collect();
+        Ok(ToolOutcome::ok(
+            json!({
+                "searched": terms,
+                "candidates": listed,
+                "left_out_versions": novelty,
+                "left_out_explicit": explicit,
+                "note": "The user does not see these. Pick only the ones that truly fit the request, best first, then show them with edit_card (from \"empty\", add: the songs find_songs found first, in order, then your picks). Never pick one just to reach the number.",
+            }),
+            "",
+        ))
+    }
+
     /// How many different songs `lookups` found that would stay on the card, past the Hide
     /// explicit setting, for stopping the search once a count is met.
     fn usable_found(&self, lookups: &[Lookup]) -> usize {
@@ -1873,6 +2012,26 @@ pub fn definitions() -> Vec<Value> {
                     "title": { "type": "string", "description": "The card's title, usually the album's name." }
                 },
                 "required": ["album_id"]
+            }
+        }),
+        json!({
+            "type": "function",
+            "name": "browse_apple_music",
+            "description": "Searches the Apple Music catalog for up to 4 terms and lists the songs it has (song_id, title, artist, album, year), without showing them, so you can pick the ones that fit. Use it only to fill a find_songs card that came up short: call find_songs first, from what you know. Covers, karaoke, lofi and other novelty versions are left out. Then show your picks with edit_card.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "terms": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "1 to 4 searches, like [\"pokemon\", \"pokemon soundtrack\", \"pokemon theme\"]. Short and broad: a game, film, show, artist, or genre and a word or two."
+                    },
+                    "from": {
+                        "type": "string",
+                        "description": "The game, film, show, or artist the songs should come from, like \"Pokémon\". Its own songs are listed first, marked from_source."
+                    }
+                },
+                "required": ["terms"]
             }
         }),
         json!({

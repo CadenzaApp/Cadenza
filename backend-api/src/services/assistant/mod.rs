@@ -13,6 +13,7 @@
 
 pub mod builder;
 pub mod card_edit;
+pub mod find_guard;
 pub mod model;
 pub mod phone_tools;
 pub mod playlist_writes;
@@ -594,6 +595,12 @@ impl LoopState {
         } else {
             text
         };
+        // a card short of what the user asked for always says why
+        let text = find_guard::explain_shortfall(
+            &text,
+            &find_guard::history(&self.items),
+            self.songs.as_ref().map(|card| card.song_ids.as_slice()),
+        );
         AssistantResponse::Reply {
             text,
             steps: self.steps,
@@ -613,8 +620,77 @@ fn card_note(count: usize) -> String {
         format!("{count} songs")
     };
     format!(
-        "The user already sees these {songs} under your answer. When you say how many you found, say {count}; if the user asked for more, say both numbers. Do not list the songs, and do not mention the card or tell the user to look at it. Just say in one sentence what the songs are, like \"Here are 10 iconic Mario songs.\""
+        "The user already sees these {songs} under your answer. When you say how many you found, say {count}; if the user asked for more, say both numbers. Do not list the songs, and do not mention the card or tell the user to look at it. Just say in one sentence what the songs are, like \"Here are 10 iconic Mario songs.\" When the output has tell_the_user, say that too."
     )
+}
+
+/// A search's output with what comes next: for a `find_songs` card short of what the user
+/// asked for, browse to fill it while searches are left, and the sentence the reply must
+/// say if it stays short; for a browse, how many songs to pick. Also how many names a
+/// retry left out, `(already not found, new guesses)`.
+fn explain_search_result(
+    name: &str,
+    output: &mut Value,
+    (skipped, guesses): (usize, usize),
+    searches_left: usize,
+    earlier: Option<&find_guard::FindResult>,
+) {
+    let Some(object) = output.as_object_mut() else {
+        return;
+    };
+    if skipped > 0 {
+        object.insert(
+            "left_out_already_not_found".to_owned(),
+            Value::from(format!(
+                "{skipped} of the names were already searched in this answer and Apple Music did not have them, so they were left out."
+            )),
+        );
+    }
+    if guesses > 0 {
+        object.insert(
+            "left_out_new_guesses".to_owned(),
+            Value::from(format!(
+                "{guesses} new names were left out: a retry only fixes names from apple_music_has. Fill the rest with browse_apple_music."
+            )),
+        );
+    }
+    let count = |key: &str| object.get(key).and_then(Value::as_u64).map(|n| n as usize);
+    if name == find_guard::BROWSE {
+        if let Some(earlier) = earlier {
+            let wanted = find_guard::wanted_on_card(earlier.asked_for);
+            let needed = wanted.saturating_sub(earlier.song_ids.len());
+            object.insert("pick_up_to".to_owned(), Value::from(needed));
+            if let Some(sentence) =
+                find_guard::shortfall_sentence(earlier.asked_for, earlier.song_ids.len())
+            {
+                object.insert(
+                    "if_still_short".to_owned(),
+                    Value::from(format!(
+                        "If fewer than {needed} fit, show the ones that do, and your reply must say how many you found of the {} asked, like: \"{sentence}\" (with the card's real number).",
+                        earlier.asked_for
+                    )),
+                );
+            }
+        }
+        return;
+    }
+    let (Some(asked_for), Some(found)) = (count("asked_for"), count("found")) else {
+        return;
+    };
+    let Some(sentence) = find_guard::shortfall_sentence(asked_for, found) else {
+        return;
+    };
+    let short_of_card = found < find_guard::wanted_on_card(asked_for);
+    let next = if short_of_card && searches_left > 0 {
+        format!(
+            "Fewer songs than the user asked for. Fill the rest from what Apple Music has: call browse_apple_music ({searches_left} searches left in this answer; a find_songs retry is only for names corrected from apple_music_has). If it still comes up short, your reply must say why, in your own words, like: \"{sentence}\""
+        )
+    } else {
+        format!(
+            "Fewer songs than the user asked for. Your reply must say why, in your own words, like: \"{sentence}\""
+        )
+    };
+    object.insert("tell_the_user".to_owned(), Value::from(next));
 }
 
 /// `output` with [`card_note`] added, when it is an object.
@@ -933,12 +1009,52 @@ pub async fn run_loop(
             }
 
             if !phone_tools::is_phone_tool(&call.name) {
-                let outcome = runner.run(&call.name, &call.arguments).await;
-                let output = if let Some(card) = &outcome.songs {
+                // songs from memory first, then browsing to fill, three searches at most
+                let searching = matches!(
+                    call.name.as_str(),
+                    find_guard::FIND_SONGS | find_guard::BROWSE
+                );
+                let mut arguments = call.arguments.clone();
+                let mut left_out = (0, 0);
+                if searching {
+                    match find_guard::prepare(
+                        &call.name,
+                        &call.arguments,
+                        &find_guard::history(&state.items),
+                    ) {
+                        find_guard::Prepared::Refuse(output) => {
+                            state.push_output(&call.call_id, &output);
+                            state.add_step(&call.name, tools::label_for(&call.name));
+                            continue;
+                        }
+                        find_guard::Prepared::Run {
+                            arguments: checked,
+                            skipped,
+                            guesses,
+                        } => {
+                            arguments = checked;
+                            left_out = (skipped, guesses);
+                        }
+                    }
+                }
+                let outcome = runner.run(&call.name, &arguments).await;
+                let mut output = if let Some(card) = &outcome.songs {
                     with_card_note(outcome.output.clone(), card.total)
                 } else {
                     outcome.output.clone()
                 };
+                if searching {
+                    // this call is in the items already; its output is not yet
+                    let searches_left = find_guard::MAX_SEARCH_CALLS
+                        .saturating_sub(find_guard::history(&state.items).calls + 1);
+                    explain_search_result(
+                        &call.name,
+                        &mut output,
+                        left_out,
+                        searches_left,
+                        find_guard::history(&state.items).last.as_ref(),
+                    );
+                }
                 state.push_output(&call.call_id, &output);
                 state.add_step(&call.name, &outcome.label);
                 if outcome.songs.is_some() {
