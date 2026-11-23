@@ -349,8 +349,10 @@ export function ErrorRow({
  */
 export function EmptyChat({ onPick }: { onPick: (text: string) => void }) {
     return (
-        <View className="flex-1 justify-between gap-6 pb-1">
-            <View className="flex-1 items-center justify-center gap-4 px-4">
+        // the heading and the wheel together, centered, a little above the
+        // middle so the composer below does not crowd the wheel
+        <View className="flex-1 justify-center gap-8 pb-8">
+            <View className="items-center gap-4 px-4">
                 <HeroOrb />
                 <Text className="text-center text-[26px] font-bold leading-8 tracking-tight">
                     What can I do for your music?
@@ -360,12 +362,7 @@ export function EmptyChat({ onPick }: { onPick: (text: string) => void }) {
                     tag, save, and organize your library.
                 </Text>
             </View>
-            <View className="gap-1">
-                <Text className="text-center text-[12px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Try asking
-                </Text>
-                <SuggestionWheel onPick={onPick} />
-            </View>
+            <SuggestionWheel onPick={onPick} />
         </View>
     );
 }

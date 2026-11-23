@@ -16,8 +16,8 @@ import { Text } from "@/components/ui/text";
 
 import { ASSISTANT_SUGGESTIONS, shuffled } from "./suggestions";
 
-/** One row's height, in points. */
-const ROW = 44;
+/** One row's height, in points: room for a prompt that wraps to two lines. */
+const ROW = 54;
 /** Rows in view: the one in the middle and two on each side. */
 const VISIBLE_ROWS = 5;
 const HEIGHT = ROW * VISIBLE_ROWS;
@@ -26,7 +26,7 @@ const DRIFT = 18;
 /** How fast a fling or a stop eases toward the drift, per second. */
 const SETTLE = 4;
 /** How long the wheel holds still after a finger lifts, in milliseconds. */
-const HOLD_MS = 1600;
+const HOLD_MS = 500;
 /** The smallest a row gets, at the wheel's top and bottom edge. */
 const EDGE_SCALE = 0.78;
 
@@ -185,8 +185,10 @@ function WheelRow({
                 className="h-full items-center justify-center px-6 active:opacity-60"
             >
                 <Text
-                    className="text-center text-[17px] font-medium"
-                    numberOfLines={1}
+                    // a long prompt wraps to a second line rather than
+                    // being cut off
+                    className="text-center text-[16px] font-medium leading-[20px]"
+                    numberOfLines={2}
                 >
                     {text}
                 </Text>

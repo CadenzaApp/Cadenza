@@ -14,23 +14,20 @@ export const ASSISTANT_SUGGESTIONS: readonly string[] = [
     "Tell me about the song that's playing",
     // queries (run_query, and opening the query builder)
     "Show my chill songs I haven't played in a month",
-    "Find songs from 2019 I never played",
+    "Find songs from 2015 I have never played",
     "Which of my songs are tagged both gym and upbeat?",
-    "Build a query for my unplayed songs in the advanced builder",
-    "Sort my road trip songs by release date",
+    "Build a query for my favorite songs in the advanced builder",
     // listening (top_items, listening_summary)
     "What were my top 10 songs this month?",
     "Who are my top artists this year?",
     "Which tags did I listen to most last week?",
     "How much music did I listen to this week?",
-    "What do I listen to most late at night?",
     // songs from what it knows (find_songs, browse_apple_music, edit_card)
     "Give me 10 iconic video game songs",
     "Find songs like Redbone",
     "Show me 15 underrated 90s one-hit wonders",
     "Give me the best songs from the Interstellar soundtrack",
-    "10 Pokémon songs, then add 3 Zelda ones",
-    "Take the slow songs off that list",
+    "Give me 10 Pokémon songs, then add 3 Zelda ones",
     // Apple Music (search_apple_music, find_artist, find_album, get_album_songs)
     "Search Apple Music for lofi study beats",
     "Show me Frank Ocean's top songs",
@@ -51,8 +48,6 @@ export const ASSISTANT_SUGGESTIONS: readonly string[] = [
     "Play my Apple Music workout playlist",
     "Favorite this song",
     "Favorite the album that's playing",
-    "Make an Apple Music playlist of my 2010s throwbacks",
-    "Add this song to my Apple Music road trip playlist",
     // saved queries (list_saved_queries, get_saved_query_songs, save, rename)
     "What saved queries do I have?",
     "Save my 90s rock songs as a query",
