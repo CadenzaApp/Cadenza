@@ -1,45 +1,37 @@
-import { useCallback, useReducer, type SetStateAction } from "react";
+import { useCallback, type SetStateAction } from "react";
+import { useAccount } from "@/lib/account";
 import type { AdvancedGroupNode } from "../advanced-query-builder/types";
 import { withOuterConnector } from "../query-builder/QueryConversion";
 import type { QueryCondition } from "../query-builder/types";
-import { DEFAULT_QUERY_SETTINGS } from "./query-settings";
-import { workspaceReducer, type QueryWorkspace } from "./query-workspace";
-const INITIAL_WORKSPACE: QueryWorkspace = {
-    mode: "simple",
-    conditions: [],
-    connector: "and",
-    advancedRoot: {
-        kind: "group",
-        id: "initial-root",
-        conjunction: "and",
-        children: [],
-    },
-    advancedInitialized: false,
-    includeSuggested: DEFAULT_QUERY_SETTINGS.includeSuggested,
-    suggestedTags: [],
-};
+import type { QueryWorkspace, WorkspaceAction } from "./query-workspace";
+import {
+    dispatchWorkspace,
+    useWorkspaceHistory,
+} from "./query-workspace-store";
 
+/**
+ * The signed-in account's query drafts and history from the workspace store,
+ * and the edits the screen makes to them.
+ */
 export function useQueryWorkspace() {
-    const [history, dispatch] = useReducer(workspaceReducer, {
-        present: INITIAL_WORKSPACE,
-        past: [],
-        future: [],
-        suspended: {
-            simple: { past: [], future: [] },
-            advanced: { past: [], future: [] },
-        },
-    });
+    const { account } = useAccount();
+    const accountId = account?.id ?? null;
+    const history = useWorkspaceHistory(accountId);
+    const dispatch = useCallback(
+        (action: WorkspaceAction) => dispatchWorkspace(accountId, action),
+        [accountId],
+    );
     const edit = useCallback(
         (
             update: (value: QueryWorkspace) => QueryWorkspace,
             coalesceKey?: string,
         ) => dispatch({ type: "edit", update, coalesceKey, at: Date.now() }),
-        [],
+        [dispatch],
     );
     const navigate = useCallback(
         (update: (value: QueryWorkspace) => QueryWorkspace) =>
             dispatch({ type: "navigate", update }),
-        [],
+        [dispatch],
     );
     const setConditions = useCallback(
         (update: SetStateAction<QueryCondition[]>) =>

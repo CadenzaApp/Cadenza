@@ -3,8 +3,11 @@ import { withOuterConnector } from "../query-builder/QueryConversion.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+    initialWorkspaceHistory,
+    openQueryMode,
     workspaceReducer,
     switchQueryMode,
+    type QueryWorkspace,
     type WorkspaceHistory,
 } from "./query-workspace.ts";
 
@@ -30,41 +33,81 @@ const initial: WorkspaceHistory = {
         suggestedTags: [],
     },
 };
-test("undo restores query contents and suggested matching scope together", () => {
-    const tagged = workspaceReducer(initial, {
-        type: "edit",
-        update: (current) => ({
-            ...current,
+const suggestedIndie = {
+    kind: "tag" as const,
+    id: "t",
+    tag: {
+        id: 1,
+        name: "indie",
+        color: "#123456",
+        type: "basic" as const,
+    },
+    negated: false,
+    suggested: true,
+    connector: "and" as const,
+};
+test("undo restores query contents and keeps suggestions on for a restored suggested tag", () => {
+    const tagged = workspaceReducer(
+        workspaceReducer(initial, {
+            type: "set-include-suggested",
             includeSuggested: true,
-            conditions: [
-                {
-                    kind: "tag",
-                    id: "t",
-                    tag: {
-                        id: 1,
-                        name: "indie",
-                        color: "#123456",
-                        type: "basic",
-                    },
-                    negated: false,
-                    suggested: true,
-                    connector: "and",
-                },
-            ],
         }),
-    });
-    const cleared = workspaceReducer(tagged, {
-        type: "edit",
-        update: (current) => ({
-            ...current,
-            conditions: [],
-            includeSuggested: false,
+        {
+            type: "edit",
+            update: (current) => ({
+                ...current,
+                conditions: [suggestedIndie],
+            }),
+        },
+    );
+    const cleared = workspaceReducer(
+        workspaceReducer(tagged, {
+            type: "edit",
+            update: (current) => ({ ...current, conditions: [] }),
         }),
-    });
+        { type: "set-include-suggested", includeSuggested: false },
+    );
     assert.deepEqual(
         workspaceReducer(cleared, { type: "undo" }).present,
         tagged.present,
     );
+});
+test("Include suggested tags is a setting, never an undo step", () => {
+    const on = workspaceReducer(initial, {
+        type: "set-include-suggested",
+        includeSuggested: true,
+    });
+    assert.equal(on.past.length, 0);
+    assert.equal(on.present.includeSuggested, true);
+    const edited = workspaceReducer(on, {
+        type: "edit",
+        update: (current) => ({ ...current, connector: "or" }),
+    });
+    const off = workspaceReducer(edited, {
+        type: "set-include-suggested",
+        includeSuggested: false,
+    });
+    assert.equal(off.past.length, 1);
+    const undone = workspaceReducer(off, { type: "undo" });
+    assert.equal(undone.present.connector, "and");
+    assert.equal(undone.present.includeSuggested, false);
+    const redone = workspaceReducer(undone, { type: "redo" });
+    assert.equal(redone.present.connector, "or");
+    assert.equal(redone.present.includeSuggested, false);
+});
+test("an edit that only changes the setting adds no undo step", () => {
+    const edited = workspaceReducer(initial, {
+        type: "edit",
+        update: (current) => ({ ...current, connector: "or" }),
+    });
+    const undone = workspaceReducer(edited, { type: "undo" });
+    const toggled = workspaceReducer(undone, {
+        type: "edit",
+        update: (current) => ({ ...current, includeSuggested: true }),
+    });
+    assert.equal(toggled.present.includeSuggested, true);
+    assert.equal(toggled.past.length, 0);
+    assert.equal(toggled.future.length, 1);
 });
 test("switching editors is not an undo step", () => {
     const switched = workspaceReducer(initial, {
@@ -116,7 +159,7 @@ test("redo restores an undone edit and a new edit clears redo", () => {
     assert.deepEqual(workspaceReducer(undone, { type: "redo" }), edited);
     const replaced = workspaceReducer(undone, {
         type: "edit",
-        update: (current) => ({ ...current, includeSuggested: true }),
+        update: (current) => ({ ...current, connector: "or" }),
     });
     assert.equal(replaced.future.length, 0);
 });
@@ -134,7 +177,7 @@ test("no-op edits do not bury the last change and history is bounded", () => {
             type: "edit",
             update: (current) => ({
                 ...current,
-                includeSuggested: !current.includeSuggested,
+                connector: current.connector === "and" ? "or" : "and",
             }),
         });
     assert.equal(state.past.length, 20);
@@ -284,7 +327,7 @@ test("an existing Advanced draft is preserved even before initialization is mark
 test("undo cannot disable suggestions required by the inactive simple draft", () => {
     const current: WorkspaceHistory = {
         ...initial,
-        past: [{ ...initial.present, mode: "advanced" }],
+        past: [{ ...initial.present, kind: "draft", mode: "advanced" }],
         present: {
             ...initial.present,
             mode: "advanced",
@@ -391,4 +434,123 @@ test("reordering two groups remains reversible through repeated undo and redo", 
         state = workspaceReducer(state, { type: "redo" });
     }
     assert.equal(state.past.length, 1);
+});
+
+const loadedRoot = {
+    kind: "group" as const,
+    id: "loaded",
+    conjunction: "or" as const,
+    children: [],
+};
+const loadAdvanced = (current: QueryWorkspace): QueryWorkspace => ({
+    ...current,
+    mode: "advanced",
+    advancedInitialized: true,
+    advancedRoot: loadedRoot,
+});
+
+test("loading a query in the same editor is one undo step", () => {
+    const edited = workspaceReducer(initial, {
+        type: "edit",
+        update: (current) => ({ ...current, connector: "or" }),
+    });
+    const loaded = workspaceReducer(edited, {
+        type: "load",
+        update: (current) => ({
+            ...current,
+            conditions: [{ ...suggestedIndie, suggested: false }],
+            connector: "and",
+        }),
+    });
+    assert.equal(loaded.past.length, 2);
+    const undone = workspaceReducer(loaded, { type: "undo" });
+    assert.deepEqual(undone.present, edited.present);
+    const redone = workspaceReducer(undone, { type: "redo" });
+    assert.deepEqual(redone.present, loaded.present);
+    // the edit before the load is still there to undo
+    const before = workspaceReducer(undone, { type: "undo" });
+    assert.equal(before.present.connector, "and");
+    assert.equal(before.present.conditions.length, 0);
+});
+
+test("undoing a load that switched editors brings back both drafts and the editor", () => {
+    const simpleEdit = workspaceReducer(initial, {
+        type: "edit",
+        update: (current) => ({ ...current, conditions: [suggestedIndie] }),
+    });
+    const loaded = workspaceReducer(simpleEdit, {
+        type: "load",
+        update: loadAdvanced,
+    });
+    assert.equal(loaded.present.mode, "advanced");
+    assert.equal(loaded.present.advancedRoot, loadedRoot);
+    assert.equal(loaded.past.length, 1);
+    // the simple editor's own history waits for it
+    assert.equal(loaded.suspended.simple.past.length, 1);
+
+    const undone = workspaceReducer(loaded, { type: "undo" });
+    assert.equal(undone.present.mode, "simple");
+    assert.deepEqual(undone.present.conditions, simpleEdit.present.conditions);
+    assert.equal(undone.present.advancedRoot, simpleEdit.present.advancedRoot);
+    assert.equal(undone.present.advancedInitialized, false);
+    assert.equal(undone.past.length, 1);
+    assert.equal(undone.future.length, 1);
+
+    const redone = workspaceReducer(undone, { type: "redo" });
+    assert.equal(redone.present.mode, "advanced");
+    assert.equal(redone.present.advancedRoot, loadedRoot);
+    assert.equal(redone.past.length, 1);
+
+    // undoing once more after the redo is the load again, then the simple edit
+    const again = workspaceReducer(redone, { type: "undo" });
+    assert.equal(again.present.mode, "simple");
+    const first = workspaceReducer(again, { type: "undo" });
+    assert.equal(first.present.mode, "simple");
+    assert.equal(first.present.conditions.length, 0);
+});
+
+test("loading leaves the setting alone unless the query needs suggestions", () => {
+    const plain = workspaceReducer(initial, {
+        type: "load",
+        update: loadAdvanced,
+    });
+    assert.equal(plain.present.includeSuggested, false);
+    const needs = workspaceReducer(initial, {
+        type: "load",
+        update: (current) => ({ ...current, conditions: [suggestedIndie] }),
+    });
+    assert.equal(needs.present.includeSuggested, true);
+    const on = workspaceReducer(
+        workspaceReducer(initial, {
+            type: "set-include-suggested",
+            includeSuggested: true,
+        }),
+        { type: "load", update: loadAdvanced },
+    );
+    assert.equal(on.present.includeSuggested, true);
+});
+
+test("a new edit after undoing a load clears its redo", () => {
+    const loaded = workspaceReducer(initial, {
+        type: "load",
+        update: loadAdvanced,
+    });
+    const undone = workspaceReducer(loaded, { type: "undo" });
+    const edited = workspaceReducer(undone, {
+        type: "edit",
+        update: (current) => ({ ...current, connector: "or" }),
+    });
+    assert.equal(edited.future.length, 0);
+    assert.equal(workspaceReducer(edited, { type: "redo" }), edited);
+});
+
+test("opening an editor by name only switches when it is not open", () => {
+    const simple = initial.present;
+    assert.equal(openQueryMode("simple")(simple), simple);
+    assert.equal(openQueryMode("advanced")(simple).mode, "advanced");
+});
+
+test("blank history keeps the setting it is given", () => {
+    assert.equal(initialWorkspaceHistory(true).present.includeSuggested, true);
+    assert.equal(initialWorkspaceHistory().past.length, 0);
 });

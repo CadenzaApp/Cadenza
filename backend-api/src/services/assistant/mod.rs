@@ -11,10 +11,15 @@
 //! next request brings the continuation back with the tool's output and picks
 //! the loop up where it stopped.
 
+pub mod builder;
+pub mod card_edit;
+pub mod find_guard;
 pub mod model;
 pub mod phone_tools;
+pub mod playlist_writes;
 pub mod prompt;
 pub mod tools;
+pub mod writes;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -29,11 +34,12 @@ use serde_json::{Value, json};
 use crate::db::{self, metadata_tags::SongRow};
 use crate::err::CadenzaError;
 use crate::routes::json::assistant::{
-    AssistantRequest, AssistantResponse, AssistantStep, ChatMessage, ChatRole, Continuation,
-    Resume, SongsCard,
+    ActionSummary, AssistantRequest, AssistantResponse, AssistantStep, CardQuery, ChatMessage,
+    ChatRole, Continuation, Resume, SongsCard,
 };
 use crate::services::analytics::sanitize_timezone;
 use crate::services::rate_limit::{Limit, RateLimiter};
+use crate::services::realtime::SharedEventBus;
 use crate::services::song_metadata::SongMetadataService;
 
 use model::AssistantModel;
@@ -41,6 +47,7 @@ use tools::{
     DbTools, MAX_SONGS_TO_MODEL, ToolRunner, definitions, describe_activity_tags, describe_song,
     describe_tags,
 };
+use writes::CardRef;
 
 /// The most model calls one message may take. Each tool round is one.
 pub const MAX_STEPS: usize = 8;
@@ -92,13 +99,14 @@ impl AssistantService {
         &self,
         db: &DatabaseConnection,
         song_meta: &SongMetadataService,
+        bus: &SharedEventBus,
         user_id: Uuid,
         request: AssistantRequest,
     ) -> Result<AssistantResponse, CadenzaError> {
         self.limiter
             .check(&user_id)
             .map_err(|retry_after| CadenzaError::UserRateLimited { retry_after })?;
-        answer(db, song_meta, self.model.as_ref(), user_id, request).await
+        answer(db, song_meta, bus, self.model.as_ref(), user_id, request).await
     }
 }
 
@@ -106,6 +114,7 @@ impl AssistantService {
 async fn answer(
     db: &DatabaseConnection,
     song_meta: &SongMetadataService,
+    bus: &SharedEventBus,
     model: &dyn AssistantModel,
     user_id: Uuid,
     request: AssistantRequest,
@@ -113,16 +122,22 @@ async fn answer(
     validate(&request)?;
     let resume = request.resume.clone().map(validate_resume).transpose()?;
     let kept = kept_messages(&request);
-    // the last card shown, all of it, for a phone tool's songs: "card"
-    let last_card: Vec<String> = kept
+    // the last card shown, all of it, for a phone tool's songs: "card", and its query when
+    // it came from run_query, for save_query
+    let last_shown = kept
         .iter()
         .rev()
-        .find(|message| message.role == ChatRole::Assistant && !message.song_ids.is_empty())
+        .find(|message| message.role == ChatRole::Assistant && !message.song_ids.is_empty());
+    let last_card: Vec<String> = last_shown
         .map(|message| message.song_ids.clone())
         .unwrap_or_default();
+    let last_card_query: Option<CardQuery> =
+        last_shown.and_then(|message| message.card_query.clone());
+    let latest_card = latest_card_index(kept);
     let card_ids: Vec<String> = kept
         .iter()
-        .flat_map(|message| card_song_ids(message))
+        .enumerate()
+        .flat_map(|(index, message)| card_song_ids(message, Some(index) == latest_card))
         .cloned()
         .collect();
     let card_rows = db::metadata_tags::get_song_rows(db, &card_ids).await?;
@@ -145,17 +160,26 @@ async fn answer(
         song_meta,
         user_id,
         hide_explicit,
+        builder_settings: request.query_settings,
+        time_zone: time_zone.to_owned(),
+        bus: Some(bus),
     };
     let mut tool_definitions = definitions();
     tool_definitions.extend(phone_tools::definitions());
+    tool_definitions.push(card_edit::definition());
+    tool_definitions.extend(writes::definitions());
     // the tag ids the prompt lists are the model's to use without a lookup
     let tag_ids = tags
         .iter()
         .map(|tag| tag.tag_id.to_string())
         .chain(activity_tags.iter().map(|(_, tag)| tag.tag_id.to_string()));
     let state = match resume {
-        Some(resume) => LoopState::resumed(resume, last_card),
-        None => LoopState::new(last_card),
+        Some(resume) => {
+            let resume =
+                run_confirmed_change(&runner, resume, &last_card, last_card_query.as_ref()).await;
+            LoopState::resumed(resume, last_card, last_card_query)
+        }
+        None => LoopState::new(last_card).with_card_query(last_card_query),
     }
     .with_known_ids(tag_ids);
     run_loop(
@@ -167,6 +191,66 @@ async fn answer(
         state,
     )
     .await
+}
+
+/// A resume that answers a write tool's confirm card: the change runs now, on the user's
+/// yes, and its result replaces the phone's `{confirmed}` as the call's output, so the
+/// model reads what happened. A no tells the model the user declined. Any other resume
+/// passes through.
+async fn run_confirmed_change(
+    runner: &dyn ToolRunner,
+    mut resume: Resume,
+    last_card: &[String],
+    last_card_query: Option<&CardQuery>,
+) -> Resume {
+    let Some(call) = resume.continuation.items.last() else {
+        return resume;
+    };
+    let name = call["name"].as_str().unwrap_or_default().to_owned();
+    let arguments = call["arguments"].as_str().unwrap_or_default().to_owned();
+    if matches!(
+        name.as_str(),
+        playlist_writes::ADD_TO_APPLE_MUSIC_PLAYLIST | playlist_writes::CREATE_APPLE_MUSIC_PLAYLIST
+    ) {
+        // the phone made it; the log keeps it, as one Cadenza cannot undo
+        if let Some(action) = runner
+            .record_phone_change(&name, &arguments, &resume.output)
+            .await
+        {
+            resume.continuation.actions.push(action);
+        }
+        return resume;
+    }
+    if !writes::is_write_tool(&name) {
+        return resume;
+    }
+    if resume.output["confirmed"].as_bool() != Some(true) {
+        resume.output = json!({
+            "cancelled": true,
+            "note": "The user said no on the confirm card, so nothing changed. Do not try again unless they ask.",
+        });
+        return resume;
+    }
+    let card = match &resume.continuation.songs {
+        Some(card) => CardRef {
+            song_ids: &card.song_ids,
+            query: card.query.as_ref(),
+        },
+        None => CardRef {
+            song_ids: last_card,
+            query: last_card_query,
+        },
+    };
+    resume.output = match runner.execute_write(&name, &arguments, card).await {
+        Ok((output, action)) => {
+            if let Some(action) = action {
+                resume.continuation.actions.push(action);
+            }
+            output
+        }
+        Err(message) => json!({ "error": message }),
+    };
+    resume
 }
 
 /// A resume whose continuation is the server's own shape: only tool calls and
@@ -235,12 +319,29 @@ fn kept_messages(request: &AssistantRequest) -> &[ChatMessage] {
     &request.messages[start..]
 }
 
+/// How many songs of an older card, one before the latest, the model is told about. The
+/// latest card, the one the user is looking at and `edit_card` changes, is told in full.
+const OLDER_CARD_SONGS: usize = 25;
+
+/// The index of the last assistant message with a card, the one the user is looking at.
+fn latest_card_index(messages: &[ChatMessage]) -> Option<usize> {
+    messages
+        .iter()
+        .rposition(|message| message.role == ChatRole::Assistant && !message.song_ids.is_empty())
+}
+
 /// The songs on the card under an assistant message, as many as the model is
-/// told about. None for a user's message.
-fn card_song_ids(message: &ChatMessage) -> &[String] {
+/// told about: all of them (up to [`MAX_SONGS_TO_MODEL`]) for the latest card, the first
+/// [`OLDER_CARD_SONGS`] for an older one. None for a user's message.
+fn card_song_ids(message: &ChatMessage, latest: bool) -> &[String] {
+    let shown = if latest {
+        MAX_SONGS_TO_MODEL
+    } else {
+        OLDER_CARD_SONGS
+    };
     match message.role {
         ChatRole::User => &[],
-        ChatRole::Assistant => &message.song_ids[..message.song_ids.len().min(MAX_SONGS_TO_MODEL)],
+        ChatRole::Assistant => &message.song_ids[..message.song_ids.len().min(shown)],
     }
 }
 
@@ -253,8 +354,9 @@ fn card_song_ids(message: &ChatMessage) -> &[String] {
 /// own item rather than part of the reply, so the model does not copy its
 /// shape into later answers.
 fn to_input(messages: &[ChatMessage], rows: &HashMap<String, SongRow>) -> Vec<Value> {
+    let latest_card = latest_card_index(messages);
     let mut input = Vec::new();
-    for message in messages {
+    for (index, message) in messages.iter().enumerate() {
         if message.content.trim().is_empty() {
             continue;
         }
@@ -265,16 +367,24 @@ fn to_input(messages: &[ChatMessage], rows: &HashMap<String, SongRow>) -> Vec<Va
         };
         input.push(json!({ "role": role, "content": content }));
 
-        let ids = card_song_ids(message);
+        let latest = Some(index) == latest_card;
+        let ids = card_song_ids(message, latest);
         if !ids.is_empty() {
             let songs: Vec<Value> = ids
                 .iter()
                 .map(|id| describe_song(id, rows.get(id)))
                 .collect();
+            let which = if latest {
+                "The songs on the card under that answer, the one the user is looking at and edit_card changes"
+            } else {
+                "The first songs on the card under that answer"
+            };
             input.push(json!({
                 "role": "developer",
                 "content": format!(
-                    "The songs on the card under that answer, in order, as data: {}",
+                    "{which}, in order, {} of {}, as data: {}",
+                    ids.len(),
+                    message.song_ids.len(),
                     Value::from(songs)
                 ),
             }));
@@ -293,6 +403,10 @@ pub struct LoopState {
     /// The last card shown before this answer, for `songs: "card"` until this
     /// answer has a card of its own.
     last_card: Vec<String>,
+    /// That card's query, when it came from `run_query`, for `save_query`.
+    last_card_query: Option<CardQuery>,
+    /// The changes this answer made, for the done cards.
+    actions: Vec<ActionSummary>,
     /// Ids the model may use without a tool having returned them in this answer: the
     /// user's tags, which the prompt lists.
     known_ids: HashSet<String>,
@@ -306,7 +420,30 @@ impl LoopState {
             songs: None,
             steps_used: 0,
             last_card,
+            last_card_query: None,
+            actions: Vec::new(),
             known_ids: HashSet::new(),
+        }
+    }
+
+    /// The query behind the last card shown, when it came from `run_query`.
+    pub fn with_card_query(mut self, query: Option<CardQuery>) -> Self {
+        self.last_card_query = query;
+        self
+    }
+
+    /// The card a write tool's `songs: "card"` and `save_query` mean: this answer's, or
+    /// else the last one shown.
+    fn card_ref(&self) -> CardRef<'_> {
+        match &self.songs {
+            Some(card) => CardRef {
+                song_ids: &card.song_ids,
+                query: card.query.as_ref(),
+            },
+            None => CardRef {
+                song_ids: &self.last_card,
+                query: self.last_card_query.as_ref(),
+            },
         }
     }
 
@@ -384,19 +521,34 @@ impl LoopState {
 
     /// Picks up a continuation, with the phone's output answering its call.
     /// A card in the output becomes this answer's card.
-    fn resumed(resume: Resume, last_card: Vec<String>) -> Self {
+    fn resumed(resume: Resume, last_card: Vec<String>, last_card_query: Option<CardQuery>) -> Self {
         let Resume {
             continuation,
             mut output,
         } = resume;
+        let write = continuation
+            .items
+            .last()
+            .and_then(|call| call["name"].as_str())
+            .filter(|name| writes::is_write_tool(name))
+            .map(str::to_owned);
         let mut state = Self {
             items: continuation.items,
             steps: continuation.steps,
             songs: continuation.songs,
             steps_used: continuation.steps_used,
             last_card,
+            last_card_query,
+            actions: continuation.actions,
             known_ids: HashSet::new(),
         };
+        // a change shows its row once it has run, not while it waited
+        if let Some(name) = write
+            && output.get("error").is_none()
+            && output.get("cancelled").is_none()
+        {
+            state.add_step(&name, writes::label_for(&name));
+        }
         if let Some(card) = phone_tools::take_card(&mut output) {
             output = with_card_note(output, card.total);
             state.songs = Some(card);
@@ -443,11 +595,36 @@ impl LoopState {
         } else {
             text
         };
+        // a card short of what the user asked for always says why
+        let text = find_guard::explain_shortfall(
+            &text,
+            &find_guard::history(&self.items),
+            self.songs.as_ref().map(|card| card.song_ids.as_slice()),
+        );
+        // never an empty reply: the model can end with only a card, and a short one
+        // already got its reason above
+        let text = if text.trim().is_empty() {
+            empty_reply(self.songs.as_ref(), !self.actions.is_empty())
+        } else {
+            text
+        };
         AssistantResponse::Reply {
             text,
             steps: self.steps,
             songs: self.songs,
+            actions: self.actions,
         }
+    }
+}
+
+/// What an answer says when the model wrote nothing: what the card holds, or that the
+/// changes are done. With neither, that it could not answer.
+fn empty_reply(card: Option<&SongsCard>, made_changes: bool) -> String {
+    match card {
+        Some(card) if card.song_ids.len() == 1 => "Here you go, 1 song.".to_owned(),
+        Some(card) => format!("Here you go, {} songs.", card.song_ids.len()),
+        None if made_changes => "Done.".to_owned(),
+        None => "Sorry, I don't have an answer for that. Try asking another way.".to_owned(),
     }
 }
 
@@ -461,8 +638,77 @@ fn card_note(count: usize) -> String {
         format!("{count} songs")
     };
     format!(
-        "The user already sees these {songs} under your answer. When you say how many you found, say {count}; if the user asked for more, say both numbers. Do not list the songs, and do not mention the card or tell the user to look at it. Just say in one sentence what the songs are, like \"Here are 10 iconic Mario songs.\""
+        "The user already sees these {songs} under your answer. When you say how many you found, say {count}; if the user asked for more, say both numbers. Do not list the songs, and do not mention the card or tell the user to look at it. Just say in one sentence what the songs are, like \"Here are 10 iconic Mario songs.\" When the output has tell_the_user, say that too."
     )
+}
+
+/// A search's output with what comes next: for a `find_songs` card short of what the user
+/// asked for, browse to fill it while searches are left, and the sentence the reply must
+/// say if it stays short; for a browse, how many songs to pick. Also how many names a
+/// retry left out, `(already not found, new guesses)`.
+fn explain_search_result(
+    name: &str,
+    output: &mut Value,
+    (skipped, guesses): (usize, usize),
+    searches_left: usize,
+    earlier: Option<&find_guard::FindResult>,
+) {
+    let Some(object) = output.as_object_mut() else {
+        return;
+    };
+    if skipped > 0 {
+        object.insert(
+            "left_out_already_not_found".to_owned(),
+            Value::from(format!(
+                "{skipped} of the names were already searched in this answer and Apple Music did not have them, so they were left out."
+            )),
+        );
+    }
+    if guesses > 0 {
+        object.insert(
+            "left_out_new_guesses".to_owned(),
+            Value::from(format!(
+                "{guesses} new names were left out: a retry only fixes names from apple_music_has. Fill the rest with browse_apple_music."
+            )),
+        );
+    }
+    let count = |key: &str| object.get(key).and_then(Value::as_u64).map(|n| n as usize);
+    if name == find_guard::BROWSE {
+        if let Some(earlier) = earlier {
+            let wanted = find_guard::wanted_on_card(earlier.asked_for);
+            let needed = wanted.saturating_sub(earlier.song_ids.len());
+            object.insert("pick_up_to".to_owned(), Value::from(needed));
+            if let Some(sentence) =
+                find_guard::shortfall_sentence(earlier.asked_for, earlier.song_ids.len())
+            {
+                object.insert(
+                    "if_still_short".to_owned(),
+                    Value::from(format!(
+                        "If fewer than {needed} fit, show the ones that do, and your reply must say how many you found of the {} asked, like: \"{sentence}\" (with the card's real number).",
+                        earlier.asked_for
+                    )),
+                );
+            }
+        }
+        return;
+    }
+    let (Some(asked_for), Some(found)) = (count("asked_for"), count("found")) else {
+        return;
+    };
+    let Some(sentence) = find_guard::shortfall_sentence(asked_for, found) else {
+        return;
+    };
+    let short_of_card = found < find_guard::wanted_on_card(asked_for);
+    let next = if short_of_card && searches_left > 0 {
+        format!(
+            "Fewer songs than the user asked for. Fill the rest from what Apple Music has: call browse_apple_music ({searches_left} searches left in this answer; a find_songs retry is only for names corrected from apple_music_has). If it still comes up short, your reply must say why, in your own words, like: \"{sentence}\""
+        )
+    } else {
+        format!(
+            "Fewer songs than the user asked for. Your reply must say why, in your own words, like: \"{sentence}\""
+        )
+    };
+    object.insert("tell_the_user".to_owned(), Value::from(next));
 }
 
 /// `output` with [`card_note`] added, when it is an object.
@@ -710,13 +956,145 @@ pub async fn run_loop(
         while let Some(call) = calls.next() {
             state.items.push(call.to_input_item());
 
+            if writes::is_write_tool(&call.name) {
+                // an id no tool gave it would change the wrong thing
+                let sourced = state.sourced_ids();
+                let unsourced: Vec<String> = writes::ids_named(&call.name, &call.arguments)
+                    .into_iter()
+                    .filter(|id| !sourced.contains(id))
+                    .collect();
+                let preview = if unsourced.is_empty() {
+                    runner
+                        .preview_write(&call.name, &call.arguments, state.card_ref())
+                        .await
+                } else {
+                    Err(phone_tools::unsourced_message(&unsourced))
+                };
+                let preview = match preview {
+                    Ok(preview) => preview,
+                    Err(message) => {
+                        // the model's to fix, or to tell the user about
+                        state.push_output(&call.call_id, &json!({ "error": message }));
+                        continue;
+                    }
+                };
+                // the user answers one card at a time; calls after it in the same turn are
+                // answered so the model can ask again
+                let deferred: Vec<_> = calls.collect();
+                let write_call_item = state.items.pop().expect("the call was just pushed");
+                for later in deferred {
+                    state.items.push(later.to_input_item());
+                    state.push_output(
+                        &later.call_id,
+                        &json!({ "error": "not run: the user confirms one change at a time; call it again" }),
+                    );
+                }
+                state.items.push(write_call_item);
+                return Ok(AssistantResponse::PendingAction {
+                    call_id: call.call_id.clone(),
+                    name: call.name,
+                    preview,
+                    continuation: Continuation {
+                        items: state.items,
+                        steps: state.steps,
+                        songs: state.songs,
+                        actions: state.actions,
+                        steps_used: state.steps_used,
+                        call_id: call.call_id,
+                    },
+                });
+            }
+
+            if call.name == card_edit::NAME {
+                let mut edited = card_edit::edit(
+                    &call.arguments,
+                    &state.last_card,
+                    state.songs.as_ref(),
+                    &state.sourced_ids(),
+                );
+                let failed = edited.output.get("error").is_some();
+                // a list of songs picked from memory or browsing holds 25, like find_songs
+                let mut cut = 0;
+                if let Some(card) = edited.card.as_mut() {
+                    cut = find_guard::cap_card(
+                        &mut card.song_ids,
+                        &find_guard::history(&state.items),
+                    );
+                    if cut > 0 {
+                        card.total = card.song_ids.len();
+                    }
+                }
+                let mut output = match &edited.card {
+                    Some(card) => with_card_note(edited.output, card.total),
+                    None => edited.output,
+                };
+                if cut > 0
+                    && let Some(object) = output.as_object_mut()
+                {
+                    object.insert(
+                        "left_off".to_owned(),
+                        Value::from(format!(
+                            "A list of songs you picked holds at most {}, so the last {cut} were left off.",
+                            tools::MAX_FIND_COUNT
+                        )),
+                    );
+                }
+                state.push_output(&call.call_id, &output);
+                state.add_step(card_edit::NAME, card_edit::LABEL);
+                // a failed edit leaves the card alone; one that took every song off clears it
+                if !failed {
+                    state.songs = edited.card;
+                }
+                continue;
+            }
+
             if !phone_tools::is_phone_tool(&call.name) {
-                let outcome = runner.run(&call.name, &call.arguments).await;
-                let output = if let Some(card) = &outcome.songs {
+                // songs from memory first, then browsing to fill, three searches at most
+                let searching = matches!(
+                    call.name.as_str(),
+                    find_guard::FIND_SONGS | find_guard::BROWSE
+                );
+                let mut arguments = call.arguments.clone();
+                let mut left_out = (0, 0);
+                if searching {
+                    match find_guard::prepare(
+                        &call.name,
+                        &call.arguments,
+                        &find_guard::history(&state.items),
+                    ) {
+                        find_guard::Prepared::Refuse(output) => {
+                            state.push_output(&call.call_id, &output);
+                            state.add_step(&call.name, tools::label_for(&call.name));
+                            continue;
+                        }
+                        find_guard::Prepared::Run {
+                            arguments: checked,
+                            skipped,
+                            guesses,
+                        } => {
+                            arguments = checked;
+                            left_out = (skipped, guesses);
+                        }
+                    }
+                }
+                let outcome = runner.run(&call.name, &arguments).await;
+                let mut output = if let Some(card) = &outcome.songs {
                     with_card_note(outcome.output.clone(), card.total)
                 } else {
                     outcome.output.clone()
                 };
+                if searching {
+                    // this call is in the items already; its output is not yet
+                    let searches_left = find_guard::MAX_SEARCH_CALLS
+                        .saturating_sub(find_guard::history(&state.items).calls + 1);
+                    explain_search_result(
+                        &call.name,
+                        &mut output,
+                        left_out,
+                        searches_left,
+                        find_guard::history(&state.items).last.as_ref(),
+                    );
+                }
                 state.push_output(&call.call_id, &output);
                 state.add_step(&call.name, &outcome.label);
                 if outcome.songs.is_some() {
@@ -791,6 +1169,7 @@ pub async fn run_loop(
                     items: state.items,
                     steps: state.steps,
                     songs: state.songs,
+                    actions: state.actions,
                     steps_used: state.steps_used,
                     call_id: call.call_id,
                 },
@@ -863,6 +1242,7 @@ mod tests {
                     total: 2,
                     capped: false,
                     title: None,
+                    query: None,
                 }),
             }
         }
@@ -891,6 +1271,7 @@ mod tests {
             role: ChatRole::User,
             content: content.into(),
             song_ids: vec![],
+            card_query: None,
         }
     }
 
@@ -899,6 +1280,7 @@ mod tests {
             role: ChatRole::Assistant,
             content: content.into(),
             song_ids: vec![],
+            card_query: None,
         }
     }
 
@@ -913,6 +1295,7 @@ mod tests {
             time_zone: None,
             now: None,
             resume: None,
+            query_settings: Default::default(),
         }
     }
 
@@ -934,6 +1317,66 @@ mod tests {
         let mut turn = call(first, "{}");
         turn.calls.extend(call(second, "{}").calls);
         turn
+    }
+
+    #[tokio::test]
+    async fn edit_card_adds_new_songs_to_the_card_the_user_is_looking_at() {
+        let model = ScriptedModel::new(vec![
+            call("run_query", "{}"),
+            call(
+                card_edit::NAME,
+                r#"{"add":["1","2"],"title":"Chill Plus Two"}"#,
+            ),
+            text("Added 2 songs to your list."),
+        ]);
+        let state = LoopState::new(vec!["a".into(), "b".into()]);
+        let AssistantResponse::Reply { songs, steps, .. } = run_with(&model, state).await else {
+            panic!("expected a reply");
+        };
+        let songs = songs.unwrap();
+        assert_eq!(songs.song_ids, ["a", "b", "1", "2"]);
+        assert_eq!(songs.title.as_deref(), Some("Chill Plus Two"));
+        assert_eq!(songs.query, None);
+        assert_eq!(steps.last().unwrap().label, card_edit::LABEL);
+    }
+
+    #[tokio::test]
+    async fn a_failed_edit_leaves_the_card_alone() {
+        let model = ScriptedModel::new(vec![
+            call("run_query", "{}"),
+            call(card_edit::NAME, r#"{"from":"previous"}"#),
+            text("Here they are."),
+        ]);
+        let AssistantResponse::Reply { songs, .. } = run(&model).await else {
+            panic!("expected a reply");
+        };
+        assert_eq!(songs.unwrap().song_ids, ["1", "2"]);
+    }
+
+    #[test]
+    fn the_latest_card_is_told_in_full_and_older_ones_in_part() {
+        let ids: Vec<String> = (0..30).map(|i| i.to_string()).collect();
+        let with_card = |content: &str| ChatMessage {
+            song_ids: ids.clone(),
+            ..assistant(content)
+        };
+        let input = to_input(
+            &[
+                user("a"),
+                with_card("first"),
+                user("b"),
+                with_card("second"),
+            ],
+            &HashMap::new(),
+        );
+        let notes: Vec<&str> = input
+            .iter()
+            .filter(|item| item["role"] == "developer")
+            .filter_map(|item| item["content"].as_str())
+            .collect();
+        assert_eq!(notes.len(), 2);
+        assert!(notes[0].contains("25 of 30"));
+        assert!(notes[1].contains("30 of 30") && notes[1].contains("edit_card"));
     }
 
     #[tokio::test]
@@ -990,6 +1433,7 @@ mod tests {
                 output: json!({ "playing": 1 }),
             },
             vec![],
+            None,
         );
         let AssistantResponse::Reply { text, steps, .. } = run_with(&second, state).await else {
             panic!("expected a reply");
@@ -1018,6 +1462,7 @@ mod tests {
                 output: json!({ "songs": [], "card": { "song_ids": ["7"], "total": 1 } }),
             },
             vec![],
+            None,
         );
         let second = ScriptedModel::new(vec![text("Found it.")]);
         let AssistantResponse::Reply { songs, .. } = run_with(&second, state).await else {
@@ -1161,6 +1606,7 @@ mod tests {
                 songs: None,
                 steps_used: 1,
                 call_id: call_id.into(),
+                actions: vec![],
             },
             output: json!({}),
         }
@@ -1273,6 +1719,7 @@ mod tests {
                 text: "Hello.".into(),
                 steps: vec![],
                 songs: None,
+                actions: vec![],
             }
         );
         assert_eq!(model.calls_made(), 1);
@@ -1296,7 +1743,9 @@ mod tests {
                     total: 2,
                     capped: false,
                     title: None,
+                    query: None,
                 }),
+                actions: vec![],
             }
         );
 

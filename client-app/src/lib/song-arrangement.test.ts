@@ -5,11 +5,15 @@ import {
     arrangeFieldJSON,
     defaultDirection,
     directionLabels,
+    encodeArrangementParam,
     formatDuration,
     groupLabel,
     hasDirection,
     isArranged,
+    MAX_SONG_LIMIT,
     NO_ARRANGEMENT,
+    parseArrangementParam,
+    parseSongLimit,
     releaseDay,
     sameField,
     sectionsOf,
@@ -30,15 +34,28 @@ const tag = (
     source,
 });
 
-test("none is no sort and no group", () => {
+test("none is no sort, no group, and no limit", () => {
     assert.equal(isArranged(NO_ARRANGEMENT), false);
     assert.equal(
         isArranged({
             sort: { field: artist, direction: "ascending" },
             group: null,
+            limit: null,
         }),
         true,
     );
+    assert.equal(isArranged({ ...NO_ARRANGEMENT, limit: 10 }), true);
+});
+
+test("a limit is a whole number above zero, at most the most there is", () => {
+    assert.equal(parseSongLimit("25"), 25);
+    assert.equal(parseSongLimit(" 7 "), 7);
+    assert.equal(parseSongLimit(""), null);
+    assert.equal(parseSongLimit("0"), null);
+    assert.equal(parseSongLimit("-3"), null);
+    assert.equal(parseSongLimit("2.5"), null);
+    assert.equal(parseSongLimit("ten"), null);
+    assert.equal(parseSongLimit("99999999"), MAX_SONG_LIMIT);
 });
 
 test("play counts and the latest play start with the most and the newest", () => {
@@ -147,4 +164,42 @@ test("durations read as minutes and seconds", () => {
 test("release dates go over as days", () => {
     assert.equal(releaseDay(Date.UTC(1984, 5, 25)), "1984-06-25");
     assert.equal(releaseDay(undefined), undefined);
+});
+
+test("an arrangement survives a route param", () => {
+    const arrangement = {
+        sort: {
+            field: tag("My Plays", "number", "activity"),
+            direction: "descending" as const,
+        },
+        group: { field: artist, direction: "ascending" as const },
+        limit: 20,
+    };
+    assert.deepEqual(
+        parseArrangementParam(encodeArrangementParam(arrangement)),
+        arrangement,
+    );
+    assert.deepEqual(
+        parseArrangementParam(encodeArrangementParam(NO_ARRANGEMENT)),
+        NO_ARRANGEMENT,
+    );
+});
+
+test("a malformed arrangement param reads as nothing, part by part", () => {
+    assert.equal(parseArrangementParam(undefined), null);
+    assert.equal(parseArrangementParam("not json"), null);
+    assert.equal(parseArrangementParam("7"), null);
+    assert.deepEqual(
+        parseArrangementParam(
+            JSON.stringify({
+                sort: {
+                    field: { kind: "metadata", key: "mood" },
+                    direction: "ascending",
+                },
+                group: { field: artist, direction: "sideways" },
+                limit: 0,
+            }),
+        ),
+        NO_ARRANGEMENT,
+    );
 });

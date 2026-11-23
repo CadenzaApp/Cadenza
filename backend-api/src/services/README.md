@@ -25,9 +25,14 @@ in-app notification for a user, and the definitions the listening analytics are 
 | `push_triggers.rs` | One `PushService` method per event that pushes: a comment, a like, a friend's post. Each does its lookups and the send on a background task. See Notifications. |
 | `rate_limit.rs` | `RateLimiter`, an in-memory sliding window limiter per key. The assistant uses it per user. Unit tested. |
 | `assistant/mod.rs`                       | `AssistantService` (the model plus the per-user request limit), `answer`, and `run_loop` with its `LoopState`: the in-app assistant's tool loop, which stops at a phone tool and picks up again from a `resume`. Unit tested with a scripted model. |
+| `assistant/builder.rs` | `fits_simple` and `builder_for`: which query builder on the phone can hold a query, the simple one when it can and the advanced one otherwise. Tested against `assistant/builder_fixtures.json`, which the phone's `QueryImport.test.ts` reads too, so both agree. |
+| `assistant/card_edit.rs` | `edit_card`: adds and removes songs on the latest card (or this answer's) instead of replacing it, from ids tools returned. Run by the loop. Unit tested. |
+| `assistant/find_guard.rs` | Memory first, then browsing to fill: three searches an answer at most (`find_songs` and `browse_apple_music` together). A `find_songs` retry keeps only found songs, names corrected from `apple_music_has`, and failed lookups; names that missed and new guesses are left out, and a retry with nothing to search is refused. Caps a card made only of searched songs at 25 however it was built (`cap_card`, run on `edit_card`), and adds the reason to a reply whose card of searched songs is short of what the user asked for. A reply the model left empty gets a line from the loop (`empty_reply`). Reads it all from the answer's own calls and outputs. Unit tested. |
+| `assistant/writes.rs` | The write tools (`apply_tag`, `remove_tag`, `create_tag`, `update_tag`, `save_query`, `rename_saved_query`, `undo_action`): their schemas, `Writer::preview` (the confirm card) and `Writer::execute` (the change and its activity log row), both from one `plan`, and `undo`. Unit tested. |
+| `assistant/playlist_writes.rs` | The playlist write tools: `edit_shared_playlist` (add, remove, or move songs in a shared playlist the user edits) and `update_shared_playlist` (rename or redescribe one they own), their plans, confirm cards, logged changes, and undos with conflict checks, each published to the playlist's members. Also `record_apple_music`, which logs the phone's Apple Music playlist adds as not undoable. Unit tested. |
 | `assistant/phone_tools.rs`               | The tools only the phone runs (`now_playing`, `play`, `playback`, `queue_songs`, `set_shuffle`, `set_repeat`, `search_apple_music`, `apple_music_playlists`, `apple_music_playlist_songs`, `apple_music_library`, `favorite_song`, `favorite_collection`, `create_apple_music_playlist`, `add_to_apple_music_playlist`, `open_screen`): their schemas and labels, `songs: "card"` swapped for the card's ids, and a `card` in the phone's output taken out for the answer. The phone side is `client-app/src/features/assistant/phone-tools.ts`. Unit tested. |
 | `assistant/model.rs`                     | The `AssistantModel` trait and `OpenAiAssistantModel` on the Responses API with function calling. Unit tested. |
-| `assistant/tools.rs`                     | The read-only tools (`list_tags`, `run_query`, `get_song_metadata`, `top_items`, `listening_summary`, `list_saved_queries`, `get_saved_query_songs`, `get_song_tags`, `list_playlists`, `get_playlist_songs`, `find_songs`, `find_artist`, `find_album`, `get_album_songs`), their JSON schemas, and the `ToolRunner` trait. `find_songs` looks up songs the model names itself in the Apple Music catalog, one search each, and keeps only a result whose title and artist match. Unit tested. |
+| `assistant/tools.rs`                     | The read-only tools (`list_tags`, `run_query`, `get_song_metadata`, `top_items`, `listening_summary`, `list_saved_queries`, `get_saved_query_songs`, `get_song_tags`, `list_playlists`, `get_playlist_songs`, `find_songs`, `find_artist`, `find_album`, `get_album_songs`), their JSON schemas, and the `ToolRunner` trait. `find_songs` looks up songs the model names itself in the Apple Music catalog, one search each, and keeps only a result whose title and artist match. `run_query` runs with the phone's query builder settings (`DbTools::builder_settings`) unless the model sets a scope, takes `sort`, `group` and `limit` as one `Arrangement`, and puts its query on the card (`CardQuery`) with the builder it fits, so tapping the card loads it into the query builder. Unit tested. |
 | `assistant/prompt.rs`                    | Builds the system prompt: fills `prompt.txt`'s `{{name}}` markers with the user's time, their tags, and the activity tag examples. Unit tested. |
 | `assistant/prompt.txt`                   | The system prompt's text (rules and the query format with examples), embedded with `include_str!`. Edit the wording here. |
 | `tag_values.rs`                          | `canonicalize_tag_value`: validates a tag value string against the tag's `TagType` and returns its canonical stored form (or `CadenzaError::InvalidTagValue`). Unit tested.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -402,6 +407,28 @@ are delayed, so a slow pass is followed by a full day of quiet.
 append each call and its output, and repeat until the model answers with text. It stops after
 `MAX_STEPS` (8) model calls with a short apology.
 
+- Writes wait for the user. A write tool's call stops the loop with a `pending_action` and its
+  preview (`ToolRunner::preview_write`). The confirmed resume runs it first
+  (`run_confirmed_change`, `ToolRunner::execute_write`) and hands the model the result in place
+  of the phone's `{confirmed}`; a no tells the model nothing changed. Both work the change out
+  again from the model's arguments with `Writer::plan`, so what runs is what the card said, and
+  ids in them (tags, songs, saved queries, actions) must be sourced like a phone tool's.
+- Every change writes one `assistant_actions` row (`db::assistant_actions`) with exactly what
+  it did: the songs that got a tag (not the ones that had it), the values it overwrote or
+  removed, old names. Tag writes and their row commit in one transaction. `undo` reverses only
+  that, row by row where the row still looks the way the change left it, and reports what it
+  skipped. A tag made by the change is deleted on undo only while no song has it.
+- Shared playlist changes log the songs added, the songs removed with their old positions and
+  who added them, or the move's from and to. Undo takes out only the added songs still there,
+  puts back only the removed songs still missing, and moves a song back only if it is still
+  where the move left it; a rename goes back only while nobody renamed it since. It needs the
+  user to still be able to make the change, and publishes the new version like the app's edits.
+- Apple Music playlist adds run on the phone, which can only add, so `run_confirmed_change` logs
+  a successful one as not undoable (`ToolRunner::record_phone_change`).
+- Not offered, and the prompt says so when asked: deleting tags, saved queries, or playlists,
+  leaving a shared playlist, removing or reordering Apple Music playlist songs,
+  settings and privacy, the profile, social actions, members and invites, live sessions,
+  activity and suggested tags, rerunning a saved query.
 - Every server tool only reads and runs as the JWT's user. The model never supplies a user id.
 - A phone tool (`phone_tools.rs`) stops the loop. The response is a `client_tool_call` with a
   `Continuation`: this answer's calls and outputs so far, its steps and card, and how many model
@@ -424,9 +451,17 @@ append each call and its output, and repeat until the model answers with text. I
   (and that it has songs), and an Apple Music playlist are confirmed with Apple before
   opening.
 - `songs: "card"` on `play`, `queue_songs`, and the Apple Music playlist tools becomes the ids on
-  this answer's card, or else the last card shown, since the model only sees the first 25. A
+  this answer's card, or else the last card shown, so the model does not have to copy 250 ids. A
   `card` in a phone tool's output (search, an Apple Music playlist) becomes the answer's card
   and is taken out of what the model reads.
+- The model sees up to 250 songs (`MAX_SONGS_TO_MODEL`), as many as a card holds: in a tool's
+  output, and in the developer note about the latest card in the conversation. Older cards are
+  noted with their first 25, to keep long chats small.
+- `edit_card` (`card_edit.rs`) changes a card rather than replacing it: it starts from the
+  latest card shown (or this answer's), takes ids off, and adds ids any tool returned in this
+  answer, at the end or a position. The loop runs it itself, since it needs the cards and
+  `sourced_ids`; an added id from nowhere is left out and reported. The result has no `query`,
+  so it opens as a song list, not in the query builder. Unit tested, and in the loop tests.
 - `find_songs` is for lists no query can express ("iconic video game songs", "songs like
   Redbone"): the model names the songs, and each is a `SongMetadataService::search_songs` call,
   four at a time, retrying once after a rate limit. A result counts only when its title
@@ -441,9 +476,21 @@ append each call and its output, and repeat until the model answers with text. I
   comes from), a title-only match must name it in its album or artist, so an unrelated song
   that shares a title stays off the card. A failed search is `lookup_failed`, not
   `not_found`. With
-  `count` (how many the user asked for) the model names about half again as many, best first;
+  `count` (how many the user asked for) the model names about two and a half times as many (up to 64), best first;
   the search stops once it has `count` usable songs and keeps the first `count`, and
-  `short_by` says how many it could not find. The card note states exactly how many songs the
+  `short_by` says how many it could not find. `count` is what the user asked for, even past
+  25; a card keeps at most 25, and `outcome` (`all`, `card_limit`, `short`) tells the reply to
+  say either that 25 is the most one list holds or that it is the most Apple Music had. The
+  output carries that sentence as `tell_the_user`, and `find_guard::explain_shortfall` adds it
+  to the reply when the model left it out (`find_guard`).
+- `browse_apple_music` fills a `find_songs` card that came up short: up to 4 catalog searches
+  (25 results each, run at once), novelty versions and, under Hide explicit, explicit songs
+  left out, the same recording deduped, songs from `from` listed first, at most 60. It makes
+  no card: the model picks what fits and shows it with `edit_card` (`from: "empty"`, the
+  found songs first). Logged as `[assistant] browse_apple_music "<term>"`.
+- Titles of song lists the model picked (`find_songs`, `edit_card`) leave out a song count
+  (`song_list_title`): "100 Pokémon Songs" is "Pokémon Songs". Years and decades stay, and
+  album titles keep their real names. The card note states exactly how many songs the
   card holds, so the reply's count matches it. Every lookup is
   logged as `[assistant] find_songs "<term>"` with what it matched or what Apple returned. The found songs' metadata is stored in the background
   (`spawn_store_song_metadata`) so follow-up questions and queries know them.

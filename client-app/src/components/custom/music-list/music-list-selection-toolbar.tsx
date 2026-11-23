@@ -58,29 +58,84 @@ const DEFAULT_ACTIONS: readonly MusicListSelectionActionDefinition[] = [
     { kind: "add-to-queue" },
 ];
 
-type ResolvedSelectionAction = MusicListSelectionAction & {
-    tagAction?: {
-        mode: BulkTagMode;
-        excludedTagIds?: readonly number[];
-    };
+type TagAction = {
+    mode: BulkTagMode;
+    excludedTagIds?: readonly number[];
 };
 
+type ResolvedSelectionAction = MusicListSelectionAction & {
+    tagAction?: TagAction;
+};
+
+/**
+ * The toolbar sits in the shared bottom overlay when the screen has the bottom
+ * row, and on the screen itself otherwise. The Apply and Remove tags popup is
+ * always rendered here, by the screen, never inside the overlay: the overlay
+ * hides whenever the keyboard is up, and a popup inside it hid with it, so
+ * typing a new tag's name (or a tag value) raised the keyboard, hid the popup,
+ * dropped the field's focus, and closed the keyboard again.
+ */
 export function MusicListSelectionToolbar(
     props: MusicListSelectionToolbarProps,
 ) {
     const focused = useIsFocused();
     const { bottomControlRowAvailable } = useScreenOverlayInsets();
     const shared = focused && bottomControlRowAvailable;
+    const [tagAction, setTagAction] = useState<TagAction | null>(null);
     const content = useMemo(
         () => (
-            <MusicListSelectionToolbarContent {...props} bottom={0} inOverlay />
+            <MusicListSelectionToolbarContent
+                {...props}
+                bottom={0}
+                inOverlay
+                onTagAction={setTagAction}
+            />
         ),
         [props],
     );
     useRegisterBottomSelectionOverlay(shared ? content : null);
-    return !shared && focused ? (
-        <MusicListSelectionToolbarContent {...props} />
-    ) : null;
+    const {
+        tracks,
+        userTags,
+        userTagsMeta,
+        tagsBySong,
+        defaultTagsBySong,
+        tagsLoading,
+        suggestedTagsLoading,
+        onClear,
+    } = props;
+    return (
+        <>
+            {!shared && focused ? (
+                <MusicListSelectionToolbarContent
+                    {...props}
+                    onTagAction={setTagAction}
+                />
+            ) : null}
+            {tagAction ? (
+                <BulkTagSelectorPopup
+                    mode={tagAction.mode}
+                    tracks={tracks}
+                    userTags={userTags}
+                    userTagsMeta={userTagsMeta}
+                    tagsBySong={tagsBySong}
+                    defaultTagsBySong={defaultTagsBySong}
+                    loading={
+                        tagsLoading ||
+                        (tagAction.mode === "apply" &&
+                            tracks.length === 1 &&
+                            suggestedTagsLoading)
+                    }
+                    excludedTagIds={tagAction.excludedTagIds}
+                    onCancel={() => setTagAction(null)}
+                    onComplete={() => {
+                        setTagAction(null);
+                        onClear();
+                    }}
+                />
+            ) : null}
+        </>
+    );
 }
 
 function MusicListSelectionToolbarContent({
@@ -89,18 +144,14 @@ function MusicListSelectionToolbarContent({
     bottom,
     onClear,
     onHeightChange,
-    userTags,
-    userTagsMeta,
-    tagsBySong,
-    defaultTagsBySong,
-    tagsLoading,
-    suggestedTagsLoading,
     inOverlay = false,
-}: MusicListSelectionToolbarProps & { inOverlay?: boolean }) {
+    onTagAction,
+}: MusicListSelectionToolbarProps & {
+    inOverlay?: boolean;
+    /** Opens the Apply or Remove tags popup, which the screen renders. */
+    onTagAction: (action: TagAction) => void;
+}) {
     const [moreOpen, setMoreOpen] = useState(false);
-    const [tagAction, setTagAction] = useState<
-        ResolvedSelectionAction["tagAction"] | null
-    >(null);
     const [pendingActionId, setPendingActionId] = useState<string | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
     const { colors } = useTheme();
@@ -220,7 +271,7 @@ function MusicListSelectionToolbarContent({
     function handleAction(action: ResolvedSelectionAction) {
         if (action.tagAction) {
             setMoreOpen(false);
-            setTagAction(action.tagAction);
+            onTagAction(action.tagAction);
             return;
         }
         runAction(action);
@@ -337,29 +388,6 @@ function MusicListSelectionToolbarContent({
                             />
                         ))}
                     </ModalPopup>
-
-                    {tagAction ? (
-                        <BulkTagSelectorPopup
-                            mode={tagAction.mode}
-                            tracks={tracks}
-                            userTags={userTags}
-                            userTagsMeta={userTagsMeta}
-                            tagsBySong={tagsBySong}
-                            defaultTagsBySong={defaultTagsBySong}
-                            loading={
-                                tagsLoading ||
-                                (tagAction.mode === "apply" &&
-                                    tracks.length === 1 &&
-                                    suggestedTagsLoading)
-                            }
-                            excludedTagIds={tagAction.excludedTagIds}
-                            onCancel={() => setTagAction(null)}
-                            onComplete={() => {
-                                setTagAction(null);
-                                onClear();
-                            }}
-                        />
-                    ) : null}
                 </Animated.View>
             </GestureDetector>
         </Animated.View>

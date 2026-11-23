@@ -55,6 +55,10 @@ pub enum CadenzaError {
     InvalidRequestBody(String),
     /// The assistant's model could not be reached, or its reply could not be read.
     AssistantErr(String),
+    /// An assistant change that cannot be undone, or not now: already undone, not
+    /// reversible in Cadenza, or something newer still depends on it. The message says
+    /// which, for the user.
+    CannotUndo(String),
     /// The assistant's model provider turned the request away for rate limiting.
     AssistantRateLimited {
         retry_after: Option<Duration>,
@@ -109,6 +113,7 @@ impl CadenzaError {
             Self::SocialFeedErr(_) => 502,
             Self::InvalidRequestBody(_) => 422,
             Self::AssistantErr(_) => 502,
+            Self::CannotUndo(_) => 409,
             Self::AssistantRateLimited { .. } => 429,
             Self::UserRateLimited { .. } => 429,
             Self::InviteCodeInvalid => 404,
@@ -216,6 +221,10 @@ impl CadenzaError {
             Self::AssistantErr(_) => json!({
                 "error_type": "AssistantErr",
                 "message": "The service could not complete the request."
+            }),
+            Self::CannotUndo(msg) => json!({
+                "error_type": "CannotUndo",
+                "message": msg
             }),
             Self::AssistantRateLimited { retry_after } => json!({
                 "error_type": "AssistantRateLimited",

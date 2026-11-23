@@ -8,6 +8,9 @@ import { useNavigationContainerRef, useRouter, type Href } from "expo-router";
 import { useCallback } from "react";
 import { useSWRConfig } from "swr";
 
+import { openQueryMode } from "@/features/cadenza/query-workspace";
+import { dispatchWorkspace } from "@/features/cadenza/query-workspace-store";
+import { useAccount } from "@/lib/account";
 import { readAppleMusic } from "@/lib/apple-music-read";
 import { useListeningEvents } from "@/lib/listening-events";
 import { logHandledError } from "@/lib/log";
@@ -35,7 +38,7 @@ import type { PendingConfirmation } from "./types";
 /** The most songs a tool plays, queues, or puts on a card, like the backend's. */
 const MAX_SONGS = 250;
 /** The most songs a tool describes to the model. The card shows the rest. */
-const MAX_DESCRIBED = 25;
+const MAX_DESCRIBED = 250;
 /** The most Apple Music playlists listed. */
 const MAX_PLAYLISTS = 200;
 /** How many songs or playlists one Apple Music page asks for. */
@@ -134,6 +137,8 @@ export function usePhoneTools() {
     const { recordEvent } = useListeningEvents();
     const { createPlaylist, addSongsToPlaylist } = usePlaylistMutations();
     const { mutate } = useSWRConfig();
+    const { account } = useAccount();
+    const accountId = account?.id ?? null;
 
     /** Tracks for `ids`, in order, leaving out any Apple Music cannot find. */
     const tracksFor = useCallback(
@@ -530,7 +535,12 @@ export function usePhoneTools() {
                         };
                     }
                     case "open_screen":
-                        return await openScreenFor(args, openScreen, router);
+                        return await openScreenFor(
+                            args,
+                            openScreen,
+                            router,
+                            accountId,
+                        );
                     default:
                         return {
                             error: `The phone has no tool named ${name}.`,
@@ -544,6 +554,7 @@ export function usePhoneTools() {
             }
         },
         [
+            accountId,
             addSongsToPlaylist,
             commands,
             createPlaylist,
@@ -595,21 +606,36 @@ function openPlayer(
 /**
  * Opens the screen `open_screen` names, closing the assistant sheet. An artist
  * id is checked with Apple first, so an id the model got wrong comes back as an
- * error it can fix instead of a page that cannot load.
+ * error it can fix instead of a page that cannot load. The Cadenza tab can
+ * open on the simple or the advanced builder (`mode`), which switches editors
+ * the way the tab's own toggle does, never changing a draft.
  */
 async function openScreenFor(
     args: ToolArgs,
     openScreen: ReturnType<typeof useOpenScreen>,
     router: ReturnType<typeof useRouter>,
+    accountId: string | null,
 ): Promise<ToolOutput> {
     const screen = stringOf(args.screen) ?? "";
     const id = stringOf(args.id);
     const tab = TABS[screen];
     if (tab) {
+        const mode = stringOf(args.mode);
+        if (
+            screen === "cadenza" &&
+            (mode === "simple" || mode === "advanced")
+        ) {
+            dispatchWorkspace(accountId, {
+                type: "navigate",
+                update: openQueryMode(mode),
+            });
+        }
         // close the assistant sheet, then switch tabs underneath it
         if (router.canDismiss()) router.dismiss();
         router.navigate(tab);
-        return { opened: screen };
+        return screen === "cadenza" && mode
+            ? { opened: screen, mode }
+            : { opened: screen };
     }
     const sheet = SHEETS[screen];
     if (sheet) {

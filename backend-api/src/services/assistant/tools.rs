@@ -20,16 +20,19 @@ use crate::db::{
 };
 use crate::err::CadenzaError;
 use crate::routes::json::{
-    assistant::SongsCard,
-    query::{Query, QuerySort},
+    assistant::{ActionSummary, BuilderSettings, CardQuery, SongsCard, WritePreview},
+    query::{Query, QueryGroup, QuerySort},
     tag::TagType,
 };
 use crate::services::analytics::{Dimension, TimeWindow};
+use crate::services::assistant::builder::{Builder, builder_for, simple_blocker};
+use crate::services::assistant::writes::{CardRef, Writer};
 use crate::services::metadata_tags::spawn_store_song_metadata;
+use crate::services::realtime::SharedEventBus;
 use crate::services::song_metadata::{SongMetadata, SongMetadataService};
 
 /// The most songs a tool describes to the model. The rest are only counted.
-pub const MAX_SONGS_TO_MODEL: usize = 25;
+pub const MAX_SONGS_TO_MODEL: usize = 250;
 /// The most song ids the song card under an answer gets.
 pub const MAX_CARD_SONGS: usize = 250;
 /// The most of a tool call's arguments and output written to the server log.
@@ -71,13 +74,51 @@ impl ToolOutcome {
 #[async_trait]
 pub trait ToolRunner: Send + Sync {
     async fn run(&self, name: &str, arguments: &str) -> ToolOutcome;
+
+    /// The confirm card for a write tool, or why the change cannot be made. See
+    /// [`super::writes`]. A runner that makes no changes refuses them.
+    async fn preview_write(
+        &self,
+        _name: &str,
+        _arguments: &str,
+        _card: CardRef<'_>,
+    ) -> Result<WritePreview, String> {
+        Err("changes are not available here".into())
+    }
+
+    /// Makes a change the user confirmed: what the model reads, and the done card.
+    async fn execute_write(
+        &self,
+        _name: &str,
+        _arguments: &str,
+        _card: CardRef<'_>,
+    ) -> Result<(Value, Option<ActionSummary>), String> {
+        Err("changes are not available here".into())
+    }
+
+    /// Logs a change a phone tool made (an Apple Music playlist add), for the done card
+    /// and the activity log. A runner with no log keeps nothing.
+    async fn record_phone_change(
+        &self,
+        _name: &str,
+        _arguments: &str,
+        _output: &Value,
+    ) -> Option<ActionSummary> {
+        None
+    }
 }
 
 /// The most songs `find_songs` looks up in one call.
-const MAX_FOUND_SONGS: usize = 40;
+const MAX_FOUND_SONGS: usize = 64;
 /// The most songs `find_songs` hands back: the card's share of a request, after extras
 /// named to make up for misses are trimmed off.
-const MAX_FIND_COUNT: usize = 25;
+pub(super) const MAX_FIND_COUNT: usize = 25;
+/// The most search terms one `browse_apple_music` call runs.
+const MAX_BROWSE_TERMS: usize = 4;
+/// The catalog results `browse_apple_music` takes for each term, Apple's most per search.
+const BROWSE_PER_TERM: usize = 25;
+/// The most candidates `browse_apple_music` hands the model, to keep its context small.
+const MAX_BROWSE_CANDIDATES: usize = 60;
 /// How many catalog results `find_songs` weighs for each song it looks up.
 const FIND_CANDIDATES: usize = 8;
 /// How many `find_songs` catalog searches run at once. All at once can trip Apple's rate
@@ -94,6 +135,27 @@ pub struct DbTools<'a> {
     pub song_meta: &'a SongMetadataService,
     pub user_id: Uuid,
     pub hide_explicit: bool,
+    /// The phone's query builder settings, which `run_query` runs with unless the model
+    /// asks otherwise, so its songs match what the builder shows.
+    pub builder_settings: BuilderSettings,
+    /// The phone's IANA zone, which a datetime group counts its days in.
+    pub time_zone: String,
+    /// For telling a shared playlist's other members about a change.
+    pub bus: Option<&'a SharedEventBus>,
+}
+
+impl DbTools<'_> {
+    fn writer(&self) -> Writer<'_> {
+        Writer {
+            db: self.db,
+            user_id: self.user_id,
+            hide_explicit: self.hide_explicit,
+            builder_settings: self.builder_settings,
+            bus: self.bus,
+            song_meta: Some(self.song_meta),
+            work: self.song_meta.background_tasks(),
+        }
+    }
 }
 
 #[async_trait]
@@ -121,9 +183,11 @@ impl ToolRunner for DbTools<'_> {
             "list_playlists" => self.list_playlists().await,
             "get_playlist_songs" => self.get_playlist_songs(args).await,
             "find_songs" => self.find_songs(args).await,
+            "browse_apple_music" => self.browse_apple_music(args).await,
             "find_artist" => self.find_artist(args).await,
             "find_album" => self.find_album(args).await,
             "get_album_songs" => self.get_album_songs(args).await,
+            "list_recent_actions" => self.list_recent_actions().await,
             _ => return ToolOutcome::error(format!("there is no tool named {name}"), label),
         };
         let outcome = match result {
@@ -141,6 +205,48 @@ impl ToolRunner for DbTools<'_> {
             clip(&outcome.output.to_string()),
         );
         outcome
+    }
+
+    async fn preview_write(
+        &self,
+        name: &str,
+        arguments: &str,
+        card: CardRef<'_>,
+    ) -> Result<WritePreview, String> {
+        let preview = self.writer().preview(name, arguments, card).await;
+        println!(
+            "[assistant] {name} {} -> preview {}",
+            clip(arguments),
+            clip(&format!("{preview:?}")),
+        );
+        preview
+    }
+
+    async fn execute_write(
+        &self,
+        name: &str,
+        arguments: &str,
+        card: CardRef<'_>,
+    ) -> Result<(Value, Option<ActionSummary>), String> {
+        let done = self.writer().execute(name, arguments, card).await;
+        println!(
+            "[assistant] {name} {} -> confirmed {}",
+            clip(arguments),
+            clip(&format!("{:?}", done.as_ref().map(|(output, _)| output))),
+        );
+        done.map(|(output, row)| (output, row.as_ref().map(ActionSummary::from)))
+    }
+
+    async fn record_phone_change(
+        &self,
+        name: &str,
+        arguments: &str,
+        output: &Value,
+    ) -> Option<ActionSummary> {
+        super::playlist_writes::record_apple_music(self.db, self.user_id, name, arguments, output)
+            .await
+            .as_ref()
+            .map(ActionSummary::from)
     }
 }
 
@@ -173,7 +279,7 @@ fn parse_args<T: for<'de> Deserialize<'de>>(args: Value) -> Result<T, ToolError>
 }
 
 /// The status row for a tool, shown whether or not it worked.
-fn label_for(name: &str) -> &'static str {
+pub(super) fn label_for(name: &str) -> &'static str {
     match name {
         "list_tags" => "Looked up your tags",
         "run_query" => "Ran a query",
@@ -186,9 +292,11 @@ fn label_for(name: &str) -> &'static str {
         "list_playlists" => "Looked up your playlists",
         "get_playlist_songs" => "Looked up a playlist's songs",
         "find_songs" => "Looking for songs on Apple Music",
+        "browse_apple_music" => "Browsing Apple Music",
         "find_artist" => "Looked up an artist on Apple Music",
         "find_album" => "Looked up an album on Apple Music",
         "get_album_songs" => "Looked up an album's songs",
+        "list_recent_actions" => "Read the activity log",
         _ => "Tried a tool",
     }
 }
@@ -258,21 +366,31 @@ fn activity_meaning(tag: ActivityTag) -> &'static str {
 #[derive(Deserialize)]
 struct RunQueryArgs {
     query: Value,
-    /// `everything` (the default) or `mine`.
+    /// `everything` or `mine`. Left out, whichever the phone's "library or tagged"
+    /// setting says.
     #[serde(default)]
     scope: Option<String>,
     /// How to order the songs, as a `QuerySort`. Left out, the query's own
     /// order: the user's songs first, most relevant first.
     #[serde(default)]
     sort: Option<Value>,
+    /// How to split the songs into sections, as a `QueryGroup`. The sort orders the songs
+    /// inside each.
+    #[serde(default)]
+    group: Option<Value>,
     /// How many songs to hand back, in order, when the user asked for a number
     /// of them. Left out, all of them (the card still lists at most
-    /// [`MAX_CARD_SONGS`]).
+    /// [`MAX_CARD_SONGS`]). Grouped, the first this many are picked in the sort's order,
+    /// then grouped.
     #[serde(default)]
     limit: Option<u64>,
     /// The model's short name for the list, for the card's title.
     #[serde(default)]
     title: Option<String>,
+    /// The query builder the user asked for, `simple` or `advanced`. Left out, the simple
+    /// one when it can hold the query.
+    #[serde(default)]
+    builder: Option<String>,
 }
 
 /// The `limit` the model asked for, kept to 1 through [`MAX_CARD_SONGS`].
@@ -280,23 +398,64 @@ fn picked_count(limit: Option<u64>) -> Option<usize> {
     limit.map(|limit| (limit.min(MAX_CARD_SONGS as u64) as usize).max(1))
 }
 
-/// The arrangement for `run_query`: sorted by `sort` when the model gave one,
-/// otherwise the query's own order. Never grouped.
-fn arrangement_for(sort: Option<Value>) -> Result<Arrangement, ToolError> {
-    let Some(sort) = sort.filter(|sort| !sort.is_null()) else {
-        return Ok(Arrangement::default());
-    };
-    let sort: QuerySort = serde_json::from_value(sort)
+/// The sort or group the model gave, unless it left it out or sent null.
+fn given(value: Option<Value>) -> Option<Value> {
+    value.filter(|value| !value.is_null())
+}
+
+/// The arrangement for `run_query`: sorted by `sort` and grouped by `group` when the model
+/// gave them, otherwise the query's own order, and cut to `limit`. A datetime group counts
+/// its days in `time_zone`.
+fn arrangement_for(
+    sort: Option<Value>,
+    group: Option<Value>,
+    limit: Option<usize>,
+    time_zone: &str,
+) -> Result<Arrangement, ToolError> {
+    let sort = given(sort)
+        .map(serde_json::from_value::<QuerySort>)
+        .transpose()
         .map_err(|err| ToolError::Arguments(format!("the sort is not valid: {err}")))?;
+    let group = given(group)
+        .map(serde_json::from_value::<QueryGroup>)
+        .transpose()
+        .map_err(|err| ToolError::Arguments(format!("the group is not valid: {err}")))?;
     Ok(Arrangement {
-        sort: Some(sort),
-        ..Arrangement::default()
+        sort,
+        time_zone: group.is_some().then(|| time_zone.to_owned()),
+        group,
+        limit,
     })
 }
 
-/// Which songs `run_query` searches. Every song Cadenza knows unless the model
-/// asks for `mine`, the user's library and tagged songs. The app's own "Show
-/// songs only in library or tagged" setting does not apply here.
+/// The builder the model says the user asked for.
+fn wanted_builder(builder: Option<&str>) -> Result<Option<Builder>, ToolError> {
+    match builder {
+        None => Ok(None),
+        Some("simple") => Ok(Some(Builder::Simple)),
+        Some("advanced") => Ok(Some(Builder::Advanced)),
+        Some(other) => Err(ToolError::Arguments(format!(
+            "builder must be simple or advanced, not {other}"
+        ))),
+    }
+}
+
+/// What the model tells the user when they asked for the simple builder and the query
+/// needs the advanced one.
+const SIMPLE_BUILDER_NOTE: &str = "The user asked for the simple query builder, but this query only fits the advanced one, so tapping the card opens it there. Say so in one short sentence, with why: ";
+
+/// The scope `run_query` uses when the model leaves it out: what the phone's "library or
+/// tagged" setting says, so the songs match what the query builder shows.
+fn default_scope(settings: BuilderSettings) -> &'static str {
+    if settings.library_or_tagged {
+        "mine"
+    } else {
+        "everything"
+    }
+}
+
+/// Which songs `run_query` searches: every song Cadenza knows, or for `mine` the user's
+/// library and tagged songs.
 fn query_songs_for(scope: Option<&str>) -> Result<QuerySongs, ToolError> {
     match scope {
         None | Some("everything") => Ok(QuerySongs::Everything),
@@ -368,12 +527,35 @@ const MAX_ALBUMS: usize = 5;
 /// How many artists `find_artist` hands back.
 const MAX_ARTISTS: usize = 5;
 
+/// How a `find_songs` reply explains its count: `"all"` when it found every song asked for,
+/// `"card_limit"` when it filled a card but the user asked for more than one card holds,
+/// and `"short"` when Apple Music had fewer than the card could have held.
+fn find_outcome(asked_for: usize, found: usize) -> &'static str {
+    if found >= asked_for {
+        "all"
+    } else if found >= MAX_FIND_COUNT {
+        "card_limit"
+    } else {
+        "short"
+    }
+}
+
+#[derive(Deserialize)]
+struct BrowseArgs {
+    terms: Vec<String>,
+    /// The game, film, show, or artist the songs should come from, like "Pokémon": its
+    /// songs are listed first.
+    #[serde(default)]
+    from: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct FindSongsArgs {
     songs: Vec<WantedSong>,
-    /// How many songs the user asked for. The model names more than this, best first, so
-    /// misses can be made up; the search stops once it has this many and keeps the first
-    /// this many. Left out, every song found is kept.
+    /// How many songs the user asked for, even past [`MAX_FIND_COUNT`]. The model names
+    /// more than this, best first, so misses can be made up; the search stops once it has
+    /// this many (at most [`MAX_FIND_COUNT`]) and keeps the first this many. Left out,
+    /// every song found is kept.
     #[serde(default)]
     count: Option<usize>,
     /// The game, film, show, or artist the songs come from, when they all do, like
@@ -761,6 +943,86 @@ pub(super) fn card_title(title: Option<String>) -> Option<String> {
     (!title.is_empty()).then_some(title)
 }
 
+/// [`card_title`] for a list of songs the model picked (`find_songs`, `edit_card`), without
+/// a song count: the card already shows how many, and a count in the title goes wrong
+/// when fewer were found or the list is edited later. Not for an album or a saved query,
+/// whose real name can start with a number.
+pub(super) fn song_list_title(title: Option<String>) -> Option<String> {
+    card_title(title).map(|title| {
+        let uncounted = without_count(&title);
+        if uncounted.is_empty() {
+            title
+        } else {
+            uncounted
+        }
+    })
+}
+
+/// Number words a title may open with as a count: "Ten Iconic Mario Songs".
+const COUNT_WORDS: &[&str] = &[
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+    "thirty",
+    "forty",
+    "fifty",
+    "sixty",
+    "seventy",
+    "eighty",
+    "ninety",
+    "hundred",
+    "dozen",
+];
+
+/// Whether `word` is a count of songs, like "100", "25+", or "Ten", and not a year like
+/// "2019" or a decade like "90s".
+fn is_count(word: &str) -> bool {
+    let bare = word.trim_end_matches(['+', ',', ':']).to_lowercase();
+    if bare.is_empty() {
+        return false;
+    }
+    if bare.chars().all(|c| c.is_ascii_digit()) {
+        return !bare
+            .parse::<u32>()
+            .is_ok_and(|year| (1900..=2099).contains(&year));
+    }
+    bare.split('-').all(|part| COUNT_WORDS.contains(&part))
+}
+
+/// `title` without a song count, which the card already shows and which goes wrong
+/// when fewer songs were found or the list is edited later: "100 Pokémon Songs" is
+/// "Pokémon Songs", and "Top 10 Sonic Songs" is "Top Sonic Songs". Empty when the title is
+/// only a count.
+fn without_count(title: &str) -> String {
+    let words: Vec<&str> = title.split_whitespace().collect();
+    let mut kept: Vec<&str> = Vec::with_capacity(words.len());
+    for (index, word) in words.iter().enumerate() {
+        let after_top = index > 0 && words[index - 1].eq_ignore_ascii_case("top");
+        if (index == 0 || after_top) && is_count(word) {
+            continue;
+        }
+        kept.push(word);
+    }
+    kept.join(" ")
+}
+
 /// `word` with its first letter capitalized when it is all lowercase and not a
 /// small word in the middle of the title.
 fn title_case_word(word: &str, first: bool) -> String {
@@ -794,13 +1056,23 @@ impl DbTools<'_> {
 
     async fn run_query(&self, args: Value) -> Result<ToolOutcome, ToolError> {
         let args: RunQueryArgs = parse_args(args)?;
+        let query_json = args.query.clone();
         let query: Query = serde_json::from_value(args.query)
             .map_err(|err| ToolError::Arguments(format!("the query is not valid: {err}")))?;
-        let songs = query_songs_for(args.scope.as_deref())?;
-        let arrangement = arrangement_for(args.sort)?;
+        let scope = args
+            .scope
+            .as_deref()
+            .unwrap_or(default_scope(self.builder_settings));
+        let songs = query_songs_for(Some(scope))?;
+        let wanted = wanted_builder(args.builder.as_deref())?;
+        let limit = picked_count(args.limit);
+        let sort = given(args.sort);
+        let group = given(args.group);
+        let arrangement = arrangement_for(sort.clone(), group.clone(), limit, &self.time_zone)?;
         let sorted = arrangement.sort.is_some();
+        let include_suggested = self.builder_settings.include_suggested;
         let options = QueryOptions {
-            consider_default_tags: false,
+            consider_default_tags: include_suggested,
             songs,
             hide_explicit: self.hide_explicit,
         };
@@ -813,45 +1085,58 @@ impl DbTools<'_> {
             })?;
 
         let (yours, elsewhere) = count_yours(&matches.songs);
+        // with a limit the database already kept only the first `limit` in order: the
+        // card holds just those, and Play queues just those
         let total = matches.songs.len();
-        // with a limit, only the first `limit` in order are the answer: the card
-        // holds just those, and Play queues just those
-        let limit = picked_count(args.limit);
-        let picked = &matches.songs[..limit.map_or(total, |limit| limit.min(total))];
-        let described = self.describe_songs(picked).await?;
-        let song_ids: Vec<String> = picked
+        let described = self.describe_songs(&matches.songs).await?;
+        let song_ids: Vec<String> = matches
+            .songs
             .iter()
             .take(MAX_CARD_SONGS)
             .map(|song| song.song_id.clone())
             .collect();
-        let mut outcome = ToolOutcome::ok(
-            json!({
-                "scope": if songs == QuerySongs::Everything { "everything" } else { "mine" },
-                "total": total,
-                "yours": yours,
-                "elsewhere": elsewhere,
-                "sorted": sorted,
-                // unsorted, only the songs from elsewhere are cut off; sorted,
-                // every song counts toward the limit
-                "capped": matches.capped,
-                "limit": limit,
-                // how many songs this answer is made of: `limit` of them, or all
-                "returned": picked.len(),
-                "songs": described,
-                "songs_shown": described.len(),
-                // how many the song card under the answer lists
-                "card_shows": song_ids.len(),
-            }),
-            "",
-        );
+        let (builder, gave_way) = builder_for(&query, wanted);
+        let mut output = json!({
+            "scope": if songs == QuerySongs::Everything { "everything" } else { "mine" },
+            "total": total,
+            "yours": yours,
+            "elsewhere": elsewhere,
+            "sorted": sorted,
+            // only true when the search stopped counting songs before it found them all,
+            // never because of the limit
+            "capped": matches.capped,
+            "limit": limit,
+            "groups": matches.groups.as_ref().map(Vec::len),
+            "songs": described,
+            "songs_shown": described.len(),
+            // how many the song card under the answer lists
+            "card_shows": song_ids.len(),
+            // the query builder tapping the card opens it in
+            "builder": builder.as_str(),
+        });
+        if gave_way {
+            output["builder_note"] = format!(
+                "{SIMPLE_BUILDER_NOTE}{}.",
+                simple_blocker(&query).unwrap_or("its shape needs the advanced builder")
+            )
+            .into();
+        }
+        let mut outcome = ToolOutcome::ok(output, "");
         if !song_ids.is_empty() {
             outcome.songs = Some(SongsCard {
-                // a limited answer is complete at its own size, so the card
-                // shows no "more" for the songs left out on purpose
-                total: if limit.is_some() { picked.len() } else { total },
-                capped: limit.is_none() && matches.capped,
+                total,
+                capped: matches.capped,
                 song_ids,
                 title: card_title(args.title),
+                query: Some(CardQuery {
+                    query: query_json,
+                    builder: builder.as_str().to_owned(),
+                    library_or_tagged: songs != QuerySongs::Everything,
+                    include_suggested,
+                    sort,
+                    group,
+                    limit,
+                }),
             });
         }
         Ok(outcome)
@@ -962,6 +1247,7 @@ impl DbTools<'_> {
                 capped: false,
                 song_ids,
                 title: Some(saved.name),
+                query: None,
             });
         }
         Ok(outcome)
@@ -1035,7 +1321,8 @@ impl DbTools<'_> {
                 "songs needs at least one {title, artist}".to_owned(),
             ));
         }
-        let count = args.count.map(|count| count.clamp(1, MAX_FIND_COUNT));
+        let asked_for = args.count.map(|count| count.max(1));
+        let count = asked_for.map(|count| count.min(MAX_FIND_COUNT));
 
         // a few at a time, in order
         let mut lookups: Vec<Lookup> = Vec::with_capacity(wanted.len());
@@ -1138,8 +1425,12 @@ impl DbTools<'_> {
         let mut outcome = ToolOutcome::ok(
             json!({
                 "found": described.len(),
-                "asked_for": count,
-                // asked for more than Apple Music had: say so, with both numbers
+                "asked_for": asked_for,
+                "most_per_card": MAX_FIND_COUNT,
+                // how the reply explains the count: every song asked for, the most one card
+                // holds, or the most Apple Music had
+                "outcome": asked_for.map(|asked_for| find_outcome(asked_for, found.len())),
+                // short of what the card could hold: worth one more call with new songs
                 "short_by": short_by,
                 // found by title, but Apple credits these to another artist: often the only
                 // version Apple Music has, like covers of music its owner keeps off it
@@ -1158,10 +1449,133 @@ impl DbTools<'_> {
                 total: song_ids.len(),
                 capped: false,
                 song_ids,
-                title: card_title(args.title),
+                title: song_list_title(args.title),
+                query: None,
             });
         }
         Ok(outcome)
+    }
+
+    /// Searches the Apple Music catalog for a few terms and hands the model the songs it
+    /// finds, without a card, so it can pick the ones that fit and build the card with
+    /// `edit_card`. What fills a `find_songs` card that came up short: every candidate is
+    /// a song Apple Music has. Covers, karaoke, lofi and other novelty versions are left
+    /// out, and so are explicit songs under Hide explicit.
+    async fn browse_apple_music(&self, args: Value) -> Result<ToolOutcome, ToolError> {
+        let args: BrowseArgs = parse_args(args)?;
+        let mut terms: Vec<String> = Vec::new();
+        for term in args.terms.iter().map(|term| term.trim()) {
+            if !term.is_empty() && !terms.iter().any(|seen| seen.eq_ignore_ascii_case(term)) {
+                terms.push(term.to_owned());
+            }
+        }
+        terms.truncate(MAX_BROWSE_TERMS);
+        if terms.is_empty() {
+            return Err(ToolError::Arguments(
+                "terms needs at least one search, like \"pokemon soundtrack\"".to_owned(),
+            ));
+        }
+
+        let mut searches = tokio::task::JoinSet::new();
+        for (index, term) in terms.iter().cloned().enumerate() {
+            let service = self.song_meta.clone();
+            searches.spawn(async move {
+                let found = service.search_songs(&term, BROWSE_PER_TERM).await;
+                let found = if matches!(found, Err(CadenzaError::SongMetadataRateLimited)) {
+                    tokio::time::sleep(FIND_RETRY_WAIT).await;
+                    service.search_songs(&term, BROWSE_PER_TERM).await
+                } else {
+                    found
+                };
+                (index, term, found)
+            });
+        }
+        let mut results: Vec<Option<Vec<SongMetadata>>> = vec![None; terms.len()];
+        let mut failure = None;
+        while let Some(joined) = searches.join_next().await {
+            let Ok((index, term, found)) = joined else {
+                continue;
+            };
+            match found {
+                Ok(songs) => {
+                    println!(
+                        "[assistant] browse_apple_music \"{term}\" -> {} results",
+                        songs.len()
+                    );
+                    results[index] = Some(songs);
+                }
+                Err(err) => {
+                    println!("[assistant] browse_apple_music \"{term}\" failed: {err}");
+                    failure = Some(err.to_string());
+                }
+            }
+        }
+        if results.iter().all(Option::is_none) {
+            let why = failure.unwrap_or_else(|| "the search stopped".to_owned());
+            return Err(ToolError::Arguments(
+                apple_music_down_message(&why).replace("find_songs", "browse_apple_music"),
+            ));
+        }
+
+        let mut seen_ids = std::collections::HashSet::new();
+        let mut seen_names = std::collections::HashSet::new();
+        let mut novelty = 0;
+        let mut explicit = 0;
+        let mut candidates: Vec<SongMetadata> = Vec::new();
+        for song in results.into_iter().flatten().flatten() {
+            if !seen_ids.insert(song.id.clone()) {
+                continue;
+            }
+            if is_novelty_version(&song.title) {
+                novelty += 1;
+                continue;
+            }
+            if self.hide_explicit && song.content_rating.as_deref() == Some("explicit") {
+                explicit += 1;
+                continue;
+            }
+            // the same recording on another album is one candidate
+            if !seen_names.insert((match_key(&song.title), match_key(&song.artist_name))) {
+                continue;
+            }
+            candidates.push(song);
+        }
+        let context = args.from.as_deref().map(context_words).unwrap_or_default();
+        if !context.is_empty() {
+            // a stable sort: the source's own songs first, each group in search order
+            candidates.sort_by_key(|song| !mentions_any(song, &context));
+        }
+        candidates.truncate(MAX_BROWSE_CANDIDATES);
+
+        let ids: Vec<String> = candidates.iter().map(|song| song.id.clone()).collect();
+        // stored for get_song_metadata and the card, off the answer's path
+        spawn_store_song_metadata(self.db.clone(), self.song_meta.clone(), ids);
+        let listed: Vec<Value> = candidates
+            .iter()
+            .map(|song| {
+                let mut listed = json!({
+                    "song_id": song.id,
+                    "title": song.title,
+                    "artist": song.artist_name,
+                    "album": song.album_name,
+                    "year": song.release_date.as_deref().and_then(|date| date.get(..4)),
+                });
+                if !context.is_empty() && mentions_any(song, &context) {
+                    listed["from_source"] = true.into();
+                }
+                listed
+            })
+            .collect();
+        Ok(ToolOutcome::ok(
+            json!({
+                "searched": terms,
+                "candidates": listed,
+                "left_out_versions": novelty,
+                "left_out_explicit": explicit,
+                "note": "The user does not see these. Pick only the ones that truly fit the request, best first, then show them with edit_card (from \"empty\", add: the songs find_songs found first, in order, then your picks). Never pick one just to reach the number.",
+            }),
+            "",
+        ))
     }
 
     /// How many different songs `lookups` found that would stay on the card, past the Hide
@@ -1247,6 +1661,29 @@ impl DbTools<'_> {
     }
 
     /// The songs on one Apple Music catalog album, in track order, as a card.
+    /// The changes the assistant made lately, from the activity log, for "undo the tagging
+    /// from yesterday" or "what did you change".
+    async fn list_recent_actions(&self) -> Result<ToolOutcome, ToolError> {
+        let rows = db::assistant_actions::list(self.db, self.user_id).await?;
+        let listed: Vec<Value> = rows
+            .iter()
+            .take(MAX_LISTED)
+            .map(|row| {
+                json!({
+                    "action_id": row.action_id,
+                    "summary": row.summary,
+                    "when": row.created_at.to_rfc3339(),
+                    "undoable": row.undoable,
+                    "undone": row.undone_at.is_some(),
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok(
+            json!({ "actions": listed, "total": rows.len() }),
+            "",
+        ))
+    }
+
     async fn get_album_songs(&self, args: Value) -> Result<ToolOutcome, ToolError> {
         let args: AlbumSongsArgs = parse_args(args)?;
         let album_id = args.album_id.trim().to_owned();
@@ -1301,6 +1738,7 @@ impl DbTools<'_> {
                 capped: false,
                 song_ids,
                 title: card_title(args.title).or(album_name),
+                query: None,
             });
         }
         Ok(outcome)
@@ -1366,6 +1804,7 @@ impl DbTools<'_> {
                 capped: false,
                 song_ids,
                 title: Some(detail.header.name.clone()),
+                query: None,
             });
         }
         Ok(outcome)
@@ -1421,6 +1860,7 @@ impl DbTools<'_> {
                     song_ids,
                     capped: false,
                     title: card_title(args.title).or_else(|| Some("Your Top Songs".to_owned())),
+                    query: None,
                 });
             }
             return Ok(outcome);
@@ -1508,7 +1948,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "run_query",
-            "description": "Finds songs matching a Cadenza query among every song Cadenza knows, the user's own first. Returns how many matched, how many of those are the user's own (in their library or tagged) and how many come from elsewhere, and the first 25 with title, artist, and a yours flag. The user sees the songs as a card under your answer, so do not list them in your text.",
+            "description": "Finds songs matching a Cadenza query, the user's own first, sorted, grouped, and cut to a number when asked. Returns how many matched, how many of those are the user's own (in their library or tagged) and how many come from elsewhere, the first 250 with title, artist, and a yours flag, and which query builder the card opens the query in. The user sees the songs as a card under your answer, so do not list them in your text. Tapping the card's song count loads the query into the Cadenza query builder and shows its results.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1520,9 +1960,13 @@ pub fn definitions() -> Vec<Value> {
                         "type": "object",
                         "description": "Optional order. {\"field\": \"metadata\", \"key\": <title, artist, album, genre, release_date, duration, explicit, or total_plays>, \"direction\": \"ascending\" or \"descending\"}, or {\"field\": \"tag\", \"tag_id\": <id>, \"direction\": ...} for one of the user's tags or an activity tag. Ascending is A to Z, low to high, oldest first. Leave out for the default order (the user's own songs first, most relevant first)."
                     },
+                    "group": {
+                        "type": "object",
+                        "description": "Optional sections, the same shape as sort: {\"field\": \"metadata\", \"key\": ..., \"direction\": ...} or {\"field\": \"tag\", \"tag_id\": <id>, \"direction\": ...}. One section per value (per day for a date), in the direction's order; sort then orders the songs inside each. Only when the user asks to group, split, or section the songs (\"grouped by artist\", \"by genre\"). Leave out otherwise."
+                    },
                     "limit": {
                         "type": "integer",
-                        "description": "Optional. When the user asks for a number of songs (\"10 songs\", \"my top 5\", \"a few\"), how many to hand back, 1 to 250, taken in order after sort. The card and Play then hold exactly these. Leave out to return every match."
+                        "description": "Optional. When the user asks for a number of songs (\"10 songs\", \"my top 5\", \"a few\"), how many to hand back, 1 to 250, taken in order after sort. With group, those first songs are picked in sort's order and then grouped. The card and Play then hold exactly these. Leave out to return every match."
                     },
                     "title": {
                         "type": "string",
@@ -1531,7 +1975,12 @@ pub fn definitions() -> Vec<Value> {
                     "scope": {
                         "type": "string",
                         "enum": ["everything", "mine"],
-                        "description": "everything (default): every song Cadenza knows, the user's own first. mine: only the user's library and tagged songs. Use mine only when the user asks for songs in their library, songs they have, or their own songs."
+                        "description": "everything: every song Cadenza knows, the user's own first. mine: only the user's library and tagged songs. Leave out to follow the user's query builder setting, so the card matches what the builder shows. Pass mine when the user asks for songs in their library, songs they have, or their own songs; pass everything when they ask for songs beyond their own."
+                    },
+                    "builder": {
+                        "type": "string",
+                        "enum": ["simple", "advanced"],
+                        "description": "Only when the user names a query builder (\"in the advanced builder\", \"use the simple query builder\"). Tapping the card opens the query there. Left out, it opens in the simple builder when the query fits, otherwise the advanced one."
                     }
                 },
                 "required": ["query"]
@@ -1574,7 +2023,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "get_saved_query_songs",
-            "description": "The songs one saved query holds, in order, exactly as its screen in the app lists them. Returns how many, how many are the user's own, and the first 25 with title and artist; the user sees them as a card under your answer, so do not list them in your text. Get the id from list_saved_queries.",
+            "description": "The songs one saved query holds, in order, exactly as its screen in the app lists them. Returns how many, how many are the user's own, and the first 250 with title and artist; the user sees them as a card under your answer, so do not list them in your text. Get the id from list_saved_queries.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1628,6 +2077,12 @@ pub fn definitions() -> Vec<Value> {
         }),
         json!({
             "type": "function",
+            "name": "list_recent_actions",
+            "description": "The changes the assistant made for the user lately (tagging, saved queries, playlists), newest first, from the activity log: each with an action_id, what it did, when, and whether it can still be undone. For \"undo the tagging from yesterday\" or \"what did you change\".",
+            "parameters": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "type": "function",
             "name": "get_album_songs",
             "description": "The songs on one Apple Music album, in track order, as a card. For showing, playing, or asking about an album's songs; to take the user to the album's page, use open_screen with screen album instead. Get album_id from find_album or now_playing. Not for playlists.",
             "parameters": {
@@ -1637,6 +2092,26 @@ pub fn definitions() -> Vec<Value> {
                     "title": { "type": "string", "description": "The card's title, usually the album's name." }
                 },
                 "required": ["album_id"]
+            }
+        }),
+        json!({
+            "type": "function",
+            "name": "browse_apple_music",
+            "description": "Searches the Apple Music catalog for up to 4 terms and lists the songs it has (song_id, title, artist, album, year), without showing them, so you can pick the ones that fit. Use it only to fill a find_songs card that came up short: call find_songs first, from what you know. Covers, karaoke, lofi and other novelty versions are left out. Then show your picks with edit_card.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "terms": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "1 to 4 searches, like [\"pokemon\", \"pokemon soundtrack\", \"pokemon theme\"]. Short and broad: a game, film, show, artist, or genre and a word or two."
+                    },
+                    "from": {
+                        "type": "string",
+                        "description": "The game, film, show, or artist the songs should come from, like \"Pokémon\". Its own songs are listed first, marked from_source."
+                    }
+                },
+                "required": ["terms"]
             }
         }),
         json!({
@@ -1652,11 +2127,11 @@ pub fn definitions() -> Vec<Value> {
                     },
                     "count": {
                         "type": "integer",
-                        "description": "How many songs the user asked for, 1 to 25. Leave out when they gave no number."
+                        "description": "How many songs the user asked for, as they said it, even past 25. One card holds at most 25, so find_songs keeps at most 25. Leave out when they gave no number."
                     },
                     "songs": {
                         "type": "array",
-                        "description": "Best first, in the order to show them, up to 40. When count is set, name about half again as many (15 for 10, 8 for 5, at least 3 extra), so misses are made up: the search stops once it has count songs and keeps the first count.",
+                        "description": "Best first, in the order to show them, up to 64. When count is set, name about two and a half times as many (25 for 10, 13 for 5, 63 for 25, at least 5 extra), so misses are made up: the search stops once it has count songs and keeps the first count.",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -1668,7 +2143,7 @@ pub fn definitions() -> Vec<Value> {
                     },
                     "title": {
                         "type": "string",
-                        "description": "The list's title. Title Case, 2 to 4 words, no period, like \"Iconic Video Game Songs\"."
+                        "description": "The list's title. Title Case, 2 to 4 words, no period, like \"Iconic Video Game Songs\". Never a count: not \"10 Iconic Video Game Songs\"."
                     }
                 },
                 "required": ["songs", "title"]
@@ -1677,7 +2152,7 @@ pub fn definitions() -> Vec<Value> {
         json!({
             "type": "function",
             "name": "get_playlist_songs",
-            "description": "The songs in one Cadenza shared playlist the user is a member of, in playlist order, with who added each, plus the playlist's members. Returns the first 25 with title and artist; the user sees them as a card under your answer, so do not list them in your text. Get the id from list_playlists.",
+            "description": "The songs in one Cadenza shared playlist the user is a member of, in playlist order, with who added each, plus the playlist's members. Returns the first 250 with title and artist; the user sees them as a card under your answer, so do not list them in your text. Get the id from list_playlists.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1692,6 +2167,15 @@ pub fn definitions() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn find_songs_says_whether_the_card_or_apple_music_ran_out() {
+        assert_eq!(find_outcome(10, 10), "all");
+        assert_eq!(find_outcome(100, MAX_FIND_COUNT), "card_limit");
+        assert_eq!(find_outcome(100, 15), "short");
+        assert_eq!(find_outcome(10, 7), "short");
+        assert_eq!(find_outcome(MAX_FIND_COUNT, MAX_FIND_COUNT), "all");
+    }
 
     #[test]
     fn queries_search_everything_unless_asked_for_mine() {
@@ -1720,28 +2204,86 @@ mod tests {
 
     #[test]
     fn sorts_only_when_asked() {
-        assert!(arrangement_for(None).unwrap().is_none());
-        assert!(arrangement_for(Some(Value::Null)).unwrap().is_none());
+        let plain = |sort| arrangement_for(sort, None, None, "UTC").unwrap();
+        assert!(plain(None).is_none());
+        assert!(plain(Some(Value::Null)).is_none());
 
-        let newest = arrangement_for(Some(json!({
+        let newest = plain(Some(json!({
             "field": "metadata",
             "key": "release_date",
             "direction": "descending"
-        })))
-        .unwrap();
+        })));
         assert!(newest.sort.is_some() && newest.group.is_none());
+        assert_eq!(newest.time_zone, None);
 
-        let most_played = arrangement_for(Some(json!({
+        let most_played = plain(Some(json!({
             "field": "tag",
             "tag_id": 41,
             "direction": "descending"
-        })))
-        .unwrap();
+        })));
         assert!(most_played.sort.is_some());
 
         // a sort the query engine cannot read is the model's to fix
         assert!(matches!(
-            arrangement_for(Some(json!({ "field": "metadata", "key": "mood" }))),
+            arrangement_for(
+                Some(json!({ "field": "metadata", "key": "mood" })),
+                None,
+                None,
+                "UTC"
+            ),
+            Err(ToolError::Arguments(_))
+        ));
+    }
+
+    #[test]
+    fn groups_and_limits_when_asked() {
+        let grouped = arrangement_for(
+            None,
+            Some(json!({ "field": "metadata", "key": "artist", "direction": "ascending" })),
+            Some(20),
+            "America/Denver",
+        )
+        .unwrap();
+        assert!(grouped.group.is_some() && grouped.sort.is_none());
+        assert_eq!(grouped.limit, Some(20));
+        // a datetime group counts its days in the phone's zone
+        assert_eq!(grouped.time_zone.as_deref(), Some("America/Denver"));
+
+        let limited = arrangement_for(None, None, Some(5), "UTC").unwrap();
+        assert!(!limited.is_none());
+        assert_eq!(limited.limit, Some(5));
+
+        assert!(matches!(
+            arrangement_for(None, Some(json!({ "field": "nope" })), None, "UTC"),
+            Err(ToolError::Arguments(_))
+        ));
+    }
+
+    #[test]
+    fn the_scope_follows_the_builder_setting_unless_asked() {
+        assert_eq!(default_scope(BuilderSettings::default()), "everything");
+        assert_eq!(
+            default_scope(BuilderSettings {
+                library_or_tagged: true,
+                include_suggested: false,
+            }),
+            "mine"
+        );
+    }
+
+    #[test]
+    fn a_builder_is_simple_or_advanced() {
+        assert_eq!(wanted_builder(None).ok(), Some(None));
+        assert_eq!(
+            wanted_builder(Some("simple")).ok(),
+            Some(Some(Builder::Simple))
+        );
+        assert_eq!(
+            wanted_builder(Some("advanced")).ok(),
+            Some(Some(Builder::Advanced))
+        );
+        assert!(matches!(
+            wanted_builder(Some("fancy")),
             Err(ToolError::Arguments(_))
         ));
     }
@@ -1807,6 +2349,36 @@ mod tests {
             Some("Late Night R&B on iPhone".into())
         );
         assert_eq!(title("'90s hip hop"), Some("'90s Hip Hop".into()));
+    }
+
+    #[test]
+    fn card_titles_leave_out_song_counts() {
+        let title = |text: &str| song_list_title(Some(text.into()));
+        assert_eq!(title("100 Pokémon Songs"), Some("Pokémon Songs".into()));
+        assert_eq!(
+            title("\"100 pokémon songs.\""),
+            Some("Pokémon Songs".into())
+        );
+        // an album keeps its real name
+        assert_eq!(
+            card_title(Some("1000 gecs".into())),
+            Some("1000 Gecs".into())
+        );
+        assert_eq!(
+            title("ten iconic mario songs"),
+            Some("Iconic Mario Songs".into())
+        );
+        assert_eq!(title("Top 10 Sonic Songs"), Some("Top Sonic Songs".into()));
+        assert_eq!(title("25+ anime openings"), Some("Anime Openings".into()));
+        // years and decades are not counts
+        assert_eq!(title("2019 Hits"), Some("2019 Hits".into()));
+        assert_eq!(
+            title("90s One-Hit Wonders"),
+            Some("90s One-Hit Wonders".into())
+        );
+        assert_eq!(title("Songs From 1999"), Some("Songs From 1999".into()));
+        // a title that is only a count stays
+        assert_eq!(title("100"), Some("100".into()));
     }
 
     #[test]

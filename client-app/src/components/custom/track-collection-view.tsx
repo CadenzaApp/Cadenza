@@ -488,7 +488,7 @@ export function TrackCollectionView({
         </View>
     );
     const listHeader = header ?? defaultHeader;
-    // with a back button floating top left, Sort and group sits opposite it
+    // with a back button floating top left, Sort, group, and limit sits opposite it
 
     return (
         <View className="flex-1 bg-background" style={containerStyle}>

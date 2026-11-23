@@ -38,16 +38,49 @@ export type ArrangeField =
 export type SongSort = { field: ArrangeField; direction: ArrangeDirection };
 export type SongGrouping = { field: ArrangeField; direction: ArrangeDirection };
 
-/** Both null is "None" for each: the list's own order, ungrouped. */
+/**
+ * All null is "None" for each: the list's own order, ungrouped, every song.
+ * `limit` keeps only the first that many songs in the sort's order (the
+ * list's own order when unsorted), and groups only those.
+ */
 export type SongArrangement = {
     sort: SongSort | null;
     group: SongGrouping | null;
+    limit: number | null;
 };
 
-export const NO_ARRANGEMENT: SongArrangement = { sort: null, group: null };
+export const NO_ARRANGEMENT: SongArrangement = {
+    sort: null,
+    group: null,
+    limit: null,
+};
 
+/**
+ * Sorted, grouped, or limited. Any of them makes the backend hand the list
+ * back, with its stored rows for a query.
+ */
 export function isArranged(arrangement: SongArrangement): boolean {
-    return arrangement.sort !== null || arrangement.group !== null;
+    return (
+        arrangement.sort !== null ||
+        arrangement.group !== null ||
+        arrangement.limit !== null
+    );
+}
+
+/** The most a limit can be. Longer than any list the backend arranges. */
+export const MAX_SONG_LIMIT = 20_000;
+
+/**
+ * A limit typed by the user as a limit, or null for every song. Anything
+ * that is not a whole number above zero is no limit; past the most there is,
+ * it is the most.
+ */
+export function parseSongLimit(text: string): number | null {
+    const trimmed = text.trim();
+    if (!/^\d+$/.test(trimmed)) return null;
+    const limit = Number(trimmed);
+    if (!Number.isSafeInteger(limit) || limit < 1) return null;
+    return Math.min(limit, MAX_SONG_LIMIT);
 }
 
 /** The type each metadata tag reads as, the same as the query builder's. */
@@ -140,6 +173,85 @@ export function arrangeFieldJSON(choice: SongSort): ArrangeFieldJSON {
               key: choice.field.key,
               direction: choice.direction,
           };
+}
+
+/** An arrangement as a route param, for a screen that opens already arranged. */
+export function encodeArrangementParam(arrangement: SongArrangement): string {
+    return JSON.stringify(arrangement);
+}
+
+const DIRECTIONS: readonly string[] = ["ascending", "descending"];
+const METADATA_KEYS: readonly string[] = Object.keys(METADATA_TAG_TYPES);
+const TAG_SOURCES: readonly string[] = ["own", "activity", "suggested"];
+
+function parseField(value: unknown): ArrangeField | null {
+    if (!value || typeof value !== "object") return null;
+    const field = value as Record<string, unknown>;
+    if (field.kind === "metadata") {
+        return typeof field.key === "string" &&
+            METADATA_KEYS.includes(field.key)
+            ? { kind: "metadata", key: field.key as MetadataKey }
+            : null;
+    }
+    if (
+        field.kind === "tag" &&
+        typeof field.tagId === "number" &&
+        typeof field.name === "string" &&
+        typeof field.color === "string" &&
+        typeof field.type === "string" &&
+        typeof field.source === "string" &&
+        TAG_SOURCES.includes(field.source)
+    ) {
+        return {
+            kind: "tag",
+            tagId: field.tagId,
+            name: field.name,
+            color: field.color,
+            type: field.type as TagType,
+            source: field.source as ArrangeTagSource,
+        };
+    }
+    return null;
+}
+
+function parseChoice(value: unknown): SongSort | null {
+    if (!value || typeof value !== "object") return null;
+    const choice = value as Record<string, unknown>;
+    const field = parseField(choice.field);
+    return field &&
+        typeof choice.direction === "string" &&
+        DIRECTIONS.includes(choice.direction)
+        ? { field, direction: choice.direction as ArrangeDirection }
+        : null;
+}
+
+/**
+ * An arrangement back from `encodeArrangementParam`, or null for a missing
+ * or malformed one. A part that does not read is left out.
+ */
+export function parseArrangementParam(
+    raw: string | undefined,
+): SongArrangement | null {
+    if (!raw) return null;
+    let value: unknown;
+    try {
+        value = JSON.parse(raw);
+    } catch {
+        return null;
+    }
+    if (!value || typeof value !== "object") return null;
+    const arrangement = value as Record<string, unknown>;
+    const limit =
+        typeof arrangement.limit === "number" &&
+        Number.isSafeInteger(arrangement.limit) &&
+        arrangement.limit > 0
+            ? Math.min(arrangement.limit, MAX_SONG_LIMIT)
+            : null;
+    return {
+        sort: parseChoice(arrangement.sort),
+        group: parseChoice(arrangement.group),
+        limit,
+    };
 }
 
 /** What a group holds, as the backend says. */

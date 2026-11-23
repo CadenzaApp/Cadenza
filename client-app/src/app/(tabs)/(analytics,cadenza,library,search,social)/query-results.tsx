@@ -27,6 +27,7 @@ import { useActivityTagIdsInQuery } from "@/lib/routes/tags";
 import {
     isArranged,
     NO_ARRANGEMENT,
+    parseArrangementParam,
     type SongArrangement,
 } from "@/lib/song-arrangement";
 
@@ -37,7 +38,8 @@ import {
  * `saved` it shows the songs that saved query holds, which only change when it
  * is rerun (or by tagging, with the Update saved queries setting on). Saving a
  * live query from the menu keeps showing the live list, since it is what was
- * just saved.
+ * just saved. `arrangement` opens it already sorted, grouped or limited, the
+ * way the assistant's query asked.
  */
 export default function QueryResultsScreen() {
     const params = useLocalSearchParams<{
@@ -51,6 +53,11 @@ export default function QueryResultsScreen() {
         name?: string;
         /** A saved query's id, to show its stored songs. */
         saved?: string;
+        /**
+         * How the results open: sorted, grouped and limited, from
+         * `encodeArrangementParam`. Unsorted when left out.
+         */
+        arrangement?: string;
     }>();
     const openedSavedId = parseSavedId(params.saved);
     // a live query saved from here
@@ -70,9 +77,11 @@ export default function QueryResultsScreen() {
         : params.suggested === "1";
     const name = savedQuery?.name ?? params.name;
 
-    // starts unsorted every time the screen opens, and is never saved
-    const [arrangement, setArrangement] =
-        useState<SongArrangement>(NO_ARRANGEMENT);
+    // starts unsorted every time the screen opens, unless it was opened with
+    // an arrangement (the assistant's), and is never saved
+    const [arrangement, setArrangement] = useState<SongArrangement>(
+        () => parseArrangementParam(params.arrangement) ?? NO_ARRANGEMENT,
+    );
     // what a play from here is credited to
     const playSource = useMemo<PlaySource | undefined>(
         () =>

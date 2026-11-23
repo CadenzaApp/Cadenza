@@ -47,12 +47,14 @@ export type APIRequestError = {
  */
 async function apiRequest<Output>(
     url: string,
-    options: { method?: string; body?: unknown } = {},
+    options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<Output> {
     const started = Date.now();
     try {
         return await sendAPIRequest<Output>(url, options);
     } catch (error) {
+        // a request the caller called off did not fail
+        if (options.signal?.aborted) throw error;
         // SWR keeps a failed read's error to itself, so without this a screen
         // that will not load leaves nothing in the Metro log
         logAPIFailure(
@@ -67,7 +69,11 @@ async function apiRequest<Output>(
 
 async function sendAPIRequest<Output>(
     url: string,
-    { method, body }: { method?: string; body?: unknown },
+    {
+        method,
+        body,
+        signal,
+    }: { method?: string; body?: unknown; signal?: AbortSignal },
 ): Promise<Output> {
     const token = await getAccessToken();
     const headers: Record<string, string> = {};
@@ -78,6 +84,7 @@ async function sendAPIRequest<Output>(
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
     });
 
     const text = await resp.text();
@@ -192,6 +199,23 @@ export function useAPIMutation<RequestBody, Response>(
             return data;
         },
     );
+}
+
+/**
+ * A one-off POST the caller can call off with `signal`, outside SWR. For the
+ * assistant, whose answer the user can stop; it invalidates nothing. A
+ * cancelled request rejects and is not logged as a failure.
+ */
+export function postToAPI<Output>(
+    path: string,
+    body: unknown,
+    signal?: AbortSignal,
+): Promise<Output> {
+    return apiRequest<Output>(BACKEND_URL + path, {
+        method: "POST",
+        body,
+        signal,
+    });
 }
 
 /**

@@ -89,6 +89,10 @@ function RootStack() {
                 options={sheetScreenOptions(theme)}
             />
             <Stack.Screen
+                name="assistant-activity"
+                options={sheetScreenOptions(theme)}
+            />
+            <Stack.Screen
                 name="appearance"
                 options={sheetScreenOptions(theme)}
             />

@@ -73,7 +73,7 @@ export function useArrangedTrackList({
     }, [onRejected, rejected]);
     const grouped = arranged.sections !== null;
     const local = localTracks !== undefined;
-    // a sorted or grouped query: every row comes from the backend's stored rows
+    // sorted, grouped or limited: every row comes from the backend's stored rows
     const fromRows = !local && isArranged(arrangement);
     const { rowTracks } = arranged;
 

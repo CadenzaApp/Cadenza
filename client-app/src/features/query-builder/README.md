@@ -5,19 +5,20 @@ history, settings, and results navigation; see [../cadenza/README.md](../cadenza
 
 ## Entry points
 
-| File                                                         | Responsibility                                                                        |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| `QueryBuilder.tsx`                                           | Drop edits, tap placement, constraint editing, and palette position.                  |
-| `ConditionList.tsx`                                          | Cards, insertion gaps, connectors, and editor-action context.                         |
-| `MeasuredReorderList.tsx`, `reorder-utils.ts`                | Variable-height reorder gestures, springs, and release lifecycle.                     |
-| `DragContext.tsx`, `drag-utils.ts`                           | Drag sessions, measurements, hit testing, and targeted hover subscriptions.           |
-| `DropViewport.tsx`, `DropSlot.tsx`                           | Shared scroll/clipping geometry and registered drop targets.                          |
-| `DraggablePill.tsx`, `DragGhost.tsx`                         | Tag gestures and pickup presentation.                                                 |
-| `GroupModeControl.tsx`                                       | Compact sliders and optional interactive Venn diagrams.                               |
-| `TagPalette.tsx`, `palette-geometry.ts`                      | Sliding palette, search, sections, and height limits.                                 |
-| `TagConstraintDialog.tsx`, `QueryTagPill.tsx`                | Typed predicates and their pill labels.                                               |
-| `QueryUtils.ts`, `QueryConversion.ts`, `metadata-palette.ts` | Immutable edits, wire compilation, one-way Advanced seeding, and metadata identities. |
-| `ResultsSummary.tsx`, `QueryResults.tsx`                     | Result count/action and the full playable collection.                                 |
+| File                                                         | Responsibility                                                                                                                                                                                                      |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QueryBuilder.tsx`                                           | Drop edits, tap placement, constraint editing, and palette position.                                                                                                                                                |
+| `ConditionList.tsx`                                          | Cards, insertion gaps, connectors, and editor-action context.                                                                                                                                                       |
+| `MeasuredReorderList.tsx`, `reorder-utils.ts`                | Variable-height reorder gestures, springs, and release lifecycle.                                                                                                                                                   |
+| `DragContext.tsx`, `drag-utils.ts`                           | Drag sessions, measurements, hit testing, and targeted hover subscriptions.                                                                                                                                         |
+| `DropViewport.tsx`, `DropSlot.tsx`                           | Shared scroll/clipping geometry and registered drop targets.                                                                                                                                                        |
+| `DraggablePill.tsx`, `DragGhost.tsx`                         | Tag gestures and pickup presentation.                                                                                                                                                                               |
+| `GroupModeControl.tsx`                                       | Compact sliders and optional interactive Venn diagrams.                                                                                                                                                             |
+| `TagPalette.tsx`, `palette-geometry.ts`                      | Sliding palette, search, sections, and height limits.                                                                                                                                                               |
+| `TagConstraintDialog.tsx`, `QueryTagPill.tsx`                | Typed predicates and their pill labels.                                                                                                                                                                             |
+| `QueryUtils.ts`, `QueryConversion.ts`, `metadata-palette.ts` | Immutable edits, wire compilation, one-way Advanced seeding, and metadata identities.                                                                                                                               |
+| `QueryImport.ts`                                             | The way back: a wire query into Simple's conditions (`queryToSimple`, when `fitsSimple`) or Advanced's tree (`queryToAdvanced`, which holds any query), for a query made outside the builder, like the assistant's. |
+| `ResultsSummary.tsx`, `QueryResults.tsx`                     | Result count/action and the full playable collection.                                                                                                                                                               |
 
 ## Query semantics
 
@@ -106,7 +107,9 @@ A query runs over every song Cadenza knows, not just the library (see the query 
 
 ## Validation
 
-`QueryUtils.test.ts` checks edits, wire shapes, and count labels. `@/lib/paged-tracks.test.ts`
+`QueryUtils.test.ts` checks edits, wire shapes, and count labels. `QueryImport.test.ts` loads every
+query in `backend-api/src/services/assistant/builder_fixtures.json`, which the backend's `fits_simple`
+reads too, so both agree on which builder a query fits, and checks each comes back out unchanged. `@/lib/paged-tracks.test.ts`
 checks result paging and the play queue. `QueryConversion.test.ts` checks one-way
 seeding, metadata/value predicates, truth tables, and reorder invariance. `drag-utils.test.ts`
 covers clipping, fast/stale drops, measurement failure, and targeted hover notifications.

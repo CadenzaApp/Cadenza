@@ -21,7 +21,7 @@ export type MusicListArrangement = {
      */
     sortValues?: ReadonlyMap<string, string>;
     /**
-     * Where the Sort and group button sits: the bottom row (the default), or
+     * Where the Sort, group, and limit button sits: the bottom row (the default), or
      * the top right corner, opposite a hero's `FloatingBackButton`.
      */
     placement?: MusicListArrangePlacement;

@@ -93,6 +93,13 @@ pub fn user_data_counts() -> Vec<DataCount> {
             "saved_queries where user_id = $1 and shared",
         ),
         rows(
+            "assistant_actions",
+            Library,
+            "Changes in the assistant's activity log",
+            "count(*)",
+            "assistant_actions where user_id = $1",
+        ),
+        rows(
             "tags",
             Tags,
             "Tags you made",

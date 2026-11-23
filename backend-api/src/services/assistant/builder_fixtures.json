@@ -1,0 +1,860 @@
+[
+  {
+    "name": "one tag on its own",
+    "query": {
+      "where": {
+        "filter": {
+          "field": "tag",
+          "tag_id": 1,
+          "op": "is_applied"
+        }
+      }
+    },
+    "simple": true,
+    "simple_json": {
+      "where": {
+        "and": [
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 1,
+              "op": "is_applied"
+            }
+          }
+        ]
+      }
+    },
+    "advanced_json": {
+      "where": {
+        "and": [
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 1,
+              "op": "is_applied"
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "two tags, all of them",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 1,
+              "op": "is_applied"
+            }
+          },
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 2,
+              "op": "is_applied"
+            }
+          }
+        ]
+      }
+    },
+    "simple": true
+  },
+  {
+    "name": "two tags, any of them",
+    "query": {
+      "where": {
+        "or": [
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 1,
+              "op": "is_applied"
+            }
+          },
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 2,
+              "op": "is_applied"
+            }
+          }
+        ]
+      }
+    },
+    "simple": true
+  },
+  {
+    "name": "a tag that is not applied",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 1,
+              "op": "is_applied"
+            }
+          },
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 2,
+              "op": "is_not_applied"
+            }
+          }
+        ]
+      }
+    },
+    "simple": true
+  },
+  {
+    "name": "a not around a plain tag",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "not": {
+              "filter": {
+                "field": "tag",
+                "tag_id": 2,
+                "op": "is_applied"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "simple": true,
+    "simple_json": {
+      "where": {
+        "and": [
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 2,
+              "op": "is_not_applied"
+            }
+          }
+        ]
+      }
+    },
+    "advanced_json": {
+      "where": {
+        "and": [
+          {
+            "not": {
+              "or": [
+                {
+                  "filter": {
+                    "field": "tag",
+                    "tag_id": 2,
+                    "op": "is_applied"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "a tag value constraint",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 3,
+              "op": "gt",
+              "value": "3"
+            }
+          }
+        ]
+      }
+    },
+    "simple": true
+  },
+  {
+    "name": "a negated tag value constraint",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "not": {
+              "filter": {
+                "field": "tag",
+                "tag_id": 3,
+                "op": "gt",
+                "value": "3"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "simple": true,
+    "advanced_json": {
+      "where": {
+        "and": [
+          {
+            "not": {
+              "or": [
+                {
+                  "filter": {
+                    "field": "tag",
+                    "tag_id": 3,
+                    "op": "gt",
+                    "value": "3"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "a metadata filter beside a tag",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "filter": {
+              "field": "metadata",
+              "key": "artist",
+              "op": "starts_with",
+              "value": "p"
+            }
+          },
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 1,
+              "op": "is_applied"
+            }
+          }
+        ]
+      }
+    },
+    "simple": true
+  },
+  {
+    "name": "an any group after a tag",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 1,
+              "op": "is_applied"
+            }
+          },
+          {
+            "or": [
+              {
+                "filter": {
+                  "field": "tag",
+                  "tag_id": 2,
+                  "op": "is_applied"
+                }
+              },
+              {
+                "filter": {
+                  "field": "tag",
+                  "tag_id": 3,
+                  "op": "gt",
+                  "value": "3"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "simple": true
+  },
+  {
+    "name": "a none group",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "not": {
+              "or": [
+                {
+                  "filter": {
+                    "field": "tag",
+                    "tag_id": 1,
+                    "op": "is_applied"
+                  }
+                },
+                {
+                  "filter": {
+                    "field": "tag",
+                    "tag_id": 2,
+                    "op": "is_applied"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 5,
+              "op": "is",
+              "value": "happy"
+            }
+          }
+        ]
+      }
+    },
+    "simple": true
+  },
+  {
+    "name": "an all group in an any query",
+    "query": {
+      "where": {
+        "or": [
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 5,
+              "op": "contains",
+              "value": "x"
+            }
+          },
+          {
+            "and": [
+              {
+                "filter": {
+                  "field": "tag",
+                  "tag_id": 1,
+                  "op": "is_applied"
+                }
+              },
+              {
+                "filter": {
+                  "field": "tag",
+                  "tag_id": 2,
+                  "op": "is_applied"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "simple": true
+  },
+  {
+    "name": "a leading any group in an any query flattens",
+    "query": {
+      "where": {
+        "or": [
+          {
+            "or": [
+              {
+                "filter": {
+                  "field": "tag",
+                  "tag_id": 1,
+                  "op": "is_applied"
+                }
+              },
+              {
+                "filter": {
+                  "field": "tag",
+                  "tag_id": 2,
+                  "op": "is_applied"
+                }
+              }
+            ]
+          },
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 3,
+              "op": "le",
+              "value": "2"
+            }
+          }
+        ]
+      }
+    },
+    "simple": true,
+    "simple_json": {
+      "where": {
+        "or": [
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 1,
+              "op": "is_applied"
+            }
+          },
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 2,
+              "op": "is_applied"
+            }
+          },
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 3,
+              "op": "le",
+              "value": "2"
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "a group of one is its tag",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "or": [
+              {
+                "filter": {
+                  "field": "tag",
+                  "tag_id": 1,
+                  "op": "is_applied"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "simple": true,
+    "simple_json": {
+      "where": {
+        "and": [
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 1,
+              "op": "is_applied"
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "a none group on its own",
+    "query": {
+      "where": {
+        "not": {
+          "or": [
+            {
+              "filter": {
+                "field": "tag",
+                "tag_id": 1,
+                "op": "is_applied"
+              }
+            },
+            {
+              "filter": {
+                "field": "tag",
+                "tag_id": 2,
+                "op": "is_applied"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "simple": true,
+    "simple_json": {
+      "where": {
+        "and": [
+          {
+            "not": {
+              "or": [
+                {
+                  "filter": {
+                    "field": "tag",
+                    "tag_id": 1,
+                    "op": "is_applied"
+                  }
+                },
+                {
+                  "filter": {
+                    "field": "tag",
+                    "tag_id": 2,
+                    "op": "is_applied"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "a negated metadata filter",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "not": {
+              "filter": {
+                "field": "metadata",
+                "key": "genre",
+                "op": "is",
+                "value": "Pop"
+              }
+            }
+          },
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 1,
+              "op": "is_applied"
+            }
+          }
+        ]
+      }
+    },
+    "simple": true,
+    "advanced_json": {
+      "where": {
+        "and": [
+          {
+            "not": {
+              "or": [
+                {
+                  "filter": {
+                    "field": "metadata",
+                    "key": "genre",
+                    "op": "is",
+                    "value": "Pop"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 1,
+              "op": "is_applied"
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "a tag name filter",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "filter": {
+              "field": "tag_name",
+              "op": "contains",
+              "value": "live"
+            }
+          }
+        ]
+      }
+    },
+    "simple": false
+  },
+  {
+    "name": "a tag type filter",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "filter": {
+              "field": "tag",
+              "tag_id": 1,
+              "op": "is_applied"
+            }
+          },
+          {
+            "filter": {
+              "field": "tag_type",
+              "op": "is",
+              "value": "checkbox"
+            }
+          }
+        ]
+      }
+    },
+    "simple": false
+  },
+  {
+    "name": "a tag value filter in a group",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "or": [
+              {
+                "filter": {
+                  "field": "tag",
+                  "tag_id": 1,
+                  "op": "is_applied"
+                }
+              },
+              {
+                "filter": {
+                  "field": "tag_value",
+                  "op": "is",
+                  "value": "x"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "simple": false
+  },
+  {
+    "name": "a group inside a group",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "or": [
+              {
+                "filter": {
+                  "field": "tag",
+                  "tag_id": 1,
+                  "op": "is_applied"
+                }
+              },
+              {
+                "and": [
+                  {
+                    "filter": {
+                      "field": "tag",
+                      "tag_id": 2,
+                      "op": "is_applied"
+                    }
+                  },
+                  {
+                    "filter": {
+                      "field": "tag",
+                      "tag_id": 3,
+                      "op": "gt",
+                      "value": "1"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "simple": false
+  },
+  {
+    "name": "a negated tag inside a group",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "or": [
+              {
+                "filter": {
+                  "field": "tag",
+                  "tag_id": 1,
+                  "op": "is_applied"
+                }
+              },
+              {
+                "not": {
+                  "filter": {
+                    "field": "tag",
+                    "tag_id": 2,
+                    "op": "is_applied"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "simple": false,
+    "advanced_json": {
+      "where": {
+        "and": [
+          {
+            "or": [
+              {
+                "filter": {
+                  "field": "tag",
+                  "tag_id": 1,
+                  "op": "is_applied"
+                }
+              },
+              {
+                "not": {
+                  "or": [
+                    {
+                      "filter": {
+                        "field": "tag",
+                        "tag_id": 2,
+                        "op": "is_applied"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "a not around an all group",
+    "query": {
+      "where": {
+        "not": {
+          "and": [
+            {
+              "filter": {
+                "field": "tag",
+                "tag_id": 1,
+                "op": "is_applied"
+              }
+            },
+            {
+              "filter": {
+                "field": "tag",
+                "tag_id": 2,
+                "op": "is_applied"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "simple": false,
+    "advanced_json": {
+      "where": {
+        "not": {
+          "or": [
+            {
+              "and": [
+                {
+                  "filter": {
+                    "field": "tag",
+                    "tag_id": 1,
+                    "op": "is_applied"
+                  }
+                },
+                {
+                  "filter": {
+                    "field": "tag",
+                    "tag_id": 2,
+                    "op": "is_applied"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "an all group nested two deep",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "and": [
+              {
+                "or": [
+                  {
+                    "filter": {
+                      "field": "tag",
+                      "tag_id": 1,
+                      "op": "is_applied"
+                    }
+                  },
+                  {
+                    "filter": {
+                      "field": "tag",
+                      "tag_id": 2,
+                      "op": "is_applied"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "simple": false
+  },
+  {
+    "name": "a double not",
+    "query": {
+      "where": {
+        "and": [
+          {
+            "not": {
+              "not": {
+                "filter": {
+                  "field": "tag",
+                  "tag_id": 1,
+                  "op": "is_applied"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "simple": false,
+    "advanced_json": {
+      "where": {
+        "and": [
+          {
+            "not": {
+              "or": [
+                {
+                  "not": {
+                    "or": [
+                      {
+                        "filter": {
+                          "field": "tag",
+                          "tag_id": 1,
+                          "op": "is_applied"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+]
