@@ -90,7 +90,9 @@ export function MusicListArrangeButton({
     const arranged = isArranged(value);
     const openSort = useCallback(() => setOpen(true), []);
     const icon = arranged ? ("funnel" as const) : ("funnel-outline" as const);
-    const label = arranged ? "Sort and group, on" : "Sort and group";
+    const label = arranged
+        ? "Sort, group, and limit, on"
+        : "Sort, group, and limit";
 
     return (
         <>
@@ -195,7 +197,7 @@ function ArrangeSheet({
     const pickingValue = picking === "sort" ? value.sort : value.group;
 
     return (
-        <ModalPopup visible onClose={onClose} title="Sort and group">
+        <ModalPopup visible onClose={onClose} title="Sort, group, and limit">
             <View className="gap-4 pt-1">
                 <ChoiceRow
                     title="Sort by"
@@ -220,7 +222,6 @@ function ArrangeSheet({
                 ) : null}
                 <LimitRow
                     limit={value.limit}
-                    grouped={value.group !== null}
                     onChange={(limit) => onChange({ ...value, limit })}
                 />
             </View>
@@ -319,11 +320,9 @@ function ChoiceRow({
  */
 function LimitRow({
     limit,
-    grouped,
     onChange,
 }: {
     limit: number | null;
-    grouped: boolean;
     onChange: (limit: number | null) => void;
 }) {
     const { colors } = useTheme();
@@ -378,12 +377,6 @@ function LimitRow({
                     </Pressable>
                 ) : null}
             </View>
-            {limit !== null ? (
-                <Text className="text-xs text-muted-foreground">
-                    Only the first {limit} {limit === 1 ? "song" : "songs"}
-                    {grouped ? ", then grouped." : "."}
-                </Text>
-            ) : null}
         </View>
     );
 }
