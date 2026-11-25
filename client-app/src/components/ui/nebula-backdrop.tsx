@@ -43,6 +43,8 @@ type NebulaBackdropProps = {
     colors: readonly string[];
     /** Defaults to `bottom`. */
     layout?: NebulaLayout;
+    /** Keep an explicitly designed palette without artwork lightness normalization. */
+    preserveColors?: boolean;
 };
 
 /**
@@ -133,6 +135,7 @@ type Palette = { key: string; colors: readonly string[]; byBlob: string[] };
 export function NebulaBackdrop({
     colors,
     layout = "bottom",
+    preserveColors = false,
 }: NebulaBackdropProps) {
     const slots = SLOTS[layout];
     const float = FLOAT[layout];
@@ -141,7 +144,9 @@ export function NebulaBackdrop({
         if (colors.length === 0) return null;
         const shown = colors
             .slice(0, slots.length)
-            .map((color) => nebulaColor(color, colorScheme));
+            .map((color) =>
+                preserveColors ? color : nebulaColor(color, colorScheme),
+            );
         return {
             key: shown.join(","),
             colors: shown,
@@ -150,7 +155,7 @@ export function NebulaBackdrop({
                 (_, index) => shown[index % shown.length],
             ),
         };
-    }, [colorScheme, colors, slots]);
+    }, [colorScheme, colors, slots, preserveColors]);
 
     // the last real palette, so fading out to no colors still has one to show
     const [kept, setKept] = useState(palette);

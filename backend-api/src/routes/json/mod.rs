@@ -1,3 +1,4 @@
+pub mod admin;
 /// this module has objects that are to be returned from API as json.
 pub mod analytics;
 pub mod assistant;

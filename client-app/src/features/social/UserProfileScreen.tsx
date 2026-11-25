@@ -1,3 +1,4 @@
+import { RoleControls } from "@/features/admin/RoleControls";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation, useRouter, type Href } from "expo-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -292,6 +293,7 @@ export function UserProfileScreen({ userId }: Props) {
                             }
                         />
                         <View className="mb-6 gap-6">
+                            <RoleControls userId={userId} />
                             <ProfileListening userId={userId} />
                             {blocked ? null : (
                                 <ProfileShelves userId={userId} />

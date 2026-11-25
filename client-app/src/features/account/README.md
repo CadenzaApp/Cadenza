@@ -83,3 +83,9 @@ the presets over them.
 
 Touching files in this directory? Update this README in the same change.
 See [../../../../AGENT_GUIDE.md](../../../../AGENT_GUIDE.md).
+
+## Admin entry
+
+Account reads `useAdminAccess` and shows Admin only for Owners/Admins. It opens
+the dedicated `/admin` modal. Role management lives on another user's profile;
+see `features/admin/README.md`. The API enforces all privileges independently.

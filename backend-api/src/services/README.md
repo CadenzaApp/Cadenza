@@ -650,3 +650,11 @@ bound every database phase of an enrichment attempt. Cross-instance claim
 ownership is outside the single-instance deployment scope.
 
 Duration tag values are validated as nonnegative integer milliseconds, at most JavaScript's safe integer limit, and canonicalized as decimal strings.
+
+## Platform administration
+
+`admin.rs` validates dashboard windows, filters and limits, then caches bounded
+aggregate responses for 60 seconds. Routes check current role before calling it,
+including cache hits. Explicit complete UTC calendar bounds take precedence over
+week/month offsets. SQL and immutable scalar snapshots live in `db/admin_metrics.rs`.
+See `routes/README.md` for the `/admin` contract.

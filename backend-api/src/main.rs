@@ -177,6 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // route paths
     let app = Router::new()
+        .nest("/admin", routes::admin::get_admin_router())
         .nest("/tags", get_tags_router())
         .nest("/songs", get_songs_router())
         .nest("/queries", get_queries_router())

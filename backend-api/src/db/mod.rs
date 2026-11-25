@@ -1,4 +1,5 @@
 pub mod activity_tags;
+pub mod admin_metrics;
 pub mod analytics;
 pub mod assistant_actions;
 pub mod audience;
@@ -13,6 +14,7 @@ pub mod live_sessions;
 pub mod metadata_tags;
 pub mod notification;
 pub mod now_playing;
+pub mod platform_roles;
 pub mod pool;
 pub mod privacy;
 pub mod profile;

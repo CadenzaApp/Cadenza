@@ -318,12 +318,20 @@ test("only titles needing more than two lines open the full-title popup", () => 
     );
 });
 
+// The player wrapper and Admin both delegate to the same masked renderer.
+function renderTabIcons(f, component, props) {
+    const wrapper = f.render(component, props);
+    return wrapper.type?.name === "MaskedTabIcons"
+        ? f.render(wrapper.type, wrapper.props)
+        : wrapper;
+}
+
 test("the pill masks switch partial glyphs between outline and filled accent layers", () => {
     const f = fixture();
     const { PlayerTabIcons } = f.load(
         "src/components/custom/media-player/player-bar.tsx",
     );
-    const tree = f.render(PlayerTabIcons, {
+    const tree = renderTabIcons(f, PlayerTabIcons, {
         barWidth: 304,
         pageWidth: 400,
         scrollX: { get: () => 200 },
@@ -384,7 +392,7 @@ test("tab buttons animate to their respective pages without requiring a swipe", 
         ["Tags", "tags", 800],
     ]) {
         const f = barFixture();
-        const icons = f.render(f.icons.type, f.icons.props);
+        const icons = renderTabIcons(f, f.icons.type, f.icons.props);
         const button = find(
             icons,
             (n) =>

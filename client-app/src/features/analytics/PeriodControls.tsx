@@ -12,10 +12,17 @@ import {
 import { Text } from "@/components/ui/text";
 
 import { useAnalyticsPeriod } from "./analytics-period";
-import { PERIOD_GRAINS, canStepForward, grainLabel } from "./range";
+import {
+    PERIOD_GRAINS,
+    canStepForward,
+    grainLabel,
+    type PeriodGrain,
+} from "./range";
 
 /** A glass pill naming the grain. Tapping it offers the others. */
-export function GrainPicker() {
+export function GrainPicker({
+    grains = PERIOD_GRAINS,
+}: { grains?: readonly PeriodGrain[] } = {}) {
     const { period, setGrain } = useAnalyticsPeriod();
     const { colors } = useTheme();
     const [open, setOpen] = useState(false);
@@ -56,7 +63,7 @@ export function GrainPicker() {
                 onClose={() => setOpen(false)}
                 title="Show by"
             >
-                {PERIOD_GRAINS.map((grain) => {
+                {grains.map((grain) => {
                     const selected = grain === period.grain;
                     return (
                         <Pressable
@@ -133,12 +140,14 @@ export function PeriodStepper({ size = 40 }: { size?: number }) {
  * The period in one row, for the detail pages: the dates, the grain, and the
  * arrows. The overview carries the same controls in its header instead.
  */
-export function PeriodBar() {
+export function PeriodBar({
+    grains,
+}: { grains?: readonly PeriodGrain[] } = {}) {
     const { period } = useAnalyticsPeriod();
     return (
         <View className="flex-row items-center justify-between gap-3">
             <View className="flex-1 flex-row items-center gap-3">
-                <GrainPicker />
+                <GrainPicker grains={grains} />
                 <Text
                     className="text-muted-foreground flex-1 text-sm"
                     numberOfLines={1}
