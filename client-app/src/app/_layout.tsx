@@ -83,6 +83,15 @@ function RootStack() {
                     headerShown: false,
                 }}
             />
+            <Stack.Screen
+                name="admin"
+                options={{
+                    presentation: "fullScreenModal",
+                    // The admin header owns swipe dismissal so chart scrubs cannot dismiss it.
+                    gestureEnabled: false,
+                    headerShown: false,
+                }}
+            />
             <Stack.Screen name="account" options={sheetScreenOptions(theme)} />
             <Stack.Screen
                 name="assistant"

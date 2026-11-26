@@ -156,3 +156,8 @@ survives navigating into a detail page and back.
   there is nothing to open; the descriptor's `hrefFor` returns null and the row does not navigate.
 - **A period with no plays gets a message**, keyed on `stats.plays === 0`, because a page of zeros
   reads as broken. The header stays, so the user can step to a period that has some.
+
+## Shared period controls
+
+`GrainPicker` and `PeriodBar` accept an optional `grains` list. Analytics retains
+all grains; Admin limits Users to week/month and Social to week/month/year.

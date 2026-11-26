@@ -76,6 +76,7 @@ pub enum CadenzaError {
     /// The caller is signed in but their role does not allow this. The
     /// message says what was refused.
     Forbidden(String),
+    PlatformRoleConflict,
     /// The write named an `expected_version` that is no longer current.
     /// Refetch and try again.
     VersionConflict {
@@ -119,6 +120,7 @@ impl CadenzaError {
             Self::InviteCodeInvalid => 404,
             Self::TooManyRequests => 429,
             Self::Forbidden(_) => 403,
+            Self::PlatformRoleConflict => 409,
             Self::VersionConflict { .. } => 409,
             Self::SessionEnded => 410,
         }
@@ -132,6 +134,9 @@ impl CadenzaError {
                 json!({"error_type": "RateLimited", "message": "Request limit reached; retry later."})
             }
             Self::ServiceUnavailable => json!({"error_type": "ServiceUnavailable"}),
+            Self::PlatformRoleConflict => {
+                json!({"error_type":"PlatformRoleConflict","message":"Role changed. Refresh the profile and try again."})
+            }
             Self::NotFound => json!({
                 "error_type": "NotFound",
             }),

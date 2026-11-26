@@ -781,3 +781,10 @@ The floating expanded player defaults to the same 52-point height as its row bub
 The duration tag type carries integer milliseconds, displayed as hours, minutes, and seconds by tag-values. Metadata duration uses this same type.
 
 Metadata duration pills normalize older number-typed API responses to duration display. Tag creation orders types as Basic, Number, Date, Duration, Date & time, Checkbox, Text.
+
+## Admin reads
+
+`routes/admin.ts` defines dashboard response types, capability reads, target-role
+reads, and confirmed role mutations. Reads are account-scoped SWR keys and never
+saved to device storage. Revocation clears cached admin data; successful mutations
+revalidate both capability and target-role reads.

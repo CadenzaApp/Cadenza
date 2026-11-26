@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod json;
 
 pub mod analytics;

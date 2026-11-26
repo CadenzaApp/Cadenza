@@ -278,7 +278,26 @@ const TAB_PRESENTATION = {
 >;
 
 /** Complementary masks switch glyph form and color at the pill's exact edge. */
-export function PlayerTabIcons({
+export function PlayerTabIcons(props: {
+    barWidth: number;
+    pageWidth: number;
+    scrollX: SharedValue<number>;
+    selectedTab: PlayerTab;
+    onSelect: (tab: PlayerTab) => void;
+}) {
+    return (
+        <MaskedTabIcons
+            {...props}
+            tabs={PLAYER_TABS}
+            presentation={TAB_PRESENTATION}
+        />
+    );
+}
+
+export function MaskedTabIcons<T extends string>({
+    tabs,
+    presentation,
+    inactiveColor,
     barWidth,
     pageWidth,
     scrollX,
@@ -288,8 +307,18 @@ export function PlayerTabIcons({
     barWidth: number;
     pageWidth: number;
     scrollX: SharedValue<number>;
-    selectedTab: PlayerTab;
-    onSelect: (tab: PlayerTab) => void;
+    tabs: readonly T[];
+    inactiveColor?: string;
+    presentation: Record<
+        T,
+        {
+            label: string;
+            sf: Record<"active" | "inactive", SFSymbol>;
+            icon: Record<"active" | "inactive", IoniconName>;
+        }
+    >;
+    selectedTab: T;
+    onSelect: (tab: T) => void;
 }) {
     const { colors, scheme } = useAppTheme();
     const width = Math.max(0, barWidth - 2 * PLAYER_BAR_INSET);
@@ -299,7 +328,7 @@ export function PlayerTabIcons({
             pageWidth > 0 ? scrollX.get() / pageWidth : 0,
             width,
             height,
-            PLAYER_TABS.length,
+            tabs.length,
         ),
     );
     const insideProps = useAnimatedProps(() => ({ d: geometry.get().inside }));
@@ -348,8 +377,8 @@ export function PlayerTabIcons({
                     }
                 >
                     <View className="flex-1 flex-row">
-                        {PLAYER_TABS.map((tab) => {
-                            const look = TAB_PRESENTATION[tab];
+                        {tabs.map((tab) => {
+                            const look = presentation[tab];
                             return (
                                 <View
                                     key={tab}
@@ -370,7 +399,8 @@ export function PlayerTabIcons({
                                         color={
                                             filled
                                                 ? colors.brand
-                                                : colors.mutedForeground
+                                                : (inactiveColor ??
+                                                  colors.mutedForeground)
                                         }
                                     />
                                 </View>
@@ -380,12 +410,12 @@ export function PlayerTabIcons({
                 </MaskedView>
             ))}
             <View className="flex-1 flex-row">
-                {PLAYER_TABS.map((tab) => (
+                {tabs.map((tab) => (
                     <Pressable
                         key={tab}
                         className="flex-1"
                         accessibilityRole="tab"
-                        accessibilityLabel={TAB_PRESENTATION[tab].label}
+                        accessibilityLabel={presentation[tab].label}
                         accessibilityState={{ selected: selectedTab === tab }}
                         onPress={() => onSelect(tab)}
                     />

@@ -8,7 +8,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 
 | file                   | role                                                                                                                                                                                   |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mod.rs`               | Declares `json`, `analytics`, `assistant`, `events`, `profile`, `push_tokens`, `queries`, `saved_queries`, `settings`, `social`, `tags`, `songs`, `listening`, `invites`, `shared_playlists`, `live_sessions`, `realtime`.                                                                  |
+| `mod.rs`               | Declares `json`, `admin`, `analytics`, `assistant`, `events`, `profile`, `push_tokens`, `queries`, `saved_queries`, `settings`, `social`, `tags`, `songs`, `listening`, `invites`, `shared_playlists`, `live_sessions`, `realtime`.                                                                  |
 | `tags.rs`              | Tag CRUD for the signed-in user, default tag search, listing the activity tags, plus LLM tag suggestion. Mounted at `/tags`.                                                           |
 | `songs.rs`             | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, recording plays, and reporting an opened song. Mounted at `/songs`. |
 | `queries.rs`           | Runs a tag query and returns song ids by relevance. Mounted at `/queries`.                                                                                                             |
@@ -25,7 +25,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 | `analytics.rs`         | Summary counts, time bucketed trends, the metric list, and the rankings (song, artist, album, playlist, query). Mounted at `/analytics`.                                               |
 | `social.rs`            | The social feed, posts, likes, comments, views, topic posts, friends, notifications, user search, and interest scores. Calls the python model only for embeddings and similarity. Mounted at `/social`. |
 | `assistant.rs`         | The in-app assistant: answers one message in a conversation by letting the model call tools, handing phone-only ones to the phone. Mounted at `/assistant`. |
-| `json/mod.rs`          | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `assistant`, `invite`, `listening`, `live_session`, `metadata_tag`, `privacy`, `shared_playlist`, `profile`, `query`, `settings`, `social`, and `tag`.                                              |
+| `json/mod.rs`          | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `admin`, `analytics`, `assistant`, `invite`, `listening`, `live_session`, `metadata_tag`, `privacy`, `shared_playlist`, `profile`, `query`, `settings`, `social`, and `tag`.                                              |
 | `json/analytics.rs`    | The `/events` request and response shapes, and the `/analytics` response shapes.                                                                                                       |
 | `json/user_data.rs`    | `UserDataCount`, one row of `GET /profile/data`.                                                                                                                                       |
 | `json/tag.rs`          | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id` and keeps `is_activity`.                                                             |
@@ -41,6 +41,45 @@ call into `src/db/` or `src/services/`, and shape the response.
 | `json/saved_query.rs`  | `SavedQuery` and `NewSavedQueryBody`. `query` is kept as raw JSON once it parses as a `Query`.                                                                                         |
 | `json/query.rs`        | `Query`, `QueryNode`, `Filter`, `FilterOp`, `MetadataKey`: the input schema of a tag query. Both client builders produce it.                                                           |
 | `json/assistant.rs`    | `AssistantRequest` (with `Resume` and `BuilderSettings`), `ChatMessage`, and `AssistantResponse` (`reply` or `client_tool_call`) with its `AssistantStep`, `SongsCard` (with a `run_query` card's `CardQuery`), and `Continuation`. |
+
+## Admin endpoints
+
+`admin.rs` is mounted at `/admin`; DTOs are in `json/admin.rs`, orchestration and
+short-lived caching in `services/admin.rs`, aggregates in `db/admin_metrics.rs`.
+
+| Method and path | Contract |
+| --- | --- |
+| `GET /admin/access` | Signed-in caller's `role`, `dashboard`, and `allowed_roles`. |
+| `GET /admin/users/{user}/role` | Owner/Admin only. Target role and allowed transitions. Own account has no transitions. |
+| `PATCH /admin/users/{user}/role` | `{role, expected_role}`. Returns `{updated:true}`. Stale role is 409; denied transition is 403. |
+| `GET /admin/metrics` | Owner/Admin only, checked on every request, including cache hits. |
+
+Metrics `kind` is `listening` (default), `social`, `tags`, `daily`, `week`, or `month`.
+Listening/Social accept inclusive `since` and exclusive `until` instants, at most
+367 days. Defaults are 30 days through now; `days=7/30/90` selects a legacy preset.
+`limit` is 1-100. Users `week`/`month` honor an explicit complete UTC calendar
+`since`/`until` pair. Without bounds, `offset=0` selects the current period, up to
+1200 periods back. They calculate distinct users over the full span.
+`daily` returns the last 30 days. Tags use a zero-based 25-row page `offset`, a
+case-insensitive substring `search` (max 200 bytes), `defaults`, and
+`sort=name/songs/plays/accounts` plus `descending` (default songs descending).
+
+Listening returns `songs`, `artists`, `tags`, `skipped`, `song_endings`, and `trend`.
+Rows include plays/listeners; songs and tags also include recorded `listening_ms`.
+Ending categories are disjoint early skips (<10s playback position), other skips,
+and completions, grouped by UTC day so scrubbing needs no requests. Tag membership
+is current and per listener, excluding activity tags; aliases never multiply a play
+or duration. Artist identity follows normalized name; missing artist data is omitted.
+
+Social returns ranked ordinary posts and dense daily post counts. Spotlight likes
+are excluded. Likes must have been added during the period and still exist; deleted
+posts disappear. Users returns active users, average DAU, ratio `stickiness`, daily
+cells, and source cutoff. The UI multiplies that ratio by observed day count to show
+average engaged days. DAU includes starts, counted plays, completions, skips, and seeks.
+
+Owners can change non-owners among User/Moderator/Admin. Admins can only change
+User/Moderator. Self changes and ownership changes are refused. See the deployment
+steps in `backend-api/README.md` before enabling these routes.
 
 ## Endpoints
 

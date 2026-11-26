@@ -451,3 +451,9 @@ Holding an owned selector tag gives a medium haptic and opens a narrower menu wi
 The duration wheel uses a transparent masked fade, centered in a compact glass popup.
 
 Compact duration inputs use a short muted placeholder that fits beside query operators.
+
+## Explicit nebula palettes
+
+`NebulaBackdrop` normally normalizes artwork lightness for readability. Admin
+passes `preserveColors` for its designed accent/OKLab palette; other screens keep
+the default normalization.

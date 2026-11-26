@@ -286,3 +286,9 @@ The filled multiple-tags icon beside the track heading opens Tags. Favorites sta
 
 Expanded compact controls draw a two-point playback progress line from the artwork's left edge to the bar's right edge along the bottom, clipped by the bar. It animates linearly between playback snapshots and snaps to confirmed positions on pause or seek. Expanded artwork is 35 points (31 inline), with equal insets and a radius derived from the outer capsule minus its inset.
 The app-owned expanded bar starts at 52 points, matching the assistant bubble. Native accessory height remains UIKit-owned and is measured for handoff.
+
+## Shared navigation renderer
+
+`MaskedTabIcons` renders the same complementary masks and stretching selection
+pill for Player and Admin. `PlayerTabIcons` supplies the player's three tabs. Admin
+supplies four tabs and overrides inactive color; the player keeps its prior defaults.

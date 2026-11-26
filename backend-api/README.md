@@ -327,6 +327,45 @@ nothing. `sql/listening_events.sql` is the worked example.
 Not everything in the database is in `sql/` yet: tables and columns added before this directory
 existed, `tags.is_activity` among them, live only in Supabase.
 
+## Admin deployment
+
+Apply `sql/platform_roles.sql` and `sql/admin_metric_snapshots.sql` before deploying
+this API. Apply each statement in `sql/admin_analytics_indexes.sql` separately,
+outside a transaction: they use `CREATE INDEX CONCURRENTLY`. Check existing indexes
+first. The new tables deny access to Supabase client roles; the API database role
+must own them or have appropriate grants and an RLS bypass, as in the existing setup.
+
+Bootstrap an Owner manually, using a registered Supabase Auth user id:
+
+```sql
+insert into public.platform_roles (user_id, role)
+values ('REPLACE-WITH-USER-UUID'::uuid, 'owner');
+```
+
+Ownership changes remain manual. Moderators have no additional powers yet. Role
+changes in the app lock both identities and write an audit record in one transaction.
+Every dashboard request checks current membership before consulting its 60-second cache.
+Audit rows retain actor/target UUIDs after account deletion, without profile copies.
+
+Snapshots are scalar rows keyed by UTC date and metric. DAU, Monday-start WAU, and
+calendar MAU count distinct playback users independently. Plays and Playtime (ms)
+are daily only. Historical reads create immutable snapshots four hours after a
+period ends; later events and account deletions do not rewrite those aggregates.
+The source cutoff and computation time are stored. There is no scheduled warmer.
+
+A development database with the earlier JSON snapshot schema must explicitly drop
+that cache before applying the scalar schema. This erases its snapshots. The normal
+schema files never reset data. No SeaORM regeneration is needed for these raw aggregate
+queries. Verify against temporary tables with:
+
+```sh
+cargo test admin_metrics_charts_and_snapshots -- --ignored
+cargo test platform_role_changes_are_authorized_and_audited -- --ignored
+```
+
+The role test needs two existing Auth identities. It only locks those identities;
+role/audit writes use temporary tables and the outer transaction rolls back.
+
 ## Connects to
 
 - `client-app/src/lib/api-actions.ts` is the client's only path in here. It attaches

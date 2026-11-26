@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod analytics;
 pub mod assistant;
 pub mod default_tags;

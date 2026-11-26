@@ -53,7 +53,7 @@ Cadenza knows, not just the library), and what every sorted or grouped song list
 Query results, a tag, an album or playlist) is ordered by on the backend. A song on one of those
 lists is stored before it is sorted, and one Apple's catalog cannot describe gets what the phone's
 library knows. A sorted or grouped query also draws its rows from that copy, artwork included, so
-it never waits on Apple. Nothing else reads it: every other screen still gets titles from Apple
+it never waits on Apple. Admin rankings also read this copy for cached song labels. Other non-query screens still get titles from Apple
 Music, and a stale row only makes a query miss or misplace a song, or a sorted row show an old
 title. See the Metadata tags section of
 [backend-api/src/services/README.md](backend-api/src/services/README.md) and the query compiler

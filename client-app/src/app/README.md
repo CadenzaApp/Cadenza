@@ -308,3 +308,9 @@ the first time it is on screen.
 
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
+
+## Admin modal
+
+`admin.tsx` mounts the admin feature and its AnalyticsPeriodProvider. The root
+stack presents it full-screen. Account exposes the route only to Owners/Admins.
+See `features/admin/README.md` for the dashboard and role controls.

@@ -1,3 +1,4 @@
+import { useAdminAccess } from "@/lib/routes/admin";
 import { useRouter, type Href } from "expo-router";
 import { Pressable, View } from "react-native";
 
@@ -25,7 +26,6 @@ import {
     StatusDot,
     type IoniconName,
 } from "./settings-ui";
-import { Line } from "react-native-svg";
 
 const THEME_MODE_LABEL: Record<ThemeMode, string> = {
     system: "System",
@@ -49,6 +49,7 @@ const THEME_MODE_ICON: Record<ThemeMode, IoniconName> = {
 export function AccountSettingsScreen() {
     const router = useRouter();
     const { account } = useAccount();
+    const adminAccess = useAdminAccess();
     const { settings } = useUserSettings();
     const { displayName, initial } = useAccountIdentity();
 
@@ -118,6 +119,15 @@ export function AccountSettingsScreen() {
             </View>
 
             <SettingsGroup>
+                {adminAccess.data?.dashboard && !adminAccess.error ? (
+                    <SettingsRow
+                        icon="shield-outline"
+                        title="Admin"
+                        description="Platform statistics"
+                        chevron
+                        onPress={() => router.push("/admin" as Href)}
+                    />
+                ) : null}
                 <SettingsRow
                     icon="people-outline"
                     title="Sharing"
