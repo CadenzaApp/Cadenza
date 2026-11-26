@@ -1,5 +1,6 @@
-import { createContext } from "react";
-import { Alert, Pressable, View } from "react-native";
+import { createContext, useState } from "react";
+import { Pressable, View } from "react-native";
+import { OptionPicker } from "@/components/custom/option-picker";
 import { TagPill } from "@/components/custom/tag-pill";
 import { GlassPill } from "@/components/ui/glass-pill";
 import { Text } from "@/components/ui/text";
@@ -33,6 +34,15 @@ export function Button({
         </Pressable>
     );
 }
+const RANKING_SIZES = [10, 25, 50];
+const RANKING_SIZE_SECTIONS = [
+    {
+        options: RANKING_SIZES.map((n) => ({
+            key: String(n),
+            label: `Top ${n}`,
+        })),
+    },
+];
 export function RankingLimit({
     limit,
     onChange,
@@ -41,6 +51,7 @@ export function RankingLimit({
     onChange: (value: number) => void;
 }) {
     const divider = useAdminDivider();
+    const [picking, setPicking] = useState(false);
     return (
         <View
             style={{ borderTopColor: divider }}
@@ -53,18 +64,21 @@ export function RankingLimit({
                 <GlassPill
                     label={`Top ${limit}`}
                     chevron
-                    onPress={() =>
-                        Alert.alert("Ranking size", undefined, [
-                            ...[10, 25, 50].map((n) => ({
-                                text: `Top ${n}`,
-                                onPress: () => onChange(n),
-                            })),
-                            { text: "Cancel", style: "cancel" },
-                        ])
-                    }
+                    onPress={() => setPicking(true)}
                 />
                 <Text className="text-sm text-muted-foreground">results.</Text>
             </View>
+            <OptionPicker
+                visible={picking}
+                title="Ranking size"
+                sections={RANKING_SIZE_SECTIONS}
+                selectedKey={String(limit)}
+                onSelect={(key) => {
+                    setPicking(false);
+                    onChange(Number(key));
+                }}
+                onClose={() => setPicking(false)}
+            />
         </View>
     );
 }
