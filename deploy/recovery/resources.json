@@ -13,22 +13,22 @@
   "backend_security_group": "sg-070f29b06229a834b",
   "launch_template": {
     "LaunchTemplateId": "lt-0369d766012c4ef99",
-    "Version": "11"
+    "Version": "18"
   },
-  "bootstrap_sha256": "4e288aa92738ccbf65bbdbe8ccee6e56872e5c2a33e08d1ea0441cafc0061fbb",
+  "bootstrap_sha256": "b7bc738f47e470c6fb3de531f30aa2df253f8cff791aaba552f03aa933b5b5a1",
   "health_path": "/health/ready",
   "health_interval_seconds": 5,
   "health_timeout_seconds": 4,
   "unhealthy_threshold": 3,
   "healthy_threshold": 2,
-  "current_instance": "i-0c6219640e98e9b35",
+  "current_instance": "i-0499231d750f89345",
   "notifications_topic": "arn:aws:sns:us-west-1:175220118767:cadenza-demo-instance-events",
   "vpc_origin_id": "vo_4e2OiDgjFp7B3aZsG2PDY9",
   "cutover_complete": true,
-  "active_release_manifest": "deploy/releases/git-ebe330944cac-20261119063715.json",
+  "active_release_manifest": "deploy/releases/git-80ed1be73a54-20261126201545.json",
   "runtime_verification": "deploy/recovery/verification.release.json",
   "viewer_access": "public",
-  "backend_image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:d923dbec70cb58496ffe72de35cc331ca09177ae45c97af091954e9d9e622f16",
+  "backend_image": "175220118767.dkr.ecr.us-west-1.amazonaws.com/cadenza-backend@sha256:241a37002e974f3cd7b5fa5acc2792cda8a3dab287045bd3321e7257add3d2bf",
   "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
   "monitoring": {
     "grafana_host_port": 3300,
